@@ -2,7 +2,11 @@
 
 This guide provides coding standards and best practices for developing JupyterLab extensions. Follow these rules to align with community standards and keep your extension maintainable.
 
-**Extension type**: frontend-and-server
+**Extension type**: prebuilt frontend (stages 1–2); server functionality is planned for stage 5.
+
+The current Python package provides frontend discovery only. Do not run the
+server-extension enable/list steps below until server functionality is added.
+The tested baseline and applicable workflow are in `CONTRIBUTING.md`.
 
 ## External Documentation and Resources
 

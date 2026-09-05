@@ -19,8 +19,7 @@
     "files": [
         "lib/**/*.{d.ts,eot,gif,html,jpg,js,js.map,json,png,svg,woff2,ttf}",
         "style/**/*.{css,js,eot,gif,html,jpg,json,png,svg,woff2,ttf}",
-        "src/**/*.{ts,tsx}",
-        "schema/*.json"
+        "src/**/*.{ts,tsx}"
     ],
     "main": "lib/index.js",
     "types": "lib/index.d.ts",
@@ -57,16 +56,19 @@
         "watch:labextension": "jupyter-builder watch ."
     },
     "dependencies": {
-        "@jupyterlab/application": "^4.0.0",
-        "@jupyterlab/coreutils": "^6.0.0",
-        "@jupyterlab/services": "^7.0.0",
-        "@jupyterlab/settingregistry": "^4.0.0"
+        "@astra-spec/sdk": "^0.1.2",
+        "@jupyterlab/application": "^4.6.3",
+        "@jupyterlab/docregistry": "^4.6.3",
+        "@jupyterlab/services": "^7.6.3",
+        "@lumino/widgets": "^2.0.0"
     },
     "devDependencies": {
         "@eslint/js": "^9.0.0",
         "@jupyter/builder": "^1.2.0",
         "@jupyter/eslint-plugin": "^1.1.0",
         "@jupyterlab/testutils": "^4.0.0",
+        "@lumino/coreutils": "^2.0.0",
+        "@lumino/signaling": "^2.0.0",
         "@types/jest": "^29.2.0",
         "@types/json-schema": "^7.0.11",
         "@types/react": "^18.0.26",
@@ -102,19 +104,8 @@
         "access": "public"
     },
     "jupyterlab": {
-        "discovery": {
-            "server": {
-                "managers": [
-                    "pip"
-                ],
-                "base": {
-                    "name": "jupyterlab_lightcone"
-                }
-            }
-        },
         "extension": true,
-        "outputDir": "jupyterlab_lightcone/labextension",
-        "schemaDir": "schema"
+        "outputDir": "jupyterlab_lightcone/labextension"
     },
     "prettier": {
         "singleQuote": true,

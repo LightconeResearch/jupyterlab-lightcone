@@ -1,85 +1,54 @@
-# jupyterlab_lightcone
+# JupyterLab Lightcone
 
 [![Github Actions Status](https://github.com/LightconeResearch/jupyterlab-lightcone/workflows/Build/badge.svg)](https://github.com/LightconeResearch/jupyterlab-lightcone/actions/workflows/build.yml)
 
 The open AI workbench for scientific research.
 
-This extension is composed of a Python package named `jupyterlab_lightcone`
-for the server extension and a NPM package named `@lightcone-research/jupyterlab-lightcone`
-for the frontend extension.
+Open `astra.yaml` using **Open With → Lightcone Viewer** to validate a project
+and see its analysis name, universe, and analysis/record counts. Missing files,
+permission failures, and SDK validation issues appear in the document. The viewer
+is read-only and starts no kernels. Other YAML files keep their usual viewers.
+Close and reopen to reload saved project changes at this stage. JupyterLab's
+standard text context may create an initial `.ipynb_checkpoints` backup for a
+writable file; Lightcone does not save analysis content.
 
-## Requirements
+This implements migration stages 1 and 2. Inventory navigation, artifact previews,
+refresh, paper access, publications, and optional shell theming follow in later
+stages. Lightcone is the product name; ASTRA remains the analysis format.
 
-- JupyterLab >= 4.0.0
+## Compatibility and installation
 
-## Install
+The tested baseline is JupyterLab 4.6.3 with Python 3.10 and 3.14. The package
+targets JupyterLab 4.6.x; other JupyterLab minor releases are not yet verified.
 
-To install the extension, execute:
-
-```bash
-pip install jupyterlab_lightcone
-```
-
-## Uninstall
-
-To remove the extension, execute:
-
-```bash
-pip uninstall jupyterlab_lightcone
-```
-
-## Troubleshoot
-
-If you are seeing the frontend extension, but it is not working, check
-that the server extension is enabled:
+Activate your JupyterLab environment, then install the prebuilt Python package:
 
 ```bash
-jupyter server extension list
-```
-
-If the server extension is installed and enabled, but you are not seeing
-the frontend extension, check the frontend extension is installed:
-
-```bash
+source /path/to/venv/bin/activate
+pip install jupyterlab-lightcone
 jupyter labextension list
+jupyter lab
 ```
 
-## Contributing
+The extension should appear as `@lightcone-research/jupyterlab-lightcone`, enabled
+and OK. A wheel includes the frontend and published `@astra-spec/sdk` dependency;
+installation needs neither Node.js nor sibling repositories. The Python package
+`jupyterlab_lightcone` provides frontend discovery only. There is currently no
+Lightcone server extension to enable.
 
-If you would like to contribute to this extension, please refer to the [Contributing Guide](CONTRIBUTING.md).
+The viewer uses the configured JupyterLab Contents manager, including named
+drives and project subdirectories. It rejects invalid project-relative paths
+before reading. The Contents provider remains responsible for filesystem access
+and symlink containment: the standard Contents API does not expose real paths.
+The adapter delegates parsing, validation, universe selection, indexing, and
+artifact bindings to the SDK.
 
-## AI Coding Assistant Support
+## Development
 
-This project includes an `AGENTS.md` file with coding standards and best practices for JupyterLab extension development. The file follows the [AGENTS.md standard](https://agents.md) for cross-tool compatibility.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the environment, build, installation,
+and testing workflow, and [RELEASE.md](RELEASE.md) for automated releases.
+[AGENTS.md](AGENTS.md) contains the project's coding standards.
 
-### Compatible AI Tools
-
-`AGENTS.md` works with AI coding assistants that support the standard, including Cursor, GitHub Copilot, Windsurf, Aider, and others. For a current list of compatible tools, see [the AGENTS.md standard](https://agents.md).
-This project also includes symlinks for tool-specific compatibility:
-
-- `CLAUDE.md` → `AGENTS.md` (for Claude Code)
-
-Other conventions you might encounter:
-
-- `.cursorrules` - Cursor's YAML/JSON format (Cursor also supports AGENTS.md natively)
-- `CONVENTIONS.md` / `CONTRIBUTING.md` - For CodeConventions.ai and GitHub bots
-- Project-specific rules in JetBrains AI Assistant settings
-
-All tool-specific files should be symlinks to `AGENTS.md` as the single source of truth.
-
-### What's Included
-
-The `AGENTS.md` file provides guidance on:
-
-- Code quality rules and file-scoped validation commands
-- Naming conventions for packages, plugins, and files
-- Coding standards (TypeScript, Python)
-- Development workflow and debugging
-- Backend-frontend integration patterns (`APIHandler`, `requestAPI()`, routing)
-- Common pitfalls and how to avoid them
-
-### Customization
-
-You can edit `AGENTS.md` to add project-specific conventions or adjust guidelines to match your team's practices. The file uses plain Markdown with Do/Don't patterns and references to actual project files.
-
-**Note**: `AGENTS.md` is living documentation. Update it when you change conventions, add dependencies, or discover new patterns. Include `AGENTS.md` updates in commits that modify workflows or coding standards.
+To uninstall, activate the same environment and run `pip uninstall
+jupyterlab-lightcone`. If a development link was installed, remove it as described
+in the contributing guide.

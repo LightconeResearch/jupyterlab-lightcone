@@ -3,7 +3,7 @@ requires = ["hatchling>=1.5.0", "hatch-nodejs-version>=0.3.2", "jupyter-builder>
 build-backend = "hatchling.build"
 
 [project]
-name = "jupyterlab_lightcone"
+name = "jupyterlab-lightcone"
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
@@ -17,27 +17,22 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "jupyter_server>=2.13.0,<3"
+    "jupyterlab>=4.6.3,<4.7"
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
 [project.optional-dependencies]
 dev = [
-    "jupyterlab>=4",
+    "jupyterlab>=4.6.3,<4.7",
     "jupyter-builder>=1.2.0",
 ]
 test = [
     "coverage",
     "pytest",
-    "pytest-asyncio",
-    "pytest-cov",
-    "pytest-jupyter[server]>=0.6.0"
+    "pytest-cov"
 ]
 
 [tool.hatch.version]
@@ -53,7 +48,6 @@ exclude = [".github", "binder"]
 [tool.hatch.build.targets.wheel.shared-data]
 "jupyterlab_lightcone/labextension" = "share/jupyter/labextensions/@lightcone-research/jupyterlab-lightcone"
 "install.json" = "share/jupyter/labextensions/@lightcone-research/jupyterlab-lightcone/install.json"
-"jupyter-config/server-config" = "etc/jupyter/jupyter_server_config.d"
 
 [tool.hatch.build.hooks.version]
 path = "jupyterlab_lightcone/_version.py"

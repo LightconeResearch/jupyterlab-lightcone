@@ -1,5 +1,9 @@
-/*
-    See the JupyterLab Developer Guide for useful CSS Patterns:
-
-    https://jupyterlab.readthedocs.io/en/stable/developer/css.html
-*/
+.jp-jupyterlab-lightcone-Document {
+  padding: 16px;
+  overflow: auto;
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color0);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  white-space: pre-wrap;
+}

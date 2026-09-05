@@ -1,8 +1,12 @@
 const jestJupyterLab = require('@jupyterlab/testutils/lib/jest-config');
 
 const esModules = [
+  '@astra-spec/sdk',
   '@codemirror',
-  '@jupyter/ydoc',
+  '@jupyter/',
+  '@microsoft/',
+  'exenv-es6',
+  'yaml',
   '@jupyterlab/',
   'lib0',
   'nanoid',
@@ -17,6 +21,11 @@ const baseConfig = jestJupyterLab(__dirname);
 module.exports = {
   ...baseConfig,
   automock: false,
+  testEnvironment: '<rootDir>/jest-environment.js',
+  modulePathIgnorePatterns: [
+    '<rootDir>/.venv/',
+    '<rootDir>/jupyterlab_lightcone/labextension/'
+  ],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
