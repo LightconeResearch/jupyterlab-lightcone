@@ -53,14 +53,10 @@ export default defineConfig([
         }
       ],
       '@typescript-eslint/no-unused-vars': ['warn', { args: 'none' }],
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-namespace': 'off',
       '@typescript-eslint/no-use-before-define': 'off',
-      '@typescript-eslint/quotes': [
-        'error',
-        'single',
-        { avoidEscape: true, allowTemplateLiterals: false }
-      ],
+      'no-console': ['error', { allow: ['warn', 'error'] }],
       curly: ['error', 'all'],
       eqeqeq: 'error',
       'prefer-arrow-callback': 'error'

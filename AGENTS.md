@@ -2,7 +2,22 @@
 
 This guide provides coding standards and best practices for developing JupyterLab extensions. Follow these rules to align with community standards and keep your extension maintainable.
 
-**Extension type**: frontend-and-server
+**Extension type**: prebuilt frontend, distributed in a Python package.
+
+## Current stage
+
+The clean foundation has no server endpoints, settings, commands, or user interface.
+Backend instructions below apply when the paper feature introduces server functionality;
+backend files, registration, tests, and enablement are not required before then.
+Likewise, add settings, API wrappers, and feature modules only with their consumers.
+The current development and validation commands are maintained in CONTRIBUTING.md.
+Use its frontend-only install workflow at this stage. CI uses isolated environments
+and does not require a developer's local `.venv`.
+
+The supported baseline is JupyterLab 4.6.3 (4.x) and Python 3.10 or later.
+Lightcone is the product brand; `astra.yaml` and shared ASTRA protocols keep their names.
+Keep version changes and releases separate from implementation work; publishing uses
+GitHub Actions as documented in RELEASE.md.
 
 ## External Documentation and Resources
 
@@ -106,8 +121,7 @@ interface PluginConfig {
 After editing TypeScript files, run:
 
 ```bash
-npx tsc --noEmit src/index.ts  # Check single file
-npx tsc --noEmit               # Check all files
+jlpm typecheck  # Check the project using tsconfig.json
 ```
 
 After editing Python files (like `jupyterlab_lightcone/routes.py`):
@@ -481,12 +495,14 @@ source <path-to-venv>/bin/activate  # On macOS/Linux
    ```bash
    pip install -e .
    jupyter-builder develop . --overwrite
+   # Only when backend functionality is present:
    jupyter server extension enable jupyterlab_lightcone
    ```
 6. **Verify installation**:
    ```bash
    jupyter labextension list  # Should show your extension as "enabled" and "OK"
-   jupyter server extension list  # Should show backend extension
+   # Only when backend functionality is present:
+   jupyter server extension list
    ```
 7. **Start JupyterLab**:
    ```bash
@@ -526,6 +542,7 @@ Many issues arise from confusing these two steps:
 ```bash
 pip install -e ".[dev,test]"
 jupyter-builder develop . --overwrite
+# Only when backend functionality is present:
 jupyter server extension enable jupyterlab_lightcone
 ```
 
@@ -547,7 +564,7 @@ jupyter lab
 **Quick TypeScript validation** (optional, for fast feedback):
 
 ```bash
-npx tsc --noEmit src/index.ts       # Check single file
+jlpm typecheck  # Check the project using tsconfig.json
 ```
 
 **After editing Python** (files in `jupyterlab_lightcone/`):
@@ -601,6 +618,7 @@ Your extension should appear as **"enabled"** and **"OK"**.
 ```bash
 pip install -e .
 jupyter-builder develop . --overwrite
+# Only when backend functionality is present:
 jupyter server extension enable jupyterlab_lightcone
 ```
 
@@ -640,6 +658,7 @@ jlpm install         # Only needed if you used 'git clean -fdX'
 jlpm build
 pip install -e ".[dev,test]"
 jupyter-builder develop . --overwrite
+# Only when backend functionality is present:
 jupyter server extension enable jupyterlab_lightcone
 ```
 

@@ -1,21 +1,36 @@
 import { expect, test } from '@jupyterlab/galata';
 
-/**
- * Don't load JupyterLab webpage before running the tests.
- * This is required to ensure we capture all log messages.
- */
 test.use({ autoGoto: false });
 
-test('should emit an activation console message', async ({ page }) => {
-  const logs: string[] = [];
+test('loads and activates the installed extension without startup errors', async ({
+  page
+}) => {
+  const errors: string[] = [];
+  const apiRequests: string[] = [];
 
+  page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => {
-    logs.push(message.text());
+    if (message.type() === 'error') {
+      errors.push(message.text());
+    }
+  });
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (/^\/(jupyterlab-lightcone|jupyterlab_lightcone)\//.test(path)) {
+      apiRequests.push(path);
+    }
   });
 
   await page.goto();
 
   expect(
-    logs.filter(s => s === 'JupyterLab extension @lightcone-research/jupyterlab-lightcone is activated!')
-  ).toHaveLength(1);
+    await page.evaluate(async () => {
+      const app = window.jupyterapp;
+      await app.started;
+      await app.restored;
+      return app.isPluginActivated('jupyterlab_lightcone:plugin');
+    })
+  ).toBe(true);
+  expect(apiRequests).toEqual([]);
+  expect(errors).toEqual([]);
 });

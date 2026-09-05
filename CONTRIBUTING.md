@@ -1,113 +1,75 @@
 # Contributing
 
-## Development install
+Keep Lightcone a small JupyterLab integration. Add dependencies and modules with
+the features that use them. Follow [AGENTS.md](AGENTS.md).
 
-Note: You will need Node.js to build the extension package.
-You may install it from [nodejs.org](https://nodejs.org/en/download). We
-recommend using the latest LTS version of Node.js.
+## Development environment
 
-The `jlpm` command is JupyterLab's pinned version of
-[yarn](https://yarnpkg.com/) that is installed with JupyterLab. You may use
-`yarn` or `npm` in lieu of `jlpm` below.
+Use Python 3.10 or later and Node.js 22 or later. Create a virtual environment
+once, then activate it in every terminal before running project commands:
 
 ```bash
-# Clone the repo to your local environment
-# Change directory to the jupyterlab_lightcone directory
-
-# Set up a virtual environment and install package in development mode
 python -m venv .venv
 source .venv/bin/activate
-pip install --editable ".[dev,test]"
-
-# Link your development version of the extension with JupyterLab
+python -m pip install "jupyterlab==4.6.3" "jupyter-builder>=1.2.0,<2"
+jlpm install --immutable
+python -m pip install -e ".[dev,test]"
 jupyter-builder develop . --overwrite
-# Server extension must be manually installed in develop mode
-jupyter server extension enable jupyterlab_lightcone
-
-# Rebuild extension Typescript source after making changes
-# IMPORTANT: Unlike the steps above which are performed only once, do this step
-# every time you make a change.
-jlpm build
-```
-
-You can watch the source directory and run JupyterLab at the same time in different terminals to watch for changes in the extension's source and automatically rebuild the extension.
-
-```bash
-# Watch the source directory in one terminal, automatically rebuilding when needed
-jlpm watch
-# Run JupyterLab in another terminal
+jupyter labextension list
 jupyter lab
 ```
 
-With the watch command running, every saved change will immediately be built locally and available in your running JupyterLab. Refresh JupyterLab to load the change in your browser (you may need to wait several seconds for the extension to be rebuilt).
+On Windows, activate with `.venv\Scripts\activate` instead. Use `jlpm` for all
+JavaScript package operations and commit its `yarn.lock` changes when dependencies
+change. Run `jlpm install` to update the lockfile after editing dependencies.
 
-By default, the `jlpm build` command generates the source maps for this extension to make it easier to debug using the browser dev tools. To also generate source maps for the JupyterLab core extensions, you can run the following command:
+The editable installation builds the frontend and installs the Python package.
+The develop command links the build to JupyterLab. The extension currently has
+no server runtime, so no Lightcone server-extension enable command is needed.
+
+## Iteration
+
+In an activated environment:
 
 ```bash
-jupyter lab build --minimize=False
+jlpm build
 ```
 
-## Development uninstall
+Refresh the browser after rebuilding. Alternatively run `jlpm watch` and start
+`jupyter lab` in another activated terminal. Restart JupyterLab after Python
+changes; reinstall and relink after package structure or discovery changes.
+
+## Verification
+
+Run from the repository root in the activated environment:
 
 ```bash
-# Server extension must be manually disabled in develop mode
-jupyter server extension disable jupyterlab_lightcone
-pip uninstall jupyterlab_lightcone
-```
-
-In development mode, you will also need to remove the symlink created by `jupyter-builder develop`
-command. To find its location, you can run `jupyter labextension list` to figure out where the `labextensions`
-folder is located. Then you can remove the symlink named `@lightcone-research/jupyterlab-lightcone` within that folder.
-
-## Endpoint authentication
-
-Every verb method of every handler must carry a `@tornado.web.authenticated`
-decorator, or, if the endpoint is meant to be public, an explicit
-`@allow_unauthenticated`/`@ws_authenticated` decorator from
-`jupyter_server.auth.decorator`. The `build` workflow enforces this by running:
-
-```sh
+jlpm typecheck
+jlpm lint:check
+jlpm build
+python -m py_compile jupyterlab_lightcone/__init__.py
+python -m pytest -q --cov=jupyterlab_lightcone
 python .github/scripts/check_auth.py
 ```
 
-## Testing the extension
+The Python test checks installed package metadata and prebuilt asset discovery.
+The authentication checker skips this frontend-only stage; it must check all
+registered handlers when a server extension is added.
 
-### Server tests
+The installed-browser smoke test verifies activation, startup errors, and the
+absence of Lightcone API requests. See [ui-tests/README.md](ui-tests/README.md).
+Add focused unit tests when behavior is introduced; there is no unused
+JavaScript unit-test runner in this foundation.
 
-This extension is using [Pytest](https://docs.pytest.org/) for Python code testing.
+CI also installs the wheel in environments without Node.js. See
+[RELEASE.md](RELEASE.md) for local package verification.
 
-Install test dependencies (needed only once):
+## Development uninstall
 
-```sh
-pip install -e ".[test]"
-# Each time you install the Python package, you need to restore the front-end extension link
-jupyter-builder develop . --overwrite
+With the environment activated:
+
+```bash
+python -m pip uninstall jupyterlab-lightcone
 ```
 
-To execute them, run:
-
-```sh
-pytest -vv -r ap --cov jupyterlab_lightcone
-```
-
-#### Frontend tests
-
-This extension is using [Jest](https://jestjs.io/) for JavaScript code testing.
-
-To execute them, execute:
-
-```sh
-jlpm
-jlpm test
-```
-
-### Integration tests
-
-This extension uses [Playwright](https://playwright.dev/docs/intro) for the integration tests (aka user level tests).
-More precisely, the JupyterLab helper [Galata](https://github.com/jupyterlab/jupyterlab/tree/master/galata) is used to handle testing the extension in JupyterLab.
-
-More information is provided within the [ui-tests](./ui-tests/README.md) README.
-
-## Packaging the extension
-
-See [RELEASE](RELEASE.md)
+Remove the development link reported by `jupyter labextension list` if it remains.

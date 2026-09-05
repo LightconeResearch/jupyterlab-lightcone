@@ -1,88 +1,65 @@
-# Making a new release of jupyterlab_lightcone
+# Packaging and releases
 
-The extension can be published to `PyPI` and `npm` manually or using the [Jupyter Releaser](https://github.com/jupyter-server/jupyter_releaser).
+Releases use the repository's GitHub Actions workflows and
+[Jupyter Releaser](https://jupyter-releaser.readthedocs.io/en/latest/get_started/making_release_from_repo.html).
 
-## Manual release
+The version in `package.json` is the source of truth. Hatch derives Python
+metadata and `jupyterlab_lightcone/_version.py` from it. Change versions only as
+part of an explicitly requested release.
 
-### Python package
+## Verify packages locally
 
-This extension can be distributed as Python packages. All of the Python
-packaging instructions are in the `pyproject.toml` file to wrap your extension in a
-Python package. Before generating a package, you first need to install some tools:
-
-```bash
-pip install build twine hatch
-```
-
-Bump the version using `hatch`. By default this will create a tag.
-See the docs on [hatch-nodejs-version](https://github.com/agoose77/hatch-nodejs-version#semver) for details.
+Complete the development setup in [CONTRIBUTING.md](CONTRIBUTING.md), then:
 
 ```bash
-hatch version <new-version>
-```
-
-Make sure to clean up all the development files before building the package:
-
-```bash
+source .venv/bin/activate
+jlpm install --immutable
+jlpm lint:check
+jlpm typecheck
 jlpm clean:all
-```
-
-You could also clean up the local git repository:
-
-```bash
-git clean -dfX
-```
-
-To create a Python source package (`.tar.gz`) and the binary package (`.whl`) in the `dist/` directory, do:
-
-```bash
 python -m build
 ```
 
-> `python setup.py sdist bdist_wheel` is deprecated and will not work for this package.
+This builds a source distribution and a wheel containing the prebuilt frontend.
+The Python build hook uses `jlpm`. Users installing the wheel do not need Node.js
+or sibling checkouts.
 
-Then to upload the package to PyPI, do:
-
-```bash
-twine upload dist/*
-```
-
-### NPM package
-
-To publish the frontend part of the extension as a NPM package, do:
+Install the wheel in a fresh environment, outside the source checkout:
 
 ```bash
-npm login
-npm publish --access public
+python -m venv /tmp/lightcone-wheel-check
+source /tmp/lightcone-wheel-check/bin/activate
+python -m pip install /absolute/path/to/dist/jupyterlab_lightcone-0.0.1-py3-none-any.whl
+cd /tmp
+jupyter labextension list
+jupyter lab
 ```
 
-## Automated releases with the Jupyter Releaser
+Verify the extension is enabled and OK and run the
+[installed-browser smoke test](ui-tests/README.md) against the wheel installation.
+CI separately checks wheel installation in Python containers without Node.js.
 
-The extension repository should already be compatible with the Jupyter Releaser. But
-the GitHub repository and the package managers need to be properly set up. Please
-follow the instructions of the Jupyter Releaser [checklist](https://jupyter-releaser.readthedocs.io/en/latest/how_to_guides/convert_repo_from_repo.html).
+After packaging, restore your editable installation before resuming development:
 
-For the release workflows in this repository, make sure GitHub is configured with:
+```bash
+source .venv/bin/activate
+python -m pip install -e ".[dev,test]"
+jupyter-builder develop . --overwrite
+```
 
-- a `release` environment
-- an `APP_PRIVATE_KEY` secret
-- an `APP_ID` repository variable
+Run these restoration commands from the repository root.
 
-When using [npm trusted publishing](https://docs.npmjs.com/trusted-publishers), `NPM_TOKEN` is not required (and trusted publishing is recommended). Configure `NPM_TOKEN` only if you are publishing without trusted publishers.
+## Publish through GitHub Actions
 
-Here is a summary of the steps to cut a new release:
+Repository maintainers configure the `release` environment, the `APP_ID`
+repository variable, and the `APP_PRIVATE_KEY` secret used by the publish
+workflow. Configure registry credentials or trusted publishing for the release
+environment as described in the
+[Jupyter Releaser checklist](https://jupyter-releaser.readthedocs.io/en/latest/how_to_guides/convert_repo_from_repo.html).
 
-- Go to the Actions panel
-- Run the "Step 1: Prep Release" workflow
-- Check the draft changelog
-- Run the "Step 2: Publish Release" workflow
+1. Run **Step 1: Prep Release** with the intended version.
+2. Review the draft changelog, distributions, and check-release results.
+3. Run **Step 2: Publish Release** for the reviewed draft.
+4. Verify the published wheel installs and loads in a clean environment.
 
-> [!NOTE]
-> Check out the [workflow documentation](https://jupyter-releaser.readthedocs.io/en/latest/get_started/making_release_from_repo.html)
-> for more information.
-
-## Publishing to `conda-forge`
-
-If the package is not on conda forge yet, check the documentation to learn how to add it: https://conda-forge.org/docs/maintainer/adding_pkgs.html
-
-Otherwise a bot should pick up the new version publish to PyPI, and open a new PR on the feedstock repository automatically.
+Local package verification does not publish or tag a release.

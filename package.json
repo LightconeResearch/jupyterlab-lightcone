@@ -1,6 +1,6 @@
 {
     "name": "@lightcone-research/jupyterlab-lightcone",
-    "version": "0.1.0",
+    "version": "0.0.1",
     "description": "The open AI workbench for scientific research.",
     "keywords": [
         "jupyter",
@@ -17,10 +17,9 @@
         "email": "info@lightconeresearch.org"
     },
     "files": [
-        "lib/**/*.{d.ts,eot,gif,html,jpg,js,js.map,json,png,svg,woff2,ttf}",
-        "style/**/*.{css,js,eot,gif,html,jpg,json,png,svg,woff2,ttf}",
-        "src/**/*.{ts,tsx}",
-        "schema/*.json"
+        "lib/**/*.{d.ts,js,js.map}",
+        "style/**/*.{css,js}",
+        "src/**/*.{ts,tsx}"
     ],
     "main": "lib/index.js",
     "types": "lib/index.d.ts",
@@ -51,32 +50,23 @@
         "prettier:check": "jlpm prettier:base --check",
         "stylelint": "jlpm stylelint:check --fix",
         "stylelint:check": "stylelint --cache \"style/**/*.css\"",
-        "test": "jest --coverage",
         "watch": "run-p watch:src watch:labextension",
         "watch:src": "tsc -w --sourceMap",
-        "watch:labextension": "jupyter-builder watch ."
+        "watch:labextension": "jupyter-builder watch .",
+        "typecheck": "tsc --noEmit"
     },
     "dependencies": {
-        "@jupyterlab/application": "^4.0.0",
-        "@jupyterlab/coreutils": "^6.0.0",
-        "@jupyterlab/services": "^7.0.0",
-        "@jupyterlab/settingregistry": "^4.0.0"
+        "@jupyterlab/application": "^4.6.3"
     },
     "devDependencies": {
         "@eslint/js": "^9.0.0",
         "@jupyter/builder": "^1.2.0",
         "@jupyter/eslint-plugin": "^1.1.0",
-        "@jupyterlab/testutils": "^4.0.0",
-        "@types/jest": "^29.2.0",
-        "@types/json-schema": "^7.0.11",
         "@types/react": "^18.0.26",
-        "@types/react-addons-linked-state-mixin": "^0.14.22",
         "eslint": "^9.0.0",
         "eslint-config-prettier": "^9.0.0",
         "eslint-plugin-prettier": "^5.0.0",
         "globals": "^15.0.0",
-        "jest": "^29.2.0",
-        "mkdirp": "^1.0.3",
         "npm-run-all2": "^7.0.1",
         "prettier": "^3.0.0",
         "rimraf": "^5.0.1",
@@ -85,13 +75,8 @@
         "stylelint-config-standard": "^34.0.0",
         "stylelint-csstree-validator": "^3.0.0",
         "stylelint-prettier": "^4.0.0",
-        "typescript": "~5.5.4",
-        "typescript-eslint": "^8.0.0",
-        "yjs": "^13.5.0"
-    },
-    "resolutions": {
-        "lib0": "0.2.111",
-        "webpack": "5.106.0"
+        "typescript": "~5.9.3",
+        "typescript-eslint": "^8.0.0"
     },
     "sideEffects": [
         "style/*.css",
@@ -102,19 +87,8 @@
         "access": "public"
     },
     "jupyterlab": {
-        "discovery": {
-            "server": {
-                "managers": [
-                    "pip"
-                ],
-                "base": {
-                    "name": "jupyterlab_lightcone"
-                }
-            }
-        },
         "extension": true,
-        "outputDir": "jupyterlab_lightcone/labextension",
-        "schemaDir": "schema"
+        "outputDir": "jupyterlab_lightcone/labextension"
     },
     "prettier": {
         "singleQuote": true,
@@ -146,5 +120,8 @@
             "selector-no-vendor-prefix": null,
             "value-no-vendor-prefix": null
         }
+    },
+    "engines": {
+        "node": ">=22"
     }
 }

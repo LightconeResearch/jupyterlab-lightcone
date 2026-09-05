@@ -1,43 +1,14 @@
-import {
-  JupyterFrontEnd,
-  JupyterFrontEndPlugin
-} from '@jupyterlab/application';
+import type { JupyterFrontEndPlugin } from '@jupyterlab/application';
 
-import { ISettingRegistry } from '@jupyterlab/settingregistry';
+const PLUGIN_ID = 'jupyterlab_lightcone:plugin';
 
-import { requestAPI } from './request';
-
-/**
- * Initialization data for the @lightcone-research/jupyterlab-lightcone extension.
- */
+/** Register the Lightcone extension with JupyterLab. */
 const plugin: JupyterFrontEndPlugin<void> = {
-  id: '@lightcone-research/jupyterlab-lightcone:plugin',
+  id: PLUGIN_ID,
   description: 'The open AI workbench for scientific research.',
   autoStart: true,
-  optional: [ISettingRegistry],
-  activate: (app: JupyterFrontEnd, settingRegistry: ISettingRegistry | null) => {
-    console.log('JupyterLab extension @lightcone-research/jupyterlab-lightcone is activated!');
-
-    if (settingRegistry) {
-      settingRegistry
-        .load(plugin.id)
-        .then(settings => {
-          console.log('@lightcone-research/jupyterlab-lightcone settings loaded:', settings.composite);
-        })
-        .catch(reason => {
-          console.error('Failed to load settings for @lightcone-research/jupyterlab-lightcone.', reason);
-        });
-    }
-
-    requestAPI<any>('hello', app.serviceManager.serverSettings)
-      .then(data => {
-        console.log(data);
-      })
-      .catch(reason => {
-        console.error(
-          `The jupyterlab_lightcone server extension appears to be missing.\n${reason}`
-        );
-      });
+  activate: () => {
+    // The foundation registers successfully without startup side effects.
   }
 };
 

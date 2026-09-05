@@ -1,85 +1,52 @@
-# jupyterlab_lightcone
+# JupyterLab Lightcone
 
-[![Github Actions Status](https://github.com/LightconeResearch/jupyterlab-lightcone/workflows/Build/badge.svg)](https://github.com/LightconeResearch/jupyterlab-lightcone/actions/workflows/build.yml)
+[![Build](https://github.com/LightconeResearch/jupyterlab-lightcone/actions/workflows/build.yml/badge.svg)](https://github.com/LightconeResearch/jupyterlab-lightcone/actions/workflows/build.yml)
 
 The open AI workbench for scientific research.
 
-This extension is composed of a Python package named `jupyterlab_lightcone`
-for the server extension and a NPM package named `@lightcone-research/jupyterlab-lightcone`
-for the frontend extension.
+Lightcone is being rebuilt in small stages. This foundation registers the
+extension with JupyterLab; analysis viewing and other user-facing features are
+tracked in the [stage issues](https://github.com/LightconeResearch/jupyterlab-lightcone/issues).
+It currently adds no commands, settings, or server endpoints. The foundation is
+version 0.0.1; version 0.1.0 is reserved for the integrated basic feature set.
 
-## Requirements
+The Python distribution `jupyterlab-lightcone` contains the prebuilt frontend
+package `@lightcone-research/jupyterlab-lightcone`. The import name is
+`jupyterlab_lightcone`. Lightcone is the product brand; ASTRA remains the analysis
+format, including the `astra.yaml` entrypoint.
 
-- JupyterLab >= 4.0.0
+## Compatibility
+
+- JupyterLab 4.6.3 or later within 4.x.
+- Python 3.10 or later.
+- Node.js 22 or later for development only.
+
+JupyterLab 4.6.3 is the compatibility baseline. CI checks installed wheels on
+Python 3.10 and 3.14 and runs the browser smoke test on Python 3.14.
+Other supported combinations are not individually verified.
 
 ## Install
 
-To install the extension, execute:
+In your activated JupyterLab environment, install a built wheel:
 
 ```bash
-pip install jupyterlab_lightcone
-```
-
-## Uninstall
-
-To remove the extension, execute:
-
-```bash
-pip uninstall jupyterlab_lightcone
-```
-
-## Troubleshoot
-
-If you are seeing the frontend extension, but it is not working, check
-that the server extension is enabled:
-
-```bash
-jupyter server extension list
-```
-
-If the server extension is installed and enabled, but you are not seeing
-the frontend extension, check the frontend extension is installed:
-
-```bash
+python -m pip install /path/to/jupyterlab_lightcone-0.0.1-py3-none-any.whl
 jupyter labextension list
+jupyter lab
 ```
 
-## Contributing
+The extension should be listed as enabled and OK. Prebuilt wheels require
+neither Node.js nor sibling repositories. No Lightcone server extension needs
+to be enabled. Restart JupyterLab after the initial installation.
 
-If you would like to contribute to this extension, please refer to the [Contributing Guide](CONTRIBUTING.md).
+To uninstall in the same environment:
 
-## AI Coding Assistant Support
+```bash
+python -m pip uninstall jupyterlab-lightcone
+```
 
-This project includes an `AGENTS.md` file with coding standards and best practices for JupyterLab extension development. The file follows the [AGENTS.md standard](https://agents.md) for cross-tool compatibility.
+## Development
 
-### Compatible AI Tools
-
-`AGENTS.md` works with AI coding assistants that support the standard, including Cursor, GitHub Copilot, Windsurf, Aider, and others. For a current list of compatible tools, see [the AGENTS.md standard](https://agents.md).
-This project also includes symlinks for tool-specific compatibility:
-
-- `CLAUDE.md` → `AGENTS.md` (for Claude Code)
-
-Other conventions you might encounter:
-
-- `.cursorrules` - Cursor's YAML/JSON format (Cursor also supports AGENTS.md natively)
-- `CONVENTIONS.md` / `CONTRIBUTING.md` - For CodeConventions.ai and GitHub bots
-- Project-specific rules in JetBrains AI Assistant settings
-
-All tool-specific files should be symlinks to `AGENTS.md` as the single source of truth.
-
-### What's Included
-
-The `AGENTS.md` file provides guidance on:
-
-- Code quality rules and file-scoped validation commands
-- Naming conventions for packages, plugins, and files
-- Coding standards (TypeScript, Python)
-- Development workflow and debugging
-- Backend-frontend integration patterns (`APIHandler`, `requestAPI()`, routing)
-- Common pitfalls and how to avoid them
-
-### Customization
-
-You can edit `AGENTS.md` to add project-specific conventions or adjust guidelines to match your team's practices. The file uses plain Markdown with Do/Don't patterns and references to actual project files.
-
-**Note**: `AGENTS.md` is living documentation. Update it when you change conventions, add dependencies, or discover new patterns. Include `AGENTS.md` updates in commits that modify workflows or coding standards.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and verification,
+[AGENTS.md](AGENTS.md) for engineering conventions, and
+[RELEASE.md](RELEASE.md) for packaging and the GitHub Actions release workflow.

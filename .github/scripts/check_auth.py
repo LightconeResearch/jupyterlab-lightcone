@@ -12,8 +12,14 @@ Run it with:
 import sys
 import warnings
 
+import jupyterlab_lightcone
+
 from jupyter_server.serverapp import ServerApp
 from jupyter_server.utils import JupyterServerAuthWarning
+
+if not hasattr(jupyterlab_lightcone, "_jupyter_server_extension_points"):
+    print("No Lightcone server extension is registered; no endpoints to check.")
+    sys.exit(0)
 
 # Initialize a server which only loads this extension and which does not allow
 # unauthenticated access.
