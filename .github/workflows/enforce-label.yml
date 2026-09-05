@@ -7,7 +7,7 @@ jobs:
   enforce-label:
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
+      issues: write
     steps:
       - name: enforce-triage-label
         uses: jupyterlab/maintainer-tools/.github/actions/enforce-label@v1
