@@ -1216,6 +1216,7 @@ __metadata:
   dependencies:
     "@jupyterlab/galata": ^5.6.3
     "@playwright/test": ^1.60.0
+    "@types/json-schema": ^7.0.15
     "@types/node": ^22.0.0
     "@types/react": ^18.0.26
     typescript: ~5.9.3
@@ -2187,6 +2188,13 @@ __metadata:
   version: 7946.0.4
   resolution: "@types/geojson@npm:7946.0.4"
   checksum: 541aea46540c918b9fe21ab73f497fe17b1eaf4d0d3baeb5f5614029b7f488c37f63843b644c024a8178dc2fb66d3d6623c25d9cf61d7b553aa19c8dc7f99047
+  languageName: node
+  linkType: hard
+
+"@types/json-schema@npm:^7.0.15":
+  version: 7.0.15
+  resolution: "@types/json-schema@npm:7.0.15"
+  checksum: 97ed0cb44d4070aecea772b7b2e2ed971e10c81ec87dd4ecc160322ffa55ff330dace1793489540e3e318d90942064bb697cc0f8989391797792d919737b3b98
   languageName: node
   linkType: hard
 

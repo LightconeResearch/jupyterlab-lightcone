@@ -3,6 +3,10 @@
 Releases use the repository's GitHub Actions workflows and
 [Jupyter Releaser](https://jupyter-releaser.readthedocs.io/en/latest/get_started/making_release_from_repo.html).
 
+During the foundation phase, release checks run only when manually requested.
+Automatic link checks are also disabled while the repository is private.
+Build, package installation, and browser smoke checks still run on pull requests.
+
 The version in `package.json` is the source of truth. Hatch derives Python
 metadata and `jupyterlab_lightcone/_version.py` from it. Change versions only as
 part of an explicitly requested release.
