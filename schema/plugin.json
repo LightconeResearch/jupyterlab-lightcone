@@ -1,0 +1,8 @@
+{
+  "jupyter.lab.shortcuts": [],
+  "title": "@lightcone-research/jupyterlab-lightcone",
+  "description": "@lightcone-research/jupyterlab-lightcone settings.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
