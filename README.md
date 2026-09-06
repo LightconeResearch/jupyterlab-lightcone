@@ -4,7 +4,7 @@ The open AI-assisted research workbench
 
 **Lightcone Lab** brings a research workbench into JupyterLab, connecting
 methods, evidence, and computation. The extension currently provides an ASTRA
-analysis inventory, materialized outputs, and cited papers. ASTRA is the
+analysis inventory, materialized outputs, cited papers, and optional Jupyter AI integration. ASTRA is the
 analysis format; `astra.yaml` and its SDK contracts retain their names.
 
 ## Requirements
@@ -65,6 +65,70 @@ Missing PDFs are downloaded only when you choose **Fetch paper**, using
 `astra-tools==0.2.13`. Cache lookup and download failures do not prevent viewing
 the analysis. Cached PDFs are served from the authenticated Jupyter origin and
 support continuous scrolling, zoom, and navigation to cited passages.
+
+### Jupyter AI: rich references and agent navigation
+
+Install the optional integration and restart JupyterLab:
+
+```bash
+pip install "jupyterlab-lightcone[ai]"
+```
+
+This supports Jupyter AI 3.2 / Jupyter Chat 0.25. Configure an agent through
+Jupyter AI as usual. With an inventory open (or its folder selected), run
+**Discuss ASTRA project** from the command palette. Review and send the prepared
+prompt. Each discussion keeps its project and universe fixed; start a new one to
+change them. The project chip shows that binding, including after reopening a
+saved `.chat` file.
+
+Agents can write ordinary prose containing MySTRA references:
+
+```markdown
+See {astra}`decisions.covariance_source` and
+{astra}`the fit <clustering.outputs.fit>`.
+```
+
+Hover or focus a reference for its current ASTRA preview; click to open a native
+tab. Figures, decisions, inputs, findings and prior insights use the existing
+ASTRA detail components. **Add to chat** puts a reference in a matching chat's
+composer, creating a discussion if needed. It does not send the message.
+
+The built-in Jupyter MCP server discovers `lightcone_project_context`,
+`lightcone_read_element`, and `lightcone_open_element`. These tools use the
+originating browser and conversation, never the currently focused project.
+They require a connected browser and a bound Lightcone discussion. Existing
+agent terminal tools, `lc`, and research skills remain available through the
+agent's normal setup; Lightcone observes their changes without starting recipes.
+
+For direct UI integrations:
+
+```typescript
+app.commands.execute('jupyterlab_lightcone:open-element', {
+  entrypoint: 'research/astra.yaml',
+  target: 'decisions.covariance_source'
+});
+// Cited papers keep DOI identity rather than introducing a new MySTRA role:
+app.commands.execute('jupyterlab_lightcone:open-element', {
+  entrypoint: 'research/astra.yaml',
+  target: '',
+  doi: '10.1234/example'
+});
+```
+
+Repeated opens reuse the record's tab. Option/evidence paths open their owner.
+Analysis/collection paths use the inventory, which currently supports its
+automatically selected universe; other pinned universes support record tabs.
+Missing outputs stay unavailable and papers download only through **Fetch paper**.
+
+Rich references currently require the stock JupyterLab Markdown renderer. The
+adapter preserves ordinary Markdown, code examples and streamed text. Ambiguous
+fragments and alternative renderers fall back to their existing rendering;
+`jupyterlab-myst` 2.7 removes unknown role markers and does not show these cards.
+Agent-opened tabs still work. Full MyST documents, block/value/citation roles,
+and historical result snapshots are outside this first implementation.
+
+See the [integration design](docs/design/jupyter-ai-integration.md) for the
+compatibility boundary and future ways to simplify it.
 
 ### Appearance
 

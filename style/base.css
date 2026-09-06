@@ -283,3 +283,49 @@
 .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg {
   visibility: hidden;
 }
+
+.jp-jupyterlab-lightcone-element {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 24px;
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color0);
+  font-family: var(--jp-ui-font-family);
+}
+
+.jp-jupyterlab-lightcone-element > header {
+  margin-bottom: 24px;
+}
+
+.jp-jupyterlab-lightcone-element > header > div {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.jp-jupyterlab-lightcone-reference-button,
+.jp-jupyterlab-lightcone-chat-context {
+  border: 0;
+  border-radius: 3px;
+  padding: 2px 4px;
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color1);
+  font: inherit;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-reference-button {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.jp-jupyterlab-lightcone-reference-button:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-preview small {
+  display: block;
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+}

@@ -12,6 +12,8 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
+import { chatPlugin } from './chat-plugin';
+import { registerElementCommands } from './element-commands';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
 import {
@@ -80,6 +82,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     });
     app.docRegistry.addWidgetFactory(factory);
+    registerElementCommands(app, themes, restorer);
     registerCommands({
       app,
       documents,
@@ -102,4 +105,4 @@ const plugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export default plugin;
+export default [plugin, chatPlugin];

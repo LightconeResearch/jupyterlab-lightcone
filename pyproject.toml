@@ -27,7 +27,11 @@ dependencies = [
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
+[project.entry-points."jupyter_server_mcp.tools"]
+lightcone = "jupyterlab_lightcone.agent_tools:TOOLS"
+
 [project.optional-dependencies]
+ai = ["jupyter-ai>=3.2.0,<3.3"]
 dev = [
     "jupyterlab>=4.5.10,<5",
     "jupyter-builder>=1.2.0",
@@ -51,6 +55,7 @@ artifacts = ["jupyterlab_lightcone/labextension"]
 exclude = [".github", "binder"]
 
 [tool.hatch.build.targets.wheel.shared-data]
+"src/vendor/MYSTRA-LICENSE" = "share/jupyter/labextensions/jupyterlab-lightcone/MYSTRA-LICENSE"
 "jupyterlab_lightcone/labextension" = "share/jupyter/labextensions/jupyterlab-lightcone"
 "install.json" = "share/jupyter/labextensions/jupyterlab-lightcone/install.json"
 "jupyter-config/server-config" = "etc/jupyter/jupyter_server_config.d"

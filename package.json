@@ -19,7 +19,8 @@
     "files": [
         "lib/**/*.{d.ts,eot,gif,html,jpg,js,js.map,json,png,svg,woff2,ttf}",
         "style/**/*.{css,js,eot,gif,html,jpg,json,png,svg,woff2,ttf}",
-        "src/**/*.{ts,tsx}"
+        "src/**/*.{ts,tsx}",
+        "src/vendor/MYSTRA-LICENSE"
     ],
     "main": "lib/index.js",
     "types": "lib/index.d.ts",
@@ -58,6 +59,7 @@
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
         "@astra-spec/ui": "^0.0.3",
+        "@jupyter/chat": "~0.25.0",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
         "@jupyterlab/coreutils": "^6.5.10",
@@ -73,6 +75,7 @@
         "@lumino/polling": "^2.1.6",
         "@lumino/signaling": "^2.1.6",
         "@lumino/widgets": "^2.0.0",
+        "markdown-it": "^14.1.0",
         "pdfjs-dist": "4.8.69",
         "react": "^18.2.0",
         "react-dom": "^18.2.0"
@@ -84,6 +87,7 @@
         "@jupyterlab/testutils": "^4.0.0",
         "@types/jest": "^29.2.0",
         "@types/json-schema": "^7.0.11",
+        "@types/markdown-it": "^14.1.2",
         "@types/react": "^18.0.26",
         "@types/react-addons-linked-state-mixin": "^0.14.22",
         "@types/react-dom": "^18.2.0",
@@ -129,7 +133,13 @@
             }
         },
         "extension": true,
-        "outputDir": "jupyterlab_lightcone/labextension"
+        "outputDir": "jupyterlab_lightcone/labextension",
+        "sharedPackages": {
+            "@jupyter/chat": {
+                "bundled": true,
+                "singleton": true
+            }
+        }
     },
     "prettier": {
         "singleQuote": true,

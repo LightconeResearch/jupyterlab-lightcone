@@ -26,7 +26,8 @@ export interface IProjectDataState {
 export class ProjectDataService {
   constructor(
     readonly contents: Contents.IManager,
-    readonly entrypoint: string
+    readonly entrypoint: string,
+    readonly universeId?: string | null
   ) {
     this._poll = new Poll<void, unknown>({
       factory: () => {
@@ -126,9 +127,21 @@ export class ProjectDataService {
 
   private async _update(): Promise<void> {
     try {
-      const resolution = await resolveProject(this.contents, this.entrypoint);
+      const resolution = await resolveProject(
+        this.contents,
+        this.entrypoint,
+        this.universeId ?? undefined
+      );
       if (this.isDisposed) {
         return;
+      }
+      if (
+        this.universeId === null &&
+        resolution.bundle.document.universe.source !== 'none'
+      ) {
+        throw new Error(
+          'Universe files were added. Start a new discussion to choose a universe.'
+        );
       }
       const changed = resolution.snapshot !== this._projectSnapshot;
       if (!this._data || changed) {
@@ -281,7 +294,8 @@ const services = new WeakMap<Contents.IManager, Map<string, IServiceRecord>>();
 /** Acquire a shared service until this panel releases its lease. */
 export function acquireProjectDataService(
   contents: Contents.IManager,
-  entrypoint = 'astra.yaml'
+  entrypoint = 'astra.yaml',
+  universeId?: string | null
 ): IProjectDataLease {
   const path = contents.normalize(entrypoint);
   let registry = services.get(contents);
@@ -289,14 +303,18 @@ export function acquireProjectDataService(
     registry = new Map<string, IServiceRecord>();
     services.set(contents, registry);
   }
-  let record = registry.get(path);
+  const key = JSON.stringify([
+    path,
+    universeId === undefined ? { auto: true } : universeId
+  ]);
+  let record = registry.get(key);
   if (!record) {
     record = {
       references: 0,
       // eslint-disable-next-line jupyter/require-disposable-ownership -- The registry disposes the service when its final lease is released.
-      service: new ProjectDataService(contents, path)
+      service: new ProjectDataService(contents, path, universeId)
     };
-    registry.set(path, record);
+    registry.set(key, record);
   }
   const acquired = record;
   const byEntrypoint = registry;
@@ -312,7 +330,7 @@ export function acquireProjectDataService(
       acquired.references -= 1;
       if (acquired.references === 0) {
         acquired.service.dispose();
-        byEntrypoint.delete(path);
+        byEntrypoint.delete(key);
         if (!byEntrypoint.size) {
           services.delete(contents);
         }
