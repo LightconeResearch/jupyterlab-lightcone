@@ -76,7 +76,7 @@ export function registerCommands(options: ICommandOptions): void {
 
   app.commands.addCommand(CommandIDs.openInventory, {
     label: trans.__('ASTRA Inventory'),
-    caption: trans.__('Open the project inventory in lightcone lab'),
+    caption: trans.__('Open the project inventory in Lightcone Lab'),
     icon: listIcon,
     describedBy: {
       args: {
@@ -107,7 +107,7 @@ export function registerCommands(options: ICommandOptions): void {
         const widget = documents.openOrReveal(path, INVENTORY_FACTORY);
         if (!(widget instanceof InventoryDocument)) {
           throw new Error(
-            trans.__('The lightcone lab document viewer is unavailable.')
+            trans.__('The Lightcone Lab document viewer is unavailable.')
           );
         }
         await widget.context.ready;

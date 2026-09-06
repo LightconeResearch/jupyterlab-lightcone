@@ -1,7 +1,7 @@
 {
     "name": "@lightcone-research/jupyterlab-lightcone",
     "version": "0.1.0",
-    "description": "lightcone lab — the open AI workbench for scientific research.",
+    "description": "The open AI-assisted research workbench",
     "keywords": [
         "jupyter",
         "jupyterlab",

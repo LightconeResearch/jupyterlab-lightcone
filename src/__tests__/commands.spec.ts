@@ -28,7 +28,7 @@ jest.mock('../document-widget', () => {
   const { Widget } =
     jest.requireActual<typeof import('@lumino/widgets')>('@lumino/widgets');
   return {
-    INVENTORY_FACTORY: 'lightcone lab',
+    INVENTORY_FACTORY: 'Lightcone Lab',
     InventoryDocument: class extends Widget {
       constructor(readonly context: { path: string; ready: Promise<void> }) {
         super();
@@ -120,7 +120,7 @@ describe('project opening commands', () => {
       });
       expect(host.openOrReveal).toHaveBeenCalledWith(
         'archive:project/astra.yaml',
-        'lightcone lab'
+        'Lightcone Lab'
       );
     } finally {
       host.dispose();
@@ -136,7 +136,7 @@ describe('project opening commands', () => {
       await host.commands.execute(CommandIDs.openInventory);
       expect(host.openOrReveal).toHaveBeenCalledWith(
         'archive:astra.yaml',
-        'lightcone lab'
+        'Lightcone Lab'
       );
     } finally {
       editor.dispose();
@@ -160,7 +160,7 @@ describe('project opening commands', () => {
       await host.commands.execute(CommandIDs.openInventory);
       expect(host.openOrReveal).toHaveBeenCalledWith(
         'work/astra.yaml',
-        'lightcone lab'
+        'Lightcone Lab'
       );
     } finally {
       host.dispose();

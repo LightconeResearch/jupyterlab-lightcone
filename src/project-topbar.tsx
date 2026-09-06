@@ -9,7 +9,7 @@ export function ProjectTopbar({
   return (
     <header className="jp-jupyterlab-lightcone-project-topbar">
       <span className="jp-jupyterlab-lightcone-project-brand">
-        lightcone lab
+        Lightcone Lab
       </span>
       {projectName ? (
         <span className="jp-jupyterlab-lightcone-project-name">

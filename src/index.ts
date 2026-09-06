@@ -28,12 +28,12 @@ import { themePlugin } from './theme';
 
 const PLUGIN_ID = 'jupyterlab_lightcone:plugin';
 const SETTINGS_ID = '@lightcone-research/jupyterlab-lightcone:plugin';
-const CATEGORY = 'lightcone lab';
+const CATEGORY = 'Lightcone Lab';
 
-/** Native document, launcher, and publication integration for lightcone lab. */
+/** Native JupyterLab integration for the Lightcone Lab research workbench. */
 const plugin: JupyterFrontEndPlugin<void> = {
   id: PLUGIN_ID,
-  description: 'The open AI workbench for scientific research.',
+  description: 'The open AI-assisted research workbench',
   autoStart: true,
   requires: [IDocumentManager, IThemeManager],
   optional: [
@@ -66,7 +66,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       try {
         settings = await settingsRegistry.load(SETTINGS_ID);
       } catch (error) {
-        console.warn('Could not load lightcone lab settings.', error);
+        console.warn('Could not load Lightcone Lab settings.', error);
       }
     }
     app.docRegistry.addFileType({
@@ -88,13 +88,13 @@ const plugin: JupyterFrontEndPlugin<void> = {
       widget.context.pathChanged.connect(() => {
         void inventories.save(widget).catch(error => {
           console.warn(
-            'Could not save the lightcone lab document layout.',
+            'Could not save the Lightcone Lab document layout.',
             error
           );
         });
       }, widget);
       void inventories.add(widget).catch(error => {
-        console.warn('Could not track the lightcone lab document.', error);
+        console.warn('Could not track the Lightcone Lab document.', error);
       });
     });
     app.docRegistry.addWidgetFactory(factory);

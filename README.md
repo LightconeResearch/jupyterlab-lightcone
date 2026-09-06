@@ -1,10 +1,12 @@
-# lightcone lab
+# Lightcone Lab
 
-The open AI workbench for scientific research, inside JupyterLab.
+The open AI-assisted research workbench
 
-**lightcone lab** brings together the ASTRA analysis inventory, materialized
-outputs, cited papers, and MyST publications. ASTRA is the analysis format;
-`astra.yaml` and its SDK contracts retain their names.
+**Lightcone Lab** brings a research workbench into JupyterLab, connecting
+methods, evidence, and computation. The extension currently provides an ASTRA
+analysis inventory, materialized outputs, cited papers, and linked MyST
+publications. ASTRA is the analysis format; `astra.yaml` and its SDK contracts
+retain their names.
 
 ## Requirements
 
@@ -23,8 +25,8 @@ End users do not need Node.js or sibling source checkouts.
 
 ## Use
 
-Open `astra.yaml` in the file browser, or select **Open With → lightcone lab**.
-The **lightcone lab** launcher category and command palette also offer
+Open `astra.yaml` in the file browser, or select **Open With → Lightcone Lab**.
+The **Lightcone Lab** launcher category and command palette also offer
 **ASTRA Inventory** and **MyST Paper**. The inventory is read-only: viewing preserves analysis and result files and
 starts no kernel. JupyterLab may create its standard document checkpoint when
 opening a writable file; the normal text editor remains available for editing.
@@ -67,7 +69,7 @@ support continuous scrolling, zoom, and navigation to cited passages.
 ### MyST publications
 
 Choose **MyST Paper** and enter a publication URL, or set **MyST publication
-URL** in JupyterLab's **Settings → Settings Editor → lightcone lab**. The URL
+URL** in JupyterLab's **Settings → Settings Editor → Lightcone Lab**. The URL
 must be reachable from your browser; a remote Jupyter server's localhost is not
 your browser's localhost. The extension embeds an existing publication and does
 not start a MyST server.

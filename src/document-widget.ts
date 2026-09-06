@@ -10,7 +10,7 @@ import { AstraInventoryPanel } from './inventory-panel';
 export const ASTRA_FILE_TYPE = 'astra-analysis';
 // Jupyter's basename retains the drive prefix for a file at a drive root.
 export const ASTRA_FILE_PATTERN = '^(?:[^/:]+:)?astra\\.yaml$';
-export const INVENTORY_FACTORY = 'lightcone lab';
+export const INVENTORY_FACTORY = 'Lightcone Lab';
 
 /** Read-only inventory backed by JupyterLab's ordinary text document context. */
 export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
@@ -29,7 +29,7 @@ export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
     void context.ready
       .then(() => this._display())
       .catch(error => {
-        console.error('Could not open the lightcone lab document.', error);
+        console.error('Could not open the Lightcone Lab document.', error);
       });
   }
 

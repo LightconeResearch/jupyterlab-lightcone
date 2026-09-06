@@ -1,6 +1,6 @@
 {
-  "title": "lightcone lab",
-  "description": "Publication integration for the scientific workbench.",
+  "title": "Lightcone Lab",
+  "description": "The open AI-assisted research workbench",
   "type": "object",
   "properties": {
     "publicationUrl": {
