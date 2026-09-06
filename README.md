@@ -1,7 +1,5 @@
 # lightcone lab
 
-[![GitHub Actions Status](https://github.com/LightconeResearch/jupyterlab-lightcone/workflows/Build/badge.svg)](https://github.com/LightconeResearch/jupyterlab-lightcone/actions/workflows/build.yml)
-
 The open AI workbench for scientific research, inside JupyterLab.
 
 **lightcone lab** brings together the ASTRA analysis inventory, materialized
