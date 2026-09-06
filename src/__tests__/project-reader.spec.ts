@@ -31,8 +31,56 @@ describe('Jupyter project reader', () => {
       ]);
       expect(get.mock.calls.map(([path]) => path)).toEqual([
         'work/astra.yaml',
+        'work',
+        'work/results',
         'work/results/default'
       ]);
+    } finally {
+      contents.dispose();
+    }
+  });
+
+  it('avoids missing-directory requests and discovers results on the next resolution', async () => {
+    const entries = {
+      'work/astra.yaml': fileModel(
+        'version: "0.0.14"\nname: Artifacts\ninputs: []\noutputs:\n  - id: plot\n    type: figure\n    format: png\n'
+      )
+    };
+    const { contents, get } = createContents(entries);
+    try {
+      for (let refresh = 0; refresh < 2; refresh++) {
+        const { bundle } = await resolveProject(contents, 'work/astra.yaml');
+        expect(bundle.bindings).toHaveLength(0);
+      }
+      expect(get.mock.calls.some(([path]) => path.includes('/results'))).toBe(
+        false
+      );
+      Object.assign(entries, {
+        'work/results/default/plot.png': fileModel('image', { size: 42 })
+      });
+      const { bundle } = await resolveProject(contents, 'work/astra.yaml');
+      expect(bundle.bindings[0].path).toBe('results/default/plot.png');
+    } finally {
+      contents.dispose();
+    }
+  });
+
+  it('can list a child directory when its parent listing is denied', async () => {
+    const { contents, get } = createContents({
+      'work/results/default/plot.png': fileModel('image', { size: 42 })
+    });
+    const original = get.getMockImplementation();
+    get.mockImplementation(async (path, options) => {
+      if (path === 'work' || path === 'work/results') {
+        throw { response: { status: 403 } };
+      }
+      return original!(path, options);
+    });
+    try {
+      const reader = createJupyterProjectReader(contents, 'work');
+      expect(await reader.stat('results/default/plot.png')).toMatchObject({
+        size: 42
+      });
     } finally {
       contents.dispose();
     }
@@ -151,7 +199,8 @@ describe('Jupyter project reader', () => {
         /malformed directory entry/
       );
       get.mockRejectedValue(new Error('Connection unavailable'));
-      await expect(reader.stat('nested/file')).rejects.toThrow(
+      const nextReader = createJupyterProjectReader(contents, 'work');
+      await expect(nextReader.stat('nested/file')).rejects.toThrow(
         'Connection unavailable'
       );
     } finally {
