@@ -1,1 +1,3 @@
-@import url('base.css');
+@import url('@lightcone-research/brand/adapters/astra.css');
+@import url('@astra-spec/ui/styles.css');
+@import url('./base.css');

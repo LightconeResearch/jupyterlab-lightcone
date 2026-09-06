@@ -1,0 +1,95 @@
+import type { IThemeManager } from '@jupyterlab/apputils';
+import {
+  ABCWidgetFactory,
+  DocumentRegistry,
+  DocumentWidget
+} from '@jupyterlab/docregistry';
+import type { Contents } from '@jupyterlab/services';
+import { AstraInventoryPanel } from './inventory-panel';
+
+export const ASTRA_FILE_TYPE = 'astra-analysis';
+// Jupyter's basename retains the drive prefix for a file at a drive root.
+export const ASTRA_FILE_PATTERN = '^(?:[^/:]+:)?astra\\.yaml$';
+export const INVENTORY_FACTORY = 'lightcone lab';
+
+/** Read-only inventory backed by JupyterLab's ordinary text document context. */
+export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
+  constructor(
+    context: DocumentRegistry.Context,
+    contents: Contents.IManager,
+    themeManager: IThemeManager
+  ) {
+    super({
+      context,
+      content: new AstraInventoryPanel(contents, themeManager)
+    });
+    this.addClass('jp-jupyterlab-lightcone-Document');
+    context.pathChanged.connect(this._onProjectPathChanged, this);
+    context.saveState.connect(this._onProjectSaveState, this);
+    void context.ready
+      .then(() => this._display())
+      .catch(error => {
+        console.error('Could not open the lightcone lab document.', error);
+      });
+  }
+
+  dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this.context.pathChanged.disconnect(this._onProjectPathChanged, this);
+    this.context.saveState.disconnect(this._onProjectSaveState, this);
+    super.dispose();
+  }
+
+  private _onProjectPathChanged(): void {
+    void this._display();
+  }
+
+  private _onProjectSaveState(
+    _context: DocumentRegistry.Context,
+    state: DocumentRegistry.SaveState
+  ): void {
+    if (state === 'completed') {
+      void this.content.refresh();
+    }
+  }
+
+  private async _display(): Promise<void> {
+    if (!this.isDisposed) {
+      try {
+        await this.content.display({}, this.context.path);
+      } catch (error) {
+        // The inventory renders validation and access errors within the document.
+        if (!this.isDisposed) {
+          console.warn('Could not load the ASTRA inventory.', error);
+        }
+      }
+    }
+  }
+}
+
+/** Reuse the text model; opening an inventory never creates a kernel. */
+export class InventoryDocumentFactory extends ABCWidgetFactory<InventoryDocument> {
+  constructor(
+    private readonly _contents: Contents.IManager,
+    private readonly _themes: IThemeManager
+  ) {
+    super({
+      name: INVENTORY_FACTORY,
+      label: INVENTORY_FACTORY,
+      fileTypes: [ASTRA_FILE_TYPE],
+      defaultFor: [ASTRA_FILE_TYPE],
+      modelName: 'text',
+      readOnly: true,
+      preferKernel: false,
+      canStartKernel: false
+    });
+  }
+
+  protected createNewWidget(
+    context: DocumentRegistry.Context
+  ): InventoryDocument {
+    return new InventoryDocument(context, this._contents, this._themes);
+  }
+}

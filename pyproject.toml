@@ -3,11 +3,11 @@ requires = ["hatchling>=1.5.0", "hatch-nodejs-version>=0.3.2", "jupyter-builder>
 build-backend = "hatchling.build"
 
 [project]
-name = "jupyterlab_lightcone"
+name = "jupyterlab-lightcone"
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Framework :: Jupyter",
     "Framework :: Jupyter :: JupyterLab",
@@ -16,20 +16,20 @@ classifiers = [
     "Framework :: Jupyter :: JupyterLab :: Extensions :: Prebuilt",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "jupyter_server>=2.13.0,<3"
+    "jupyter_server>=2.13.0,<3",
+    "astra-tools==0.2.13"
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
 [project.optional-dependencies]
 dev = [
-    "jupyterlab>=4",
+    "jupyterlab>=4.5.10,<5",
     "jupyter-builder>=1.2.0",
 ]
 test = [

@@ -1,0 +1,341 @@
+@import url('@jupyterlab/theme-light-extension/style/theme.css');
+@import url('@lightcone-research/brand/themes.css');
+
+/*
+ * Lightcone Light for JupyterLab
+ *
+ * This host adapter maps Lightcone's product-neutral foundation onto
+ * JupyterLab. The extension owns the `lightcone-brand` root scope while this
+ * optional theme is active; no Jupyter vocabulary enters the brand package.
+ */
+:root.lightcone-brand {
+  /* Surfaces and rules */
+  --jp-layout-color0: var(--lc-color-surface);
+  --jp-layout-color1: var(--lc-color-surface);
+  --jp-layout-color2: var(--lc-color-canvas);
+  --jp-layout-color3: var(--lc-color-surface-muted);
+  --jp-layout-color4: var(--lc-color-border-strong);
+  --jp-inverse-layout-color0: var(--lc-color-text);
+  --jp-inverse-layout-color1: color-mix(
+    in srgb,
+    var(--lc-palette-charcoal) 94%,
+    var(--lc-palette-white)
+  );
+  --jp-inverse-layout-color2: var(--lc-color-text-muted);
+  --jp-inverse-layout-color3: color-mix(
+    in srgb,
+    var(--lc-palette-blue-ink) 88%,
+    var(--lc-palette-white)
+  );
+  --jp-inverse-layout-color4: var(--lc-color-text-subtle);
+  --jp-border-color0: var(--lc-color-decorative);
+  --jp-border-color1: var(--lc-color-border-strong);
+  --jp-border-color2: var(--lc-color-border);
+  --jp-border-color3: var(--lc-color-border-subtle);
+  --jp-inverse-border-color: var(--lc-color-text-subtle);
+  --jp-border-radius: var(--lc-radius-control);
+
+  /* Typography */
+  --jp-ui-font-family: var(--lc-font-ui);
+  --jp-ui-font-size1: 13px;
+  --jp-ui-font-color0: var(--lc-color-text);
+  --jp-ui-font-color1: var(--lc-color-text);
+  --jp-ui-font-color2: var(--lc-color-text-muted);
+  --jp-ui-font-color3: var(--lc-color-text-subtle);
+  --jp-ui-inverse-font-color0: var(--lc-palette-white);
+  --jp-ui-inverse-font-color1: var(--lc-palette-white);
+  --jp-ui-inverse-font-color2: color-mix(
+    in srgb,
+    var(--lc-palette-white) 75%,
+    transparent
+  );
+  --jp-ui-inverse-font-color3: color-mix(
+    in srgb,
+    var(--lc-palette-white) 55%,
+    transparent
+  );
+  --jp-content-font-family: var(--lc-font-body);
+  --jp-content-font-color0: var(--lc-color-text);
+  --jp-content-font-color1: var(--lc-color-text);
+  --jp-content-font-color2: var(--lc-color-text-muted);
+  --jp-content-font-color3: var(--lc-color-text-subtle);
+  --jp-content-heading-font-weight: 700;
+  --jp-content-link-color: var(--lc-color-link);
+  --jp-content-link-visited-color: var(--lc-color-antique-gold-strong);
+  --jp-code-font-family-default: var(--lc-font-mono);
+  --jp-code-font-family: var(--lc-font-mono);
+
+  /* Brand and semantic colors */
+  --jp-brand-color0: var(--lc-color-antique-gold-strong);
+  --jp-brand-color1: var(--lc-color-antique-gold);
+  --jp-brand-color2: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 65%,
+    var(--lc-palette-parchment)
+  );
+  --jp-brand-color3: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 14%,
+    var(--lc-palette-parchment)
+  );
+  --jp-brand-color4: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 5%,
+    var(--lc-palette-parchment)
+  );
+  --jp-accent-color0: color-mix(
+    in srgb,
+    var(--lc-palette-vert-de-gris) 70%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-accent-color1: var(--lc-color-vert-de-gris);
+  --jp-accent-color2: color-mix(
+    in srgb,
+    var(--lc-palette-vert-de-gris) 67%,
+    var(--lc-palette-white)
+  );
+  --jp-accent-color3: color-mix(
+    in srgb,
+    var(--lc-palette-vert-de-gris) 20%,
+    var(--lc-palette-white)
+  );
+  --jp-success-color0: color-mix(
+    in srgb,
+    var(--lc-palette-vert-de-gris) 70%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-success-color1: var(--lc-color-vert-de-gris);
+  --jp-success-color2: color-mix(
+    in srgb,
+    var(--lc-palette-vert-de-gris) 67%,
+    var(--lc-palette-white)
+  );
+  --jp-success-color3: color-mix(
+    in srgb,
+    var(--lc-palette-vert-de-gris) 20%,
+    var(--lc-palette-white)
+  );
+  --jp-info-color0: color-mix(
+    in srgb,
+    var(--lc-palette-slate-blue) 55%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-info-color1: var(--lc-color-accent-secondary);
+  --jp-info-color2: color-mix(
+    in srgb,
+    var(--lc-palette-slate-blue) 72%,
+    var(--lc-palette-white)
+  );
+  --jp-info-color3: color-mix(
+    in srgb,
+    var(--lc-palette-slate-blue) 18%,
+    var(--lc-palette-white)
+  );
+  --jp-warn-color0: var(--lc-color-antique-gold-strong);
+  --jp-warn-color1: var(--lc-color-antique-gold);
+  --jp-warn-color2: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 65%,
+    var(--lc-palette-parchment)
+  );
+  --jp-warn-color3: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 14%,
+    var(--lc-palette-white)
+  );
+  --jp-error-color0: color-mix(
+    in srgb,
+    var(--lc-palette-wax-red) 60%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-error-color1: var(--lc-color-danger);
+  --jp-error-color2: color-mix(
+    in srgb,
+    var(--lc-palette-wax-red) 70%,
+    var(--lc-palette-parchment)
+  );
+  --jp-error-color3: color-mix(
+    in srgb,
+    var(--lc-palette-wax-red) 20%,
+    var(--lc-palette-white)
+  );
+
+  /* Controls, notebooks, and editors */
+  --jp-cell-editor-background: color-mix(
+    in srgb,
+    var(--lc-palette-parchment) 55%,
+    var(--lc-palette-white)
+  );
+  --jp-cell-editor-border-color: var(--lc-color-border-strong);
+  --jp-cell-editor-box-shadow: inset 0 0 2px var(--lc-color-antique-gold);
+  --jp-cell-editor-active-background: var(--lc-color-surface);
+  --jp-cell-editor-active-border-color: var(--lc-color-antique-gold);
+  --jp-cell-prompt-font-family: var(--lc-font-mono);
+  --jp-cell-prompt-not-active-font-color: var(--lc-color-text-subtle);
+  --jp-cell-inprompt-font-color: var(--lc-color-accent-secondary);
+  --jp-cell-outprompt-font-color: var(--lc-color-wax-red);
+  --jp-notebook-select-background: var(--lc-color-surface);
+  --jp-notebook-multiselected-color: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 5%,
+    var(--lc-palette-parchment)
+  );
+  --jp-input-background: color-mix(
+    in srgb,
+    var(--lc-palette-parchment) 55%,
+    var(--lc-palette-white)
+  );
+  --jp-input-border-color: var(--lc-color-border-strong);
+  --jp-input-active-border-color: var(--lc-color-antique-gold);
+  --jp-input-active-box-shadow-color: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 28%,
+    transparent
+  );
+  --jp-editor-selected-background: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 12%,
+    var(--lc-palette-parchment)
+  );
+  --jp-editor-selected-focused-background: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 22%,
+    var(--lc-palette-parchment)
+  );
+  --jp-editor-cursor-color: var(--lc-color-text);
+  --jp-toolbar-background: var(--lc-color-surface);
+  --jp-toolbar-border-color: var(--lc-color-border);
+  --jp-toolbar-active-background: var(--lc-color-surface-muted);
+  --jp-switch-color: var(--lc-color-decorative);
+  --jp-switch-true-position-color: var(--lc-color-antique-gold);
+  --jp-focus-outline-color: var(--lc-color-focus);
+
+  /* Syntax colors chosen from the Lightcone palette. */
+  --jp-mirror-editor-keyword-color: var(--lc-color-antique-gold-strong);
+  --jp-mirror-editor-atom-color: var(--lc-color-slate-blue);
+  --jp-mirror-editor-number-color: var(--lc-color-vert-de-gris);
+  --jp-mirror-editor-def-color: color-mix(
+    in srgb,
+    var(--lc-palette-slate-blue) 55%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-mirror-editor-variable-color: var(--lc-color-text);
+  --jp-mirror-editor-variable-2-color: var(--lc-color-slate-blue);
+  --jp-mirror-editor-variable-3-color: var(--lc-color-vert-de-gris);
+  --jp-mirror-editor-punctuation-color: var(--lc-color-text-muted);
+  --jp-mirror-editor-property-color: var(--lc-color-slate-blue);
+  --jp-mirror-editor-operator-color: var(--lc-color-antique-gold-strong);
+  --jp-mirror-editor-comment-color: var(--lc-color-text-subtle);
+  --jp-mirror-editor-string-color: var(--lc-color-wax-red);
+  --jp-mirror-editor-string-2-color: color-mix(
+    in srgb,
+    var(--lc-palette-wax-red) 70%,
+    var(--lc-palette-blue-ink)
+  );
+  --jp-mirror-editor-meta-color: var(--lc-color-antique-gold-strong);
+  --jp-mirror-editor-qualifier-color: var(--lc-color-text-muted);
+  --jp-mirror-editor-builtin-color: var(--lc-color-vert-de-gris);
+  --jp-mirror-editor-bracket-color: var(--lc-color-text-subtle);
+  --jp-mirror-editor-tag-color: var(--lc-color-vert-de-gris);
+  --jp-mirror-editor-attribute-color: var(--lc-color-slate-blue);
+  --jp-mirror-editor-header-color: var(--lc-color-antique-gold);
+  --jp-mirror-editor-quote-color: var(--lc-color-vert-de-gris);
+  --jp-mirror-editor-link-color: var(--lc-color-link);
+  --jp-mirror-editor-error-color: var(--lc-color-wax-red);
+  --jp-rendermime-table-row-background: color-mix(
+    in srgb,
+    var(--lc-palette-parchment) 55%,
+    var(--lc-palette-white)
+  );
+  --jp-rendermime-table-row-hover-background: var(--lc-color-canvas);
+  --jp-search-selected-match-background-color: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 45%,
+    var(--lc-palette-parchment)
+  );
+  --jp-search-selected-match-color: var(--lc-color-text);
+  --jp-icon-contrast-color0: var(--lc-color-wax-red);
+  --jp-icon-contrast-color1: var(--lc-color-vert-de-gris);
+  --jp-icon-contrast-color2: var(--lc-color-antique-gold);
+  --jp-icon-contrast-color3: var(--lc-color-accent-secondary);
+  --jp-accept-color-normal: var(--lc-color-antique-gold);
+  --jp-accept-color-hover: color-mix(
+    in srgb,
+    var(--lc-palette-antique-gold) 80%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-accept-color-active: var(--lc-color-antique-gold-strong);
+  --jp-warn-color-normal: var(--lc-color-wax-red);
+  --jp-warn-color-hover: color-mix(
+    in srgb,
+    var(--lc-palette-wax-red) 80%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-warn-color-active: color-mix(
+    in srgb,
+    var(--lc-palette-wax-red) 60%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-reject-color-normal: var(--lc-color-text-subtle);
+  --jp-reject-color-hover: color-mix(
+    in srgb,
+    var(--lc-palette-mushroom-cap) 72%,
+    var(--lc-palette-charcoal)
+  );
+  --jp-reject-color-active: color-mix(
+    in srgb,
+    var(--lc-palette-mushroom-cap) 55%,
+    var(--lc-palette-charcoal)
+  );
+}
+
+:root.lightcone-brand body,
+:root.lightcone-brand .jp-ThemedContainer {
+  background: var(--lc-color-surface);
+  color: var(--lc-color-text);
+  font-family: var(--lc-font-ui);
+}
+
+:root.lightcone-brand .jp-MenuBar,
+:root.lightcone-brand .jp-Toolbar,
+:root.lightcone-brand .jp-StatusBar,
+:root.lightcone-brand .lm-DockPanel-tabBar,
+:root.lightcone-brand .jp-SideBar {
+  border-color: var(--lc-color-border);
+}
+
+:root.lightcone-brand .jp-RenderedHTMLCommon,
+:root.lightcone-brand .jp-RenderedMarkdown {
+  color: var(--lc-color-text);
+  font-family: var(--lc-font-body);
+}
+
+:root.lightcone-brand .jp-RenderedHTMLCommon :is(h1, h2, h3, h4, h5, h6),
+:root.lightcone-brand .jp-RenderedMarkdown :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--lc-color-text);
+  font-family: var(--lc-font-heading);
+}
+
+:root.lightcone-brand .jp-RenderedHTMLCommon :is(h1, h2),
+:root.lightcone-brand .jp-RenderedMarkdown :is(h1, h2) {
+  color: var(--lc-color-antique-gold);
+}
+
+:root.lightcone-brand .jp-Dialog-content,
+:root.lightcone-brand .jp-Menu,
+:root.lightcone-brand .jp-Completer {
+  border-color: var(--lc-color-border-strong);
+  box-shadow: 0 6px 18px
+    color-mix(in srgb, var(--lc-palette-charcoal) 10%, transparent);
+}
+
+:root.lightcone-brand ::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background: var(--lc-color-decorative);
+  background-clip: padding-box;
+}
+
+:root.lightcone-brand ::-webkit-scrollbar-track {
+  background: var(--lc-color-canvas);
+}

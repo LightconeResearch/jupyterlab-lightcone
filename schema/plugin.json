@@ -1,8 +1,14 @@
 {
-  "jupyter.lab.shortcuts": [],
-  "title": "@lightcone-research/jupyterlab-lightcone",
-  "description": "@lightcone-research/jupyterlab-lightcone settings.",
+  "title": "lightcone lab",
+  "description": "Publication integration for the scientific workbench.",
   "type": "object",
-  "properties": {},
+  "properties": {
+    "publicationUrl": {
+      "type": "string",
+      "title": "MyST publication URL",
+      "description": "A deployed publication or development server reachable from your browser. Leave empty to enter a URL when opening MyST Paper.",
+      "default": ""
+    }
+  },
   "additionalProperties": false
 }

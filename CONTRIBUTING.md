@@ -7,22 +7,22 @@ You may install it from [nodejs.org](https://nodejs.org/en/download). We
 recommend using the latest LTS version of Node.js.
 
 The `jlpm` command is JupyterLab's pinned version of
-[yarn](https://yarnpkg.com/) that is installed with JupyterLab. You may use
-`yarn` or `npm` in lieu of `jlpm` below.
+[yarn](https://yarnpkg.com/) that is installed with JupyterLab. Use `jlpm` consistently; do not mix package managers or lockfiles.
 
 ```bash
 # Clone the repo to your local environment
 # Change directory to the jupyterlab_lightcone directory
 
-# Set up a virtual environment and install package in development mode
+# Set up and activate a virtual environment before development commands
 python -m venv .venv
 source .venv/bin/activate
+jlpm install
 pip install --editable ".[dev,test]"
 
 # Link your development version of the extension with JupyterLab
 jupyter-builder develop . --overwrite
 # Server extension must be manually installed in develop mode
-jupyter server extension enable jupyterlab_lightcone
+jupyter server extension enable --sys-prefix jupyterlab_lightcone
 
 # Rebuild extension Typescript source after making changes
 # IMPORTANT: Unlike the steps above which are performed only once, do this step
@@ -51,7 +51,7 @@ jupyter lab build --minimize=False
 
 ```bash
 # Server extension must be manually disabled in develop mode
-jupyter server extension disable jupyterlab_lightcone
+jupyter server extension disable --sys-prefix jupyterlab_lightcone
 pip uninstall jupyterlab_lightcone
 ```
 
@@ -111,3 +111,24 @@ More information is provided within the [ui-tests](./ui-tests/README.md) README.
 ## Packaging the extension
 
 See [RELEASE](RELEASE.md)
+
+## Architecture
+
+The extension retains the standard frontend/server template. `src/index.ts`
+registers the document factory and plugins; `src/commands.ts` owns commands.
+The Contents adapter and shared project subscription delegate ASTRA semantics to
+the published SDK. React surfaces compose the published ASTRA UI, with host
+integration for artifacts, PDF viewing, and publication messages.
+
+`src/api.ts` validates the paper API in `jupyterlab_lightcone/routes.py` through
+the shared request transport. No custom project-reading server API is needed.
+Theme mappings belong here; portable brand tokens come from the brand package.
+The inventory uses the ordinary text document context, including JupyterLab
+checkpoint behavior; it does not replace the model or modify the text editor.
+
+All dependencies resolve from published packages. Adjacent Astra repositories
+are useful references, but are not required to build or install this extension.
+
+Use `jlpm exec tsc --noEmit`, `jlpm lint:check`, `jlpm test --runInBand`, and
+`pytest` for local checks. The UI tests use the installed extension in a running
+JupyterLab server. Keep the Python environment active in each terminal.

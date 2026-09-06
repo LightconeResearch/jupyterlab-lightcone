@@ -22,7 +22,7 @@ jobs:
       uses: jupyterlab/maintainer-tools/.github/actions/base-setup@v1
 
     - name: Install dependencies
-      run: python -m pip install -U "jupyterlab>=4.0.0,<5"
+      run: python -m pip install -U "jupyterlab>=4.5.10,<5"
 
     - name: Lint the extension
       run: |
@@ -76,7 +76,7 @@ jobs:
     - name: Install Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
         architecture: 'x64'
     - uses: actions/download-artifact@v4
       with:
@@ -88,7 +88,7 @@ jobs:
         sudo rm -rf $(which node)
         sudo rm -rf $(which node)
 
-        pip install "jupyterlab>=4.0.0,<5" jupyterlab_lightcone*.whl
+        pip install "jupyterlab>=4.5.10,<5" jupyterlab_lightcone*.whl
 
 
         jupyter server extension list
@@ -121,7 +121,7 @@ jobs:
     - name: Install the extension
       run: |
         set -eux
-        python -m pip install "jupyterlab>=4.0.0,<5" jupyterlab_lightcone*.whl
+        python -m pip install "jupyterlab>=4.5.10,<5" jupyterlab_lightcone*.whl
 
     - name: Install dependencies
       working-directory: ui-tests
