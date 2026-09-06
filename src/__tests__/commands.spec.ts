@@ -1,10 +1,5 @@
 import type { JupyterFrontEnd } from '@jupyterlab/application';
-import {
-  WidgetTracker,
-  MainAreaWidget,
-  showErrorMessage,
-  type IThemeManager
-} from '@jupyterlab/apputils';
+import { showErrorMessage, type IThemeManager } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { DocumentRegistry } from '@jupyterlab/docregistry';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
@@ -14,7 +9,6 @@ import { PromiseDelegate } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
 import { CommandIDs, registerCommands } from '../commands';
 import { InventoryDocument } from '../document-widget';
-import { PaperPanel } from '../paper-panel';
 import { fileModel } from './project-fixtures';
 
 jest.mock('@jupyterlab/apputils', () => ({
@@ -40,17 +34,6 @@ jest.mock('../document-widget', () => {
     }
   };
 });
-jest.mock('../paper-panel', () => {
-  const { Widget } =
-    jest.requireActual<typeof import('@lumino/widgets')>('@lumino/widgets');
-  return {
-    PaperPanel: class extends Widget {
-      entrypoint = 'astra.yaml';
-      url = 'https://example.org/';
-    }
-  };
-});
-
 /** Only the command's host boundaries are mocked; Lumino commands and paths are real. */
 function commandHost(browser: IFileBrowserFactory | null = null) {
   const contents = new ContentsManager();
@@ -64,9 +47,6 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
     activateById: jest.fn(),
     add: jest.fn()
   };
-  const papers = new WidgetTracker<MainAreaWidget<PaperPanel>>({
-    namespace: 'test-paper'
-  });
   const created: InventoryDocument[] = [];
   const themes = {} as IThemeManager;
   const openOrReveal = jest.fn((path: string) => {
@@ -90,10 +70,7 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
       serviceManager: { contents }
     } as unknown as JupyterFrontEnd,
     documents,
-    themes,
-    browser,
-    papers,
-    publicationUrl: () => ''
+    browser
   });
   return {
     commands,
@@ -106,7 +83,6 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
     dispose: () => {
       created.forEach(widget => widget.dispose());
       contents.dispose();
-      papers.dispose();
     }
   };
 }

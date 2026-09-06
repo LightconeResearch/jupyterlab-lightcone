@@ -22,7 +22,7 @@ export interface IInventoryPaperOpenReference {
   doi: string;
 }
 
-/** The stable postMessage/command shape emitted by ASTRA publications. */
+/** An ASTRA record or cited-paper reference accepted by inventory commands. */
 export type InventoryOpenReference =
   IInventoryRecordOpenReference | IInventoryPaperOpenReference;
 
@@ -48,7 +48,7 @@ function nonEmptyString(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
-/** Validate untrusted command arguments or cross-frame messages. */
+/** Validate inventory command arguments. */
 export function parseInventoryOpenReference(
   value: unknown
 ): InventoryOpenReference | undefined {
@@ -71,7 +71,7 @@ export function parseInventoryOpenReference(
   };
 }
 
-/** Resolve the publication wire format against the resolved-analysis index. */
+/** Resolve an inventory reference against the resolved-analysis index. */
 export function detailEntryForOpenReference(
   index: AnalysisIndex,
   reference: InventoryOpenReference,
@@ -116,33 +116,4 @@ export function detailEntryForOpenReference(
     record.canonicalPath,
     owner?.canonicalPath ?? analysisPath
   );
-}
-
-/** Validate the publication's message payload before resolving an ASTRA record. */
-export function publicationReference(data: unknown) {
-  if (
-    data === null ||
-    typeof data !== 'object' ||
-    !('type' in data) ||
-    data.type !== 'astra:open-reference' ||
-    !('reference' in data)
-  ) {
-    return undefined;
-  }
-  return parseInventoryOpenReference(data.reference);
-}
-
-/** Only web publications may be embedded; relative URLs use the Jupyter origin. */
-export function publicationUrl(value: string, baseUrl: string): URL {
-  const url = new URL(value, baseUrl);
-  if (
-    !['http:', 'https:'].includes(url.protocol) ||
-    url.username ||
-    url.password
-  ) {
-    throw new Error(
-      'The publication URL must use HTTP or HTTPS without embedded credentials.'
-    );
-  }
-  return url;
 }

@@ -1,40 +1,29 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
-import {
-  InputDialog,
-  MainAreaWidget,
-  showErrorMessage,
-  WidgetTracker,
-  type IThemeManager
-} from '@jupyterlab/apputils';
+import { showErrorMessage } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
-import { listIcon, fileIcon, refreshIcon } from '@jupyterlab/ui-components';
+import { listIcon, refreshIcon } from '@jupyterlab/ui-components';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
-import { PaperPanel } from './paper-panel';
 
 export namespace CommandIDs {
   export const openInventory = 'jupyterlab_lightcone:open-inventory';
-  export const openPaper = 'jupyterlab_lightcone:open-paper';
   export const refresh = 'jupyterlab_lightcone:refresh';
 }
 
 interface ICommandOptions {
   app: JupyterFrontEnd;
   documents: IDocumentManager;
-  themes: IThemeManager;
   browser: IFileBrowserFactory | null;
-  papers: WidgetTracker<MainAreaWidget<PaperPanel>>;
-  publicationUrl: () => string;
   translator?: ITranslator;
 }
 
 /** Register the same document-opening path for the launcher and command palette. */
 export function registerCommands(options: ICommandOptions): void {
-  const { app, documents, themes, browser, papers } = options;
+  const { app, documents, browser } = options;
   const contents = app.serviceManager.contents;
   const trans = (options.translator ?? nullTranslator).load(
     'jupyterlab_lightcone'
@@ -50,12 +39,6 @@ export function registerCommands(options: ICommandOptions): void {
     const current = app.shell.currentWidget;
     if (current instanceof InventoryDocument) {
       return current.context.path;
-    }
-    if (
-      current instanceof MainAreaWidget &&
-      current.content instanceof PaperPanel
-    ) {
-      return current.content.entrypoint;
     }
     const context = current ? documents.contextForWidget(current) : undefined;
     if (context) {
@@ -129,76 +112,6 @@ export function registerCommands(options: ICommandOptions): void {
       } catch (error) {
         await showErrorMessage(
           trans.__('Could not open the ASTRA inventory'),
-          error instanceof Error ? error : String(error)
-        );
-        return undefined;
-      }
-    }
-  });
-
-  app.commands.addCommand(CommandIDs.openPaper, {
-    label: trans.__('MyST Paper'),
-    caption: trans.__('Open a publication linked to this ASTRA project'),
-    icon: fileIcon,
-    describedBy: {
-      args: {
-        type: 'object',
-        properties: {
-          path: {
-            type: 'string',
-            description: 'Project astra.yaml contents path'
-          },
-          cwd: {
-            type: 'string',
-            description: 'Project directory contents path'
-          },
-          url: { type: 'string', description: 'MyST publication URL' }
-        }
-      }
-    },
-    execute: async args => {
-      try {
-        const path = projectPath(args);
-        let url =
-          typeof args.url === 'string' ? args.url : options.publicationUrl();
-        if (!url) {
-          const result = await InputDialog.getText({
-            title: trans.__('Open MyST publication'),
-            label: trans.__('Publication URL (reachable from this browser)'),
-            placeholder: 'https://…'
-          });
-          if (!result.button.accept || !result.value) {
-            return undefined;
-          }
-          url = result.value;
-        }
-        const resolvedUrl = new URL(url, window.location.href).href;
-        let widget = papers.find(
-          item =>
-            item.content.entrypoint === path && item.content.url === resolvedUrl
-        );
-        if (!widget) {
-          const content = new PaperPanel(contents, themes, {
-            url: resolvedUrl
-          });
-          content.display(path);
-          widget = new MainAreaWidget({ content });
-          widget.id = `jupyterlab-lightcone-paper-${papers.size + 1}-${Date.now()}`;
-          widget.title.label = trans.__(
-            'MyST Paper · %1',
-            projectDirectory(path) || trans.__('root')
-          );
-          widget.title.caption = `${path} — ${resolvedUrl}`;
-          widget.title.icon = fileIcon;
-          widget.title.closable = true;
-          app.shell.add(widget, 'main');
-          await papers.add(widget);
-        }
-        app.shell.activateById(widget.id);
-        return widget;
-      } catch (error) {
-        await showErrorMessage(
-          trans.__('Could not open the MyST publication'),
           error instanceof Error ? error : String(error)
         );
         return undefined;

@@ -118,7 +118,7 @@ The extension retains the standard frontend/server template. `src/index.ts`
 registers the document factory and plugins; `src/commands.ts` owns commands.
 The Contents adapter and shared project subscription delegate ASTRA semantics to
 the published SDK. React surfaces compose the published ASTRA UI, with host
-integration for artifacts, PDF viewing, and publication messages.
+integration for artifacts and cited-paper PDF viewing.
 
 `src/api.ts` validates the paper API in `jupyterlab_lightcone/routes.py` through
 the shared request transport. No custom project-reading server API is needed.

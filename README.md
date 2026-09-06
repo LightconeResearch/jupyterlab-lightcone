@@ -4,9 +4,8 @@ The open AI-assisted research workbench
 
 **Lightcone Lab** brings a research workbench into JupyterLab, connecting
 methods, evidence, and computation. The extension currently provides an ASTRA
-analysis inventory, materialized outputs, cited papers, and linked MyST
-publications. ASTRA is the analysis format; `astra.yaml` and its SDK contracts
-retain their names.
+analysis inventory, materialized outputs, and cited papers. ASTRA is the
+analysis format; `astra.yaml` and its SDK contracts retain their names.
 
 ## Requirements
 
@@ -27,9 +26,10 @@ End users do not need Node.js or sibling source checkouts.
 
 Open `astra.yaml` in the file browser, or select **Open With → Lightcone Lab**.
 The **Lightcone Lab** launcher category and command palette also offer
-**ASTRA Inventory** and **MyST Paper**. The inventory is read-only: viewing preserves analysis and result files and
-starts no kernel. JupyterLab may create its standard document checkpoint when
-opening a writable file; the normal text editor remains available for editing.
+**ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
+result files and starts no kernel. JupyterLab may create its standard document
+checkpoint when opening a writable file; the normal text editor remains
+available for editing.
 
 The inventory shows outputs, decisions, inputs, findings, prior insights, and
 cited papers using the shared ASTRA components. Select an analysis or record to
@@ -65,26 +65,6 @@ Missing PDFs are downloaded only when you choose **Fetch paper**, using
 `astra-tools==0.2.13`. Cache lookup and download failures do not prevent viewing
 the analysis. Cached PDFs are served from the authenticated Jupyter origin and
 support continuous scrolling, zoom, and navigation to cited passages.
-
-### MyST publications
-
-Choose **MyST Paper** and enter a publication URL, or set **MyST publication
-URL** in JupyterLab's **Settings → Settings Editor → Lightcone Lab**. The URL
-must be reachable from your browser; a remote Jupyter server's localhost is not
-your browser's localhost. The extension embeds an existing publication and does
-not start a MyST server.
-
-```typescript
-app.commands.execute('jupyterlab_lightcone:open-paper', {
-  path: 'research/astra.yaml',
-  url: 'https://research.example.org/paper/'
-});
-```
-
-Each publication keeps an explicit project association. Its
-`astra:open-reference` messages open shared record/paper dialogs only when the
-message comes from the embedded window and its configured origin. A direct-open
-link remains available if the publication cannot be embedded.
 
 ### Appearance
 

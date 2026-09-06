@@ -1,52 +1,28 @@
 import {
   detailEntryForOpenReference,
-  parseInventoryOpenReference,
-  publicationReference,
-  publicationUrl
+  parseInventoryOpenReference
 } from '../open-reference';
 import { assembleLoadedProject, resolveProject } from '../project-data';
 import { createContents, fileModel } from './project-fixtures';
 
-describe('publication references', () => {
-  it('rejects malformed cross-frame messages', () => {
-    for (const data of [
+describe('inventory references', () => {
+  it('rejects malformed command references', () => {
+    for (const reference of [
       undefined,
       null,
       [],
-      'message',
-      { type: 'other' },
+      'reference',
+      { kind: 'analysis', id: 'root' },
+      { kind: 'paper', doi: ' ' }
+    ]) {
+      expect(parseInventoryOpenReference(reference)).toBeUndefined();
+    }
+    expect(parseInventoryOpenReference({ kind: 'output', id: 'plot' })).toEqual(
       {
-        type: 'astra:open-reference',
-        reference: { kind: 'analysis', id: 'root' }
+        kind: 'output',
+        id: 'plot'
       }
-    ]) {
-      expect(publicationReference(data)).toBeUndefined();
-    }
-    expect(
-      publicationReference({
-        type: 'astra:open-reference',
-        reference: { kind: 'output', id: 'plot' }
-      })
-    ).toEqual({ kind: 'output', id: 'plot' });
-    expect(
-      parseInventoryOpenReference({ kind: 'paper', doi: ' ' })
-    ).toBeUndefined();
-  });
-
-  it('accepts HTTP(S) publication URLs and rejects executable or credentialed URLs', () => {
-    expect(publicationUrl('/paper', 'https://example.org/lab').href).toBe(
-      'https://example.org/paper'
     );
-    for (const value of [
-      'javascript:alert(1)',
-      'data:text/html,paper',
-      'file:///paper',
-      'https://user:secret@example.org'
-    ]) {
-      expect(() => publicationUrl(value, 'https://example.org')).toThrow(
-        'HTTP or HTTPS'
-      );
-    }
   });
 
   it('does not resolve stale canonical paths or papers absent from the project', async () => {

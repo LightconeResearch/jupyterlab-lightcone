@@ -1,5 +1,4 @@
-.jp-jupyterlab-lightcone-InventoryPanel.astra-ui,
-.jp-jupyterlab-lightcone-PaperPanel.astra-ui {
+.jp-jupyterlab-lightcone-InventoryPanel.astra-ui {
   --astra-font-mono: var(
     --jp-code-font-family,
     ui-monospace,
@@ -166,52 +165,6 @@
   }
 }
 
-.jp-jupyterlab-lightcone-PaperPanel {
-  position: relative;
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
-  color: var(--astra-color-text);
-  background: var(--astra-color-canvas);
-  font-family: var(--astra-font-ui);
-}
-
-.jp-jupyterlab-lightcone-PaperPanel-stage {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  height: 100%;
-}
-
-.jp-jupyterlab-lightcone-PaperPanel-frame {
-  box-sizing: border-box;
-  display: block;
-  width: 100%;
-  min-height: 0;
-  flex: 1;
-  border: 0;
-  background: var(--astra-color-canvas);
-}
-
-.jp-jupyterlab-lightcone-PaperPanel-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--astra-color-border);
-  font-size: 0.8rem;
-}
-
-.jp-jupyterlab-lightcone-PaperPanel-toolbar > span:last-child {
-  color: var(--astra-color-text-subtle);
-}
-
-.jp-jupyterlab-lightcone-PaperPanel-dialogs > .astra-inventory__layout {
-  display: none;
-}
-
 .jp-jupyterlab-lightcone-analysis-selector {
   display: grid;
   gap: 0.35rem;
@@ -320,20 +273,4 @@
     var(--astra-color-kind-decision) 45%,
     transparent
   );
-}
-
-.jp-jupyterlab-lightcone-PaperPanel-notice {
-  position: absolute;
-  inset-inline: 0;
-  bottom: 1rem;
-  width: fit-content;
-  max-width: calc(100% - 2rem);
-  margin: 0 auto;
-  padding: 0.4rem 0.9rem;
-  border: 1px solid var(--astra-color-border);
-  border-radius: var(--astra-radius-control);
-  color: var(--astra-color-text);
-  background: var(--astra-color-canvas);
-  box-shadow: var(--astra-shadow-raised);
-  font-size: 0.85rem;
 }

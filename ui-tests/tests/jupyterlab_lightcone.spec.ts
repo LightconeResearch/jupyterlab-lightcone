@@ -2,11 +2,9 @@ import { expect, test, type IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Request } from '@playwright/test';
 
 const OPEN_INVENTORY = 'jupyterlab_lightcone:open-inventory';
-const OPEN_PAPER = 'jupyterlab_lightcone:open-paper';
 const REFRESH = 'jupyterlab_lightcone:refresh';
 const DOI = '10.1234/continuous-test';
 const QUOTE = 'A reproducible result appears on the final page.';
-const PUBLICATION = 'https://lightcone-publication.test/article';
 
 /** A self-contained ASTRA project with a materialized table and cited paper. */
 function analysis(name: string): string {
@@ -289,7 +287,7 @@ test('samples large CSV artifacts and refreshes previews after the artifact chan
   expect(requests.at(-1)?.url).not.toBe(originalUrl);
 });
 
-test('reads cached PDF pages and quotes, and accepts references only from its MyST frame', async ({
+test('reads cached PDF pages and preserves quote navigation when zooming', async ({
   page,
   tmpPath
 }) => {
@@ -322,91 +320,5 @@ test('reads cached PDF pages and quotes, and accepts references only from its My
   });
   await page.getByRole('button', { name: 'Close paper details' }).click();
 
-  // Explicit publication context must win over an unrelated active inventory.
-  const otherPath = await createProject(
-    page,
-    `${tmpPath}/other`,
-    'Unrelated project'
-  );
-  await page.contents.uploadContent(
-    analysis('Unrelated project').replace(DOI, '10.1234/unrelated'),
-    'text',
-    otherPath
-  );
-  await openInventory(page, otherPath);
-
-  await page.route(PUBLICATION, route =>
-    route.fulfill({
-      contentType: 'text/html',
-      body: '<!doctype html><title>Local test publication</title><h1>MyST fixture</h1>'
-    })
-  );
-  const paperId = await page.evaluate(
-    async ({ command, path, url }) => {
-      await window.jupyterapp.commands.execute(command, { path, url });
-      return window.jupyterapp.shell.currentWidget?.id ?? '';
-    },
-    { command: OPEN_PAPER, path, url: PUBLICATION }
-  );
-  const panel = page.locator(`#${paperId}`);
-  await expect(panel.locator('iframe')).toHaveAttribute('src', PUBLICATION);
-  await expect(
-    panel.frameLocator('iframe').getByRole('heading', { name: 'MyST fixture' })
-  ).toBeVisible();
-  const frame = page.frames().find(frame => frame.url() === PUBLICATION);
-  expect(frame).toBeDefined();
-  if (!frame) throw new Error('The publication frame did not load.');
-  await expect(
-    frame.getByRole('heading', { name: 'MyST fixture' })
-  ).toBeVisible();
-  const message = {
-    type: 'astra:open-reference',
-    reference: { kind: 'paper', doi: DOI }
-  };
-
-  // A matching payload from the parent window is not from the trusted frame.
-  await page.evaluate(
-    data => window.postMessage(data, window.location.origin),
-    message
-  );
-  await frame.evaluate(() =>
-    parent.postMessage(
-      { type: 'astra:open-reference', reference: { kind: 'paper', doi: 3 } },
-      '*'
-    )
-  );
-  await expect(panel.getByRole('dialog')).toHaveCount(0);
-  // An untrusted origin is rejected even if the source and payload match.
-  await page.evaluate(data => {
-    const source = document.querySelector<HTMLIFrameElement>(
-      'iframe[title="MyST publication"]'
-    )?.contentWindow;
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data,
-        origin: 'https://untrusted.test',
-        source
-      })
-    );
-  }, message);
-  await expect(panel.getByRole('dialog')).toHaveCount(0);
-
-  await frame.evaluate(data => parent.postMessage(data, '*'), message);
-  await expect(
-    panel.locator('.jp-jupyterlab-lightcone-pdf [data-page]')
-  ).toHaveCount(3);
-  await expect(
-    panel.getByRole('heading', { name: 'Paper project', exact: true })
-  ).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close paper details' }).click();
-  // Reopening the same publication/project pair reuses its panel.
-  const repeatedId = await page.evaluate(
-    async ({ command, path, url }) => {
-      await window.jupyterapp.commands.execute(command, { path, url });
-      return window.jupyterapp.shell.currentWidget?.id ?? '';
-    },
-    { command: OPEN_PAPER, path, url: PUBLICATION }
-  );
-  expect(repeatedId).toBe(paperId);
-  await expect(panel.getByRole('dialog')).toHaveCount(0);
+  await expect(pdf).toHaveCount(0);
 });

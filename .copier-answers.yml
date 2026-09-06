@@ -8,10 +8,10 @@ create_claude_symlink: true
 create_gemini_symlink: false
 has_ai_rules: true
 has_binder: false
-has_settings: true
+has_settings: false
 kind: frontend-and-server
 labextension_name: 'jupyterlab-lightcone'
-project_short_description: The open AI workbench for scientific research.
+project_short_description: The open AI-assisted research workbench
 python_name: jupyterlab_lightcone
 repository: https://github.com/LightconeResearch/jupyterlab-lightcone
 test: true
