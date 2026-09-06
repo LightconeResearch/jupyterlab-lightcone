@@ -3,7 +3,7 @@ import { showErrorMessage, type IThemeManager } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { DocumentRegistry } from '@jupyterlab/docregistry';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
-import { ContentsManager, Drive } from '@jupyterlab/services';
+import { ContentsManager, Drive, ServerConnection } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
@@ -175,7 +175,9 @@ describe('project opening commands', () => {
 
   it('reports missing files without asking the document manager to create them', async () => {
     const host = commandHost();
-    host.get.mockRejectedValue(new Error('Project missing'));
+    host.get.mockRejectedValue(
+      new ServerConnection.ResponseError(new Response('', { status: 404 }))
+    );
     try {
       expect(
         await host.commands.execute(CommandIDs.openInventory, {
@@ -184,11 +186,34 @@ describe('project opening commands', () => {
       ).toBeUndefined();
       expect(host.openOrReveal).not.toHaveBeenCalled();
       expect(showErrorMessage).toHaveBeenCalledWith(
-        'Could not open the ASTRA inventory',
-        expect.any(Error)
+        'No ASTRA project found',
+        'No ASTRA project file was found at "missing/astra.yaml". Open a folder containing astra.yaml in the file browser, then choose ASTRA Inventory.'
       );
     } finally {
       host.dispose();
     }
   });
+
+  it.each([403, 500])(
+    'preserves server errors with status %s',
+    async status => {
+      const host = commandHost();
+      const error = new ServerConnection.ResponseError(
+        new Response('', { status })
+      );
+      host.get.mockRejectedValue(error);
+      try {
+        await host.commands.execute(CommandIDs.openInventory, {
+          cwd: 'project'
+        });
+        expect(host.openOrReveal).not.toHaveBeenCalled();
+        expect(showErrorMessage).toHaveBeenLastCalledWith(
+          'Could not open the ASTRA inventory',
+          error
+        );
+      } finally {
+        host.dispose();
+      }
+    }
+  );
 });

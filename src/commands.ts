@@ -2,6 +2,7 @@ import { JupyterFrontEnd } from '@jupyterlab/application';
 import { showErrorMessage } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
+import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
@@ -87,7 +88,24 @@ export function registerCommands(options: ICommandOptions): void {
       try {
         const path = projectPath(args);
         // Check existence before creating a document context (which may create new files).
-        await contents.get(path, { content: false });
+        try {
+          await contents.get(path, { content: false });
+        } catch (error) {
+          if (
+            error instanceof ServerConnection.ResponseError &&
+            error.response.status === 404
+          ) {
+            await showErrorMessage(
+              trans.__('No ASTRA project found'),
+              trans.__(
+                'No ASTRA project file was found at "%1". Open a folder containing astra.yaml in the file browser, then choose ASTRA Inventory.',
+                path
+              )
+            );
+            return undefined;
+          }
+          throw error;
+        }
         const widget = documents.openOrReveal(path, INVENTORY_FACTORY);
         if (!(widget instanceof InventoryDocument)) {
           throw new Error(
