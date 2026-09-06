@@ -35,7 +35,7 @@ export const themePlugin: JupyterFrontEndPlugin<void> = {
         };
         try {
           await manager.loadCSS(
-            '@lightcone-research/jupyterlab-lightcone/index.css'
+            'jupyterlab-lightcone/index.css'
           );
         } catch (error) {
           restoreScope();

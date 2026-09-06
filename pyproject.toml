@@ -51,8 +51,8 @@ artifacts = ["jupyterlab_lightcone/labextension"]
 exclude = [".github", "binder"]
 
 [tool.hatch.build.targets.wheel.shared-data]
-"jupyterlab_lightcone/labextension" = "share/jupyter/labextensions/@lightcone-research/jupyterlab-lightcone"
-"install.json" = "share/jupyter/labextensions/@lightcone-research/jupyterlab-lightcone/install.json"
+"jupyterlab_lightcone/labextension" = "share/jupyter/labextensions/jupyterlab-lightcone"
+"install.json" = "share/jupyter/labextensions/jupyterlab-lightcone/install.json"
 "jupyter-config/server-config" = "etc/jupyter/jupyter_server_config.d"
 
 [tool.hatch.build.hooks.version]

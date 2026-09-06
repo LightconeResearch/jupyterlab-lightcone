@@ -10,7 +10,7 @@ has_ai_rules: true
 has_binder: false
 has_settings: true
 kind: frontend-and-server
-labextension_name: '@lightcone-research/jupyterlab-lightcone'
+labextension_name: 'jupyterlab-lightcone'
 project_short_description: The open AI workbench for scientific research.
 python_name: jupyterlab_lightcone
 repository: https://github.com/LightconeResearch/jupyterlab-lightcone

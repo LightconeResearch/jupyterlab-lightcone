@@ -45,7 +45,7 @@ jobs:
         jupyter server extension list 2>&1 | grep -ie "jupyterlab_lightcone.*OK"
 
         jupyter labextension list
-        jupyter labextension list 2>&1 | grep -ie "@lightcone-research/jupyterlab-lightcone.*OK"
+        jupyter labextension list 2>&1 | grep -ie "jupyterlab-lightcone.*OK"
         python -m jupyterlab.browser_check
 
     - name: Check that all endpoints are authenticated
@@ -95,7 +95,7 @@ jobs:
         jupyter server extension list 2>&1 | grep -ie "jupyterlab_lightcone.*OK"
 
         jupyter labextension list
-        jupyter labextension list 2>&1 | grep -ie "@lightcone-research/jupyterlab-lightcone.*OK"
+        jupyter labextension list 2>&1 | grep -ie "jupyterlab-lightcone.*OK"
         python -m jupyterlab.browser_check --no-browser-test
 
   integration-tests:

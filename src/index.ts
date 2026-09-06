@@ -27,7 +27,7 @@ import { PaperPanel } from './paper-panel';
 import { themePlugin } from './theme';
 
 const PLUGIN_ID = 'jupyterlab_lightcone:plugin';
-const SETTINGS_ID = '@lightcone-research/jupyterlab-lightcone:plugin';
+const SETTINGS_ID = 'jupyterlab-lightcone:plugin';
 const CATEGORY = 'Lightcone Lab';
 
 /** Native JupyterLab integration for the Lightcone Lab research workbench. */

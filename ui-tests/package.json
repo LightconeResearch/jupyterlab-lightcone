@@ -1,5 +1,5 @@
 {
-  "name": "@lightcone-research/jupyterlab-lightcone-ui-tests",
+  "name": "jupyterlab-lightcone-ui-tests",
   "version": "1.0.0",
   "description": "Integration tests for Lightcone Lab",
   "private": true,
