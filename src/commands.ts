@@ -4,17 +4,11 @@ import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
-import { LabIcon, refreshIcon } from '@jupyterlab/ui-components';
-import lightconeLogoSvg from '../style/lightcone-logo.svg';
+import { refreshIcon } from '@jupyterlab/ui-components';
+import { astraIcon } from './icons';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
-
-// The brand package does not yet ship logos; this is the existing Lightcone mark.
-const lightconeIcon = new LabIcon({
-  name: 'jupyterlab-lightcone:logo',
-  svgstr: lightconeLogoSvg
-});
 
 export namespace CommandIDs {
   export const openInventory = 'jupyterlab_lightcone:open-inventory';
@@ -67,7 +61,7 @@ export function registerCommands(options: ICommandOptions): void {
   app.commands.addCommand(CommandIDs.openInventory, {
     label: trans.__('ASTRA Inventory'),
     caption: trans.__('Open the project inventory in Lightcone Lab'),
-    icon: lightconeIcon,
+    icon: astraIcon,
     describedBy: {
       args: {
         type: 'object',

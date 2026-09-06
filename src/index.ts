@@ -12,7 +12,7 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
-import { listIcon } from '@jupyterlab/ui-components';
+import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
 import {
   ASTRA_FILE_TYPE,
@@ -60,14 +60,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
       pattern: ASTRA_FILE_PATTERN,
       fileFormat: 'text',
       contentType: 'file',
-      icon: listIcon
+      icon: astraIcon
     });
     const factory = new InventoryDocumentFactory(
       app.serviceManager.contents,
       themes
     );
     factory.widgetCreated.connect((_sender, widget) => {
-      widget.title.icon = listIcon;
+      widget.title.icon = astraIcon;
       widget.context.pathChanged.connect(() => {
         void inventories.save(widget).catch(error => {
           console.warn(
