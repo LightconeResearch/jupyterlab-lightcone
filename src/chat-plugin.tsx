@@ -10,9 +10,11 @@ import type {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
+import { ILauncher } from '@jupyterlab/launcher';
 import { PathExt } from '@jupyterlab/coreutils';
 import { recordTitle } from '@astra-spec/ui/model';
 import { CommandIDs } from './commands';
+import { astraIcon } from './icons';
 import {
   chatContexts,
   contextForChat,
@@ -29,12 +31,13 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:chat',
   description: 'ASTRA preview cards and agent navigation in Jupyter AI chats.',
   autoStart: true,
-  optional: [IChatTracker, ICommandPalette, IFileBrowserFactory],
+  optional: [IChatTracker, ICommandPalette, IFileBrowserFactory, ILauncher],
   activate: (
     app: JupyterFrontEnd,
     tracker: IChatTracker | null,
     palette: ICommandPalette | null,
-    browser: IFileBrowserFactory | null
+    browser: IFileBrowserFactory | null,
+    launcher: ILauncher | null
   ) => {
     if (!tracker) return;
     const watch = async (panel: IChatPanel) => {
@@ -139,11 +142,14 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     });
     app.commands.addCommand(CommandIDs.discuss, {
       label: 'Discuss ASTRA project',
+      caption: 'Start a Jupyter AI discussion for this ASTRA project',
+      icon: astraIcon,
       describedBy: {
         args: {
           type: 'object',
           properties: {
             entrypoint: { type: 'string' },
+            cwd: { type: 'string' },
             target: { type: 'string' },
             universeId: { type: ['string', 'null'] }
           }
@@ -155,12 +161,14 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
           const entrypoint =
             typeof args.entrypoint === 'string'
               ? args.entrypoint
-              : current instanceof InventoryDocument
-                ? current.context.path
-                : PathExt.join(
-                    browser?.tracker.currentWidget?.model.path ?? '',
-                    'astra.yaml'
-                  );
+              : typeof args.cwd === 'string'
+                ? PathExt.join(args.cwd, 'astra.yaml')
+                : current instanceof InventoryDocument
+                  ? current.context.path
+                  : PathExt.join(
+                      browser?.tracker.currentWidget?.model.path ?? '',
+                      'astra.yaml'
+                    );
           const reference = parseElementReference({
             ...args,
             entrypoint,
@@ -308,6 +316,10 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
       }
     });
     palette?.addItem({
+      command: CommandIDs.discuss,
+      category: 'Lightcone Lab'
+    });
+    launcher?.add({
       command: CommandIDs.discuss,
       category: 'Lightcone Lab'
     });

@@ -43,11 +43,13 @@ decisions:
     'text',
     `${tmpPath}/results/default/figure.svg`
   );
-  await page.evaluate(async entrypoint => {
-    await window.jupyterapp.commands.execute('jupyterlab_lightcone:discuss', {
-      entrypoint
-    });
-  }, `${tmpPath}/astra.yaml`);
+  await page.filebrowser.openDirectory(tmpPath);
+  await page.evaluate(async cwd => {
+    await window.jupyterapp.commands.execute('launcher:create', { cwd });
+  }, tmpPath);
+  await page
+    .getByRole('button', { name: 'Discuss ASTRA project', exact: true })
+    .click();
   await expect(page.locator('.jp-chat-input-container')).toBeVisible();
   await expect(page.locator('.jp-chat-send-button')).toBeEnabled();
   const otherContext = await browser.newContext();

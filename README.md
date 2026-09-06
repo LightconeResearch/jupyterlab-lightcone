@@ -76,7 +76,8 @@ pip install "jupyterlab-lightcone[ai]"
 
 This supports Jupyter AI 3.2 / Jupyter Chat 0.25. Configure an agent through
 Jupyter AI as usual. With an inventory open (or its folder selected), run
-**Discuss ASTRA project** from the command palette. Review and send the prepared
+**Discuss ASTRA project** from the command palette or the **Lightcone Lab**
+launcher section. The launcher uses its current folder. Review and send the prepared
 prompt. Each discussion keeps its project and universe fixed; start a new one to
 change them. The project chip shows that binding, including after reopening a
 saved `.chat` file.
