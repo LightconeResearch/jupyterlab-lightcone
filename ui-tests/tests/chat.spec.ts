@@ -2,7 +2,7 @@ import { expect, test } from '@jupyterlab/galata';
 import fs from 'node:fs';
 import path from 'node:path';
 
-test('agent streams rich references and opens a native decision tab through MCP', async ({
+test('agent publishes MIME cards and opens a native decision tab through MCP', async ({
   page,
   tmpPath,
   browser,
@@ -67,20 +67,30 @@ decisions:
     'Stable under perturbations.',
     { timeout: 45000 }
   );
-  const reference = page.getByRole('button', {
-    name: 'Open the figure',
-    exact: true
+  const cards = page.locator('.jp-jupyterlab-lightcone-card');
+  await expect(cards).toHaveCount(2, { timeout: 30000 });
+  const figure = cards.filter({ hasText: 'outputs.figure' });
+  await expect(figure.locator('img')).toBeVisible();
+  // Chat owns only the DOM node: removal must unmount React and release leases.
+  const cleaned = await figure.evaluate(async node => {
+    const host = node.closest('lightcone-astra-card')!;
+    const parent = host.parentNode!;
+    const next = host.nextSibling;
+    host.remove();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const empty = host.childNodes.length === 0;
+    parent.insertBefore(host, next);
+    return empty;
   });
-  await expect(reference).toBeVisible({ timeout: 30000 });
-  await reference.hover();
-  await expect(page.locator('[data-slot="preview-popover"]')).toBeVisible();
-  await expect(page.locator('[data-slot="preview-popover"] img')).toBeVisible();
-  await test.info().attach('chat-preview', {
+  expect(cleaned).toBe(true);
+  await expect(figure.locator('img')).toBeVisible();
+  await test.info().attach('chat-mime-cards', {
     body: await page.screenshot(),
     contentType: 'image/png'
   });
-  await page.keyboard.press('Escape');
-  await reference.click();
+  await figure
+    .getByRole('button', { name: 'Open in tab', exact: true })
+    .click();
   await expect(
     page
       .locator('.jp-jupyterlab-lightcone-element')
@@ -91,6 +101,13 @@ decisions:
       .locator('.jp-chat-rendered-message code')
       .filter({ hasText: '{astra}`outputs.figure`' })
   ).toBeVisible();
+  await expect(
+    page.locator('.jp-jupyterlab-lightcone-reference-button')
+  ).toHaveCount(0);
+  if (process.env.LIGHTCONE_TEST_MYST === '1')
+    await expect(
+      page.locator('.jp-RenderedMySTMarkdown').first()
+    ).toBeVisible();
   const result = await page.evaluate(
     async entrypoint =>
       window.jupyterapp.commands.execute('jupyterlab_lightcone:open-element', {
@@ -117,7 +134,7 @@ decisions:
   expect(added.reused).toBe(true);
   await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
-  ).toContainText('{astra}`outputs.figure`');
+  ).toContainText('outputs.figure');
   // The binding survives a full browser reload and reopening the persisted chat.
   await page.reload({ waitForIsReady: false });
   await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
@@ -127,9 +144,8 @@ decisions:
       inSidePanel: false
     });
   }, `${tmpPath}/untitled.chat`);
-  await expect(
-    page.getByRole('button', { name: 'Open the figure', exact: true })
-  ).toBeVisible();
+  await expect(cards).toHaveCount(2);
+  await expect(figure.locator('img')).toBeVisible();
   await expect(
     page.locator('.jp-jupyterlab-lightcone-chat-context')
   ).toContainText('defaults');

@@ -2953,7 +2953,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jupyterlab/rendermime-interfaces@npm:^3.14.3":
+"@jupyterlab/rendermime-interfaces@npm:^3.13.0, @jupyterlab/rendermime-interfaces@npm:^3.14.3":
   version: 3.14.3
   resolution: "@jupyterlab/rendermime-interfaces@npm:3.14.3"
   dependencies:
@@ -2963,7 +2963,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jupyterlab/rendermime@npm:^4.5.0, @jupyterlab/rendermime@npm:^4.6.3":
+"@jupyterlab/rendermime@npm:^4.5.0, @jupyterlab/rendermime@npm:^4.5.10, @jupyterlab/rendermime@npm:^4.6.3":
   version: 4.6.3
   resolution: "@jupyterlab/rendermime@npm:4.6.3"
   dependencies:
@@ -4460,30 +4460,6 @@ __metadata:
   version: 7.0.15
   resolution: "@types/json-schema@npm:7.0.15"
   checksum: 97ed0cb44d4070aecea772b7b2e2ed971e10c81ec87dd4ecc160322ffa55ff330dace1793489540e3e318d90942064bb697cc0f8989391797792d919737b3b98
-  languageName: node
-  linkType: hard
-
-"@types/linkify-it@npm:^5":
-  version: 5.0.0
-  resolution: "@types/linkify-it@npm:5.0.0"
-  checksum: ec98e03aa883f70153a17a1e6ed9e28b39a604049b485daeddae3a1482ec65cac0817520be6e301d99fd1a934b3950cf0f855655aae6ec27da2bb676ba4a148e
-  languageName: node
-  linkType: hard
-
-"@types/markdown-it@npm:^14.1.2":
-  version: 14.2.0
-  resolution: "@types/markdown-it@npm:14.2.0"
-  dependencies:
-    "@types/linkify-it": ^5
-    "@types/mdurl": ^2
-  checksum: 0d86f0e432ea29ea49599dc8f9f160f73703656bc771b68ce231167499f1964ef20cfde4b221b2947a485b4e1763964a726916c6c4ecfcf8c31b9528dbd48a6c
-  languageName: node
-  linkType: hard
-
-"@types/mdurl@npm:^2":
-  version: 2.0.0
-  resolution: "@types/mdurl@npm:2.0.0"
-  checksum: 78746e96c655ceed63db06382da466fd52c7e9dc54d60b12973dfdd110cae06b9439c4b90e17bb8d4461109184b3ea9f3e9f96b3e4bf4aa9fe18b6ac35f283c8
   languageName: node
   linkType: hard
 
@@ -6386,7 +6362,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"entities@npm:^4.2.0, entities@npm:^4.4.0, entities@npm:^4.5.0":
+"entities@npm:^4.2.0, entities@npm:^4.4.0":
   version: 4.5.0
   resolution: "entities@npm:4.5.0"
   checksum: 853f8ebd5b425d350bffa97dd6958143179a5938352ccae092c62d1267c4e392a039be1bae7d51b6e4ffad25f51f9617531fedf5237f15df302ccfb452cbf2d7
@@ -8386,6 +8362,8 @@ __metadata:
     "@jupyterlab/docregistry": ^4.5.10
     "@jupyterlab/filebrowser": ^4.5.10
     "@jupyterlab/launcher": ^4.5.10
+    "@jupyterlab/rendermime": ^4.5.10
+    "@jupyterlab/rendermime-interfaces": ^3.13.0
     "@jupyterlab/services": ^7.5.10
     "@jupyterlab/testutils": ^4.0.0
     "@jupyterlab/translation": ^4.5.10
@@ -8397,7 +8375,6 @@ __metadata:
     "@lumino/widgets": ^2.0.0
     "@types/jest": ^29.2.0
     "@types/json-schema": ^7.0.11
-    "@types/markdown-it": ^14.1.2
     "@types/react": ^18.0.26
     "@types/react-addons-linked-state-mixin": ^0.14.22
     "@types/react-dom": ^18.2.0
@@ -8406,7 +8383,6 @@ __metadata:
     eslint-plugin-prettier: ^5.0.0
     globals: ^15.0.0
     jest: ^29.2.0
-    markdown-it: ^14.1.0
     mkdirp: ^1.0.3
     npm-run-all2: ^7.0.1
     pdfjs-dist: 4.8.69
@@ -8538,15 +8514,6 @@ __metadata:
   version: 1.2.4
   resolution: "lines-and-columns@npm:1.2.4"
   checksum: 0c37f9f7fa212b38912b7145e1cd16a5f3cd34d782441c3e6ca653485d326f58b3caccda66efce1c5812bde4961bbde3374fae4b0d11bf1226152337f3894aa5
-  languageName: node
-  linkType: hard
-
-"linkify-it@npm:^5.0.2":
-  version: 5.0.2
-  resolution: "linkify-it@npm:5.0.2"
-  dependencies:
-    uc.micro: ^2.0.0
-  checksum: 3ac965e7df2c8788dc5c4c3009aab745f0288dcbc8776ab5bf4317b106c7b7b84fd0f502565d81f9c07f61fa0f0a4150893a6af9d86c36af985aac115bb5c293
   languageName: node
   linkType: hard
 
@@ -8706,22 +8673,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"markdown-it@npm:^14.1.0":
-  version: 14.3.1
-  resolution: "markdown-it@npm:14.3.1"
-  dependencies:
-    argparse: ^2.0.1
-    entities: ^4.5.0
-    linkify-it: ^5.0.2
-    mdurl: ^2.0.0
-    punycode.js: ^2.3.1
-    uc.micro: ^2.1.0
-  bin:
-    markdown-it: bin/markdown-it.mjs
-  checksum: 5c0646f921012740ce63ec2cd78394ce4a2ece61cd709bc37dcab090e23d782268b6fb0085175d26b0c48f75a0c51f0761b26b8bbb6268b07c40c5e10a842c5c
-  languageName: node
-  linkType: hard
-
 "markdown-to-jsx@npm:^7.4.1":
   version: 7.7.17
   resolution: "markdown-to-jsx@npm:7.7.17"
@@ -8797,13 +8748,6 @@ __metadata:
   version: 2.27.1
   resolution: "mdn-data@npm:2.27.1"
   checksum: a19a8d524b774089731f2ebaaf17aa110d8031fd4f313c23692b3636e117042d760098a9e8091035933b26c9252c4355008f56f5383f986b6df9c54f3fed8ebc
-  languageName: node
-  linkType: hard
-
-"mdurl@npm:^2.0.0":
-  version: 2.1.0
-  resolution: "mdurl@npm:2.1.0"
-  checksum: 43267b3eba1abcad1448d0716509a94792a3fea041aed65bd38f911dac95640d25d2fa96f48c8763376058256d680a9aa6e4134825b851eb9eb5fce68fcf990c
   languageName: node
   linkType: hard
 
@@ -9661,13 +9605,6 @@ __metadata:
     end-of-stream: ^1.1.0
     once: ^1.3.1
   checksum: d043c3e710c56ffd280711e98a94e863ab334f79ea43cee0fb70e1349b2355ffd2ff287c7522e4c960a247699d5b7825f00fa090b85d6179c973be13f78a6c49
-  languageName: node
-  linkType: hard
-
-"punycode.js@npm:^2.3.1":
-  version: 2.3.1
-  resolution: "punycode.js@npm:2.3.1"
-  checksum: 13466d7ed5e8dacdab8c4cc03837e7dd14218a59a40eb14a837f1f53ca396e18ef2c4ee6d7766b8ed2fc391d6a3ac489eebf2de83b3596f5a54e86df4a251b72
   languageName: node
   linkType: hard
 
@@ -10885,13 +10822,6 @@ __metadata:
     csstype: 3.0.10
     free-style: 3.1.0
   checksum: 8b4f02c24f67b594f98507b15a753dabd4db5eb0af007e1d310527c64030e11e9464b25b5a6bc65fb5eec9a4459a8336050121ecc29063ac87b8b47a6d698893
-  languageName: node
-  linkType: hard
-
-"uc.micro@npm:^2.0.0, uc.micro@npm:^2.1.0":
-  version: 2.1.0
-  resolution: "uc.micro@npm:2.1.0"
-  checksum: 37197358242eb9afe367502d4638ac8c5838b78792ab218eafe48287b0ed28aaca268ec0392cc5729f6c90266744de32c06ae938549aee041fc93b0f9672d6b2
   languageName: node
   linkType: hard
 

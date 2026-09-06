@@ -13,6 +13,7 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
 import { chatPlugin } from './chat-plugin';
+import { astraMimePlugin } from './astra-mime';
 import { registerElementCommands } from './element-commands';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
@@ -105,4 +106,4 @@ const plugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export default [plugin, chatPlugin];
+export default [plugin, astraMimePlugin, chatPlugin];

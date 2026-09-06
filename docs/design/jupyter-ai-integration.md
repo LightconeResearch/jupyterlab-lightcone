@@ -1,151 +1,97 @@
-# Lightcone Lab: rich chat references and agent-opened tabs
+# Lightcone Lab: ASTRA chat cards and agent-opened tabs
 
 The open AI-assisted research workbench
 
-Status: first implementation. Updated: 6 September 2026.
+Status: implementation updated on 6 September 2026. No upstream or sibling-package changes.
 
-Implemented here: inline chat previews, native record and cited-paper tabs,
-fixed conversation context, and three MCP tools. No sibling-package changes.
-The supported renderer is stock JupyterLab Markdown; `jupyterlab-myst` 2.7
-falls back to its existing text rendering.
+## Decisions
 
-Give agents connected through Jupyter AI two capabilities: use MySTRA references
-that display rich ASTRA previews inside chat, and open ASTRA elements as native
-JupyterLab tabs. Build this in Lightcone Lab using current packages, with a small
-local compatibility adapter where chat lacks a public rendering hook. No upstream
-PR or release is a prerequisite.
-
-## Recommended decisions
-
-| Decision         | Recommendation                                                                              | Tradeoff                                                                                         |
-| ---------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Chat rendering   | Decorate the existing rendered message using its preamble hook                              | Works with current Jupyter Chat; we maintain a small adapter tied to its DOM structure           |
-| Project context  | Bind each Lightcone conversation to one project and resolution context                      | Avoids guessing which project an agent reply refers to; use a new conversation to change context |
-| Reference syntax | Support inline `{astra}` roles and custom labels first                                      | Full MyST documents, block embeds and value/citation roles are separate work                     |
-| Element tabs     | Reuse existing ASTRA UI detail bodies in native widgets                                     | Unsupported targets use an existing owner/inventory surface or show a clear limitation           |
-| Agent access     | Expose a narrow open-element tool, plus context/read tools, through the existing MCP server | Reuses Jupyter AI's browser routing; these UI tools require a connected browser                  |
+| Decision                  | Implementation                                                                              | Tradeoff                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Default chat presentation | Persisted `application/vnd.lightcone.astra+json` messages rendered by JupyterLab RenderMime | Separate cards in the conversation, rather than inline hover links         |
+| Inline references         | Deferred; remove the Markdown DOM adapter                                                   | No parser or DOM coupling to stock Markdown or `jupyterlab-myst`           |
+| Project context           | One project and universe/defaults per conversation                                          | Start another discussion to change context                                 |
+| Element tabs              | Existing ASTRA UI detail components in native widgets                                       | Unsupported targets use their owner/inventory or a clear unavailable state |
+| Agent access              | Four tools through the existing Jupyter MCP server                                          | Requires the originating browser and a bound discussion                    |
 
 ## User experience
 
-In Jupyter AI, the agent writes:
+The agent calls `lightcone_preview_element(entrypoint, target)` to show a figure,
+decision, input, finding, prior insight or analysis directly in chat. The card
+uses ASTRA UI's `RecordPreview`, with bounded artifact previews and **Open in tab**.
+The agent can call `lightcone_open_element` to open a tab directly instead.
 
-```markdown
-The choice in {astra}`decisions.covariance_source` affects
-{astra}`the BAO fit <outputs.bao_fit_plot>`.
-Compare it with {astra}`clustering.outputs.xi_multipoles_plot`.
+**Discuss ASTRA project** prepares a bound conversation with visible tool guidance.
+**Add to chat** inserts a target into the editable composer, without sending it.
+The project chip identifies the binding. Existing Jupyter AI model/persona selection
+continues to work normally.
+
+Cards persist in `.chat` files but display current project data, not a historical
+snapshot. Each identifies its project, target and universe. Missing results stay
+unavailable; transient invalid edits retain the last valid data with a notice.
+Nothing runs recipes or downloads papers automatically. No MyST/theme server is needed.
+
+## MIME rendering and message delivery
+
+Jupyter AI 3.2 uses Jupyter Chat 0.25. Chat accepts `mime_model` messages and picks
+one safe representation through its RenderMime registry. Register the ASTRA MIME
+factory at rank 40, ahead of the text fallback. A card stores only:
+
+```json
+{
+  "version": 1,
+  "entrypoint": "myst_proto/astra.yaml",
+  "target": "outputs.bao_fit_plot",
+  "universeId": "baseline"
+}
 ```
 
-Each reference displays its label and ASTRA kind symbol. Hover or keyboard focus
-opens a `RecordPreview` card, including a bounded figure/table/metric preview where
-available. Clicking the reference opens the corresponding
-record beside the conversation. The agent can open the same record directly by
-calling a tool.
+`null` explicitly pins defaults when there are no root universe files. Validate
+the version, Contents path, target and universe before loading anything. Ignore
+unrelated fields; do not accept HTML, scripts or artifact URLs from the payload.
+The shared SDK resolver and authenticated Contents service supply project data.
+The bundle also includes `text/plain` and a readable message body for clients
+without this renderer. MIME cards work independently of whichever extension
+renders `text/markdown`.
 
-A project chip identifies the conversation's `astra.yaml`. **Discuss ASTRA project**
-starts a bound conversation; **Add to chat** inserts a record reference and short
-context into the editable composer. The existing Jupyter AI agent/model selector
-and permission controls remain in charge.
+The ACP client's ordinary response stream is text; merely returning MIME JSON
+from a tool does not insert a rich chat message. The preview tool therefore:
 
-This runs inside JupyterLab without `myst start` or an external theme server.
-Previews show current project data; chat text remains unchanged when results change.
+1. Runs the existing read-element command in the originating browser, validating
+   the chat binding and resolving the target and universe through the SDK.
+2. Looks up the calling persona using the same chat/persona headers and server
+   registry as Jupyter MCP routing, and verifies its processing-message browser.
+3. Publishes `NewMessage(..., mime_model=MimeModel(...))` through that persona's
+   chat model. This preserves agent attribution and does not send a human prompt.
+4. Returns the message ID. The same persona, target and universe within one prompt
+   reuse an existing non-deleted card, making retries safe. A later prompt can
+   show a new card.
 
-## What is available today
+This persona lookup is a small compatibility adapter targeting Jupyter AI 3.2;
+there is currently no public rich-message tool API. The tool reuses frontend
+resolution rather than duplicating ASTRA business logic in Python.
+[Routing registry](https://github.com/jupyter-ai-contrib/jupyter-server-mcp/blob/92f0c7b9b98dd1c796dae469ff50a4edd9cb9083/jupyter_server_mcp/client_routing.py).
 
-The inspected Jupyter AI **3.2.0** distribution uses Jupyter Chat 0.25, ACP client
-0.3, persona manager 0.2, server MCP 0.3 and commands toolkit 0.2. Its base chat
-works without a document RTC provider; RTC is optional.
-[Package composition](https://github.com/jupyterlab/jupyter-ai/blob/7f6100e728d0c2ff52747f69247945dbb8fbd5fc/pyproject.toml).
+Jupyter Chat 0.25 inserts the MIME renderer's DOM node but does not dispose its
+widget. Our renderer uses a custom element's connection/disconnection callbacks
+to mount and unmount React. That releases project leases, theme signals and
+artifact effects when messages are removed or chats close; moving/reconnecting
+a card remains supported. Normal Lumino widget disposal is handled too.
+[Chat renderer](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/components/messages/message-renderer.tsx).
 
-| Existing API/component                                                                   | Use here                                                                           |
-| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `IChatTracker`, input toolbar registry, `input.getMetadata()` / `input.updateMetadata()` | Attach project controls and context to existing chats                              |
-| `IMessagePreambleRegistry`                                                               | Mount a React component for each message with access to its content and chat model |
-| Jupyter Chat's Markdown renderer                                                         | Preserve ordinary Markdown, math, mentions, code controls and message actions      |
-| ASTRA UI `PreviewPopover` and `RecordPreview`                                            | Render accessible hover/focus cards, with shared styling and artifact adapters     |
-| ASTRA UI standalone detail components                                                    | Fill native tabs without copying the inventory dialogs                             |
-| `jupyter_server_mcp.tools` entry points                                                  | Register Lightcone tools in Jupyter AI's existing MCP server                       |
-| Commands toolkit `execute_command`                                                       | Run a frontend command in the originating browser and return JSON                  |
+## Why inline references are deferred
 
-Jupyter Chat has no public inline-body decoration hook. Its preamble registry is
-public, but reaching from that component into the message body is a **local DOM
-workaround**. The current renderer also does not pass message metadata to
-RenderMime or dispose the renderer it creates. We should therefore leave its
-renderer ownership intact and give our decorator its own cleanup.
-[Message rendering](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/components/messages/message-renderer.tsx),
-[preamble API](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/registers/preambles.ts).
+The stock Markdown renderer preserves `{astra}` followed by code; MyST consumes
+unknown roles before our former adapter can see their markers. Jupyter Chat has
+no public message-body parsing/decorating hook, and `jupyterlab-myst` hardcodes
+its role/transform/React renderer lists. Supporting both would require additional
+private integration or owning the Markdown pipeline. Per the agreed scope,
+remove the inline parser, DOM matching and hover adapter. Ordinary text remains
+owned by the installed Markdown renderer; tools and MIME cards remain functional.
+[MyST parser](https://github.com/jupyter-book/jupyterlab-myst/blob/402964a9b28d9dd7b617a125a22372d37359a5a2/src/myst.ts).
 
-MySTRA's build-time entry module imports Node APIs and is not a published browser
-library. For now, vendor only its pure path/display parser into this repository,
-retaining its license, source revision and relevant grammar tests. Define the
-small inline role adapter locally using `markdown-it`, whose inline rules respect
-Markdown code and escapes. This avoids bundling the build-time MyST stack.
-Do not bundle the whole build-time plugin or introduce sibling `file:` dependencies.
-[MySTRA grammar](https://github.com/LightconeResearch/MySTRA/blob/8b7dd79794912a9fc839e7075926d2081657c634/src/path.ts).
-
-`jupyterlab-myst` is not required: its current parser has a fixed directive list
-and no registered ASTRA roles. Installing it alone does not provide this feature.
-Its alternative Markdown rendering needs a compatibility check, not an assumption
-that it produces the same DOM.
-[Parser source](https://github.com/jupyter-book/jupyterlab-myst/blob/402964a9b28d9dd7b617a125a22372d37359a5a2/src/myst.ts).
-
-## Rich rendering with a local adapter
-
-### Attach at the message, upgrade only the references
-
-Register a Lightcone component with `IMessagePreambleRegistry`. It renders an
-inert mount point and uses an effect to attach the decorator to that message.
-The current layout puts the preamble and body under `.jp-chat-message`; the body
-is `.jp-chat-rendered-message`. This gives us the actual message identity from
-React, without matching messages by their order, text or sender.
-[Current layout](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/components/messages/messages.tsx),
-[preamble lifecycle](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/components/messages/preamble.tsx).
-
-1. Parse `message.body` to identify actual `{astra}` role occurrences.
-   Exclude fenced/inline code examples, escapes, unsupported roles and incomplete
-   streamed syntax. Resolve the roles against the conversation's bound project.
-2. Let Jupyter Chat render normally. Under ordinary Markdown, a role appears as
-   literal `{astra}` text followed by an inline-code element containing its body.
-   Match those rendered fragments to the parsed role occurrences, including
-   repeated targets and custom labels. Upgrade only unambiguous matches; do not
-   treat arbitrary code elements or model-supplied HTML as ASTRA references.
-3. Replace the matched fragment with a small mount for a typed reference component.
-   Render `PreviewPopover` + `RecordPreview` there, using React portals owned by
-   the preamble component. Retain enough of the original fragment to restore it.
-4. Observe replacements inside this message's body with a scoped `MutationObserver`.
-   When streaming replaces the rendered content, discard detached mounts and
-   decorate the new content. Ignore our own mutations and cancel
-   obsolete asynchronous record lookups.
-5. On edit, deletion, unmount or disposal, disconnect the observer, release project
-   subscriptions, remove portals and restore still-attached original fragments.
-   Do not touch the message toolbar, attachments, code-block controls or other
-   extensions' preambles.
-
-The source parser is essential: escaped examples can render like actual roles.
-A count/order check alone cannot prove a match when literal examples coexist with
-references. If source-to-DOM association is ambiguous, leave those fragments alone.
-That is an explicit limitation of this approach, to exercise in the prototype.
-
-This adapter depends on two DOM selectors and ordinary Markdown's rendering of
-role syntax. Keep those assumptions in one module with tests against the supported
-Jupyter Chat release. Tests confirm that `jupyterlab-myst` 2.7 strips unknown
-role markers, so that renderer currently keeps its text without ASTRA cards. If the body structure or another Markdown renderer does not
-match, preserve the original message and keep the open-element tools operational.
-Do not replace the whole chat body or patch ACP response generation to compensate.
-
-### Preview behavior
-
-Use the existing ASTRA UI components, artifact access and paper adapters.
-`PreviewPopover` already supports hover, focus, nested previews and explicit
-portal scope/theme attributes; supply those attributes because a portal does not
-inherit the chat subtree's styles. Provide Escape, click and touch access too.
-[ASTRA UI exports](https://github.com/LightconeResearch/astra-ui/blob/0a0a2c4985ec51747be475a444205ece416072c6/packages/react/src/components/index.ts),
-[popover contract](https://github.com/LightconeResearch/astra-ui/blob/0a0a2c4985ec51747be475a444205ece416072c6/packages/react/src/primitives/preview-popover.tsx).
-
-Load bounded artifacts when a preview opens and share project resolution across
-cards, inventory and tabs. Missing results show availability information; opening
-or hovering never runs a recipe or downloads a paper automatically. Invalid paths
-remain readable unresolved references. Temporary invalid YAML retains last valid
-data with a notice. Live cards identify themselves as current project state.
+Keep only MySTRA's vendored pure path parser for canonical element addresses,
+with its license and source revision. No build-time MyST plugin is bundled.
 
 ## Project context without modifying Jupyter AI
 
@@ -158,18 +104,18 @@ part of its prompt.
 [Message metadata](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/types.ts).
 
 On reload, derive the binding from the chat's persisted context messages. Keep it
-fixed for that conversation. Switching files changes neither old references nor
+fixed for that conversation. Switching files changes neither saved cards nor
 in-flight responses; discussing another project or universe starts another chat.
 All personas in the chat therefore interpret rooted MySTRA paths consistently,
 even though current ACP replies do not inherit our metadata.
 
 Do not retroactively enrich an existing unbound history based on the current file
 browser. If binding metadata is missing or conflicting, show the context problem
-and leave references unresolved. Repeating metadata makes deletion of the first
+and reject agent commands. Repeating metadata makes deletion of the first
 message recoverable, but deleting all binding messages loses that context. This
 is simpler than server monkey-patching or inferring reply parents from timing.
 
-Use the same validated target for clickable references and commands:
+Use the same validated target for cards and commands:
 
 ```json
 {
@@ -220,90 +166,49 @@ currently manage arbitrary third-party views, so keep our subscription lifecycle
 
 ### Tools and transport
 
-Register thin Python wrappers through `jupyter_server_mcp.tools`. Each calls a
-named frontend command through the installed commands toolkit, reusing the
-frontend SDK resolver rather than implementing ASTRA resolution again in Python.
+| Tool                                                             | Purpose                                                      |
+| ---------------------------------------------------------------- | ------------------------------------------------------------ |
+| `lightcone_project_context(entrypoint?, query?, offset?)`        | Bound project, capabilities and paginated searchable targets |
+| `lightcone_read_element(entrypoint, target?, universeId?, doi?)` | Bounded details, relationships and artifact availability     |
+| `lightcone_preview_element(entrypoint, target)`                  | Publish an agent-attributed MIME preview in the bound chat   |
+| `lightcone_open_element(entrypoint, target?, universeId?, doi?)` | Open/focus a native record or cited-paper tab                |
 
-| Tool                                                             | Purpose                                                                                                      |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `lightcone_open_element(entrypoint, target?, universeId?, doi?)` | Open/focus a record or cited-paper tab and return its resolved identity and opened/reused status             |
-| `lightcone_project_context(...)`                                 | Return the bound project, active ASTRA view, capabilities and a bounded searchable list of reference targets |
-| `lightcone_read_element(entrypoint, target?, universeId?, doi?)` | Return bounded record details, relationships, artifact availability and a ready-to-use MySTRA reference      |
-
-Jupyter AI's MCP middleware derives `target_client_id` from the initiating user
-message's `web_client_id`. Use that routing and the initiating message's bound
-context, not whichever project is currently focused. Reject missing routing
-before invoking the bridge: its default is to broadcast. Do not accept a browser
-ID chosen by the model. Return JSON, never a widget object; distinguish missing
-project/record, unsupported target, disconnected browser and timeout. A timeout is
-unconfirmed, and deduplicated opening makes retry safe.
-[Tool discovery](https://github.com/jupyter-ai-contrib/jupyter-server-mcp/blob/92f0c7b9b98dd1c796dae469ff50a4edd9cb9083/jupyter_server_mcp/extension.py),
-[command bridge](https://github.com/jupyter-ai-contrib/jupyterlab-commands-toolkit/blob/6651eb6efd20689987f761d6e93178b6a7bb5d29/jupyterlab_commands_toolkit/tools.py),
-[browser routing](https://github.com/jupyter-ai-contrib/jupyter-server-mcp/blob/92f0c7b9b98dd1c796dae469ff50a4edd9cb9083/jupyter_server_mcp/client_routing.py).
-
-The existing generic `execute_command` tool could already call our new command;
-the typed wrapper improves discovery, argument validation and routing checks.
-These tools target agents inside Jupyter AI with a connected browser. Its MCP
-server has a separate local transport; reuse the existing local/isolated
-single-user deployment, without treating routing metadata as authentication.
+Python imports are lazy so inventory, native tabs and the MIME renderer work
+without Jupyter AI. Tools use the existing `jupyter_server_mcp.tools` entrypoint.
+Reject missing browser routing before invoking the command bridge, whose default
+would broadcast. Never let the model choose a browser ID. Chat IDs come from MCP
+request headers; project and universe mismatches are rejected. Timeouts are
+unconfirmed, and retries reuse tabs/cards. Shared-chat clients can naturally see
+persisted cards; opening a tab affects only the initiating browser.
 
 ## Relationship to the rest of Lightcone
 
-Current `../lightcone-cli` main, commit `78059fa`, produces the expected single
-output file at `results/<universe>/<id>.<format>`, consistent with the SDK's path
-assumptions. Reuse SDK artifact bindings and verify representative root/nested
-outputs as ordinary integration tests.
-[Current CLI output contract](https://github.com/LightconeResearch/lightcone-cli/blob/78059fab1608b033370558cfef3f5d6ffad26084/src/lightcone/engine/assets.py).
+`lightcone-cli` main at `78059fa` produces `results/<universe>/<id>.<format>`,
+consistent with the SDK's artifact bindings. Agents can use `lc` and existing
+`agent-skills` through their normal terminal/ACP tools. This extension observes
+their changes; it adds no execution service. Tool docstrings and the prepared
+prompt explain that preview cards use a tool, even when installed research skills
+teach MySTRA syntax for authoring documents. No skill-package change is required.
 
-Agents can continue using `lc` through their existing terminal tools and research
-skills. This increment observes project changes; it does not add an execution
-service. Put essential MySTRA examples and navigation guidance in the MCP tool
-descriptions and explicit chat context so no skill-package change is required.
-Existing `agent-skills` plugins remain useful for ASTRA authoring and the `lc`
-workflow; check their discovery through supported ACP adapters.
-[Existing skill composition](https://github.com/LightconeResearch/agent-skills/blob/38ac1be2186264f3cf582c6d199c1583e70fb68a/skills.config.json).
+## Future simplifications
 
-## Future changes that could simplify our implementation
+These are optional follow-ups, with no upstream PR planned now:
 
-These are optional follow-ups in other packages, not work to open upstream now.
+- Jupyter AI's public rich-message publishing API could replace persona-registry access.
+- Correct MIME-widget disposal in Chat could remove our custom-element lifecycle adapter.
+- A shared message-body/role extension API with explicit project context could make inline references practical.
+- A browser-safe MySTRA parser package could replace the vendored grammar.
+- Workbench guidance in `agent-skills` could reduce repeated onboarding instructions.
 
-| Package improvement                                                                  | Local code or restriction it could remove                                                  |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| Jupyter Chat message-body renderer/decorator hook with lifecycle and message context | DOM selectors, mutation observation and source-to-DOM matching                             |
-| Jupyter AI reply correlation and opt-in context propagation                          | Fixed context per conversation; enable safe project/universe changes between turns         |
-| MySTRA published browser-safe reference parser                                       | Vendored grammar and synchronization tests                                                 |
-| Shared ASTRA UI reference-trigger component                                          | Repeated label/glyph/preview composition across Lab and other hosts                        |
-| `agent-skills` workbench guidance                                                    | Repeated onboarding examples in chat; richer discover/inspect/open workflows across agents |
+## Validation boundaries
 
-## Implementation and validation
+Automated checks cover MIME validation, origin routing, agent attribution,
+repeat-call deduplication, figure and decision cards, tab reuse, persisted-chat
+reload, and DOM detach/reconnect cleanup. Browser CI exercises both stock Markdown
+and enabled `jupyterlab-myst`. Existing inventory, project/universe, paper and tab
+tests remain in place. Build and packaging checks retain optional AI dependencies.
 
-Keep this in the existing extension, with an optional AI integration plugin and
-Python extra. Inventory and element tabs must still work without Jupyter AI.
-Use released dependencies and deduplicated shared tokens. Keep the DOM workaround
-in one module, separate from reference resolution and native tabs.
-
-1. The local preamble decorator uses the current Jupyter Chat release:
-   literal role matching, hover cards and cleanup during streaming are tested
-   with a deterministic agent. No upstream changes are involved.
-2. The vendored parser, validated targets and native detail tabs reuse existing
-   project subscriptions and ASTRA UI.
-3. Fixed chat context, **Add to chat**, and typed MCP tools are implemented.
-   The fixture persona uses the same MCP settings and routing as ACP agents.
-
-| Area             | Acceptance checks                                                                                                                                               |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rendering        | Roles/custom labels in normal prose, lists and emphasis; repeated targets; escaped/code examples; malformed/incomplete roles; ambiguous matching preserves text |
-| Lifecycle        | Streaming replacement, stale async completion, edit/delete, detached messages, cleanup and no observer feedback loops                                           |
-| Existing chat    | Math, mentions, code controls, copy/edit, attachments and other preambles remain functional; alternate Markdown renderers degrade predictably                   |
-| Context          | Two projects with duplicate IDs, concurrent personas, reload, deleted/conflicting binding metadata and file-browser changes                                     |
-| Navigation       | Every supported detail kind; owner/inventory fallback; duplicate opens, related records, unavailable targets, universes and restoration                         |
-| Routing          | Two browsers, missing/stale routing, disconnected client and timeout/retry; only the initiating browser acts                                                    |
-| Data             | Shared refresh, temporary invalid YAML, missing results, bounded previews, no automatic execution/download; `myst_proto` and current CLI outputs                |
-| Packaging/agents | AI present/absent, RTC off/on, non-root base URL, no end-user Node build; deterministic fake-agent CI plus two real ACP adapter smoke tests                     |
-
-The table records the broader acceptance matrix, not a claim that every
-combination has been exercised. Automated checks cover core resolution, routing,
-streaming, previews, tab reuse, and saved-chat context. Real ACP adapter smoke
-tests and optional RTC providers remain manual follow-up checks; no external
-model was invoked during implementation. The DOM adapter and alternative
-Markdown renderers remain the main compatibility boundary.
+The deterministic persona uses the real MCP transport without invoking an external
+model. Real ACP adapter smoke tests, RTC providers and non-root base URLs remain
+additional manual compatibility checks; passing the fixture does not establish
+that every configuration has been exercised.

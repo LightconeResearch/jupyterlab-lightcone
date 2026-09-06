@@ -60,3 +60,100 @@ async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
     finally:
         bridge.target_client_id.reset(token)
     assert result["status"] == "unconfirmed"
+
+
+@pytest.fixture
+def persona(bridge, monkeypatch):
+    """Model the persisted chat contract without installing optional AI packages."""
+    import sys
+    from dataclasses import asdict, dataclass
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from jupyter_server.serverapp import ServerApp
+
+    @dataclass
+    class MimeModel:
+        data: dict
+        metadata: dict | None = None
+
+    @dataclass
+    class NewMessage:
+        body: str
+        sender: str
+        mime_model: MimeModel
+
+    models = ModuleType("jupyterlab_chat.models")
+    models.MimeModel = MimeModel
+    models.NewMessage = NewMessage
+    monkeypatch.setitem(sys.modules, "jupyterlab_chat.models", models)
+    sys.modules["fastmcp.server.dependencies"].get_http_headers = lambda: {
+        "x-jupyter-chat-id": "origin-chat",
+        "x-jupyterai-persona-id": "agent",
+    }
+    messages = []
+
+    def add_message(message):
+        messages.append(SimpleNamespace(**asdict(message), id="card", deleted=False))
+        return "card"
+
+    agent = SimpleNamespace(
+        id="agent",
+        processing_message=SimpleNamespace(id="prompt", metadata={"web_client_id": "origin-browser"}),
+        chat=SimpleNamespace(
+            get_id=lambda: "origin-chat",
+            get_messages=lambda: messages,
+            add_message=Mock(side_effect=add_message),
+        ),
+    )
+    settings = {"jupyter-ai": {"persona-managers": {"origin-chat": SimpleNamespace(personas={"agent": agent})}}}
+    monkeypatch.setattr(ServerApp, "instance", lambda: SimpleNamespace(web_app=SimpleNamespace(settings=settings)))
+    bridge.execute_command.return_value = {"success": True, "result": {
+        "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline", "label": "Figure"
+    }}
+    return agent
+
+
+async def test_preview_is_a_persisted_persona_mime_message_and_retries_reuse_it(bridge, persona):
+    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
+
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        first = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+        second = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+    finally:
+        bridge.target_client_id.reset(token)
+    assert first == {"success": True, "messageId": "card", "reused": False}
+    assert second == {"success": True, "messageId": "card", "reused": True}
+    persona.chat.add_message.assert_called_once()
+    message = persona.chat.add_message.call_args.args[0]
+    assert message.sender == "agent"
+    assert message.mime_model.data["application/vnd.lightcone.astra+json"] == {
+        "version": 1, "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline"
+    }
+    assert message.mime_model.data["text/plain"] == message.body
+
+
+async def test_preview_requires_the_originating_persona_and_browser(bridge, persona):
+    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
+
+    token = bridge.target_client_id.set("another-browser")
+    try:
+        result = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+    finally:
+        bridge.target_client_id.reset(token)
+    assert result["success"] is False
+    assert "NO_ACTIVE_PERSONA" in result["error"]
+    persona.chat.add_message.assert_not_called()
+
+
+async def test_preview_does_not_publish_when_context_validation_fails(bridge, persona):
+    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
+
+    bridge.execute_command.return_value = {"success": False, "error": "PROJECT_MISMATCH"}
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        result = await lightcone_preview_element("other/astra.yaml", "outputs.figure")
+    finally:
+        bridge.target_client_id.reset(token)
+    assert result["error"] == "PROJECT_MISMATCH"
+    persona.chat.add_message.assert_not_called()

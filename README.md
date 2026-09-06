@@ -81,24 +81,30 @@ prompt. Each discussion keeps its project and universe fixed; start a new one to
 change them. The project chip shows that binding, including after reopening a
 saved `.chat` file.
 
-Agents can write ordinary prose containing MySTRA references:
+Ask the agent to show an ASTRA element in chat, for example:
 
-```markdown
-See {astra}`decisions.covariance_source` and
-{astra}`the fit <clustering.outputs.fit>`.
-```
+> Show preview cards for decisions.covariance_source and outputs.bao_fit_plot.
 
-Hover or focus a reference for its current ASTRA preview; click to open a native
-tab. Figures, decisions, inputs, findings and prior insights use the existing
-ASTRA detail components. **Add to chat** puts a reference in a matching chat's
+The agent calls `lightcone_preview_element`, which inserts a rich MIME card into
+its conversation. Cards display the existing ASTRA previews directly, including
+supported figures and tables, and offer **Open in tab**. They persist in saved
+chats and resolve the current project data in the conversation's fixed universe.
+The text fallback remains readable without Lightcone installed. These cards work
+with both the stock Markdown renderer and `jupyterlab-myst` enabled.
+
+The built-in Jupyter MCP server discovers four tools:
+
+- `lightcone_project_context`: discover the bound project and its real targets.
+- `lightcone_read_element`: inspect bounded details and artifact availability.
+- `lightcone_preview_element`: display a card in chat (the default presentation).
+- `lightcone_open_element`: open a separate native tab.
+
+Tools require a connected originating browser and a bound Lightcone discussion.
+Cards are attributed to the calling agent; repeated previews of the same target
+in one prompt reuse the card. **Add to chat** puts a target in a matching chat's
 composer, creating a discussion if needed. It does not send the message.
-
-The built-in Jupyter MCP server discovers `lightcone_project_context`,
-`lightcone_read_element`, and `lightcone_open_element`. These tools use the
-originating browser and conversation, never the currently focused project.
-They require a connected browser and a bound Lightcone discussion. Existing
-agent terminal tools, `lc`, and research skills remain available through the
-agent's normal setup; Lightcone observes their changes without starting recipes.
+Existing agent terminal tools, `lc`, and research skills remain available through
+the agent's normal setup; Lightcone observes changes without starting recipes.
 
 For direct UI integrations:
 
@@ -120,12 +126,11 @@ Analysis/collection paths use the inventory, which currently supports its
 automatically selected universe; other pinned universes support record tabs.
 Missing outputs stay unavailable and papers download only through **Fetch paper**.
 
-Rich references currently require the stock JupyterLab Markdown renderer. The
-adapter preserves ordinary Markdown, code examples and streamed text. Ambiguous
-fragments and alternative renderers fall back to their existing rendering;
-`jupyterlab-myst` 2.7 removes unknown role markers and does not show these cards.
-Agent-opened tabs still work. Full MyST documents, block/value/citation roles,
-and historical result snapshots are outside this first implementation.
+Inline `{astra}` roles in response text do not produce hover previews. The
+previous Markdown DOM adapter has been removed: MyST consumes unknown roles,
+and neither renderer offers a shared inline extension hook. Agents should use
+the preview tool instead. Full MyST documents, block/value/citation roles,
+and historical result snapshots are outside this implementation.
 
 See the [integration design](docs/design/jupyter-ai-integration.md) for the
 compatibility boundary and future ways to simplify it.

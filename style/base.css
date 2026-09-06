@@ -304,7 +304,7 @@
   margin-top: 12px;
 }
 
-.jp-jupyterlab-lightcone-reference-button,
+.jp-jupyterlab-lightcone-card-open,
 .jp-jupyterlab-lightcone-chat-context {
   border: 0;
   border-radius: 3px;
@@ -315,17 +315,15 @@
   cursor: pointer;
 }
 
-.jp-jupyterlab-lightcone-reference-button {
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
+.jp-jupyterlab-lightcone-card {
+  padding: 12px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 6px;
+  max-width: 640px;
 }
 
-.jp-jupyterlab-lightcone-reference-button:focus-visible {
-  outline: 2px solid var(--jp-brand-color1);
-}
-
-.jp-jupyterlab-lightcone-preview small {
+.jp-jupyterlab-lightcone-card small {
   display: block;
-  padding: 8px 12px;
+  padding-top: 8px;
   overflow-wrap: anywhere;
 }

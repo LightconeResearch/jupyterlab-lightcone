@@ -1,12 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import {
-  IChatTracker,
-  IMessagePreambleRegistry,
-  type IChatPanel
-} from '@jupyter/chat';
+import { IChatTracker, type IChatPanel } from '@jupyter/chat';
 import {
   MainAreaWidget,
-  IThemeManager,
   ICommandPalette,
   showErrorMessage
 } from '@jupyterlab/apputils';
@@ -24,7 +19,6 @@ import {
   contextualArguments,
   type IChatContext
 } from './chat-context';
-import { ChatPreview } from './chat-preview';
 import { acquireProjectDataService } from './project-data-service';
 import { parseElementReference } from './element-reference';
 import { ElementWidget } from './element-widget';
@@ -33,27 +27,16 @@ import { InventoryDocument } from './document-widget';
 /** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
 export const chatPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:chat',
-  description: 'ASTRA references and agent navigation in Jupyter AI chats.',
+  description: 'ASTRA preview cards and agent navigation in Jupyter AI chats.',
   autoStart: true,
-  requires: [IThemeManager],
-  optional: [
-    IChatTracker,
-    IMessagePreambleRegistry,
-    ICommandPalette,
-    IFileBrowserFactory
-  ],
+  optional: [IChatTracker, ICommandPalette, IFileBrowserFactory],
   activate: (
     app: JupyterFrontEnd,
-    themes: IThemeManager,
     tracker: IChatTracker | null,
-    preambles: IMessagePreambleRegistry | null,
     palette: ICommandPalette | null,
     browser: IFileBrowserFactory | null
   ) => {
-    if (!tracker || !preambles) return;
-    preambles.addComponent(props => (
-      <ChatPreview {...props} app={app} themes={themes} />
-    ));
+    if (!tracker) return;
     const watch = async (panel: IChatPanel) => {
       const model = panel.model;
       const id = await model.ready;
@@ -230,9 +213,9 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             panel.model.input.updateMetadata({ lightcone: context });
             chatContexts.set(id, context);
             if (reused) {
-              panel.model.input.value += `${panel.model.input.value ? '\n\n' : ''}Discuss {astra}\`${reference.target}\`.`;
+              panel.model.input.value += `${panel.model.input.value ? '\n\n' : ''}Discuss ASTRA element ${reference.target}.`;
             } else
-              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.target ? `, especially {astra}\`${reference.target}\`` : ''}. Use lightcone_project_context to inspect its real targets, cite them with {astra} roles, and use lightcone_open_element when helpful.`;
+              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.target ? `, especially ${reference.target}` : ''}. Use lightcone_project_context to inspect its real targets, use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
             app.shell.activateById(panel.id);
             panel.model.input.focus();
             return { ...context, chatId: id, reused };
@@ -300,7 +283,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
               : undefined;
           return {
             capabilities: [
-              'record-previews',
+              'mime-preview-cards',
               'record-tabs',
               'cited-paper-tabs',
               'read-element'
@@ -315,7 +298,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
                 ? null
                 : data.document.universe.universeId,
             syntax:
-              '{astra}`outputs.figure` or {astra}`the figure <outputs.figure>`. Targets are rooted at this project. Open records with lightcone_open_element. Child option/evidence targets open their owning record.',
+              'Targets such as outputs.figure and clustering.decisions.method are rooted at this project. Use lightcone_preview_element for rich cards in chat (the default), or lightcone_open_element for separate tabs. Inline MySTRA roles do not create previews. Child option/evidence targets open their owning record.',
             records: records.slice(offset, offset + 50),
             nextOffset: offset + 50 < records.length ? offset + 50 : null
           };

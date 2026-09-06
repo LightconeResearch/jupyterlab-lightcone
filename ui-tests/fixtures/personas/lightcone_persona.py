@@ -35,6 +35,11 @@ class LightconePersona(BasePersona):
             if result.isError or not result.structuredContent.get("success"):
                 raise RuntimeError(str(result))
 
+            for target in ["decisions.method", "outputs.figure", "outputs.figure"]:
+                preview = await session.call_tool("lightcone_preview_element", {"entrypoint": entrypoint, "target": target})
+                if preview.isError or not preview.structuredContent.get("success"):
+                    raise RuntimeError(str(preview))
+
         async def chunks():
             yield "Use {astra}`decisions."
             await asyncio.sleep(0.2)

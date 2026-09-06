@@ -33,12 +33,12 @@ c.MCPExtensionApp.mcp_port = int(os.environ.get("LIGHTCONE_TEST_MCP_PORT", "3019
 os.environ["JUPYTER_AI_ACP_CLIENT_E2E_TESTING_ONLY"] = "1"
 os.environ["LIGHTCONE_TEST_AVATAR"] = str(Path(__file__).parent.parent / "style" / "astra-logo.svg")
 
-# Test the supported stock renderer regardless of extensions installed locally.
-# LIGHTCONE_TEST_MYST=1 exercises the documented plain-text compatibility fallback.
-if not os.environ.get("LIGHTCONE_TEST_MYST"):
-    import json
+# Exercise both Markdown renderers without changing the developer's settings.
+import json
 
-    app_settings = TemporaryDirectory(prefix="lightcone-galata-settings-")
-    atexit.register(app_settings.cleanup)
-    Path(app_settings.name, "page_config.json").write_text(json.dumps({"disabledExtensions": {"jupyterlab-myst": True}}))
-    c.LabApp.app_settings_dir = app_settings.name
+app_settings = TemporaryDirectory(prefix="lightcone-galata-settings-")
+atexit.register(app_settings.cleanup)
+Path(app_settings.name, "page_config.json").write_text(json.dumps({
+    "disabledExtensions": {"jupyterlab-myst": os.environ.get("LIGHTCONE_TEST_MYST") != "1"}
+}))
+c.LabApp.app_settings_dir = app_settings.name

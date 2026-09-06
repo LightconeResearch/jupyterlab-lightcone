@@ -99,11 +99,16 @@ jobs:
         python -m jupyterlab.browser_check --no-browser-test
 
   integration-tests:
-    name: Integration tests
+    name: Integration tests (${{ matrix.renderer }})
+    strategy:
+      fail-fast: false
+      matrix:
+        renderer: [markdown, myst]
     needs: build
     runs-on: ubuntu-latest
 
     env:
+      LIGHTCONE_TEST_MYST: ${{ matrix.renderer == 'myst' && '1' || '0' }}
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/pw-browsers
 
     steps:
@@ -122,6 +127,9 @@ jobs:
       run: |
         set -eux
         python -m pip install "jupyterlab>=4.5.10,<5" "jupyter-ai>=3.2.0,<3.3" jupyterlab_lightcone*.whl
+        if [ "$LIGHTCONE_TEST_MYST" = "1" ]; then
+          python -m pip install "jupyterlab-myst>=2.7.0,<2.8"
+        fi
 
     - name: Install dependencies
       working-directory: ui-tests
@@ -152,7 +160,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: jupyterlab_lightcone-playwright-tests
+        name: jupyterlab_lightcone-playwright-tests-${{ matrix.renderer }}
         path: |
           ui-tests/test-results
           ui-tests/playwright-report
