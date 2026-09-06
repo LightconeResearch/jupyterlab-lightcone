@@ -250,6 +250,47 @@ test('retains valid project data after malformed edits and recovers without reop
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+test('refreshes unmaterialized outputs without requesting missing result directories', async ({
+  page,
+  tmpPath
+}) => {
+  const path = `${tmpPath}/astra.yaml`;
+  await page.contents.uploadContent(analysis('Pending results'), 'text', path);
+  const directories: string[] = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (
+      url.pathname.includes(`/api/contents/${tmpPath}/results`) &&
+      url.searchParams.get('type') === 'directory'
+    ) {
+      directories.push(url.pathname);
+    }
+  });
+  await openInventory(page, path, { kind: 'output', id: 'sample' });
+  for (let refresh = 0; refresh < 2; refresh++) {
+    await page.evaluate(
+      command => window.jupyterapp.commands.execute(command),
+      REFRESH
+    );
+  }
+  expect(directories).toEqual([]);
+
+  await page.contents.createDirectory(`${tmpPath}/results/default`);
+  await page.contents.uploadContent(
+    'id,value\ncreated,42\n',
+    'text',
+    `${tmpPath}/results/default/sample.csv`
+  );
+  await page.evaluate(
+    command => window.jupyterapp.commands.execute(command),
+    REFRESH
+  );
+  await expect(
+    page.getByRole('dialog').getByRole('cell', { name: 'created', exact: true })
+  ).toBeVisible();
+  expect(directories).toContain(`/api/contents/${tmpPath}/results/default`);
+});
+
 test('samples large CSV artifacts and refreshes previews after the artifact changes', async ({
   page,
   tmpPath

@@ -7,15 +7,19 @@ import {
 } from '@astra-spec/sdk';
 import type { Contents } from '@jupyterlab/services';
 
+/** A parent listing can establish absence without making a failing HTTP request. */
+class MissingDirectoryError extends Error {}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
 function isNotFound(error: unknown): boolean {
   return (
-    isRecord(error) &&
-    (error.status === 404 ||
-      (isRecord(error.response) && error.response.status === 404))
+    error instanceof MissingDirectoryError ||
+    (isRecord(error) &&
+      (error.status === 404 ||
+        (isRecord(error.response) && error.response.status === 404)))
   );
 }
 
@@ -102,25 +106,43 @@ export function createJupyterProjectReader(
     const resolved = rooted(path);
     let pending = directories.get(path);
     if (!pending) {
-      pending = contents
-        .get(resolved, { content: true, type: 'directory' })
-        .then(model => {
-          const values: unknown = model.content;
-          if (model.type !== 'directory' || !Array.isArray(values)) {
-            throw new Error(`Jupyter could not read ${path} as a directory.`);
-          }
-          const entries = new Map<string, unknown>();
-          for (const value of values) {
-            const entry = directoryEntry(path, value);
-            if (entries.has(entry.name)) {
-              throw new Error(
-                `Jupyter returned duplicate entries for ${path}.`
+      pending = (async (): Promise<ReadonlyMap<string, unknown>> => {
+        if (path) {
+          const slash = path.lastIndexOf('/');
+          try {
+            const parent = await readDirectory(
+              path.slice(0, Math.max(0, slash))
+            );
+            if (!parent.has(path.slice(slash + 1))) {
+              throw new MissingDirectoryError(
+                `No project directory exists at "${path}".`
               );
             }
-            entries.set(entry.name, value);
+          } catch (error) {
+            if (isNotFound(error) || error instanceof ProjectPathError) {
+              throw error;
+            }
+            // A custom drive may allow a child listing without access to its parent.
           }
-          return entries;
+        }
+        const model = await contents.get(resolved, {
+          content: true,
+          type: 'directory'
         });
+        const values: unknown = model.content;
+        if (model.type !== 'directory' || !Array.isArray(values)) {
+          throw new Error(`Jupyter could not read ${path} as a directory.`);
+        }
+        const entries = new Map<string, unknown>();
+        for (const value of values) {
+          const entry = directoryEntry(path, value);
+          if (entries.has(entry.name)) {
+            throw new Error(`Jupyter returned duplicate entries for ${path}.`);
+          }
+          entries.set(entry.name, value);
+        }
+        return entries;
+      })();
       directories.set(path, pending);
     }
     return pending;
