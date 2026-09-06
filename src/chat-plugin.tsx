@@ -240,7 +240,10 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             lease.release();
           }
         } catch (reason) {
-          await showErrorMessage('Could not start ASTRA discussion', reason);
+          await showErrorMessage(
+            'Could not start ASTRA discussion',
+            reason instanceof Error ? reason : String(reason)
+          );
           return null;
         }
       }
