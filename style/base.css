@@ -1,5 +1,285 @@
-/*
-    See the JupyterLab Developer Guide for useful CSS Patterns:
+.jp-jupyterlab-lightcone-InventoryPanel.astra-ui {
+  --astra-font-mono: var(
+    --jp-code-font-family,
+    ui-monospace,
+    'SF Mono',
+    Menlo,
+    Consolas,
+    monospace
+  );
+  --astra-font-size: var(--jp-ui-font-size1, 0.875rem);
+}
 
-    https://jupyterlab.readthedocs.io/en/stable/developer/css.html
-*/
+.jp-jupyterlab-lightcone-InventoryPanel {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  color: var(--astra-color-text);
+  background: var(--astra-color-canvas);
+  font-family: var(--astra-font-ui);
+}
+
+.jp-jupyterlab-lightcone-inventory-page {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  color: var(--astra-color-text);
+  background: var(--astra-color-canvas);
+  font-family: var(--astra-font-ui);
+}
+
+.jp-jupyterlab-lightcone-project-topbar {
+  position: sticky;
+  z-index: 40;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  height: 3.25rem;
+  min-height: 3.25rem;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0 2rem;
+  border-bottom: 1px solid var(--astra-color-border-subtle);
+  background: color-mix(in srgb, var(--astra-color-canvas) 96%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.jp-jupyterlab-lightcone-project-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  color: var(--astra-color-text);
+  font: 700 0.8125rem/1 var(--astra-font-ui);
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-project-name {
+  overflow: hidden;
+  color: var(--astra-color-text-subtle);
+  font-family: var(--astra-font-ui);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-inventory-main {
+  box-sizing: border-box;
+  width: min(77.75rem, 100%);
+  margin: 0 auto;
+  padding: 2.125rem 2rem 4rem;
+}
+
+.astra-ui .jp-jupyterlab-lightcone-inventory-header {
+  position: relative;
+  z-index: 20;
+  min-height: 0;
+  align-items: flex-end;
+  margin-bottom: 1.875rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.astra-ui
+  .jp-jupyterlab-lightcone-inventory-header
+  [data-slot='surface-header-title'] {
+  font-family: var(--astra-font-heading);
+  font-size: 1.9375rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.jp-jupyterlab-lightcone-inventory-content {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
+.jp-jupyterlab-lightcone-inventory-message {
+  display: grid;
+  width: min(34rem, calc(100% - 2rem));
+  margin: clamp(1rem, 8vh, 4rem) auto;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--astra-color-border);
+  border-radius: var(--astra-radius-control);
+  color: var(--astra-color-text-muted);
+  background: var(--astra-color-surface);
+  box-shadow: var(--astra-shadow-raised);
+}
+
+.jp-jupyterlab-lightcone-inventory-message > span {
+  color: var(--astra-color-eyebrow);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jp-jupyterlab-lightcone-inventory-message p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.jp-jupyterlab-lightcone-inventory-message.is-error > span {
+  color: var(--astra-color-danger);
+}
+
+.jp-jupyterlab-lightcone-refresh-warning {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--astra-color-kind-decision);
+  color: var(--astra-color-text);
+  background: color-mix(
+    in srgb,
+    var(--astra-color-kind-decision) 12%,
+    var(--astra-color-surface)
+  );
+  font-size: 0.7rem;
+}
+
+@media (width < 800px) {
+  .jp-jupyterlab-lightcone-project-topbar {
+    gap: 0.875rem;
+    padding-inline: 1rem;
+  }
+
+  .jp-jupyterlab-lightcone-project-name {
+    display: none;
+  }
+
+  .jp-jupyterlab-lightcone-inventory-main {
+    padding: 1.5rem 1rem 3rem;
+  }
+}
+
+@media (width < 560px) {
+  .astra-ui .jp-jupyterlab-lightcone-inventory-header {
+    align-items: stretch;
+  }
+}
+
+.jp-jupyterlab-lightcone-analysis-selector {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--astra-color-text-muted);
+  font-size: 0.8rem;
+}
+
+.jp-jupyterlab-lightcone-analysis-selector select {
+  max-width: 20rem;
+  padding: 0.35rem;
+  border: 1px solid var(--astra-color-border);
+  border-radius: var(--astra-radius-control);
+  color: var(--astra-color-text);
+  background: var(--astra-color-surface);
+  font: inherit;
+}
+
+.jp-jupyterlab-lightcone-pdf {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--astra-color-canvas);
+}
+
+.jp-jupyterlab-lightcone-pdf-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--astra-color-border);
+  font-size: 0.8rem;
+}
+
+.jp-jupyterlab-lightcone-pdf-toolbar > span:first-child {
+  flex: 1;
+}
+
+.jp-jupyterlab-lightcone-pdf-toolbar button {
+  min-width: 1.5rem;
+  cursor: pointer;
+  border: 1px solid var(--astra-color-border);
+  border-radius: var(--astra-radius-control);
+  color: var(--astra-color-text);
+  background: var(--astra-color-surface);
+  font: inherit;
+}
+
+.jp-jupyterlab-lightcone-pdf-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.jp-jupyterlab-lightcone-pdf-scroll {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem;
+  overscroll-behavior: contain;
+}
+
+.jp-jupyterlab-lightcone-pdf-page {
+  position: relative;
+  margin: 0 auto 1rem;
+  background: var(--astra-color-artifact-paper);
+  box-shadow: var(--astra-shadow-raised);
+}
+
+.jp-jupyterlab-lightcone-pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* PDF.js positions each text run over its canvas glyphs. */
+.jp-jupyterlab-lightcone-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  text-align: initial;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+}
+
+.jp-jupyterlab-lightcone-pdf-text :is(span, br) {
+  position: absolute;
+  color: transparent;
+  cursor: text;
+  transform-origin: 0 0;
+  white-space: pre;
+}
+
+.jp-jupyterlab-lightcone-pdf-text ::selection,
+.jp-jupyterlab-lightcone-pdf-match {
+  color: transparent;
+  background: color-mix(
+    in srgb,
+    var(--astra-color-kind-decision) 45%,
+    transparent
+  );
+}
+
+/* JupyterLab shares the first command icon between a section and its cards. */
+.jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon {
+  background: url('./lightcone-logo.svg') center / contain no-repeat;
+}
+
+.jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg {
+  visibility: hidden;
+}

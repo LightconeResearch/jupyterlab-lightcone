@@ -1,7 +1,7 @@
 {
-  "name": "@lightcone-research/jupyterlab-lightcone-ui-tests",
+  "name": "jupyterlab-lightcone-ui-tests",
   "version": "1.0.0",
-  "description": "JupyterLab @lightcone-research/jupyterlab-lightcone Integration Tests",
+  "description": "Integration tests for Lightcone Lab",
   "private": true,
   "scripts": {
     "start": "jupyter lab --config jupyter_server_test_config.py",

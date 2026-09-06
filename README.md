@@ -1,85 +1,96 @@
-# jupyterlab_lightcone
+# Lightcone Lab
 
-[![Github Actions Status](https://github.com/LightconeResearch/jupyterlab-lightcone/workflows/Build/badge.svg)](https://github.com/LightconeResearch/jupyterlab-lightcone/actions/workflows/build.yml)
+The open AI-assisted research workbench
 
-The open AI workbench for scientific research.
-
-This extension is composed of a Python package named `jupyterlab_lightcone`
-for the server extension and a NPM package named `@lightcone-research/jupyterlab-lightcone`
-for the frontend extension.
+**Lightcone Lab** brings a research workbench into JupyterLab, connecting
+methods, evidence, and computation. The extension currently provides an ASTRA
+analysis inventory, materialized outputs, and cited papers. ASTRA is the
+analysis format; `astra.yaml` and its SDK contracts retain their names.
 
 ## Requirements
 
-- JupyterLab >= 4.0.0
+- Python >= 3.11
+- JupyterLab >= 4.5.10, < 5
+- Node.js >= 20 for extension development only
 
 ## Install
 
-To install the extension, execute:
-
 ```bash
-pip install jupyterlab_lightcone
+pip install jupyterlab-lightcone
 ```
 
-## Uninstall
+The wheel includes the frontend, shared components, and PDF.js assets.
+End users do not need Node.js or sibling source checkouts.
 
-To remove the extension, execute:
+## Use
 
-```bash
-pip uninstall jupyterlab_lightcone
+Open `astra.yaml` in the file browser, or select **Open With → Lightcone Lab**.
+The **Lightcone Lab** launcher category and command palette also offer
+**ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
+result files and starts no kernel. JupyterLab may create its standard document
+checkpoint when opening a writable file; the normal text editor remains
+available for editing.
+
+The inventory shows outputs, decisions, inputs, findings, prior insights, and
+cited papers using the shared ASTRA components. Select an analysis or record to
+inspect its details. Figures, CSV/TSV tables, and JSON tables/metrics have bounded
+previews and an action to open the full artifact. Paths, universe selection,
+validation, and artifact cache tokens come from `@astra-spec/sdk`.
+
+Launcher actions use the launcher's directory. Palette actions use the current
+project/document or file-browser directory. Opening the same project reuses its
+document tab; different projects keep their own selection and dialogs. You can
+also open an explicit project programmatically:
+
+```typescript
+app.commands.execute('jupyterlab_lightcone:open-inventory', {
+  path: 'research/astra.yaml',
+  analysisPath: '$'
+});
 ```
+
+Projects refresh after relevant file operations, through **Refresh ASTRA
+Inventory**, and by polling while the browser is visible. Multiple views of the
+same project share that work. A transient invalid edit preserves the last valid
+view and displays a notice until the project recovers.
+
+### Cited papers
+
+Cached papers are read from `~/.cache/astra/papers`, retaining access to existing
+ASTRA caches. Set `LIGHTCONE_PAPER_CACHE_DIR` in the Jupyter server environment to
+use another location; `ASTRA_PAPER_CACHE_DIR` remains supported as a fallback.
+On JupyterHub this configuration belongs to each single-user server.
+
+Missing PDFs are downloaded only when you choose **Fetch paper**, using
+`astra-tools==0.2.13`. Cache lookup and download failures do not prevent viewing
+the analysis. Cached PDFs are served from the authenticated Jupyter origin and
+support continuous scrolling, zoom, and navigation to cited passages.
+
+### Appearance
+
+Inventory components use the shared Lightcone brand and follow JupyterLab's
+light/dark theme without changing the surrounding shell.
 
 ## Troubleshoot
 
-If you are seeing the frontend extension, but it is not working, check
-that the server extension is enabled:
+Check that both extensions are enabled:
 
 ```bash
 jupyter server extension list
+jupyter labextension list
 ```
 
-If the server extension is installed and enabled, but you are not seeing
-the frontend extension, check the frontend extension is installed:
+After installing a new extension, restart JupyterLab. During development, build
+after TypeScript changes and refresh the browser; restart the server after
+Python changes.
+
+## Uninstall
 
 ```bash
-jupyter labextension list
+pip uninstall jupyterlab-lightcone
 ```
 
 ## Contributing
 
-If you would like to contribute to this extension, please refer to the [Contributing Guide](CONTRIBUTING.md).
-
-## AI Coding Assistant Support
-
-This project includes an `AGENTS.md` file with coding standards and best practices for JupyterLab extension development. The file follows the [AGENTS.md standard](https://agents.md) for cross-tool compatibility.
-
-### Compatible AI Tools
-
-`AGENTS.md` works with AI coding assistants that support the standard, including Cursor, GitHub Copilot, Windsurf, Aider, and others. For a current list of compatible tools, see [the AGENTS.md standard](https://agents.md).
-This project also includes symlinks for tool-specific compatibility:
-
-- `CLAUDE.md` → `AGENTS.md` (for Claude Code)
-
-Other conventions you might encounter:
-
-- `.cursorrules` - Cursor's YAML/JSON format (Cursor also supports AGENTS.md natively)
-- `CONVENTIONS.md` / `CONTRIBUTING.md` - For CodeConventions.ai and GitHub bots
-- Project-specific rules in JetBrains AI Assistant settings
-
-All tool-specific files should be symlinks to `AGENTS.md` as the single source of truth.
-
-### What's Included
-
-The `AGENTS.md` file provides guidance on:
-
-- Code quality rules and file-scoped validation commands
-- Naming conventions for packages, plugins, and files
-- Coding standards (TypeScript, Python)
-- Development workflow and debugging
-- Backend-frontend integration patterns (`APIHandler`, `requestAPI()`, routing)
-- Common pitfalls and how to avoid them
-
-### Customization
-
-You can edit `AGENTS.md` to add project-specific conventions or adjust guidelines to match your team's practices. The file uses plain Markdown with Do/Don't patterns and references to actual project files.
-
-**Note**: `AGENTS.md` is living documentation. Update it when you change conventions, add dependencies, or discover new patterns. Include `AGENTS.md` updates in commits that modify workflows or coding standards.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the template's development, testing,
+and packaging workflow, and [AGENTS.md](AGENTS.md) for repository conventions.
