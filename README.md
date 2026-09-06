@@ -19,7 +19,7 @@ analysis format; `astra.yaml` and its SDK contracts retain their names.
 pip install jupyterlab-lightcone
 ```
 
-The wheel includes the frontend, shared components, theme, and PDF.js assets.
+The wheel includes the frontend, shared components, and PDF.js assets.
 End users do not need Node.js or sibling source checkouts.
 
 ## Use
@@ -69,8 +69,7 @@ support continuous scrolling, zoom, and navigation to cited passages.
 ### Appearance
 
 Inventory components use the shared Lightcone brand and follow JupyterLab's
-light/dark theme without changing the surrounding shell. **Settings → Theme →
-Lightcone Light** optionally applies the branded light theme to the whole shell.
+light/dark theme without changing the surrounding shell.
 
 ## Troubleshoot
 

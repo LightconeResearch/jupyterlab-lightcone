@@ -37,7 +37,10 @@ function normalizeQuote(value: string): {
   return { aggressive, withSpaces: withSpaces.trim() };
 }
 
-/** Match a quoted passage across PDF text runs and typographic variants. */
+/**
+ * Match PDF.js text runs while retaining offsets for browser highlighting.
+ * astra-tools verifies quotes on the server and returns pages, not DOM ranges.
+ */
 export function findQuoteMatch(
   strings: string[],
   quote: string

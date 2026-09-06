@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 
+from astra.papers.cache import CachedPaper, PaperCache, PaperMetadata
 from jupyter_server.auth import authorized
 from jupyter_server.base.handlers import APIHandler
 from jupyter_server.utils import url_path_join
@@ -18,7 +19,6 @@ from tornado.iostream import StreamClosedError
 DOI_PATTERN = re.compile(r"10\.\d{4,9}/[^\s\x00-\x1f\x7f]+", re.IGNORECASE)
 PDF_CHUNK_SIZE = 1024 * 1024
 MAX_LOOKUP_DOIS = 200
-CachedPaper = tuple[Path, dict[str, object]]
 
 
 def normalize_doi(value: str) -> str:
@@ -47,14 +47,15 @@ def paper_cache_root() -> Path:
     return (
         Path(configured).expanduser()
         if configured
-        else Path.home() / ".cache" / "astra" / "papers"
+        else PaperCache().cache_dir
     )
 
 
 def cached_paper_index(cache_root: Path) -> dict[str, CachedPaper]:
     """Index valid metadata and PDFs without following paths outside the cache.
 
-    Cache directory names are an SDK detail: metadata supplies each DOI. When
+    ASTRA owns the metadata format. This index adds case-insensitive lookup and
+    containment checks that PaperCache.list_papers() does not provide. When
     multiple versions exist, prefer the unversioned paper used by ASTRA evidence.
     """
     root = cache_root.expanduser().resolve()
@@ -70,22 +71,22 @@ def cached_paper_index(cache_root: Path) -> dict[str, CachedPaper]:
             resolved_metadata.relative_to(root)
             pdf_path = metadata_path.with_name("paper.pdf").resolve()
             pdf_path.relative_to(root)
-            metadata = json.loads(resolved_metadata.read_text(encoding="utf-8"))
-            if not isinstance(metadata, dict) or not pdf_path.is_file():
+            data = json.loads(resolved_metadata.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not pdf_path.is_file():
                 continue
-            raw_doi = metadata.get("doi")
-            if not isinstance(raw_doi, str):
+            metadata = PaperMetadata.from_json(data)
+            if not isinstance(metadata.doi, str):
                 continue
-            doi = validate_doi(raw_doi)
-        except (OSError, UnicodeError, ValueError, RuntimeError, web.HTTPError):
+            doi = validate_doi(metadata.doi)
+        except (OSError, UnicodeError, ValueError, KeyError, RuntimeError, web.HTTPError):
             # A corrupt, incomplete, or externally linked cache entry must not
             # prevent access to the remaining papers.
             continue
         current = papers.get(doi)
         if current is None or (
-            current[1].get("version") is not None and metadata.get("version") is None
+            current.metadata.version is not None and metadata.version is None
         ):
-            papers[doi] = (pdf_path, metadata)
+            papers[doi] = CachedPaper(pdf_path=pdf_path, metadata=metadata)
     return papers
 
 
@@ -94,11 +95,11 @@ def find_cached_paper(doi: str, cache_root: Path) -> CachedPaper | None:
     return cached_paper_index(cache_root).get(normalize_doi(doi))
 
 
-def paper_payload(doi: str, metadata: dict[str, object]) -> dict[str, str]:
+def paper_payload(doi: str, metadata: PaperMetadata) -> dict[str, str]:
     """Expose display metadata without server paths or download-provider details."""
     payload = {"doi": normalize_doi(doi)}
-    title = metadata.get("title")
-    authors = metadata.get("authors")
+    title = metadata.title
+    authors = metadata.authors
     if isinstance(title, str) and title:
         payload["title"] = title
     if isinstance(authors, list):
@@ -158,7 +159,7 @@ class PapersRouteHandler(PaperRouteHandler):
         dois = {validate_doi(raw_doi) for raw_doi in raw_dois}
         cached = await asyncio.to_thread(cached_paper_index, self.cache_root) if dois else {}
         papers = {
-            doi: paper_payload(doi, cached[doi][1]) for doi in dois if doi in cached
+            doi: paper_payload(doi, cached[doi].metadata) for doi in dois if doi in cached
         }
         self.set_header("Cache-Control", "private, no-store")
         self.finish({"papers": papers})
@@ -176,7 +177,7 @@ class PaperPdfRouteHandler(PaperRouteHandler):
         if cached is None:
             raise web.HTTPError(404, reason="Paper is not cached")
         try:
-            stream = await asyncio.to_thread(cached[0].open, "rb")
+            stream = await asyncio.to_thread(cached.pdf_path.open, "rb")
         except OSError as error:
             raise web.HTTPError(404, reason="Cached PDF is unavailable") from error
         with stream:
@@ -212,7 +213,7 @@ class PaperFetchRouteHandler(PaperRouteHandler):
         doi = validate_doi(raw_doi)
         try:
             async with self.fetch_lock:
-                _, metadata = await asyncio.to_thread(
+                cached = await asyncio.to_thread(
                     fetch_cached_paper, doi, self.cache_root
                 )
         except ImportError as error:
@@ -225,7 +226,7 @@ class PaperFetchRouteHandler(PaperRouteHandler):
                 502, reason="Could not fetch this paper. Check the server log for details."
             ) from error
         self.set_header("Cache-Control", "private, no-store")
-        self.finish({"paper": paper_payload(doi, metadata)})
+        self.finish({"paper": paper_payload(doi, cached.metadata)})
 
 
 def setup_route_handlers(web_app: web.Application) -> None:

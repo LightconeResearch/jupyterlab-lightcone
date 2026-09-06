@@ -2846,17 +2846,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jupyterlab/theme-light-extension@npm:^4.5.10":
-  version: 4.6.3
-  resolution: "@jupyterlab/theme-light-extension@npm:4.6.3"
-  dependencies:
-    "@jupyterlab/application": ^4.6.3
-    "@jupyterlab/apputils": ^4.7.3
-    "@jupyterlab/translation": ^4.6.3
-  checksum: c64c1fb87f0644a5588c8b1aea4caed7ab1bccb622c8ccd1acaae1dcc3435983fae2587afea92f6acf8dd0225c9bbd65c995d74596cca385984a08336142bf0b
-  languageName: node
-  linkType: hard
-
 "@jupyterlab/toc@npm:^6.6.3":
   version: 6.6.3
   resolution: "@jupyterlab/toc@npm:6.6.3"
@@ -7881,7 +7870,6 @@ __metadata:
     "@jupyterlab/launcher": ^4.5.10
     "@jupyterlab/services": ^7.5.10
     "@jupyterlab/testutils": ^4.0.0
-    "@jupyterlab/theme-light-extension": ^4.5.10
     "@jupyterlab/translation": ^4.5.10
     "@jupyterlab/ui-components": ^4.5.10
     "@lightcone-research/brand": ^0.0.2

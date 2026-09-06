@@ -49,6 +49,9 @@ jupyter lab build --minimize=False
 
 ## Development uninstall
 
+Use `--sys-prefix` for both enable and disable so the configuration stays in
+the active virtual environment, alongside the development installation.
+
 ```bash
 # Server extension must be manually disabled in develop mode
 jupyter server extension disable --sys-prefix jupyterlab_lightcone

@@ -21,7 +21,6 @@ import {
   InventoryDocument,
   InventoryDocumentFactory
 } from './document-widget';
-import { themePlugin } from './theme';
 
 const PLUGIN_ID = 'jupyterlab_lightcone:plugin';
 const CATEGORY = 'Lightcone Lab';
@@ -103,4 +102,4 @@ const plugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export default [plugin, themePlugin];
+export default plugin;

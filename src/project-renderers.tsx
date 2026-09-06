@@ -6,7 +6,7 @@ import { JupyterArtifactPreview } from './artifact-preview';
 import { JupyterPaperViewer } from './paper-pdf-viewer';
 import type { ILoadedProjectData } from './project-data';
 
-/** The host's artifact and paper capabilities, shared by both surfaces. */
+/** Supply Jupyter file access and PDF rendering through ASTRA UI's host slots. */
 export function useProjectRenderers(
   contents: Contents.IManager,
   entrypoint: string,

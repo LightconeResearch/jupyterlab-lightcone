@@ -2,12 +2,12 @@
 
 import asyncio
 import json
-import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from astra.papers.cache import PaperCache
 from tornado.web import HTTPError
 
 from jupyterlab_lightcone import routes
@@ -34,22 +34,17 @@ def paper_cache(tmp_path, monkeypatch):
 
 
 def write_paper(cache: Path, name="paper", **metadata) -> Path:
-    """Write one small cache entry using ASTRA's public on-disk format."""
-    directory = cache / name
-    directory.mkdir()
-    (directory / "paper.pdf").write_bytes(PDF)
-    (directory / "meta.json").write_text(
-        json.dumps(
-            {
-                "doi": DOI,
-                "title": "Example paper",
-                "authors": ["A. Researcher", "B. Scientist"],
-                "source_url": "https://example.org/paper.pdf",
-                **metadata,
-            }
-        ),
-        encoding="utf-8",
+    """Create a real ASTRA cache entry, with controllable ordering for index tests."""
+    paper = PaperCache(cache).add(
+        metadata.pop("doi", DOI),
+        PDF,
+        title="Example paper",
+        authors=["A. Researcher", "B. Scientist"],
+        source_url="https://example.org/paper.pdf",
+        **metadata,
     )
+    directory = cache / name
+    paper.pdf_path.parent.rename(directory)
     return directory
 
 
@@ -63,9 +58,7 @@ def download(monkeypatch, paper_cache):
         return directory / "paper.pdf", SimpleNamespace(success=True, error=None)
 
     mocked = Mock(side_effect=save)
-    module = ModuleType("astra.papers.download")
-    module.download_paper_to_cache = mocked
-    monkeypatch.setitem(sys.modules, "astra.papers.download", module)
+    monkeypatch.setattr("astra.papers.download.download_paper_to_cache", mocked)
     return mocked
 
 
@@ -74,7 +67,7 @@ def test_prefers_unversioned_papers(paper_cache):
     expected = write_paper(paper_cache, "z-unversioned")
     cached = routes.find_cached_paper(f"https://doi.org/{DOI.upper()}", paper_cache)
     assert cached is not None
-    assert cached[0] == expected / "paper.pdf"
+    assert cached.pdf_path == expected / "paper.pdf"
     assert list(routes.cached_paper_index(paper_cache)) == [DOI]
 
 
