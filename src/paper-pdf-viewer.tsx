@@ -265,6 +265,7 @@ export function JupyterPaperViewer({
     ];
     void (async () => {
       setStatus('Locating quote in the PDF…');
+      let partialPage: number | undefined;
       for (const pageNumber of pages) {
         if (disposed) {
           return;
@@ -279,12 +280,15 @@ export function JupyterPaperViewer({
             'str' in item ? [item.str] : []
           );
           const match = findQuoteMatch(strings, quote);
-          if (match) {
+          if (match?.complete) {
             setFocus({ key: requested.key, page: pageNumber, quote });
             setStatus(
-              `${match.complete ? 'Quote' : 'Partial quote'} highlighted on page ${pageNumber} of ${pdf.numPages}`
+              `Quote highlighted on page ${pageNumber} of ${pdf.numPages}`
             );
             return;
+          }
+          if (match) {
+            partialPage ??= pageNumber;
           }
         } catch {
           // A page without extractable text does not prevent searching later pages.
@@ -293,7 +297,12 @@ export function JupyterPaperViewer({
       if (disposed) {
         return;
       }
-      if (citedPage && pages.includes(citedPage)) {
+      if (partialPage !== undefined) {
+        setFocus({ key: requested.key, page: partialPage, quote });
+        setStatus(
+          `Partial quote highlighted on page ${partialPage} of ${pdf.numPages}`
+        );
+      } else if (citedPage && pages.includes(citedPage)) {
         setFocus({ key: requested.key, page: citedPage, quote });
         setStatus(
           `Exact quote not found; showing cited page ${citedPage} of ${pdf.numPages}`

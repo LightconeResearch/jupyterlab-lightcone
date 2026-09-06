@@ -287,6 +287,117 @@ test('samples large CSV artifacts and refreshes previews after the artifact chan
   expect(requests.at(-1)?.url).not.toBe(originalUrl);
 });
 
+test('an explicit scope changes the analysis in a reused inventory document', async ({
+  page,
+  tmpPath
+}) => {
+  const directory = `${tmpPath}/project`;
+  await createProject(page, `${directory}/child`, 'Child analysis');
+  const path = `${directory}/astra.yaml`;
+  await page.contents.uploadContent(
+    `${analysis('Parent analysis')}analyses:\n  child:\n    path: child\n`,
+    'text',
+    path
+  );
+  const id = await openInventory(page, path);
+  const selector = page.locator(
+    '.jp-jupyterlab-lightcone-analysis-selector select'
+  );
+  for (const scope of ['child', 'root']) {
+    await page.evaluate(
+      async ({ path, scope }) => {
+        await window.jupyterapp.commands.execute(
+          'jupyterlab_lightcone:open-inventory',
+          { path, scope }
+        );
+      },
+      { path, scope }
+    );
+    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    expect(await openInventory(page, path)).toBe(id);
+    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+  }
+});
+
+for (const edit of ['remove', 'rename']) {
+  test(`recovers the analysis selection and closes obsolete details after ${edit}`, async ({
+    page,
+    tmpPath
+  }) => {
+    const directory = `${tmpPath}/project`;
+    await createProject(page, `${directory}/child`, 'Child analysis');
+    const path = `${directory}/astra.yaml`;
+    await page.contents.uploadContent(
+      `${analysis('Parent analysis')}analyses:\n  child:\n    path: child\n`,
+      'text',
+      path
+    );
+    const id = await openInventory(page, path);
+    await page.evaluate(async path => {
+      await window.jupyterapp.commands.execute(
+        'jupyterlab_lightcone:open-inventory',
+        {
+          path,
+          analysisPath: 'child',
+          openReference: { kind: 'output', id: 'sample' }
+        }
+      );
+    }, path);
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.contents.uploadContent(
+      analysis('Parent analysis') +
+        (edit === 'rename' ? 'analyses:\n  renamed:\n    path: child\n' : ''),
+      'text',
+      path
+    );
+    await page.evaluate(
+      command => window.jupyterapp.commands.execute(command),
+      REFRESH
+    );
+    const selector = page.locator(
+      '.jp-jupyterlab-lightcone-analysis-selector select'
+    );
+    await expect(selector).toHaveValue('$');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await openInventory(page, path)).toBe(id);
+    await expect(selector).toHaveValue('$');
+    if (edit === 'rename') {
+      await selector.selectOption('renamed');
+      await expect(
+        page.getByRole('heading', { name: 'Child analysis', exact: true })
+      ).toBeVisible();
+    }
+  });
+}
+
+for (const complete of [true, false]) {
+  test(`PDF navigation ${complete ? 'prefers a later complete quote' : 'falls back to the first partial quote'}`, async ({
+    page,
+    tmpPath
+  }) => {
+    const path = `${tmpPath}/astra.yaml`;
+    await page.contents.uploadContent(
+      analysis('Quote search')
+        .replace('        location:\n          page: 3\n', '')
+        .replace(QUOTE, complete ? QUOTE : `${QUOTE} An absent continuation.`),
+      'text',
+      path
+    );
+    await openInventory(page, path, { kind: 'paper', doi: DOI });
+    await page
+      .getByRole('button', { name: 'Locate source passage 1 in paper' })
+      .click();
+    const pdf = page.locator('.jp-jupyterlab-lightcone-pdf');
+    const pageNumber = complete ? 3 : 1;
+    await expect(pdf.getByRole('status')).toHaveText(
+      `${complete ? 'Quote' : 'Partial quote'} highlighted on page ${pageNumber} of 3`
+    );
+    await expect(pdf.locator(`[data-page="${pageNumber}"] mark`)).toHaveText(
+      complete ? QUOTE : 'A reproducible result appears'
+    );
+  });
+}
+
 test('reads cached PDF pages and preserves quote navigation when zooming', async ({
   page,
   tmpPath

@@ -40,15 +40,20 @@ export interface IInventoryDisplayRequest {
 
 function requestedAnalysisPath(
   data: ILoadedProjectData,
-  request: IInventoryDisplayRequest
+  request: IInventoryDisplayRequest,
+  currentPath = '$'
 ): string {
-  const requested = request.analysisPath ?? request.scope ?? '$';
+  // Retain a selection only while it exists; explicit requests still validate.
+  const retainedPath = data.index.analysisByPath.has(currentPath)
+    ? currentPath
+    : '$';
+  const requested = request.analysisPath ?? request.scope ?? retainedPath;
   const canonical =
     request.analysisPath === undefined && request.scope === 'root'
       ? '$'
       : requested;
   if (data.index.analysisByPath.has(canonical)) return canonical;
-  if (request.scope) {
+  if (request.analysisPath === undefined && request.scope) {
     const byId = [...data.index.analysisByPath.values()].find(
       analysis => analysis.id === request.scope
     );
@@ -61,9 +66,13 @@ function readyState(
   data: ILoadedProjectData,
   entrypoint: string,
   request: IInventoryDisplayRequest,
-  currentDetail: readonly DetailEntry[] = []
+  current?: Extract<InventoryPanelState, { status: 'ready' }>
 ): Extract<InventoryPanelState, { status: 'ready' }> {
-  const analysisPath = requestedAnalysisPath(data, request);
+  const analysisPath = requestedAnalysisPath(
+    data,
+    request,
+    current?.analysisPath
+  );
   const requestedDetail = request.openReference
     ? detailEntryForOpenReference(
         data.index,
@@ -76,7 +85,11 @@ function readyState(
     data,
     entrypoint,
     analysisPath,
-    detail: requestedDetail ? [requestedDetail] : [...currentDetail]
+    detail: requestedDetail
+      ? [requestedDetail]
+      : current?.analysisPath === analysisPath
+        ? current.detail
+        : []
   };
 }
 
@@ -226,10 +239,7 @@ export class AstraInventoryPanel extends ReactWidget {
     request: IInventoryDisplayRequest = {},
     entrypoint = 'astra.yaml'
   ): Promise<{ view: 'inventory'; analysisPath: string }> {
-    this._request =
-      entrypoint === this._entrypoint
-        ? { ...this._request, ...request }
-        : request;
+    this._request = request;
     if (entrypoint !== this._entrypoint) this._state = { status: 'loading' };
     this._entrypoint = entrypoint;
     const state = await this._subscription.bind(entrypoint);
@@ -267,16 +277,14 @@ export class AstraInventoryPanel extends ReactWidget {
       return;
     }
     try {
-      const currentDetail =
-        this._state.status === 'ready' ? this._state.detail : [];
       const ready = readyState(
         state.data,
         this._entrypoint,
         this._request,
-        currentDetail
+        this._state.status === 'ready' ? this._state : undefined
       );
       // Consume an external open request once; polling preserves the current stack.
-      this._request = { analysisPath: ready.analysisPath };
+      this._request = {};
       this._setState({
         ...ready,
         staleMessage: state.error,
@@ -307,7 +315,7 @@ export class AstraInventoryPanel extends ReactWidget {
           }
         }}
         onSelectAnalysis={analysisPath => {
-          this._request = { analysisPath };
+          this._request = {};
           if (this._state.status === 'ready') {
             this._setState({ ...this._state, analysisPath, detail: [] });
           }
