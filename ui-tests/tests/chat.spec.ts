@@ -48,9 +48,15 @@ decisions:
     await window.jupyterapp.commands.execute('launcher:create', { cwd });
   }, tmpPath);
   await page
-    .getByRole('button', { name: 'Discuss ASTRA project', exact: true })
+    .getByRole('button', { name: 'Agentic assistant', exact: true })
     .click();
   await expect(page.locator('.jp-chat-input-container')).toBeVisible();
+  await expect(
+    page.locator('[id="JupyterlabChat:sidepanel"] .jp-chat-input-container')
+  ).toBeVisible();
+  await expect(
+    page.locator('.jp-MainAreaWidget .jp-chat-input-container')
+  ).toHaveCount(0);
   await expect(page.locator('.jp-chat-send-button')).toBeEnabled();
   const otherContext = await browser.newContext();
   const otherPage = await otherContext.newPage();
@@ -133,6 +139,8 @@ decisions:
       .getAttribute('data-unexpected-lightcone-open')
   ).toBeNull();
   await otherContext.close();
+  // Reusing a discussion must reveal its sidebar after the user switches away.
+  await page.getByRole('tab', { name: /File Browser/ }).click();
   const added = await page.evaluate(
     async entrypoint =>
       window.jupyterapp.commands.execute('jupyterlab_lightcone:discuss', {
@@ -143,6 +151,9 @@ decisions:
   );
   expect(added.reused).toBe(true);
   await expect(
+    page.locator('[id="JupyterlabChat:sidepanel"] .jp-chat-input-container')
+  ).toBeVisible();
+  await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
   ).toContainText('outputs.figure');
   // The binding survives a full browser reload and reopening the persisted chat.
@@ -151,7 +162,7 @@ decisions:
   await page.evaluate(async filepath => {
     await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
       filepath,
-      inSidePanel: false
+      inSidePanel: true
     });
   }, `${tmpPath}/untitled.chat`);
   await expect(cards).toHaveCount(2);
@@ -241,4 +252,37 @@ prior_insights:
     return '';
   }, `${tmpPath}/astra.yaml`);
   expect(missing).toContain('not cited');
+});
+
+test('Agentic assistant uses the chat icon and explains a missing ASTRA project without creating a chat', async ({
+  page,
+  tmpPath
+}) => {
+  await page.filebrowser.openDirectory(tmpPath);
+  await page.evaluate(async cwd => {
+    await window.jupyterapp.commands.execute('launcher:create', { cwd });
+  }, tmpPath);
+  const shortcut = page.getByRole('button', {
+    name: 'Agentic assistant',
+    exact: true
+  });
+  await expect(
+    shortcut.locator('[data-icon="jupyter-chat::chat"]')
+  ).toBeVisible();
+  const writes: string[] = [];
+  page.on('request', request => {
+    if (
+      ['POST', 'PUT'].includes(request.method()) &&
+      request.url().includes('/api/contents')
+    )
+      writes.push(request.url());
+  });
+  await shortcut.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('No ASTRA project found');
+  await expect(dialog).toContainText(`${tmpPath}/astra.yaml`);
+  await expect(dialog).toContainText('Open a folder containing astra.yaml');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.locator('.jp-chat-input-container')).toHaveCount(0);
+  expect(writes).toEqual([]);
 });

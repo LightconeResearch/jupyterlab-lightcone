@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { IChatTracker, type IChatPanel } from '@jupyter/chat';
+import { chatIcon, IChatTracker, type IChatPanel } from '@jupyter/chat';
 import {
   MainAreaWidget,
   ICommandPalette,
@@ -14,7 +14,8 @@ import { ILauncher } from '@jupyterlab/launcher';
 import { PathExt } from '@jupyterlab/coreutils';
 import { recordTitle } from '@astra-spec/ui/model';
 import { CommandIDs } from './commands';
-import { astraIcon } from './icons';
+import { ServerConnection } from '@jupyterlab/services';
+import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import {
   chatContexts,
   contextForChat,
@@ -31,15 +32,23 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:chat',
   description: 'ASTRA preview cards and agent navigation in Jupyter AI chats.',
   autoStart: true,
-  optional: [IChatTracker, ICommandPalette, IFileBrowserFactory, ILauncher],
+  optional: [
+    IChatTracker,
+    ICommandPalette,
+    IFileBrowserFactory,
+    ILauncher,
+    ITranslator
+  ],
   activate: (
     app: JupyterFrontEnd,
     tracker: IChatTracker | null,
     palette: ICommandPalette | null,
     browser: IFileBrowserFactory | null,
-    launcher: ILauncher | null
+    launcher: ILauncher | null,
+    translator: ITranslator | null
   ) => {
     if (!tracker) return;
+    const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const watch = async (panel: IChatPanel) => {
       const model = panel.model;
       const id = await model.ready;
@@ -124,7 +133,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             >
               {context
                 ? `✦ ${PathExt.dirname(context.entrypoint) || 'ASTRA'} · ${context.universeId ?? 'defaults'}`
-                : (error ?? 'Discuss ASTRA project')}
+                : (error ?? trans.__('Agentic assistant'))}
             </button>
           );
         }
@@ -141,9 +150,9 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
       );
     });
     app.commands.addCommand(CommandIDs.discuss, {
-      label: 'Discuss ASTRA project',
-      caption: 'Start a Jupyter AI discussion for this ASTRA project',
-      icon: astraIcon,
+      label: trans.__('Agentic assistant'),
+      caption: trans.__('Open the agentic assistant for this ASTRA project'),
+      icon: chatIcon,
       describedBy: {
         args: {
           type: 'object',
@@ -174,6 +183,27 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             entrypoint,
             target: typeof args.target === 'string' ? args.target : ''
           });
+          // Match the inventory shortcut's guidance before creating any chat file.
+          try {
+            await app.serviceManager.contents.get(reference.entrypoint, {
+              content: false
+            });
+          } catch (error) {
+            if (
+              error instanceof ServerConnection.ResponseError &&
+              error.response.status === 404
+            ) {
+              await showErrorMessage(
+                trans.__('No ASTRA project found'),
+                trans.__(
+                  'No ASTRA project file was found at "%1". Open a folder containing astra.yaml in the file browser, then choose Agentic assistant.',
+                  reference.entrypoint
+                )
+              );
+              return null;
+            }
+            throw error;
+          }
           const lease = acquireProjectDataService(
             app.serviceManager.contents,
             entrypoint,
@@ -192,27 +222,39 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
                   : data.document.universe.universeId
             };
             // Adding a record reuses only a chat with the exact same pinned context.
-            let panel = reference.target
-              ? tracker.find(item => {
-                  try {
-                    const bound = contextForChat(item.model);
-                    return (
-                      bound?.entrypoint === context.entrypoint &&
-                      bound.universeId === context.universeId
-                    );
-                  } catch {
-                    return false;
-                  }
-                })
-              : undefined;
+            let panel =
+              reference.target || reference.doi
+                ? tracker.find(item => {
+                    try {
+                      const bound = contextForChat(item.model);
+                      return (
+                        bound?.entrypoint === context.entrypoint &&
+                        bound.universeId === context.universeId
+                      );
+                    } catch {
+                      return false;
+                    }
+                  })
+                : undefined;
             const reused = !!panel;
-            if (!panel) {
-              const widget: unknown = await app.commands.execute(
-                'jupyterlab-chat:createAndOpen',
-                { path: PathExt.dirname(entrypoint), inSidePanel: false }
-              );
-              panel = tracker.find(item => item === widget);
-            }
+            const draft = panel?.model.input.value ?? '';
+            const filepath: unknown = panel
+              ? panel.model.name
+              : await app.commands.execute('jupyterlab-chat:create', {
+                  path: PathExt.dirname(reference.entrypoint),
+                  inSidePanel: true
+                });
+            if (typeof filepath !== 'string' || !filepath)
+              throw new Error('The chat could not be created.');
+            // A newly opened sidebar chat returns null; locate its tracked panel by path.
+            // The native open command also reveals the sidebar and selects a reused chat.
+            await app.commands.execute('jupyterlab-chat:open', {
+              filepath,
+              inSidePanel: true
+            });
+            panel = tracker.find(
+              item => item.area === 'sidebar' && item.model.name === filepath
+            );
             if (!panel)
               throw new Error(
                 'The chat did not open. Check that Jupyter AI is enabled.'
@@ -221,10 +263,9 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             panel.model.input.updateMetadata({ lightcone: context });
             chatContexts.set(id, context);
             if (reused) {
-              panel.model.input.value += `${panel.model.input.value ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}.`;
+              panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}.`;
             } else
               panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.doi ? `, especially paper DOI ${reference.doi}` : reference.target ? `, especially ${reference.target}` : ''}. Use lightcone_project_context to inspect its real targets, use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
-            app.shell.activateById(panel.id);
             panel.model.input.focus();
             return { ...context, chatId: id, reused };
           } finally {
@@ -232,7 +273,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
           }
         } catch (reason) {
           await showErrorMessage(
-            'Could not start ASTRA discussion',
+            trans.__('Could not open Agentic assistant'),
             reason instanceof Error ? reason : String(reason)
           );
           return null;
