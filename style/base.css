@@ -1,26 +1,5 @@
-/*
- * Cascade contract for the shared ASTRA components.
- *
- * @astra-spec/ui keeps every rule inside the `astra.*` cascade layers so that a
- * host can override any of it with plain CSS. JupyterLab does exactly that,
- * unintentionally: `@jupyterlab/application` and `@jupyterlab/ui-components`
- * style `button`, `a`, `select` and the `code`/`pre` family on every element
- * below `.jp-ThemedContainer` (its UI font, a 2px radius, the code font and
- * size), and an unlayered declaration beats a layered one at any specificity.
- * The one unlayered rule below hands those elements back to the layered
- * cascade with `revert-layer`, so the brand and the components render as
- * written. Everything this extension styles itself lives in the `lightcone`
- * layer, declared after astra-ui's layers so it still takes precedence there.
- *
- * The brand adapter maps every astra-ui token to a Lightcone value; nothing
- * here redefines a token from a JupyterLab setting.
- */
+/* Shared UI isolation comes from @astra-spec/ui/isolate.css. Host chrome stays in its own layer. */
 @layer astra.tokens, astra.base, astra.components, astra.views, lightcone;
-
-.jp-jupyterlab-lightcone-InventoryPanel.astra-ui.lightcone-brand
-  :is(a, button, input, select, textarea, code, kbd, pre, samp, tt) {
-  all: revert-layer;
-}
 
 @layer lightcone {
   .jp-jupyterlab-lightcone-InventoryPanel {
@@ -30,7 +9,7 @@
     overflow: hidden;
     color: var(--astra-color-text);
     background: var(--astra-color-canvas);
-    font-family: var(--astra-font-ui);
+    font-family: var(--astra-font-body);
   }
 
   .jp-jupyterlab-lightcone-inventory-page {
@@ -39,7 +18,7 @@
     overflow: auto;
     color: var(--astra-color-text);
     background: var(--astra-color-canvas);
-    font-family: var(--astra-font-ui);
+    font-family: var(--astra-font-body);
   }
 
   .jp-jupyterlab-lightcone-project-topbar {

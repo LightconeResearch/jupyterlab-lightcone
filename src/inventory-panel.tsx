@@ -228,6 +228,7 @@ export class AstraInventoryPanel extends ReactWidget {
     this.title.closable = true;
     this.addClass('jp-jupyterlab-lightcone-InventoryPanel');
     this.addClass('astra-ui');
+    this.addClass('astra-isolate');
     this.addClass('lightcone-brand');
     this._themeBinding = new LightconeThemeBinding(themeManager, this.node);
     this._subscription = new ProjectSubscription(contents, state =>

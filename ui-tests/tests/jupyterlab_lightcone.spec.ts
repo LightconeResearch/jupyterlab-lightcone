@@ -540,9 +540,11 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
     };
   });
   // astra-ui's md step, not JupyterLab's --jp-ui-font-size1.
-  expect(styles.panel['font-size']).toBe('14px');
+  expect(styles.panel['font-size']).toBe('15px');
   // The brand's mono stack, not JupyterLab's code font.
-  expect(styles.panel['--astra-font-mono']).toContain('IBM Plex Mono');
+  expect(styles.panel['--astra-font-mono']).toContain(
+    'Lightcone Brand JetBrains Mono'
+  );
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );

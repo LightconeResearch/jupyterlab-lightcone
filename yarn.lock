@@ -26,9 +26,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@astra-spec/ui@npm:^0.0.4":
+"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@d9645a0#package.tgz":
   version: 0.0.4
-  resolution: "@astra-spec/ui@npm:0.0.4"
+  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@d9645a0#package.tgz"
   dependencies:
     "@floating-ui/react": ^0.27.20
     katex: ^0.16.47
@@ -36,7 +36,7 @@ __metadata:
     "@astra-spec/sdk": ^0.1.1
     react: ">=18 <20"
     react-dom: ">=18 <20"
-  checksum: 03a1519a1eb8a337bff364ad7e731ff455b7fdf867e91d8923a65f8a1b3e515ecf7f5a7feaf27b29df2f5a463041fa8e0af2be1cf181c43a723fe57caa75132f
+  checksum: 7403e7bfa8f153877a6440577034179a1f9ddca08a452815027521d62bf5e70a1cd8bb577d62b586b3ababd7bd13d97af1cd98e4b80504e6c044dc5a37757d21
   languageName: node
   linkType: hard
 
@@ -3070,15 +3070,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@lightcone-research/brand@npm:^0.0.2":
+"@lightcone-research/brand@git+https://github.com/LightconeResearch/brand.git#2c142328a45378f6b6397a67537f9bca454f7a9a":
   version: 0.0.2
-  resolution: "@lightcone-research/brand@npm:0.0.2"
+  resolution: "@lightcone-research/brand@https://github.com/LightconeResearch/brand.git#commit=2c142328a45378f6b6397a67537f9bca454f7a9a"
   peerDependencies:
     "@astra-spec/ui": ">=0.0.1 <0.1"
   peerDependenciesMeta:
     "@astra-spec/ui":
       optional: true
-  checksum: a85735cfd08492f07d4a9c2c307bd5cef174210c7079f961dd42c1b69cae67de284b697d895fcae893d61970e579d13524159dbe457e78f0278b2274d9edc4df
+  checksum: 359887ce75cbbe8a92a63302aa57446366d07e44c46be81a7ae8545f689be01353bfbcdbebe4fa9ad97fdce4eba023f65fe52bac9ce6c082c7e01104df900e67
   languageName: node
   linkType: hard
 
@@ -7857,7 +7857,7 @@ __metadata:
   resolution: "jupyterlab-lightcone@workspace:."
   dependencies:
     "@astra-spec/sdk": ^0.1.2
-    "@astra-spec/ui": ^0.0.4
+    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@d9645a0#package.tgz"
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/eslint-plugin": ^1.1.0
@@ -7872,7 +7872,7 @@ __metadata:
     "@jupyterlab/testutils": ^4.0.0
     "@jupyterlab/translation": ^4.5.10
     "@jupyterlab/ui-components": ^4.5.10
-    "@lightcone-research/brand": ^0.0.2
+    "@lightcone-research/brand": "git+https://github.com/LightconeResearch/brand.git#2c142328a45378f6b6397a67537f9bca454f7a9a"
     "@lumino/coreutils": ^2.2.0
     "@lumino/polling": ^2.1.6
     "@lumino/signaling": ^2.1.6

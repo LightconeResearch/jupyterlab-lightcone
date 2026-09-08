@@ -75,7 +75,7 @@ The brand adapter from `@lightcone-research/brand` supplies every ASTRA UI
 token; the extension does not redefine any of them from JupyterLab settings.
 JupyterLab styles plain `button`, `a`, `select`, `code` and `pre` elements
 throughout its shell, which would otherwise override the shared components'
-layered styles (`style/base.css` explains the cascade). Inside the inventory
+layered styles (the shared `@astra-spec/ui/isolate.css` defines the boundary). Inside the inventory
 those elements are handed back to the ASTRA UI and brand layers, so they render
 exactly as the shared components define them.
 
@@ -102,3 +102,15 @@ pip uninstall jupyterlab-lightcone
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the template's development, testing,
 and packaging workflow, and [AGENTS.md](AGENTS.md) for repository conventions.
+
+The ASTRA appearance follows the publication reference through the shared brand
+adapter. Font assets, type sizes and kind marks come from the shared packages;
+this extension owns layout, theme synchronization and the `astra-isolate` scope.
+
+This rendering migration is coordinated with [Astra UI #20](https://github.com/LightconeResearch/astra-ui/pull/20)
+and [brand #3](https://github.com/LightconeResearch/brand/pull/3). The review branch
+pins immutable preview dependencies; installing the private brand commit requires
+repository access. Publish UI and brand, then replace both preview pins with the
+released package versions and regenerate the lockfile before merging this branch.
+The UI preview URL includes a `#package.tgz` fragment for Yarn 3's archive resolver;
+this fragment does not change the downloaded package.
