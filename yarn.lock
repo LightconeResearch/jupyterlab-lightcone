@@ -26,9 +26,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@c170278#package.tgz":
+"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@edd7653#package.tgz":
   version: 0.0.4
-  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@c170278#package.tgz"
+  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@edd7653#package.tgz"
   dependencies:
     "@floating-ui/react": ^0.27.20
     katex: ^0.16.47
@@ -36,7 +36,7 @@ __metadata:
     "@astra-spec/sdk": ^0.1.1
     react: ">=18 <20"
     react-dom: ">=18 <20"
-  checksum: 28505cdaaa705cbdf4b2ad3995de8bb4961be0fd21ddd1ed7914fc1ed8fcb201256c1ea61cd94cce28e0a095fadad361cc792c5948baa1a11f6a10c87f8e00a9
+  checksum: f016116a77635d85bb2a075bd8a7990fc3f455c86cd965bba3cea82908eef27637a7bfaab88b691c46b6fc007566aec203c1c101dd157d8bb866574f56f4a46b
   languageName: node
   linkType: hard
 
@@ -3070,15 +3070,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@lightcone-research/brand@git+https://github.com/LightconeResearch/brand.git#6dde3145cc255e9fa257756e9c5c56cac0e12a3f":
+"@lightcone-research/brand@git+https://github.com/LightconeResearch/brand.git#584fe2fb4c94ed62cf4a68c4a54277b04caa1465":
   version: 0.0.2
-  resolution: "@lightcone-research/brand@https://github.com/LightconeResearch/brand.git#commit=6dde3145cc255e9fa257756e9c5c56cac0e12a3f"
+  resolution: "@lightcone-research/brand@https://github.com/LightconeResearch/brand.git#commit=584fe2fb4c94ed62cf4a68c4a54277b04caa1465"
   peerDependencies:
     "@astra-spec/ui": ">=0.0.1 <0.1"
   peerDependenciesMeta:
     "@astra-spec/ui":
       optional: true
-  checksum: a2b9f7a9d09db4e3c5bcdef11de6da7e3cc1277dab0e138bb8f8e8911ac6ad838f0071957bec26047a90a565adbe41f8a286118b5786cccc1cd9cfde99ebc163
+  checksum: 30b760f193102c9aded4358f2b3808fc380e74596287d12cf1fd1f7c27d7b2bfe633f16b2d09fa1e0097165395cd1dfbc3cfb8aaff5b5098378a5854241e697c
   languageName: node
   linkType: hard
 
@@ -7857,7 +7857,7 @@ __metadata:
   resolution: "jupyterlab-lightcone@workspace:."
   dependencies:
     "@astra-spec/sdk": ^0.1.2
-    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@c170278#package.tgz"
+    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@edd7653#package.tgz"
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/eslint-plugin": ^1.1.0
@@ -7872,7 +7872,7 @@ __metadata:
     "@jupyterlab/testutils": ^4.0.0
     "@jupyterlab/translation": ^4.5.10
     "@jupyterlab/ui-components": ^4.5.10
-    "@lightcone-research/brand": "git+https://github.com/LightconeResearch/brand.git#6dde3145cc255e9fa257756e9c5c56cac0e12a3f"
+    "@lightcone-research/brand": "git+https://github.com/LightconeResearch/brand.git#584fe2fb4c94ed62cf4a68c4a54277b04caa1465"
     "@lumino/coreutils": ^2.2.0
     "@lumino/polling": ^2.1.6
     "@lumino/signaling": ^2.1.6
