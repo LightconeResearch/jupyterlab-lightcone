@@ -546,13 +546,10 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );
+  // The selector inherits body text; card titles and buttons use the UI face.
+  expect(styles.selector['font-family']).toContain('Lightcone Brand Newsreader');
   for (const family of [
     styles.cardTitle['font-family'],
-    styles.selector['font-family']
-  ]) {
-    expect(family).toContain('Lightcone Brand Newsreader');
-  }
-  for (const family of [
     styles.action['font-family'],
     styles.close['font-family']
   ]) {
