@@ -61,6 +61,11 @@ prior_insights:
     .click();
   await expect(page.locator('.jp-chat-input-container')).toBeVisible();
   await expect(
+    page.locator('.jp-chat-input-container').getByRole('combobox')
+  ).toContainText(
+    'Use project defaults (no universe override) for decisions and artifacts.'
+  );
+  await expect(
     page.locator('[id="JupyterlabChat:sidepanel"] .jp-chat-input-container')
   ).toBeVisible();
   await expect(
@@ -254,6 +259,74 @@ prior_insights:
     page.locator('.jp-jupyterlab-lightcone-chat-context')
   ).toContainText('defaults');
   expect(errors).toEqual([]);
+});
+
+test('prepared prompts expose each bound universe, including reused drafts', async ({
+  page,
+  tmpPath
+}) => {
+  const entrypoint = `${tmpPath}/astra.yaml`;
+  await page.contents.uploadContent(
+    `version: "0.0.14"
+name: Multiple universes
+inputs: []
+outputs: []
+decisions:
+  method:
+    label: Which estimator?
+    options:
+      robust:
+        label: Robust estimator
+      fast:
+        label: Fast estimator
+    default: robust
+`,
+    'text',
+    entrypoint
+  );
+  for (const [id, option] of [
+    ['baseline', 'robust'],
+    ['alternate', 'fast']
+  ])
+    await page.contents.uploadContent(
+      `id: ${id}\ndecisions:\n  method: ${option}\n`,
+      'text',
+      `${tmpPath}/universes/${id}.yaml`
+    );
+  const composer = page
+    .locator('.jp-chat-input-container')
+    .getByRole('combobox');
+  const chatIds = new Set<string>();
+  for (const universeId of ['baseline', 'alternate']) {
+    const context = await page.evaluate(
+      async args =>
+        window.jupyterapp.commands.execute(
+          'jupyterlab_lightcone:discuss',
+          args
+        ),
+      { entrypoint, universeId }
+    );
+    expect(context.universeId).toBe(universeId);
+    chatIds.add(context.chatId);
+    await expect(composer).toContainText(
+      `Use the bound universe "${universeId}" for decisions and artifacts.`
+    );
+    await composer.fill('Compare the options.');
+    const reused = await page.evaluate(
+      async args =>
+        window.jupyterapp.commands.execute(
+          'jupyterlab_lightcone:discuss',
+          args
+        ),
+      { entrypoint, universeId, target: 'decisions.method' }
+    );
+    expect(reused.reused).toBe(true);
+    await expect(composer).toContainText('Compare the options.');
+    await expect(composer).toContainText(
+      `Discuss ASTRA element decisions.method. Use the bound universe "${universeId}" for decisions and artifacts.`
+    );
+  }
+  expect(chatIds.size).toBe(2);
 });
 
 test('opens only cited papers as native tabs without downloading them', async ({

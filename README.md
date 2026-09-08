@@ -81,7 +81,8 @@ launcher section at the top of the launcher page. The gold chat shortcut opens
 Jupyter Chat in the left sidebar and uses the
 launcher’s current folder. Outside an ASTRA project it shows guidance for opening
 a folder containing `astra.yaml`. Review and send the prepared
-prompt. Each discussion keeps its project and universe fixed; start a new one to
+prompt, which names the bound universe or explicitly requests project defaults.
+Each discussion keeps its project and universe fixed; start a new one to
 change them. The project chip shows that binding, including after reopening a
 saved `.chat` file.
 

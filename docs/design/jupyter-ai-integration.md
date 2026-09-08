@@ -26,6 +26,8 @@ The agent can call `lightcone_open_element` to open a tab directly instead.
 **Lightcone Agent** uses the native chat icon in Lightcone gold and opens a bound conversation in
 the left Jupyter Chat sidebar, with visible tool guidance. Outside an ASTRA project,
 it shows the same missing-project guidance as the inventory shortcut.
+Prepared prompts name the bound universe (or explicit project defaults) in the
+message body, since ACP does not forward the chat's metadata to the agent.
 The project chip identifies the binding. Existing Jupyter AI model/persona selection
 continues to work normally.
 

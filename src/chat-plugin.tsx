@@ -257,10 +257,15 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             const id = await panel.model.ready;
             panel.model.input.updateMetadata({ lightcone: context });
             chatContexts.set(id, context);
+            // ACP forwards the body, so the binding must also be visible prose.
+            const universePrompt =
+              context.universeId === null
+                ? 'Use project defaults (no universe override) for decisions and artifacts.'
+                : `Use the bound universe "${context.universeId}" for decisions and artifacts.`;
             if (reused) {
-              panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}.`;
+              panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}. ${universePrompt}`;
             } else
-              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.doi ? `, especially paper DOI ${reference.doi}` : reference.target ? `, especially ${reference.target}` : ''}. Read astra.yaml and its referenced project files directly to inspect real targets. Use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
+              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.doi ? `, especially paper DOI ${reference.doi}` : reference.target ? `, especially ${reference.target}` : ''}. ${universePrompt} Read astra.yaml and its referenced project files directly to inspect real targets. Use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
             panel.model.input.focus();
             return { ...context, chatId: id, reused };
           } finally {
