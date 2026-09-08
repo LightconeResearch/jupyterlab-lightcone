@@ -108,9 +108,6 @@ adapter. Font assets, type sizes and kind marks come from the shared packages;
 this extension owns layout, theme synchronization and the `astra-isolate` scope.
 
 This rendering migration is coordinated with [Astra UI #20](https://github.com/LightconeResearch/astra-ui/pull/20)
-and [brand #3](https://github.com/LightconeResearch/brand/pull/3). The review branch
-pins immutable preview dependencies; installing the private brand commit requires
-repository access. Publish UI and brand, then replace both preview pins with the
-released package versions and regenerate the lockfile before merging this branch.
-The UI preview URL includes a `#package.tgz` fragment for Yarn 3's archive resolver;
-this fragment does not change the downloaded package.
+and [brand #3](https://github.com/LightconeResearch/brand/pull/3). Dependencies use the published npm packages. This migration needs new UI and brand
+releases; update both dependency versions and regenerate the lockfile after those
+releases are available, before publishing the host application.

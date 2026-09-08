@@ -26,9 +26,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@334d2bd#package.tgz":
+"@astra-spec/ui@npm:0.0.4":
   version: 0.0.4
-  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@334d2bd#package.tgz"
+  resolution: "@astra-spec/ui@npm:0.0.4"
   dependencies:
     "@floating-ui/react": ^0.27.20
     katex: ^0.16.47
@@ -36,7 +36,7 @@ __metadata:
     "@astra-spec/sdk": ^0.1.1
     react: ">=18 <20"
     react-dom: ">=18 <20"
-  checksum: 04f6973c29b14b8e7b1bbe7740b9c54bb28bda6cd648d179463f4e53897bc6f913b0b19d16208472c814190a7fa805da13caee66a49b5e82bb80ba4ddc9065ed
+  checksum: 03a1519a1eb8a337bff364ad7e731ff455b7fdf867e91d8923a65f8a1b3e515ecf7f5a7feaf27b29df2f5a463041fa8e0af2be1cf181c43a723fe57caa75132f
   languageName: node
   linkType: hard
 
@@ -3070,15 +3070,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@lightcone-research/brand@https://pkg.pr.new/@lightcone-research/brand@70dbf36#package.tgz":
+"@lightcone-research/brand@npm:0.0.2":
   version: 0.0.2
-  resolution: "@lightcone-research/brand@https://pkg.pr.new/@lightcone-research/brand@70dbf36#package.tgz"
+  resolution: "@lightcone-research/brand@npm:0.0.2"
   peerDependencies:
     "@astra-spec/ui": ">=0.0.1 <0.1"
   peerDependenciesMeta:
     "@astra-spec/ui":
       optional: true
-  checksum: 3d4f5e11963ce0c1ee87a95faf7a57a2d296e218957d958f10786a34557cc8d0f153b1cefca060f908bd5be4b49eede656af7bb85410807de0fa4208b366feda
+  checksum: a85735cfd08492f07d4a9c2c307bd5cef174210c7079f961dd42c1b69cae67de284b697d895fcae893d61970e579d13524159dbe457e78f0278b2274d9edc4df
   languageName: node
   linkType: hard
 
@@ -7857,7 +7857,7 @@ __metadata:
   resolution: "jupyterlab-lightcone@workspace:."
   dependencies:
     "@astra-spec/sdk": ^0.1.2
-    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@334d2bd#package.tgz"
+    "@astra-spec/ui": 0.0.4
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/eslint-plugin": ^1.1.0
@@ -7872,7 +7872,7 @@ __metadata:
     "@jupyterlab/testutils": ^4.0.0
     "@jupyterlab/translation": ^4.5.10
     "@jupyterlab/ui-components": ^4.5.10
-    "@lightcone-research/brand": "https://pkg.pr.new/@lightcone-research/brand@70dbf36#package.tgz"
+    "@lightcone-research/brand": 0.0.2
     "@lumino/coreutils": ^2.2.0
     "@lumino/polling": ^2.1.6
     "@lumino/signaling": ^2.1.6
