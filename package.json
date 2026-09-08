@@ -57,7 +57,7 @@
     },
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
-        "@astra-spec/ui": "^0.0.3",
+        "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@07d48bb.tgz",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
         "@jupyterlab/coreutils": "^6.5.10",

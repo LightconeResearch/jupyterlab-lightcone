@@ -3,11 +3,7 @@ import {
   type AnalysisIndex,
   type ResolvedRecord
 } from '@astra-spec/sdk';
-import {
-  paperEntry,
-  recordEntry,
-  type DetailEntry
-} from '@astra-spec/ui/components';
+import { paperEntry, recordEntry, type DetailEntry } from '@astra-spec/ui/lib';
 
 export type InventoryRecordKind = ResolvedRecord['kind'];
 

@@ -7,7 +7,7 @@ import {
   tablePreviewFromDelimited,
   tablePreviewFromRows,
   type ArtifactPreviewData
-} from '@astra-spec/ui/components';
+} from '@astra-spec/ui/lib';
 import { projectDirectory } from './project-data';
 
 const TABLE_PREVIEW_ROWS = 30;

@@ -4,7 +4,7 @@ import { listIcon } from '@jupyterlab/ui-components';
 import { analysisTitle } from '@astra-spec/ui/model';
 import { SurfaceHeader } from '@astra-spec/ui/primitives';
 import { Inventory } from '@astra-spec/ui/views';
-import type { DetailEntry } from '@astra-spec/ui/components';
+import type { DetailEntry } from '@astra-spec/ui/lib';
 import React, { useId } from 'react';
 import { useProjectRenderers } from './project-renderers';
 import type { ILoadedProjectData } from './project-data';

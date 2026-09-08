@@ -1,8 +1,6 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import {
-  ArtifactPreview,
-  type ArtifactPreviewData
-} from '@astra-spec/ui/components';
+import { ArtifactPreview } from '@astra-spec/ui/components';
+import type { ArtifactPreviewData } from '@astra-spec/ui/lib';
 import React, { useEffect, useState } from 'react';
 import { JupyterArtifactAccess } from './artifact-access';
 
