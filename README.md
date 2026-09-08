@@ -107,7 +107,5 @@ The ASTRA appearance follows the publication reference through the shared brand
 adapter. Font assets, type sizes and kind marks come from the shared packages;
 this extension owns layout, theme synchronization and the `astra-isolate` scope.
 
-This rendering migration is coordinated with [Astra UI #20](https://github.com/LightconeResearch/astra-ui/pull/20)
-and [brand #3](https://github.com/LightconeResearch/brand/pull/3). Dependencies use the published npm packages. This migration needs new UI and brand
-releases; update both dependency versions and regenerate the lockfile after those
-releases are available, before publishing the host application.
+The shared rendering contract uses published `@astra-spec/ui` 0.0.5 and
+`@lightcone-research/brand` 0.0.3, installed from npm.
