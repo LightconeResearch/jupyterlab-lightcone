@@ -21,6 +21,7 @@ export interface IProjectContext {
 export interface IElementReference extends IProjectContext {
   target: string;
   doi?: string;
+  focusInsightPath?: string;
 }
 export interface IResolvedElement {
   analysis: ResolvedAnalysisNode;
@@ -48,6 +49,12 @@ export function parseElementReference(
     throw new Error('Invalid DOI.');
   if (args.doi && args.target)
     throw new Error('Use a target or a DOI, not both.');
+  if (
+    args.focusInsightPath !== undefined &&
+    (typeof args.focusInsightPath !== 'string' ||
+      !canonicalRecordPath(parseAstraPath(args.focusInsightPath)))
+  )
+    throw new Error('Invalid source insight path.');
   assertProjectPath(args.entrypoint);
   if (!/(^|\/)astra\.yaml$/.test(args.entrypoint))
     throw new Error('Expected an astra.yaml entrypoint.');
@@ -61,7 +68,10 @@ export function parseElementReference(
     entrypoint: PathExt.normalize(args.entrypoint),
     target: args.target,
     ...(typeof args.doi === 'string' ? { doi: normalizeDoi(args.doi) } : {}),
-    universeId: args.universeId
+    universeId: args.universeId,
+    ...(typeof args.focusInsightPath === 'string'
+      ? { focusInsightPath: args.focusInsightPath }
+      : {})
   };
 }
 

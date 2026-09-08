@@ -154,9 +154,34 @@ records, not new files or editable document models.
 | Unsupported target/media               | Existing source/full-artifact action where applicable | Explain the limitation; do not build a new detail surface here                                |
 
 Deduplicate tabs by entrypoint, canonical owning record (or DOI) and resolution
-context; child navigation reuses the owner tab. Related-record actions open/focus
-other tabs. Persist identifiers and selections, then resolve again on restoration.
-Removed records keep an unavailable state instead of redirecting to another ID.
+context; child navigation reuses the owner tab. Each result group reuses its
+unpinned ASTRA preview. Pinning promotes the preview to a retained view; subsequent
+opens use a different preview in that group. Pins are explicit through the toolbar,
+native tab context menu, command palette, or double-clicking the native tab label
+or card's Open in tab button. Moving a tab also retains it. Focusing an older pinned
+tab does not redirect later agent results or make it replaceable. Opens are
+serialized, with pin eligibility checked after data resolution.
+
+Use JupyterLab's native tab strip, docking, close controls, and restoration. The
+first result may split beside a sufficiently wide source; later results join the
+existing result group. There is no nested tab strip or Back/Forward navigation.
+Preview titles are italic; pinned titles have a pin marker. Pinning retains record
+identity, not a snapshot. Save the current reference and pin state under a stable
+widget ID, so replacing a preview does not leave old records in the workspace.
+Restoration does not require a readable project: removed records show an unavailable
+state, and project loading errors can recover through the shared data service.
+
+JupyterLab and Lumino do not provide a public preview/pinning API:
+[JupyterLab #5745](https://github.com/jupyterlab/jupyterlab/issues/5745) and
+[Lumino #498](https://github.com/jupyterlab/lumino/issues/498).
+The adapter uses the public shell tab-bar API and native title metadata; it can be
+replaced when core provides this behavior. Native tab-title editing takes precedence
+over double-click pinning when a host enables it.
+
+Use shared ASTRA headers, details, and actions with a compact project/analysis/universe
+toolbar. Decisions and other reading views have a bounded column. Figures and tables
+use the available width with provenance beside them, stacking in narrow panels.
+Cited papers use the shared reader and can locate the originating insight's quote.
 Show project/scope in captions to distinguish identical labels.
 
 Extend the existing shared project service's entrypoint key with resolution

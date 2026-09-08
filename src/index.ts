@@ -1,5 +1,6 @@
 import {
   ILayoutRestorer,
+  ILabShell,
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
@@ -39,7 +40,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     ILauncher,
     IFileBrowserFactory,
     ILayoutRestorer,
-    ITranslator
+    ITranslator,
+    ILabShell
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -49,7 +51,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     launcher: ILauncher | null,
     browser: IFileBrowserFactory | null,
     restorer: ILayoutRestorer | null,
-    translator: ITranslator | null
+    translator: ITranslator | null,
+    shell: ILabShell | null
   ) => {
     const inventories = new WidgetTracker<InventoryDocument>({
       namespace: 'lightcone-inventory'
@@ -83,7 +86,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     });
     app.docRegistry.addWidgetFactory(factory);
-    registerElementCommands(app, themes, restorer);
+    registerElementCommands(app, themes, restorer, shell);
+    palette?.addItem({ command: CommandIDs.pinElement, category: CATEGORY });
     registerCommands({
       app,
       documents,

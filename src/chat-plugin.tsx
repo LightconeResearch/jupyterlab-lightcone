@@ -221,9 +221,9 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             panel.model.input.updateMetadata({ lightcone: context });
             chatContexts.set(id, context);
             if (reused) {
-              panel.model.input.value += `${panel.model.input.value ? '\n\n' : ''}Discuss ASTRA element ${reference.target}.`;
+              panel.model.input.value += `${panel.model.input.value ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}.`;
             } else
-              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.target ? `, especially ${reference.target}` : ''}. Use lightcone_project_context to inspect its real targets, use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
+              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.doi ? `, especially paper DOI ${reference.doi}` : reference.target ? `, especially ${reference.target}` : ''}. Use lightcone_project_context to inspect its real targets, use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
             app.shell.activateById(panel.id);
             panel.model.input.focus();
             return { ...context, chatId: id, reused };

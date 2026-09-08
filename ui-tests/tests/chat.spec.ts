@@ -110,6 +110,14 @@ decisions:
     await expect(
       page.locator('.jp-RenderedMySTMarkdown').first()
     ).toBeVisible();
+  await figure
+    .getByRole('button', { name: 'Open in tab', exact: true })
+    .dblclick();
+  await expect(
+    page
+      .locator('.jp-jupyterlab-lightcone-element:visible')
+      .getByRole('button', { name: 'Pinned', exact: true })
+  ).toBeVisible();
   const result = await page.evaluate(
     async entrypoint =>
       window.jupyterapp.commands.execute('jupyterlab_lightcone:open-element', {
@@ -170,6 +178,10 @@ prior_insights:
     evidence:
       - id: source
         doi: 10.1234/continuous-test
+        quote:
+          exact: A reproducible result appears on the final page.
+        location:
+          page: 3
 `,
     'text',
     `${tmpPath}/astra.yaml`
@@ -187,6 +199,36 @@ prior_insights:
   await expect(
     page.locator('.jp-jupyterlab-lightcone-element canvas').first()
   ).toBeVisible();
+  await page.evaluate(
+    async entrypoint =>
+      window.jupyterapp.commands.execute('jupyterlab_lightcone:open-element', {
+        entrypoint,
+        target: 'prior_insights.precedent'
+      }),
+    `${tmpPath}/astra.yaml`
+  );
+  await page.getByRole('button', { name: 'Locate passage in paper' }).click();
+  const pdf = page.getByRole('group', {
+    name: 'PDF viewer for Continuous scrolling test paper',
+    exact: true
+  });
+  await expect(pdf.getByRole('status')).toHaveText(
+    'Quote highlighted on page 3 of 3'
+  );
+  await expect(
+    page.getByRole('heading', {
+      name: 'Continuous scrolling test paper',
+      exact: true
+    })
+  ).toBeInViewport();
+  await expect(
+    pdf.getByRole('button', { name: 'Zoom PDF in', exact: true })
+  ).toBeInViewport();
+  await page.screenshot({ path: test.info().outputPath('native-paper.png') });
+  await test.info().attach('native-paper', {
+    path: test.info().outputPath('native-paper.png'),
+    contentType: 'image/png'
+  });
   const missing = await page.evaluate(async entrypoint => {
     try {
       await window.jupyterapp.commands.execute(

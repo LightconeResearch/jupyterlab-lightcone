@@ -49,7 +49,9 @@ async def lightcone_open_element(
     entrypoint is a Jupyter Contents path to astra.yaml. target is a rooted
     MySTRA path, e.g. decisions.covariance_source or clustering.outputs.xi.
     For a cited paper, pass doi and leave target empty. Inspect real targets
-    with lightcone_project_context first. Repeated opens reuse the tab.
+    with lightcone_project_context first. Opens reuse the unpinned ASTRA preview
+    in this project and universe. User-pinned tabs are retained; opening an
+    already visible record focuses its tab. Pinning is controlled by the user.
     This does not execute recipes or download missing papers. A timeout is
     unconfirmed: the tab may have opened, and retrying is safe.
     """

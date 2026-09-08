@@ -5,20 +5,33 @@ import {
   type IThemeManager
 } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
+import type { CommandRegistry } from '@lumino/commands';
 import {
   PaperDetail,
+  PaperDialogActions,
   DecisionDetail,
   OutputDetail,
+  OutputDialogActions,
   FindingDetail,
   InputDetail,
   InsightDetail
 } from '@astra-spec/ui/components';
 import {
+  Dialog,
+  DialogContent,
+  DialogBody,
+  DialogHeader,
+  Button
+} from '@astra-spec/ui/primitives';
+import {
   recordTitle,
+  analysisTitle,
   decisionInsights,
   outputRelations,
   findingEvidence,
-  informedDecisions
+  informedDecisions,
+  primaryLiteratureEvidence,
+  isInsight
 } from '@astra-spec/ui/model';
 import type { ResolvedRecord } from '@astra-spec/sdk';
 import {
@@ -33,7 +46,7 @@ import {
 import { useProjectRenderers } from './project-renderers';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
-import type { CommandRegistry } from '@lumino/commands';
+import { astraIcon } from './icons';
 
 /** Share project resolution with every tab and visible chat card. */
 export function useProject(
@@ -72,227 +85,365 @@ export function useProject(
   return { ...state, fetchPaper };
 }
 
-function Detail({
-  reference,
-  contents,
-  commands
-}: {
-  reference: IElementReference;
+interface IDetailProps {
+  widget: ElementWidget;
   contents: Contents.IManager;
   commands: CommandRegistry;
-}): React.ReactElement {
-  const state = useProject(contents, reference);
+}
+
+function Detail({
+  widget,
+  contents,
+  commands
+}: IDetailProps): React.ReactElement {
+  const state = useProject(contents, widget.reference);
   return (
-    <div className="jp-jupyterlab-lightcone-element">
+    <main className="jp-jupyterlab-lightcone-element">
       {state.error && (
-        <p role="status">
+        <p className="jp-jupyterlab-lightcone-refresh-warning" role="status">
           Showing last valid data, if available: {state.error}
         </p>
       )}
+      {state.paperError && (
+        <p role="status">Paper metadata is unavailable: {state.paperError}</p>
+      )}
       {state.data ? (
         <DetailBody
-          reference={reference}
+          key={widget.identity}
+          widget={widget}
           contents={contents}
           commands={commands}
           data={state.data}
           fetchPaper={state.fetchPaper}
         />
       ) : (
-        <p>{state.error ?? 'Loading ASTRA element…'}</p>
+        <p className="jp-jupyterlab-lightcone-element-message" role="status">
+          {state.error ?? 'Loading ASTRA element…'}
+        </p>
       )}
-    </div>
+    </main>
   );
 }
 
 function DetailBody({
-  reference,
+  widget,
   contents,
   commands,
   data,
   fetchPaper
-}: {
-  reference: IElementReference;
-  contents: Contents.IManager;
-  commands: CommandRegistry;
+}: IDetailProps & {
   data: NonNullable<IProjectDataState['data']>;
   fetchPaper: (doi: string) => void;
 }): React.ReactElement {
+  const reference = widget.reference;
   const renderers = useProjectRenderers(
     contents,
     reference.entrypoint,
     data,
     fetchPaper
   );
+  const [expanded, setExpanded] = useState(false);
   let resolved: ReturnType<typeof resolveReference> | undefined;
   try {
     resolved = resolveReference(data, reference);
   } catch {
-    /* Keep removed elements visible as unavailable tabs. */
+    /* Keep a removed record visible as unavailable. */
   }
+  const record = resolved?.record;
+  const paper = resolved?.paper;
+  const label = record ? recordTitle(record) : paper?.title;
+  useEffect(() => {
+    if (label) widget.title.label = label;
+  }, [widget, label]);
   const open = (next: ResolvedRecord) => {
     void commands
       .execute(CommandIDs.openElement, {
         ...reference,
         doi: undefined,
-        target: next.canonicalPath
+        focusInsightPath: undefined,
+        target: next.canonicalPath,
+        sourceWidgetId: widget.tabId
       })
       .catch(reason =>
         showErrorMessage('Could not open ASTRA element', reason)
       );
   };
-  if (resolved?.paper)
-    return (
-      <>
-        <h1>{resolved.paper.title}</h1>
-        <PaperDetail
-          record={resolved.paper}
-          metadata={data.papers[resolved.paper.doi]}
-          loadPdfJs={renderers.loadPdfJs}
-          onFetchPaper={fetchPaper}
-          onOpenInsight={open}
-          onOpenDecision={open}
-        />
-      </>
+  let body: React.ReactNode;
+  let actions: React.ReactNode;
+  if (paper) {
+    const focus = reference.focusInsightPath
+      ? data.index.recordByPath.get(reference.focusInsightPath)
+      : undefined;
+    body = (
+      <PaperDetail
+        record={paper}
+        metadata={data.papers[paper.doi]}
+        focusInsight={isInsight(focus) ? focus : undefined}
+        loadPdfJs={renderers.loadPdfJs}
+        onFetchPaper={fetchPaper}
+        onOpenInsight={open}
+        onOpenDecision={open}
+      />
     );
-  const record = resolved?.record;
-  if (!record)
-    return (
-      <p role="status">
+    actions = <PaperDialogActions record={paper} />;
+  } else if (record) {
+    switch (record.kind) {
+      case 'output':
+        body = (
+          <OutputDetail
+            record={record}
+            relations={outputRelations(data.index, record)}
+            renderArtifact={renderers.renderArtifact}
+            onOpenRecord={open}
+            expanded={expanded}
+            onExpandedChange={setExpanded}
+          />
+        );
+        actions = (
+          <OutputDialogActions
+            record={record}
+            onOpenArtifact={
+              data.bindings.some(
+                binding => binding.outputPath === record.canonicalPath
+              )
+                ? async output => {
+                    try {
+                      await renderers.onOpenArtifact?.(output);
+                    } catch (reason) {
+                      await showErrorMessage(
+                        'Could not open artifact',
+                        String(reason)
+                      );
+                    }
+                  }
+                : undefined
+            }
+            expanded={expanded}
+            onExpandedChange={setExpanded}
+          />
+        );
+        break;
+      case 'decision':
+        body = (
+          <DecisionDetail
+            record={record}
+            insights={decisionInsights(data.index, record)}
+            onOpenInsight={open}
+          />
+        );
+        break;
+      case 'finding':
+        body = (
+          <FindingDetail
+            record={record}
+            evidence={findingEvidence(data.index, record)}
+            onOpenRecord={open}
+          />
+        );
+        break;
+      case 'input':
+        body = <InputDetail record={record} />;
+        break;
+      case 'prior_insight': {
+        const doi = primaryLiteratureEvidence(record)?.doi;
+        body = (
+          <InsightDetail
+            record={record}
+            decisions={informedDecisions(data.document, record)}
+            onOpenDecision={open}
+            onOpenSource={
+              doi
+                ? () => {
+                    void commands
+                      .execute(CommandIDs.openElement, {
+                        ...reference,
+                        target: '',
+                        doi,
+                        focusInsightPath: record.canonicalPath,
+                        sourceWidgetId: widget.tabId
+                      })
+                      .catch(reason =>
+                        showErrorMessage('Could not open cited paper', reason)
+                      );
+                  }
+                : undefined
+            }
+          />
+        );
+        break;
+      }
+    }
+  } else {
+    body = (
+      <p className="jp-jupyterlab-lightcone-element-message" role="status">
         This ASTRA element is no longer available:{' '}
         {reference.doi ?? reference.target}
       </p>
     );
-  let body: React.ReactNode;
-  switch (record.kind) {
-    case 'output':
-      body = (
-        <OutputDetail
-          record={record}
-          relations={outputRelations(data.index, record)}
-          renderArtifact={renderers.renderArtifact}
-          onOpenRecord={open}
-        />
-      );
-      break;
-    case 'decision':
-      body = (
-        <DecisionDetail
-          record={record}
-          insights={decisionInsights(data.index, record)}
-          onOpenInsight={open}
-        />
-      );
-      break;
-    case 'finding':
-      body = (
-        <FindingDetail
-          record={record}
-          evidence={findingEvidence(data.index, record)}
-          onOpenRecord={open}
-        />
-      );
-      break;
-    case 'input':
-      body = <InputDetail record={record} />;
-      break;
-    case 'prior_insight':
-      body = (
-        <InsightDetail
-          record={record}
-          decisions={informedDecisions(data.document, record)}
-          onOpenDecision={open}
-          onOpenSource={() => {
-            const doi =
-              record?.kind === 'prior_insight'
-                ? record.evidence.find(e => e.doi)?.doi
-                : undefined;
-            if (doi)
-              void commands
-                .execute(CommandIDs.openElement, {
-                  ...reference,
-                  target: '',
-                  doi
-                })
-                .catch(reason =>
-                  showErrorMessage('Could not open cited paper', reason)
-                );
-          }}
-        />
-      );
-      break;
   }
+  const kind = record?.kind ?? (paper ? 'paper' : 'analysis');
+  const kindLabel =
+    record?.kind === 'output'
+      ? record.type
+      : kind === 'prior_insight'
+        ? 'Prior insight'
+        : kind;
+  const reader =
+    kind === 'paper' ||
+    (record?.kind === 'output' && ['figure', 'table'].includes(record.type));
   return (
     <>
-      <header>
-        <h1>{recordTitle(record)}</h1>
-        <code>{reference.target}</code>
-        <div>
-          <button
-            onClick={() => {
-              void commands
-                .execute(CommandIDs.discuss, { ...reference })
-                .catch(reason =>
-                  showErrorMessage('Could not open ASTRA discussion', reason)
-                );
-            }}
-            disabled={!commands.hasCommand(CommandIDs.discuss)}
-          >
-            Add to chat
-          </button>
-          {record.kind === 'output' && (
-            <button
-              onClick={() => {
-                if (record?.kind === 'output')
-                  void Promise.resolve(
-                    renderers.onOpenArtifact?.(record)
-                  ).catch(reason =>
-                    showErrorMessage('Could not open artifact', reason)
-                  );
-              }}
-            >
-              Open full artifact
-            </button>
+      <div className="jp-jupyterlab-lightcone-element-toolbar">
+        <div
+          className="jp-jupyterlab-lightcone-element-context"
+          title={reference.entrypoint}
+        >
+          <span>{data.document.analysis.name}</span>
+          {resolved?.analysis.canonicalPath !== '$' && resolved?.analysis && (
+            <span>{analysisTitle(resolved.analysis)}</span>
           )}
+          <span className="jp-jupyterlab-lightcone-element-universe">
+            Universe: {reference.universeId ?? 'defaults'}
+          </span>
         </div>
-      </header>
-      {body}
+        <Button
+          size="small"
+          disabled={widget.isPinned}
+          onClick={() => {
+            void commands
+              .execute(CommandIDs.pinElement, { widgetId: widget.tabId })
+              .catch(reason =>
+                showErrorMessage('Could not pin ASTRA tab', reason)
+              );
+          }}
+        >
+          <span
+            className="jp-jupyterlab-lightcone-pin-icon"
+            aria-hidden="true"
+          />
+          {widget.isPinned ? 'Pinned' : 'Pin tab'}
+        </Button>
+      </div>
+      <div
+        className="jp-jupyterlab-lightcone-element-content"
+        data-reader={reader}
+        data-kind={kind}
+      >
+        <Dialog
+          // The native dialog's top layer escapes Lumino's strict containment.
+          mode={expanded ? 'modal' : 'embedded'}
+          onOpenChange={setExpanded}
+          kind={kind}
+          layout={reader ? 'reader' : 'single'}
+        >
+          <DialogContent>
+            <DialogHeader
+              showCloseButton={false}
+              kindLabel={kindLabel}
+              title={label ?? widget.title.label}
+              titleAs="h1"
+              identifier={reference.doi ?? reference.target}
+              actions={
+                <>
+                  {actions}
+                  <Button
+                    className="astra-dialog__action"
+                    size="small"
+                    disabled={!commands.hasCommand(CommandIDs.discuss)}
+                    onClick={() => {
+                      void commands
+                        .execute(CommandIDs.discuss, { ...reference })
+                        .catch(reason =>
+                          showErrorMessage(
+                            'Could not open ASTRA discussion',
+                            reason
+                          )
+                        );
+                    }}
+                  >
+                    Add to chat
+                  </Button>
+                </>
+              }
+            />
+            <DialogBody>{body}</DialogBody>
+          </DialogContent>
+        </Dialog>
+      </div>
     </>
   );
 }
 
-/** Native view of an ASTRA record; owns only its React lifecycle and theme binding. */
+/** Native ASTRA view with replaceable content and an explicit user-owned pin. */
 export class ElementWidget extends ReactWidget {
   constructor(
     public reference: IElementReference,
     private contents: Contents.IManager,
     themes: IThemeManager,
     private commands: CommandRegistry,
-    readonly identity: string
+    public identity: string,
+    readonly tabId: string,
+    private _isPinned = false
   ) {
     super();
     this.addClass('jp-jupyterlab-lightcone-ElementWidget');
     this.addClass('astra-ui');
     this.addClass('lightcone-brand');
+    this.title.icon = astraIcon;
+    this.title.dataset = { 'lightcone-element': tabId };
+    this._syncPin();
     this._theme = new LightconeThemeBinding(themes, this.node);
   }
-  /** Retain child navigation while reusing the owning record's tab. */
-  display(reference: IElementReference): void {
+
+  get isPinned(): boolean {
+    return this._isPinned;
+  }
+
+  /** Promotion never disables closing, moving, or live project refresh. */
+  pin(): void {
+    this._isPinned = true;
+    this._syncPin();
+    this.update();
+  }
+
+  /** Replace an unpinned preview, or navigate within the same retained owner. */
+  display(reference: IElementReference, identity: string, label: string): void {
+    if (this.isPinned && identity !== this.identity)
+      throw new Error('Cannot replace a pinned ASTRA tab.');
     this.reference = reference;
+    this.identity = identity;
+    this.title.label = label;
+    this.title.caption = `${reference.entrypoint} · ${reference.universeId ?? 'defaults'} · ${reference.doi ?? reference.target}`;
     this.update();
   }
 
   render(): React.ReactElement {
     return (
-      <Detail
-        reference={this.reference}
-        contents={this.contents}
-        commands={this.commands}
-      />
+      <Detail widget={this} contents={this.contents} commands={this.commands} />
     );
   }
+
   dispose(): void {
+    if (this.isDisposed) return;
     this._theme.dispose();
     super.dispose();
+  }
+
+  private _syncPin(): void {
+    const classes = this.title.className
+      .split(' ')
+      .filter(
+        name =>
+          name &&
+          name !== 'jp-jupyterlab-lightcone-preview-tab' &&
+          name !== 'jp-jupyterlab-lightcone-pinned-tab'
+      );
+    classes.push(
+      this.isPinned
+        ? 'jp-jupyterlab-lightcone-pinned-tab'
+        : 'jp-jupyterlab-lightcone-preview-tab'
+    );
+    this.title.className = classes.join(' ');
   }
   private _theme: LightconeThemeBinding;
 }

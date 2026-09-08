@@ -14,6 +14,9 @@ from jupyterlab.galata import configure_jupyter_server
 
 configure_jupyter_server(c)
 
+# Package-index DNS delays must not block the server during browser checks.
+c.LabApp.extension_manager = "readonly"
+
 # Keep the user's real ASTRA cache untouched and avoid external PDF downloads.
 paper_cache = TemporaryDirectory(prefix="lightcone-galata-papers-")
 atexit.register(paper_cache.cleanup)

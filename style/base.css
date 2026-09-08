@@ -208,24 +208,226 @@
     visibility: hidden;
   }
 
+  .jp-jupyterlab-lightcone-ElementWidget {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .jp-jupyterlab-lightcone-preview-tab .lm-TabBar-tabLabel {
+    font-style: italic;
+  }
+
+  .jp-jupyterlab-lightcone-pinned-tab .lm-TabBar-tabLabel::before,
+  .jp-jupyterlab-lightcone-pin-icon {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+    margin-right: 5px;
+    background: currentcolor;
+    mask: url('./pin.svg') center / contain no-repeat;
+    content: '';
+  }
+
   .jp-jupyterlab-lightcone-element {
-    box-sizing: border-box;
-    height: 100%;
-    overflow: auto;
-    padding: 24px;
-    color: var(--jp-ui-font-color1);
-    background: var(--jp-layout-color0);
-    font-family: var(--jp-ui-font-family);
-  }
-
-  .jp-jupyterlab-lightcone-element > header {
-    margin-bottom: 24px;
-  }
-
-  .jp-jupyterlab-lightcone-element > header > div {
     display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--astra-color-text);
+    background: var(--astra-color-canvas);
+  }
+
+  .jp-jupyterlab-lightcone-element-toolbar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
     gap: 12px;
-    margin-top: 12px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-element-context {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+    gap: 6px 12px;
+    font: 0.8125rem/1.4 var(--astra-font-ui);
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-element-universe {
+    color: var(--astra-color-text-subtle);
+    font: 0.6875rem/1.6 var(--astra-font-mono);
+  }
+
+  .jp-jupyterlab-lightcone-element-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 28px clamp(16px, 3vw, 40px);
+    container-type: inline-size;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-reader='false']
+    > .astra-dialog {
+    max-width: 800px;
+    margin-inline: auto;
+  }
+
+  .jp-jupyterlab-lightcone-element-content
+    .astra-dialog[data-mode='embedded']
+    > .astra-dialog__panel {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-dialog__header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    margin-bottom: 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .astra-ui
+    .jp-jupyterlab-lightcone-element-content
+    [data-slot='surface-header-title'] {
+    font: 700 1.875rem/1.15 var(--astra-font-heading);
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-element-content
+    [data-slot='surface-header-identifier'] {
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-dialog__body {
+    display: block;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    border-top: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-detail__layout {
+    height: auto;
+    max-height: none;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-detail__main {
+    display: block;
+    padding: 24px 0;
+    overflow: visible;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-detail__section:first-child {
+    border-block-start: 0;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-paper-detail__artifact {
+    height: clamp(12rem, calc(100cqh - 3rem), 52rem);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /* Keep passage scrolling inside the reader, below the paper heading. */
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper'] {
+    display: flex;
+    overflow: hidden;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper'] > .astra-dialog,
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper']
+    > .astra-dialog
+    > .astra-dialog__panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper']
+    .astra-dialog__header {
+    flex: 0 0 auto;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper']
+    .astra-dialog__body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    container-type: size;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-output-detail__layout {
+    height: auto;
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+
+  .jp-jupyterlab-lightcone-element-content
+    .astra-output-detail__layout[data-layout='single'] {
+    grid-template-columns: 1fr;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-output-detail__result {
+    padding: 24px 20px 24px 0;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-output-detail__provenance {
+    padding: 24px 0 24px 20px;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-insight-list {
+    margin-top: 28px;
+  }
+
+  .jp-jupyterlab-lightcone-element-message {
+    padding: 24px;
+    overflow-wrap: anywhere;
+  }
+
+  @container (width < 700px) {
+    .jp-jupyterlab-lightcone-element-content .astra-output-detail__layout,
+    .jp-jupyterlab-lightcone-element-content .astra-paper-detail__layout,
+    .jp-jupyterlab-lightcone-element-content .astra-detail__layout {
+      grid-template-columns: minmax(0, 1fr);
+      max-height: none;
+    }
+
+    .jp-jupyterlab-lightcone-element-content .astra-output-detail__result {
+      padding: 20px 0;
+    }
+
+    .jp-jupyterlab-lightcone-element-content .astra-output-detail__provenance {
+      padding: 20px 0;
+      border-left: 0;
+      border-top: 1px solid var(--astra-color-border);
+    }
+
+    .jp-jupyterlab-lightcone-element-content .astra-decision-options li {
+      grid-template-columns: 16px minmax(0, 1fr);
+    }
+
+    .jp-jupyterlab-lightcone-element-content
+      .astra-decision-options
+      li
+      > small {
+      grid-column: 2;
+    }
   }
 
   .jp-jupyterlab-lightcone-card-open,

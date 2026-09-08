@@ -78,9 +78,9 @@ function CardBody({
       <p role="status">This ASTRA element is unavailable: {String(reason)}</p>
     );
   }
-  const navigate = (target: string) => {
+  const navigate = (target: string, pinned = false) => {
     void app.commands
-      .execute(CommandIDs.openElement, { ...reference, target })
+      .execute(CommandIDs.openElement, { ...reference, target, pinned })
       .catch(reason =>
         showErrorMessage('Could not open ASTRA element', reason)
       );
@@ -113,6 +113,7 @@ function CardBody({
         className="jp-jupyterlab-lightcone-card-open"
         type="button"
         onClick={() => navigate(reference.target)}
+        onDoubleClick={() => navigate(reference.target, true)}
       >
         Open in tab
       </button>

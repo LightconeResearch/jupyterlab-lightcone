@@ -98,7 +98,7 @@ The built-in Jupyter MCP server discovers four tools:
 - `lightcone_project_context`: discover the bound project and its real targets.
 - `lightcone_read_element`: inspect bounded details and artifact availability.
 - `lightcone_preview_element`: display a card in chat (the default presentation).
-- `lightcone_open_element`: open a separate native tab.
+- `lightcone_open_element`: open or reuse a native ASTRA tab.
 
 Tools require a connected originating browser and a bound Lightcone discussion.
 Cards are attributed to the calling agent; repeated previews of the same target
@@ -122,7 +122,16 @@ app.commands.execute('jupyterlab_lightcone:open-element', {
 });
 ```
 
-Repeated opens reuse the record's tab. Option/evidence paths open their owner.
+New results reuse an unpinned preview tab in the same project, universe, and
+result group. Its native tab title is italic. Choose **Pin tab**, double-click
+the native tab title or a card's **Open in tab** button, or use **Pin ASTRA tab**
+in the tab context menu/command palette to keep that result. Moving a tab also
+pins it. Later results use another preview tab alongside retained tabs.
+Opening an already displayed record focuses it without creating a duplicate.
+Pins keep the record's identity while its data stays live; tabs remain movable
+and closable. The layout, records, and pins survive a browser reload.
+
+Option/evidence paths open their owner.
 Analysis/collection paths use the inventory, which currently supports its
 automatically selected universe; other pinned universes support record tabs.
 Missing outputs stay unavailable and papers download only through **Fetch paper**.
