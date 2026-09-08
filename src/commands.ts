@@ -12,6 +12,12 @@ import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
 
 export namespace CommandIDs {
+  export const pinElement = 'jupyterlab_lightcone:pin-element';
+  export const unpinElement = 'jupyterlab_lightcone:unpin-element';
+  export const restoreElement = 'jupyterlab_lightcone:restore-element';
+  export const openElement = 'jupyterlab_lightcone:open-element';
+  export const resolvePreview = 'jupyterlab_lightcone:resolve-preview';
+  export const discuss = 'jupyterlab_lightcone:discuss';
   export const openInventory = 'jupyterlab_lightcone:open-inventory';
   export const refresh = 'jupyterlab_lightcone:refresh';
 }
