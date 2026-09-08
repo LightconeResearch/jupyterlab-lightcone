@@ -32,9 +32,10 @@ PyPI. Build steps run in a separate job without publishing credentials.
 
 1. Wait for **Build** and **Check Release** to pass on the commit to release.
    **Check Release** uses Jupyter Releaser only to validate packaging; it does not
-   publish packages. Its dry-run checkout uses a unique `0.0.0-rc.<run_id>` version
-   so the check cannot collide with published release tags. This does not change
-   the source version or select the next release version.
+   publish packages. Its dry-run checkout uses the next source patch version with
+   a unique `-rc.<run_id>` suffix, avoiding collisions with published release tags
+   while satisfying Hatch's requirement for an increasing version. This does not
+   change the source version or select the next release version.
 2. Open **Releases → Draft a new release** in GitHub. Create a tag at the tested
    commit for the version you want to publish, optionally prefixed with `v`.
    For example, tag `0.0.2` or `v0.0.2` publishes version `0.0.2`. No separate
