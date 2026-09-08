@@ -71,6 +71,14 @@ support continuous scrolling, zoom, and navigation to cited passages.
 Inventory components use the shared Lightcone brand and follow JupyterLab's
 light/dark theme without changing the surrounding shell.
 
+The brand adapter from `@lightcone-research/brand` supplies every ASTRA UI
+token; the extension does not redefine any of them from JupyterLab settings.
+JupyterLab styles plain `button`, `a`, `select`, `code` and `pre` elements
+throughout its shell, which would otherwise override the shared components'
+layered styles (`style/base.css` explains the cascade). Inside the inventory
+those elements are handed back to the ASTRA UI and brand layers, so they render
+exactly as the shared components define them.
+
 ## Troubleshoot
 
 Check that both extensions are enabled:

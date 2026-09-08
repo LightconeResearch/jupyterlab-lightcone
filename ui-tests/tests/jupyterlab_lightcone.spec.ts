@@ -488,3 +488,78 @@ test('reads cached PDF pages and preserves quote navigation when zooming', async
 
   await expect(pdf).toHaveCount(0);
 });
+
+test('renders the shared components in the Lightcone brand, free of JupyterLab element styles', async ({
+  page,
+  tmpPath
+}) => {
+  const path = await createProject(
+    page,
+    `${tmpPath}/project`,
+    'Branded project'
+  );
+  await openInventory(page, path, { kind: 'output', id: 'sample' });
+  await expect(page.getByRole('dialog')).toBeVisible();
+  const styles = await page.evaluate(() => {
+    const read = (selector: string, properties: string[]) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`No element matches ${selector}.`);
+      const computed = getComputedStyle(element);
+      return Object.fromEntries(
+        properties.map(property => [
+          property,
+          computed.getPropertyValue(property).trim()
+        ])
+      );
+    };
+    return {
+      panel: read('.jp-jupyterlab-lightcone-InventoryPanel', [
+        'font-size',
+        'color',
+        '--astra-font-mono',
+        '--jp-code-font-family'
+      ]),
+      card: read('.astra-output-card', ['border-radius']),
+      cardTitle: read('.astra-output-card__body strong', ['font-family']),
+      outlineLink: read('.astra-inventory-outline a', [
+        'color',
+        'text-decoration-line'
+      ]),
+      selector: read('.jp-jupyterlab-lightcone-analysis-selector select', [
+        'font-family',
+        'border-radius'
+      ]),
+      action: read('dialog[open] .astra-dialog__action', [
+        'border-radius',
+        'font-family'
+      ]),
+      close: read('dialog[open] .astra-dialog__actions > .astra-icon-button', [
+        'border-radius',
+        'font-family'
+      ])
+    };
+  });
+  // astra-ui's md step, not JupyterLab's --jp-ui-font-size1.
+  expect(styles.panel['font-size']).toBe('14px');
+  // The brand's mono stack, not JupyterLab's code font.
+  expect(styles.panel['--astra-font-mono']).toContain('IBM Plex Mono');
+  expect(styles.panel['--astra-font-mono']).not.toBe(
+    styles.panel['--jp-code-font-family']
+  );
+  for (const family of [
+    styles.cardTitle['font-family'],
+    styles.selector['font-family'],
+    styles.action['font-family'],
+    styles.close['font-family']
+  ]) {
+    expect(family).toContain('Lightcone Brand Alegreya');
+  }
+  // `.jp-ThemedContainer button` would round every button to 2px.
+  expect(styles.card['border-radius']).toBe('0px');
+  expect(styles.selector['border-radius']).toBe('0px');
+  expect(styles.action['border-radius']).toBe('6px');
+  expect(styles.close['border-radius']).toBe('6px');
+  // `.jp-ThemedContainer a` would unset the outline's subtle link colour.
+  expect(styles.outlineLink['text-decoration-line']).toBe('none');
+  expect(styles.outlineLink.color).not.toBe(styles.panel.color);
+});
