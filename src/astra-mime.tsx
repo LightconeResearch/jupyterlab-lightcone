@@ -36,7 +36,7 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
   return (
     <div
       ref={node}
-      className="astra-ui lightcone-brand jp-jupyterlab-lightcone-card"
+      className="astra-ui astra-isolate lightcone-brand jp-jupyterlab-lightcone-card"
     >
       {state.error && <p role="status">{state.error}</p>}
       {state.data ? (

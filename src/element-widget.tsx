@@ -388,6 +388,7 @@ export class ElementWidget extends ReactWidget {
     super();
     this.addClass('jp-jupyterlab-lightcone-ElementWidget');
     this.addClass('astra-ui');
+    this.addClass('astra-isolate');
     this.addClass('lightcone-brand');
     this.title.icon = astraIcon;
     this.title.dataset = { 'lightcone-element': tabId };
