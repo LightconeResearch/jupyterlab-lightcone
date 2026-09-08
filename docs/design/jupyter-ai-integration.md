@@ -228,9 +228,9 @@ The agent reads `astra.yaml` and referenced files through its existing file tool
 Only presentation needs an MCP tool. The internal preview resolver returns the
 validated reference and label, without exposing a separate read/context API.
 
-| Tool                                                             | Purpose                                                    |
-| ---------------------------------------------------------------- | ---------------------------------------------------------- |
-| `lightcone_preview_element(entrypoint, target)`                  | Publish an agent-attributed MIME preview in the bound chat |
+| Tool                                                              | Purpose                                                    |
+| ----------------------------------------------------------------- | ---------------------------------------------------------- |
+| `lightcone_preview_element(entrypoint, target)`                   | Publish an agent-attributed MIME preview in the bound chat |
 | `lightcone_open_element(entrypoint, target?, universe_id?, doi?)` | Open/focus a native record or cited-paper tab              |
 
 Python imports are lazy so inventory, native tabs and the MIME renderer work
