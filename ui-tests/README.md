@@ -51,6 +51,23 @@ will be opened in your browser at the end of the tests execution; see
 [Playwright documentation](https://playwright.dev/docs/test-reporters#html-reporter)
 for configuring that behavior.
 
+## MySTRA Viewer integration
+
+`tests/mystra.spec.ts` exercises the real MyST CLI and a built ASTRA template.
+It is skipped unless `MYSTRA_TEST_TEMPLATE` names an absolute template directory.
+With the extension installed and `myst` available in the server environment, run
+from `ui-tests/`:
+
+```sh
+MYSTRA_TEST_TEMPLATE=/absolute/path/astra-theme/themes/article jlpm playwright test tests/mystra.spec.ts
+MYSTRA_TEST_TEMPLATE=/absolute/path/astra-theme/themes/book jlpm playwright test tests/mystra.spec.ts
+```
+
+The template must support `mystra-viewer.v1`. The test checks tab reuse,
+navigation, updates after saving, and restart while blocking direct browser
+connections to the private theme/content ports. Run it against assembled release
+templates as well when validating packaging.
+
 ## Update the tests snapshots
 
 > Start from the repository root and activate the project environment with

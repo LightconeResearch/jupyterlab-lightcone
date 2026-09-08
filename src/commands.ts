@@ -10,8 +10,11 @@ import { astraIcon } from './icons';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
+import { startMySTRA } from './api';
+import { MySTRAViewer } from './mystra-viewer';
 
 export namespace CommandIDs {
+  export const openMySTRA = 'jupyterlab_lightcone:open-mystra';
   export const openInventory = 'jupyterlab_lightcone:open-inventory';
   export const refresh = 'jupyterlab_lightcone:refresh';
 }
@@ -58,6 +61,66 @@ export function registerCommands(options: ICommandOptions): void {
     }
     return 'astra.yaml';
   };
+
+  const viewers = new Map<string, MySTRAViewer>();
+  app.commands.addCommand(CommandIDs.openMySTRA, {
+    label: trans.__('MySTRA Viewer'),
+    caption: trans.__('Open this project with its ASTRA publication theme'),
+    describedBy: {
+      args: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          cwd: { type: 'string' },
+          fromContextMenu: { type: 'boolean' }
+        }
+      }
+    },
+    icon: astraIcon,
+    execute: async args => {
+      try {
+        const current = app.shell.currentWidget;
+        const context = current
+          ? documents.contextForWidget(current)
+          : undefined;
+        const fileBrowser = browser?.tracker.currentWidget;
+        const selected = fileBrowser ? [...fileBrowser.selectedItems()] : [];
+        const path =
+          typeof args.path === 'string'
+            ? args.path
+            : typeof args.cwd === 'string'
+              ? args.cwd
+              : args.fromContextMenu === true && selected[0]
+                ? selected[0].path
+                : current instanceof MySTRAViewer
+                  ? current.path
+                  : (context?.path ??
+                    selected[0]?.path ??
+                    fileBrowser?.model.path ??
+                    '');
+        const session = await startMySTRA(contents.serverSettings, path);
+        let viewer = viewers.get(session.path);
+        if (!viewer || viewer.isDisposed) {
+          viewer = new MySTRAViewer(
+            session,
+            contents.serverSettings,
+            options.translator
+          );
+          viewers.set(session.path, viewer);
+          app.shell.add(viewer, 'main');
+          viewer.disposed.connect(() => viewers.delete(session.path));
+        }
+        app.shell.activateById(viewer.id);
+        return viewer;
+      } catch (error) {
+        await showErrorMessage(
+          trans.__('Could not open MySTRA Viewer'),
+          error instanceof Error ? error : String(error)
+        );
+        return undefined;
+      }
+    }
+  });
 
   app.commands.addCommand(CommandIDs.openInventory, {
     label: trans.__('ASTRA Inventory'),

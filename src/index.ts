@@ -99,6 +99,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
     palette?.addItem({ command: CommandIDs.openInventory, category: CATEGORY });
     launcher?.add({ command: CommandIDs.openInventory, category: CATEGORY });
     palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
+    palette?.addItem({ command: CommandIDs.openMySTRA, category: CATEGORY });
+    launcher?.add({ command: CommandIDs.openMySTRA, category: CATEGORY });
+    app.contextMenu.addItem({
+      command: CommandIDs.openMySTRA,
+      selector: '.jp-DirListing-item',
+      args: { fromContextMenu: true },
+      rank: 20
+    });
   }
 };
 

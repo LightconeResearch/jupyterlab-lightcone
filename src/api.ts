@@ -111,3 +111,106 @@ export async function fetchPaper(
     throw paperError(error);
   }
 }
+
+/** Status of an owner-scoped, managed MySTRA project. */
+export interface IMySTRASession {
+  id: string;
+  path: string;
+  state: 'starting' | 'ready' | 'failed';
+  message: string;
+  url: string;
+  logs: string[];
+}
+
+/** Validate the server's viewer contract before assigning an iframe URL. */
+function mySTRASession(value: unknown): IMySTRASession {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    !/^[a-f0-9]{32}$/.test(value.id) ||
+    typeof value.path !== 'string' ||
+    (value.state !== 'starting' &&
+      value.state !== 'ready' &&
+      value.state !== 'failed') ||
+    typeof value.message !== 'string' ||
+    typeof value.url !== 'string' ||
+    !value.url.startsWith('/') ||
+    value.url.startsWith('//') ||
+    !value.url.endsWith(`/mystra/${value.id}/site/`) ||
+    !Array.isArray(value.logs) ||
+    !value.logs.every(item => typeof item === 'string')
+  ) {
+    throw new Error('The server returned an invalid MySTRA viewer session.');
+  }
+  return {
+    id: value.id,
+    path: value.path,
+    state: value.state,
+    message: value.message,
+    url: value.url,
+    logs: value.logs
+  };
+}
+
+/** Explain API errors without including an HTML error page. */
+function mySTRAError(error: unknown): Error {
+  if (error instanceof ServerConnection.ResponseError) {
+    const detail = /<!doctype|<html/i.test(error.message)
+      ? 'The server returned an HTML error page.'
+      : error.message;
+    return new Error(
+      `MySTRA request failed (${error.response.status}): ${detail}`
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+/** Start or reuse the CLI for the nearest local MyST project. */
+export async function startMySTRA(
+  settings: ServerConnection.ISettings,
+  path: string
+): Promise<IMySTRASession> {
+  try {
+    return mySTRASession(
+      await requestAPI('mystra/sessions', settings, {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+  } catch (error) {
+    throw mySTRAError(error);
+  }
+}
+
+/** Read status and renew the viewer's lease. */
+export async function readMySTRA(
+  settings: ServerConnection.ISettings,
+  id: string
+): Promise<IMySTRASession> {
+  try {
+    return mySTRASession(
+      await requestAPI(`mystra/sessions/${encodeURIComponent(id)}`, settings)
+    );
+  } catch (error) {
+    throw mySTRAError(error);
+  }
+}
+
+/** Explicitly stop a project's process group. */
+export async function stopMySTRA(
+  settings: ServerConnection.ISettings,
+  id: string
+): Promise<void> {
+  try {
+    const response = await ServerConnection.makeRequest(
+      apiUrl(`mystra/sessions/${encodeURIComponent(id)}`, settings),
+      { method: 'DELETE' },
+      settings
+    );
+    if (!response.ok)
+      throw await ServerConnection.ResponseError.create(response);
+  } catch (error) {
+    throw mySTRAError(error);
+  }
+}
