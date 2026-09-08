@@ -57,7 +57,7 @@
     },
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
-        "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@d9645a0#package.tgz",
+        "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@c170278#package.tgz",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
         "@jupyterlab/coreutils": "^6.5.10",
@@ -68,7 +68,7 @@
         "@jupyterlab/services": "^7.5.10",
         "@jupyterlab/translation": "^4.5.10",
         "@jupyterlab/ui-components": "^4.5.10",
-        "@lightcone-research/brand": "git+https://github.com/LightconeResearch/brand.git#2c142328a45378f6b6397a67537f9bca454f7a9a",
+        "@lightcone-research/brand": "git+https://github.com/LightconeResearch/brand.git#6dde3145cc255e9fa257756e9c5c56cac0e12a3f",
         "@lumino/coreutils": "^2.2.0",
         "@lumino/polling": "^2.1.6",
         "@lumino/signaling": "^2.1.6",
