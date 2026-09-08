@@ -62,7 +62,7 @@ use another location; `ASTRA_PAPER_CACHE_DIR` remains supported as a fallback.
 On JupyterHub this configuration belongs to each single-user server.
 
 Missing PDFs are downloaded only when you choose **Fetch paper**, using
-`astra-tools==0.2.13`. Cache lookup and download failures do not prevent viewing
+`astra-tools==0.2.17`. Cache lookup and download failures do not prevent viewing
 the analysis. Cached PDFs are served from the authenticated Jupyter origin and
 support continuous scrolling, zoom, and navigation to cited passages.
 
