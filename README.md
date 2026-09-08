@@ -91,8 +91,9 @@ c.LightconeApp.mystra_startup_timeout = 120
 c.LightconeApp.mystra_idle_timeout = 120
 ```
 
-The viewer requires the companion ASTRA theme changes described in its
-[embedding documentation](https://github.com/LightconeResearch/astra-theme).
+The integration was validated with MyST 1.10.1 and Node.js 22/26. It requires
+the companion [ASTRA theme changes](https://github.com/LightconeResearch/astra-theme/pull/16)
+and the documented `mystra-viewer.v1` contract.
 No separate preview domain or publicly exposed Node port is needed.
 
 ### Cited papers
