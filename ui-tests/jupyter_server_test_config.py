@@ -5,6 +5,7 @@ opens the server to the world and provide access to JupyterLab
 JavaScript objects through the global window variable.
 """
 import atexit
+import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -36,12 +37,16 @@ c.MCPExtensionApp.mcp_port = int(os.environ.get("LIGHTCONE_TEST_MCP_PORT", "3019
 os.environ["JUPYTER_AI_ACP_CLIENT_E2E_TESTING_ONLY"] = "1"
 os.environ["LIGHTCONE_TEST_AVATAR"] = str(Path(__file__).parent.parent / "style" / "astra-logo.svg")
 
-# Exercise both Markdown renderers without changing the developer's settings.
-import json
-
-app_settings = TemporaryDirectory(prefix="lightcone-galata-settings-")
-atexit.register(app_settings.cleanup)
-Path(app_settings.name, "page_config.json").write_text(json.dumps({
+# Use LabConfig's boolean map, not the deprecated application-settings list.
+# Prepending a temporary config also overrides local extension preferences
+# without changing the developer's settings.
+test_config = TemporaryDirectory(prefix="lightcone-galata-config-")
+atexit.register(test_config.cleanup)
+labconfig = Path(test_config.name, "labconfig")
+labconfig.mkdir()
+(labconfig / "page_config.json").write_text(json.dumps({
     "disabledExtensions": {"jupyterlab-myst": os.environ.get("LIGHTCONE_TEST_MYST") != "1"}
 }))
-c.LabApp.app_settings_dir = app_settings.name
+os.environ["JUPYTER_CONFIG_PATH"] = os.pathsep.join(filter(None, [
+    test_config.name, os.environ.get("JUPYTER_CONFIG_PATH")
+]))

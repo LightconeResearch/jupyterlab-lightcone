@@ -198,10 +198,16 @@ prior_insights:
   await expect(
     page.locator('.jp-jupyterlab-lightcone-reference-button')
   ).toHaveCount(0);
-  if (process.env.LIGHTCONE_TEST_MYST === '1')
+  if (process.env.LIGHTCONE_TEST_MYST === '1') {
     await expect(
-      page.locator('.jp-RenderedMySTMarkdown').first()
+      page.locator('.jp-chat-rendered-message .jp-RenderedMySTMarkdown').first()
     ).toBeVisible();
+  } else {
+    await expect(page.locator('.jp-RenderedMySTMarkdown')).toHaveCount(0);
+    await expect(
+      page.locator('.jp-chat-rendered-message .jp-RenderedMarkdown').first()
+    ).toBeVisible();
+  }
   const decisionLink = decision.getByRole('link', {
     name: /Open Which estimator/
   });
