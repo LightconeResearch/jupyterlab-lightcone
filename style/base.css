@@ -200,11 +200,13 @@
   }
 
   /* JupyterLab shares the first command icon between a section and its cards. */
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon {
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon,
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon {
     background: url('./lightcone-logo.svg') center / contain no-repeat;
   }
 
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg {
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg,
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon > svg {
     visibility: hidden;
   }
 

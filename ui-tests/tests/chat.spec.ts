@@ -269,6 +269,13 @@ test('Agentic assistant uses the chat icon and explains a missing ASTRA project 
   await expect(
     shortcut.locator('[data-icon="jupyter-chat::chat"]')
   ).toBeVisible();
+  const sectionIcon = page
+    .locator('.jp-Launcher-sectionHeader:visible')
+    .filter({ hasText: 'Lightcone Lab' })
+    .locator('.jp-jupyterlab-lightcone-AssistantIcon');
+  await expect(sectionIcon).toBeVisible();
+  await expect(sectionIcon).toHaveCSS('background-image', /url\(.+\)/);
+  await expect(sectionIcon.locator('svg')).toHaveCSS('visibility', 'hidden');
   const writes: string[] = [];
   page.on('request', request => {
     if (

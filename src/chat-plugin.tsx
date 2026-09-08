@@ -152,7 +152,9 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     app.commands.addCommand(CommandIDs.discuss, {
       label: trans.__('Agentic assistant'),
       caption: trans.__('Open the agentic assistant for this ASTRA project'),
-      icon: chatIcon,
+      icon: chatIcon.bindprops({
+        className: 'jp-jupyterlab-lightcone-AssistantIcon'
+      }),
       describedBy: {
         args: {
           type: 'object',
