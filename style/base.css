@@ -426,6 +426,9 @@
     border: 1px solid var(--jp-border-color2);
     border-radius: 6px;
     max-width: 640px;
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease;
   }
 
   .jp-jupyterlab-lightcone-card > p {
@@ -438,12 +441,27 @@
     cursor: pointer;
   }
 
-  .jp-jupyterlab-lightcone-card-preview:hover {
-    background: var(--jp-layout-color1);
+  .jp-jupyterlab-lightcone-card:has(
+      .jp-jupyterlab-lightcone-card-preview
+    ):hover {
+    transform: translateY(-2px);
+    box-shadow: var(--astra-shadow-raised);
   }
 
   .jp-jupyterlab-lightcone-card-preview:focus-visible {
     outline: 2px solid var(--jp-brand-color1);
     outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jp-jupyterlab-lightcone-card {
+      transition: none;
+    }
+
+    .jp-jupyterlab-lightcone-card:has(
+        .jp-jupyterlab-lightcone-card-preview
+      ):hover {
+      transform: none;
+    }
   }
 }
