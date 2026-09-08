@@ -93,6 +93,20 @@ prior_insights:
     })
   });
   await expect(figure.locator('img')).toBeVisible();
+  // The raised top edge must stay visible and clickable outside its old bounds.
+  await figure.hover();
+  await expect(figure).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, -2)');
+  expect(
+    await figure.evaluate(node => {
+      const bounds = node.getBoundingClientRect();
+      return node.contains(
+        document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + 1)
+      );
+    })
+  ).toBe(true);
+  await page.screenshot({
+    path: test.info().outputPath('raised-chat-card.png')
+  });
   await expect(cards.getByText('Open in tab', { exact: true })).toHaveCount(0);
   await expect(cards.filter({ hasText: `${tmpPath}/astra.yaml` })).toHaveCount(
     0

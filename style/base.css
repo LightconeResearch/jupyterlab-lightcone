@@ -6,6 +6,11 @@
   fill: var(--lc-palette-antique-gold, #a67c3c);
 }
 
+/* Chat's rich-output scroller clips transforms and shadows at the card edge. */
+.jp-chat-rendered-message.jp-OutputArea:has(> lightcone-astra-card) {
+  overflow: visible;
+}
+
 @layer lightcone {
   .jp-jupyterlab-lightcone-InventoryPanel {
     position: relative;
@@ -420,6 +425,11 @@
     color: var(--jp-ui-font-color1);
     font: inherit;
     cursor: pointer;
+  }
+
+  lightcone-astra-card {
+    display: block;
+    padding-block: 6px;
   }
 
   .jp-jupyterlab-lightcone-card {
