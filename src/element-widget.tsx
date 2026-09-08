@@ -147,7 +147,7 @@ function DetailBody({
         <PaperDetail
           record={resolved.paper}
           metadata={data.papers[resolved.paper.doi]}
-          renderPaper={renderers.renderPaper}
+          loadPdfJs={renderers.loadPdfJs}
           onFetchPaper={fetchPaper}
           onOpenInsight={open}
           onOpenDecision={open}
@@ -270,6 +270,7 @@ export class ElementWidget extends ReactWidget {
     readonly identity: string
   ) {
     super();
+    this.addClass('jp-jupyterlab-lightcone-ElementWidget');
     this.addClass('astra-ui');
     this.addClass('lightcone-brand');
     this._theme = new LightconeThemeBinding(themes, this.node);

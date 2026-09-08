@@ -1,12 +1,39 @@
 import type { Contents } from '@jupyterlab/services';
+import type { ArtifactRenderer } from '@astra-spec/ui/components';
+import { isVisualOutput } from '@astra-spec/ui/model';
 import type { InventoryProps } from '@astra-spec/ui/views';
 import React, { useMemo } from 'react';
 import { JupyterArtifactAccess } from './artifact-access';
 import { JupyterArtifactPreview } from './artifact-preview';
-import { JupyterPaperViewer } from './paper-pdf-viewer';
+import { loadPdfJs } from './pdf-runtime';
 import type { ILoadedProjectData } from './project-data';
 
-/** Supply Jupyter file access and PDF rendering through ASTRA UI's host slots. */
+/**
+ * Bounded artifact previews through ASTRA UI's render slot. Cards and tiles
+ * always get a preview; the detail dialog gets one only for figures and
+ * tables, the outputs with a picture to frame. Returning `null` for the rest
+ * is the slot's way to opt out, so a data file opens in the single-column
+ * dialog rather than beside an empty artifact box.
+ */
+export function hostArtifactRenderer(
+  access: JupyterArtifactAccess
+): ArtifactRenderer {
+  return (output, options) => {
+    if (!options.compact && !isVisualOutput(output)) {
+      return null;
+    }
+    return (
+      <JupyterArtifactPreview
+        key={`${output.canonicalPath}:${access.bindingFor(output)?.cacheToken ?? ''}`}
+        access={access}
+        compact={options.compact}
+        output={output}
+      />
+    );
+  };
+}
+
+/** Supply Jupyter file access and pdf.js through ASTRA UI's host slots. */
 export function useProjectRenderers(
   contents: Contents.IManager,
   entrypoint: string,
@@ -17,22 +44,14 @@ export function useProjectRenderers(
     () => new JupyterArtifactAccess(contents, entrypoint, data.bindings),
     [contents, entrypoint, data.bindings]
   );
+  const renderArtifact = useMemo(() => hostArtifactRenderer(access), [access]);
   return {
     document: data.document,
     index: data.index,
     paperMetadata: data.papers,
-    renderArtifact: (output, options) => (
-      <JupyterArtifactPreview
-        key={`${output.canonicalPath}:${access.bindingFor(output)?.cacheToken ?? ''}`}
-        access={access}
-        compact={options.compact}
-        output={output}
-      />
-    ),
+    renderArtifact,
     onOpenArtifact: output => access.open(output),
-    renderPaper: (paper, options) => (
-      <JupyterPaperViewer paper={paper} options={options} />
-    ),
+    loadPdfJs,
     onFetchPaper
   };
 }

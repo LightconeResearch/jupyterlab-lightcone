@@ -428,14 +428,22 @@ for (const complete of [true, false]) {
     await page
       .getByRole('button', { name: 'Locate source passage 1 in paper' })
       .click();
-    const pdf = page.locator('.jp-jupyterlab-lightcone-pdf');
+    const pdf = page.getByRole('group', {
+      name: 'PDF viewer for Continuous scrolling test paper',
+      exact: true
+    });
     const pageNumber = complete ? 3 : 1;
     await expect(pdf.getByRole('status')).toHaveText(
       `${complete ? 'Quote' : 'Partial quote'} highlighted on page ${pageNumber} of 3`
     );
-    await expect(pdf.locator(`[data-page="${pageNumber}"] mark`)).toHaveText(
+    const highlight = pdf
+      .getByRole('group', { name: `Page ${pageNumber}`, exact: true })
+      .locator('mark');
+    await expect(highlight).toHaveText(
       complete ? QUOTE : 'A reproducible result appears'
     );
+    // Allow subpixel rounding in the browser's intersection ratio.
+    await expect(highlight).toBeInViewport({ ratio: 0.99 });
   });
 }
 
@@ -445,20 +453,26 @@ test('reads cached PDF pages and preserves quote navigation when zooming', async
 }) => {
   const path = await createProject(page, `${tmpPath}/project`, 'Paper project');
   await openInventory(page, path, { kind: 'paper', doi: DOI });
-  const pdf = page.locator('.jp-jupyterlab-lightcone-pdf');
-  await expect(pdf.locator('[data-page]')).toHaveCount(3);
+  const pdf = page.getByRole('group', {
+    name: 'PDF viewer for Continuous scrolling test paper',
+    exact: true
+  });
+  const pages = pdf.getByRole('region', { name: 'PDF pages', exact: true });
+  await expect(pages.getByRole('group', { name: /^Page \d+$/ })).toHaveCount(3);
   await page
     .getByRole('button', { name: 'Locate source passage 1 in paper' })
     .click();
-  await expect(pdf.locator('[data-page="3"] mark')).toHaveText(QUOTE);
-  await expect(pdf.locator('[data-page="3"] mark')).toBeInViewport({
-    ratio: 1
+  const lastPage = pages.getByRole('group', { name: 'Page 3', exact: true });
+  const highlight = lastPage.locator('mark');
+  await expect(highlight).toHaveText(QUOTE);
+  await expect(highlight).toBeInViewport({
+    ratio: 0.99
   });
-  const canvas = pdf.locator('[data-page="3"] canvas');
+  const canvas = lastPage.locator('canvas');
   const width = await canvas.evaluate(element =>
     element instanceof HTMLCanvasElement ? element.width : 0
   );
-  await page.getByRole('button', { name: 'Zoom PDF in' }).click();
+  await pdf.getByRole('button', { name: 'Zoom PDF in' }).click();
   await expect
     .poll(() =>
       canvas.evaluate(element =>
@@ -466,11 +480,86 @@ test('reads cached PDF pages and preserves quote navigation when zooming', async
       )
     )
     .toBeGreaterThan(width);
-  await expect(pdf.locator('[data-page="3"] mark')).toHaveText(QUOTE);
-  await expect(pdf.locator('[data-page="3"] mark')).toBeInViewport({
-    ratio: 1
+  await expect(highlight).toHaveText(QUOTE);
+  await expect(highlight).toBeInViewport({
+    ratio: 0.99
   });
   await page.getByRole('button', { name: 'Close paper details' }).click();
 
   await expect(pdf).toHaveCount(0);
+});
+
+test('renders the shared components in the Lightcone brand, free of JupyterLab element styles', async ({
+  page,
+  tmpPath
+}) => {
+  const path = await createProject(
+    page,
+    `${tmpPath}/project`,
+    'Branded project'
+  );
+  await openInventory(page, path, { kind: 'output', id: 'sample' });
+  await expect(page.getByRole('dialog')).toBeVisible();
+  const styles = await page.evaluate(() => {
+    const read = (selector: string, properties: string[]) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`No element matches ${selector}.`);
+      const computed = getComputedStyle(element);
+      return Object.fromEntries(
+        properties.map(property => [
+          property,
+          computed.getPropertyValue(property).trim()
+        ])
+      );
+    };
+    return {
+      panel: read('.jp-jupyterlab-lightcone-InventoryPanel', [
+        'font-size',
+        'color',
+        '--astra-font-mono',
+        '--jp-code-font-family'
+      ]),
+      card: read('.astra-output-card', ['border-radius']),
+      cardTitle: read('.astra-output-card__body strong', ['font-family']),
+      outlineLink: read('.astra-inventory-outline a', [
+        'color',
+        'text-decoration-line'
+      ]),
+      selector: read('.jp-jupyterlab-lightcone-analysis-selector select', [
+        'font-family',
+        'border-radius'
+      ]),
+      action: read('dialog[open] .astra-dialog__action', [
+        'border-radius',
+        'font-family'
+      ]),
+      close: read('dialog[open] .astra-dialog__actions > .astra-icon-button', [
+        'border-radius',
+        'font-family'
+      ])
+    };
+  });
+  // astra-ui's md step, not JupyterLab's --jp-ui-font-size1.
+  expect(styles.panel['font-size']).toBe('14px');
+  // The brand's mono stack, not JupyterLab's code font.
+  expect(styles.panel['--astra-font-mono']).toContain('IBM Plex Mono');
+  expect(styles.panel['--astra-font-mono']).not.toBe(
+    styles.panel['--jp-code-font-family']
+  );
+  for (const family of [
+    styles.cardTitle['font-family'],
+    styles.selector['font-family'],
+    styles.action['font-family'],
+    styles.close['font-family']
+  ]) {
+    expect(family).toContain('Lightcone Brand Alegreya');
+  }
+  // `.jp-ThemedContainer button` would round every button to 2px.
+  expect(styles.card['border-radius']).toBe('0px');
+  expect(styles.selector['border-radius']).toBe('0px');
+  expect(styles.action['border-radius']).toBe('6px');
+  expect(styles.close['border-radius']).toBe('6px');
+  // `.jp-ThemedContainer a` would unset the outline's subtle link colour.
+  expect(styles.outlineLink['text-decoration-line']).toBe('none');
+  expect(styles.outlineLink.color).not.toBe(styles.panel.color);
 });

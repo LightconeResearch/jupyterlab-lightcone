@@ -1,6 +1,6 @@
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { TextDecoder, TextEncoder } from 'node:util';
-import { tablePreviewFromDelimited } from '@astra-spec/ui/components';
+import { tablePreviewFromDelimited } from '@astra-spec/ui/lib';
 import { readBoundedText } from '../artifact-access';
 
 describe('bounded artifact reading', () => {
