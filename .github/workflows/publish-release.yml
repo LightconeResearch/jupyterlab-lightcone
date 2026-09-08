@@ -26,22 +26,32 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Check the release version
+      - name: Set the package version from the release tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           python - <<'PYTHON'
           import json
           import os
+          import re
           from pathlib import Path
 
-          version = json.loads(Path("package.json").read_text())["version"]
           tag = os.environ["RELEASE_TAG"]
-          if tag not in (version, f"v{version}"):
+          version = tag.removeprefix("v")
+          number = r"(?:0|[1-9][0-9]*)"
+          pattern = rf"{number}\.{number}\.{number}(?:-(?:alpha|beta|rc)\.{number})?"
+          if re.fullmatch(pattern, version) is None:
               raise SystemExit(
-                  f"Release tag {tag!r} does not match package.json version {version!r}. "
-                  "Update package.json before creating the release tag."
+                  f"Unsupported release tag {tag!r}. Use MAJOR.MINOR.PATCH "
+                  "with an optional v prefix and -alpha.N, -beta.N, or -rc.N suffix."
               )
+
+          # Hatch derives the Python version from this build's package.json.
+          package_path = Path("package.json")
+          package = json.loads(package_path.read_text())
+          package["version"] = version
+          package_path.write_text(json.dumps(package, indent=4) + "\n")
+          print(f"Building release version {version}")
           PYTHON
 
       - name: Set up Node.js
