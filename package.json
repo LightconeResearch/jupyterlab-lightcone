@@ -57,7 +57,7 @@
     },
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
-        "@astra-spec/ui": "^0.0.4",
+        "@astra-spec/ui": "0.0.5",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
         "@jupyterlab/coreutils": "^6.5.10",
@@ -68,7 +68,7 @@
         "@jupyterlab/services": "^7.5.10",
         "@jupyterlab/translation": "^4.5.10",
         "@jupyterlab/ui-components": "^4.5.10",
-        "@lightcone-research/brand": "^0.0.2",
+        "@lightcone-research/brand": "0.0.3",
         "@lumino/coreutils": "^2.2.0",
         "@lumino/polling": "^2.1.6",
         "@lumino/signaling": "^2.1.6",

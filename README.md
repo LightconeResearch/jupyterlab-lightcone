@@ -75,7 +75,7 @@ The brand adapter from `@lightcone-research/brand` supplies every ASTRA UI
 token; the extension does not redefine any of them from JupyterLab settings.
 JupyterLab styles plain `button`, `a`, `select`, `code` and `pre` elements
 throughout its shell, which would otherwise override the shared components'
-layered styles (`style/base.css` explains the cascade). Inside the inventory
+layered styles (the shared `@astra-spec/ui/isolate.css` defines the boundary). Inside the inventory
 those elements are handed back to the ASTRA UI and brand layers, so they render
 exactly as the shared components define them.
 
@@ -102,3 +102,10 @@ pip uninstall jupyterlab-lightcone
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the template's development, testing,
 and packaging workflow, and [AGENTS.md](AGENTS.md) for repository conventions.
+
+The ASTRA appearance follows the publication reference through the shared brand
+adapter. Font assets, type sizes and kind marks come from the shared packages;
+this extension owns layout, theme synchronization and the `astra-isolate` scope.
+
+The shared rendering contract uses published `@astra-spec/ui` 0.0.5 and
+`@lightcone-research/brand` 0.0.3, installed from npm.

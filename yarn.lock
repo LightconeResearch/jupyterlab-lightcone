@@ -26,9 +26,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@astra-spec/ui@npm:^0.0.4":
-  version: 0.0.4
-  resolution: "@astra-spec/ui@npm:0.0.4"
+"@astra-spec/ui@npm:0.0.5":
+  version: 0.0.5
+  resolution: "@astra-spec/ui@npm:0.0.5"
   dependencies:
     "@floating-ui/react": ^0.27.20
     katex: ^0.16.47
@@ -36,7 +36,7 @@ __metadata:
     "@astra-spec/sdk": ^0.1.1
     react: ">=18 <20"
     react-dom: ">=18 <20"
-  checksum: 03a1519a1eb8a337bff364ad7e731ff455b7fdf867e91d8923a65f8a1b3e515ecf7f5a7feaf27b29df2f5a463041fa8e0af2be1cf181c43a723fe57caa75132f
+  checksum: dcb066eb673b47b8b90666b27d4b2d0128070d60c97656d5340cd4d9641779b67d09fe196f3efa5c1e653ca6eb5022cdca67a497065b2d6b2c85419badf82a5b
   languageName: node
   linkType: hard
 
@@ -3070,15 +3070,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@lightcone-research/brand@npm:^0.0.2":
-  version: 0.0.2
-  resolution: "@lightcone-research/brand@npm:0.0.2"
+"@lightcone-research/brand@npm:0.0.3":
+  version: 0.0.3
+  resolution: "@lightcone-research/brand@npm:0.0.3"
   peerDependencies:
-    "@astra-spec/ui": ">=0.0.1 <0.1"
+    "@astra-spec/ui": ">=0.0.5 <0.1"
   peerDependenciesMeta:
     "@astra-spec/ui":
       optional: true
-  checksum: a85735cfd08492f07d4a9c2c307bd5cef174210c7079f961dd42c1b69cae67de284b697d895fcae893d61970e579d13524159dbe457e78f0278b2274d9edc4df
+  checksum: fae883efa937ddc1a5d347e61ddf813dd70516f21f22665334af0ceb564bd700ece6e51352a0099472787478b77ebd9794f1791df8058f56b6823b807c936020
   languageName: node
   linkType: hard
 
@@ -7857,7 +7857,7 @@ __metadata:
   resolution: "jupyterlab-lightcone@workspace:."
   dependencies:
     "@astra-spec/sdk": ^0.1.2
-    "@astra-spec/ui": ^0.0.4
+    "@astra-spec/ui": 0.0.5
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/eslint-plugin": ^1.1.0
@@ -7872,7 +7872,7 @@ __metadata:
     "@jupyterlab/testutils": ^4.0.0
     "@jupyterlab/translation": ^4.5.10
     "@jupyterlab/ui-components": ^4.5.10
-    "@lightcone-research/brand": ^0.0.2
+    "@lightcone-research/brand": 0.0.3
     "@lumino/coreutils": ^2.2.0
     "@lumino/polling": ^2.1.6
     "@lumino/signaling": ^2.1.6
