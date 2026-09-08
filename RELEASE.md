@@ -30,23 +30,20 @@ PyPI. Build steps run in a separate job without publishing credentials.
 
 ## Publish a release
 
-1. Update the version in `package.json` through a PR and merge it. This is the
-   version source; the Python package version is derived automatically. Do not
-   edit `pyproject.toml` to set a version.
-2. Wait for **Build** and **Check Release** to pass on the commit to release.
+1. Wait for **Build** and **Check Release** to pass on the commit to release.
    **Check Release** uses Jupyter Releaser only to validate packaging; it does not
    publish packages.
-3. Open **Releases → Draft a new release** in GitHub. Create a tag at the tested
-   commit that matches `package.json`, optionally prefixed with `v`. For example,
-   version `0.1.0` uses tag `v0.1.0` or `0.1.0`. Creating a tag does not update the
-   package version.
-4. Write or generate the release notes, then click **Publish release**. Saving a
+2. Open **Releases → Draft a new release** in GitHub. Create a tag at the tested
+   commit for the version you want to publish, optionally prefixed with `v`.
+   For example, tag `0.0.2` or `v0.0.2` publishes version `0.0.2`. No separate
+   version-bump commit is needed.
+3. Write or generate the release notes, then click **Publish release**. Saving a
    draft or pushing a tag alone does not publish to PyPI.
-5. Watch the **Publish to PyPI** workflow in Actions. It checks out the release
-   tag, rejects version mismatches, builds and checks the wheel and source
-   distribution, and publishes both to PyPI. Approve the `release` environment
-   deployment if you configured required reviewers.
-6. In an activated environment with Python >= 3.11 and JupyterLab >= 4.5.10, < 5,
+4. Watch the **Publish to PyPI** workflow in Actions. It checks out the release
+   tag, sets the package version from that tag, builds and checks the wheel and
+   source distribution, and publishes both to PyPI. Approve the `release`
+   environment deployment if you configured required reviewers.
+5. In an activated environment with Python >= 3.11 and JupyterLab >= 4.5.10, < 5,
    install the release and verify both extensions:
 
    ```bash
@@ -57,8 +54,14 @@ PyPI. Build steps run in a separate job without publishing credentials.
 
    Restart JupyterLab and check that Lightcone Lab opens an `astra.yaml` file.
 
-The workflow also publishes GitHub prereleases to PyPI. Use a prerelease version
-in `package.json` (for example, `0.1.0-rc.1`) and the matching tag; marking a GitHub
+The workflow updates `package.json` only in its build checkout, before building
+the frontend and Python distributions. Hatch derives the Python version from
+that file. The workflow does not change the version committed on `main` or modify
+the release tag; the published packages contain the version selected in GitHub.
+
+Release tags must use `MAJOR.MINOR.PATCH`, optionally prefixed with `v`.
+The workflow also publishes GitHub prereleases to PyPI: append `-alpha.N`,
+`-beta.N`, or `-rc.N` to the tag (for example, `v0.1.0-rc.1`). Marking a GitHub
 release as a prerelease alone does not change the package version. Users can
 install prereleases with `pip install --pre jupyterlab-lightcone`.
 
