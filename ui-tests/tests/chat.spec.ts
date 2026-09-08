@@ -57,7 +57,7 @@ prior_insights:
     await window.jupyterapp.commands.execute('launcher:create', { cwd });
   }, tmpPath);
   await page
-    .getByRole('button', { name: 'Agentic assistant', exact: true })
+    .getByRole('button', { name: 'Lightcone Agent', exact: true })
     .click();
   await expect(page.locator('.jp-chat-input-container')).toBeVisible();
   await expect(
@@ -319,7 +319,7 @@ prior_insights:
   expect(missing).toContain('not cited');
 });
 
-test('Agentic assistant uses the chat icon and explains a missing ASTRA project without creating a chat', async ({
+test('Lightcone Agent appears first with a gold chat icon and explains a missing ASTRA project without creating a chat', async ({
   page,
   tmpPath
 }) => {
@@ -328,12 +328,29 @@ test('Agentic assistant uses the chat icon and explains a missing ASTRA project 
     await window.jupyterapp.commands.execute('launcher:create', { cwd });
   }, tmpPath);
   const shortcut = page.getByRole('button', {
-    name: 'Agentic assistant',
+    name: 'Lightcone Agent',
     exact: true
   });
   await expect(
     shortcut.locator('[data-icon="jupyter-chat::chat"]')
   ).toBeVisible();
+  await expect(
+    page.locator('.jp-Launcher-sectionTitle:visible').first()
+  ).toHaveText('Lightcone Lab');
+  const section = page
+    .locator('.jp-Launcher-section:visible')
+    .filter({ hasText: 'Lightcone Lab' });
+  await expect(section.getByRole('button').first()).toHaveAccessibleName(
+    'Lightcone Agent'
+  );
+  const agentGlyph = shortcut.locator('.jp-icon3');
+  await expect(agentGlyph).toHaveCSS('fill', 'rgb(166, 124, 60)');
+  await page.theme.setDarkTheme();
+  await expect(agentGlyph).toHaveCSS('fill', 'rgb(166, 124, 60)');
+  await expect(
+    page.getByRole('button', { name: 'Chat', exact: true }).locator('.jp-icon3')
+  ).not.toHaveCSS('fill', 'rgb(166, 124, 60)');
+  await page.theme.setLightTheme();
   const sectionIcon = page
     .locator('.jp-Launcher-sectionHeader:visible')
     .filter({ hasText: 'Lightcone Lab' })
@@ -341,6 +358,9 @@ test('Agentic assistant uses the chat icon and explains a missing ASTRA project 
   await expect(sectionIcon).toBeVisible();
   await expect(sectionIcon).toHaveCSS('background-image', /url\(.+\)/);
   await expect(sectionIcon.locator('svg')).toHaveCSS('visibility', 'hidden');
+  await page.screenshot({
+    path: test.info().outputPath('lightcone-launcher.png')
+  });
   const writes: string[] = [];
   page.on('request', request => {
     if (

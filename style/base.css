@@ -1,6 +1,11 @@
 /* Shared UI isolation comes from @astra-spec/ui/isolate.css. Host chrome stays in its own layer. */
 @layer astra.tokens, astra.base, astra.components, astra.views, lightcone;
 
+/* Match the ASTRA mark without recoloring Jupyter Chat's shared icon. */
+.jp-jupyterlab-lightcone-AssistantIcon .jp-icon3 {
+  fill: var(--lc-palette-antique-gold, #a67c3c);
+}
+
 @layer lightcone {
   .jp-jupyterlab-lightcone-InventoryPanel {
     position: relative;

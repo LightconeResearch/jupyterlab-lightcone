@@ -133,7 +133,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             >
               {context
                 ? `✦ ${PathExt.dirname(context.entrypoint) || 'ASTRA'} · ${context.universeId ?? 'defaults'}`
-                : (error ?? trans.__('Agentic assistant'))}
+                : (error ?? trans.__('Lightcone Agent'))}
             </button>
           );
         }
@@ -150,8 +150,8 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
       );
     });
     app.commands.addCommand(CommandIDs.discuss, {
-      label: trans.__('Agentic assistant'),
-      caption: trans.__('Open the agentic assistant for this ASTRA project'),
+      label: trans.__('Lightcone Agent'),
+      caption: trans.__('Open Lightcone Agent for this ASTRA project'),
       icon: chatIcon.bindprops({
         className: 'jp-jupyterlab-lightcone-AssistantIcon'
       }),
@@ -198,7 +198,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
               await showErrorMessage(
                 trans.__('No ASTRA project found'),
                 trans.__(
-                  'No ASTRA project file was found at "%1". Open a folder containing astra.yaml in the file browser, then choose Agentic assistant.',
+                  'No ASTRA project file was found at "%1". Open a folder containing astra.yaml in the file browser, then choose Lightcone Agent.',
                   reference.entrypoint
                 )
               );
@@ -275,7 +275,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
           }
         } catch (reason) {
           await showErrorMessage(
-            trans.__('Could not open Agentic assistant'),
+            trans.__('Could not open Lightcone Agent'),
             reason instanceof Error ? reason : String(reason)
           );
           return null;
@@ -364,7 +364,9 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     });
     launcher?.add({
       command: CommandIDs.discuss,
-      category: 'Lightcone Lab'
+      category: 'Lightcone Lab',
+      categoryRank: -10,
+      rank: 0
     });
   }
 };

@@ -23,7 +23,7 @@ to open its result in a tab, or focus it and press Enter or Space. Embedded link
 and controls retain their own actions, and selecting text does not open the card.
 The agent can call `lightcone_open_element` to open a tab directly instead.
 
-**Agentic assistant** uses the native chat icon and opens a bound conversation in
+**Lightcone Agent** uses the native chat icon in Lightcone gold and opens a bound conversation in
 the left Jupyter Chat sidebar, with visible tool guidance. Outside an ASTRA project,
 it shows the same missing-project guidance as the inventory shortcut.
 **Add to chat** inserts a target into the editable composer, without sending it.

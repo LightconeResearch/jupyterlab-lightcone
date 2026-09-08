@@ -76,8 +76,9 @@ pip install "jupyterlab-lightcone[ai]"
 
 This supports Jupyter AI 3.2 / Jupyter Chat 0.25. Configure an agent through
 Jupyter AI as usual. With an inventory open (or its folder selected), run
-**Agentic assistant** from the command palette or the **Lightcone Lab**
-launcher section. The shortcut opens Jupyter Chat in the left sidebar and uses the
+**Lightcone Agent** from the command palette or the **Lightcone Lab**
+launcher section at the top of the launcher page. The gold chat shortcut opens
+Jupyter Chat in the left sidebar and uses the
 launcher’s current folder. Outside an ASTRA project it shows guidance for opening
 a folder containing `astra.yaml`. Review and send the prepared
 prompt. Each discussion keeps its project and universe fixed; start a new one to

@@ -105,7 +105,12 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     }
     palette?.addItem({ command: CommandIDs.openInventory, category: CATEGORY });
-    launcher?.add({ command: CommandIDs.openInventory, category: CATEGORY });
+    launcher?.add({
+      command: CommandIDs.openInventory,
+      category: CATEGORY,
+      categoryRank: -10,
+      rank: 1
+    });
     palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
   }
 };
