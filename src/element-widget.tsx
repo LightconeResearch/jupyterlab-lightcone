@@ -343,28 +343,7 @@ function DetailBody({
               title={label ?? widget.title.label}
               titleAs="h1"
               identifier={reference.doi ?? reference.target}
-              actions={
-                <>
-                  {actions}
-                  <Button
-                    className="astra-dialog__action"
-                    size="small"
-                    disabled={!commands.hasCommand(CommandIDs.discuss)}
-                    onClick={() => {
-                      void commands
-                        .execute(CommandIDs.discuss, { ...reference })
-                        .catch(reason =>
-                          showErrorMessage(
-                            'Could not open ASTRA discussion',
-                            reason
-                          )
-                        );
-                    }}
-                  >
-                    Add to chat
-                  </Button>
-                </>
-              }
+              actions={actions}
             />
             <DialogBody>{body}</DialogBody>
           </DialogContent>

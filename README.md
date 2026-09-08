@@ -106,8 +106,7 @@ The built-in Jupyter MCP server discovers four tools:
 
 Tools require a connected originating browser and a bound Lightcone discussion.
 Cards are attributed to the calling agent; repeated previews of the same target
-in one prompt reuse the card. **Add to chat** puts a target in a matching chat's
-composer, creating a discussion if needed. It does not send the message.
+in one prompt reuse the card.
 Existing agent terminal tools, `lc`, and research skills remain available through
 the agent's normal setup; Lightcone observes changes without starting recipes.
 

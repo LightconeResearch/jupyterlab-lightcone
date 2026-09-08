@@ -26,7 +26,6 @@ The agent can call `lightcone_open_element` to open a tab directly instead.
 **Lightcone Agent** uses the native chat icon in Lightcone gold and opens a bound conversation in
 the left Jupyter Chat sidebar, with visible tool guidance. Outside an ASTRA project,
 it shows the same missing-project guidance as the inventory shortcut.
-**Add to chat** inserts a target into the editable composer, without sending it.
 The project chip identifies the binding. Existing Jupyter AI model/persona selection
 continues to work normally.
 
