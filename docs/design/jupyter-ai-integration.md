@@ -18,7 +18,9 @@ Status: implementation updated on 6 September 2026. No upstream or sibling-packa
 
 The agent calls `lightcone_preview_element(entrypoint, target)` to show a figure,
 decision, input, finding, prior insight or analysis directly in chat. The card
-uses ASTRA UI's `RecordPreview`, with bounded artifact previews and **Open in tab**.
+uses ASTRA UI's `RecordPreview`, with bounded artifact previews. Click the card
+to open its result in a tab, or focus it and press Enter or Space. Embedded links
+and controls retain their own actions, and selecting text does not open the card.
 The agent can call `lightcone_open_element` to open a tab directly instead.
 
 **Agentic assistant** uses the native chat icon and opens a bound conversation in
@@ -160,7 +162,7 @@ context; child navigation reuses the owner tab. Each result group reuses its
 unpinned ASTRA preview. Pinning promotes the preview to a retained view; subsequent
 opens use a different preview in that group. Pins are explicit through the toolbar,
 native tab context menu, command palette, or double-clicking the native tab label
-or card's Open in tab button. Moving a tab also retains it. Focusing an older pinned
+or the card. Moving a tab also retains it. Focusing an older pinned
 tab does not redirect later agent results or make it replaceable. Opens are
 serialized, with pin eligibility checked after data resolution.
 

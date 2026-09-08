@@ -32,8 +32,17 @@ decisions:
     options:
       robust:
         label: Robust estimator
+        insights: [support]
     default: robust
     rationale: Stable under perturbations.
+prior_insights:
+  support:
+    label: Supporting evidence
+    claim: Repeated trials favor the robust estimator.
+    created_at: "2026-01-01T00:00:00Z"
+    evidence:
+      - id: source
+        doi: 10.1234/continuous-test
 `,
     'text',
     `${tmpPath}/astra.yaml`
@@ -77,8 +86,59 @@ decisions:
   );
   const cards = page.locator('.jp-jupyterlab-lightcone-card');
   await expect(cards).toHaveCount(2, { timeout: 30000 });
-  const figure = cards.filter({ hasText: 'outputs.figure' });
+  const figure = cards.filter({
+    has: page.getByRole('link', {
+      name: 'Open outputs.figure in a tab',
+      exact: true
+    })
+  });
   await expect(figure.locator('img')).toBeVisible();
+  await expect(cards.getByText('Open in tab', { exact: true })).toHaveCount(0);
+  await expect(cards.filter({ hasText: `${tmpPath}/astra.yaml` })).toHaveCount(
+    0
+  );
+  const decision = cards.filter({ hasText: 'Which estimator?' });
+  await page.evaluate(() => {
+    document.body.dataset.cardTargets = '[]';
+    window.jupyterapp.commands.commandExecuted.connect((_sender, args) => {
+      if (args.id === 'jupyterlab_lightcone:open-element') {
+        const targets: string[] = JSON.parse(
+          document.body.dataset.cardTargets!
+        );
+        targets.push(String(args.args.target));
+        document.body.dataset.cardTargets = JSON.stringify(targets);
+      }
+    });
+  });
+  // Related-record controls must not also open (or pin) their parent card.
+  const related = decision.getByRole('button', { name: /Supporting evidence/ });
+  await related.click();
+  await expect(
+    page.locator('.jp-jupyterlab-lightcone-element:visible')
+  ).toContainText('Repeated trials favor the robust estimator.');
+  await related.press('Enter');
+  await expect(page.locator('body')).toHaveAttribute(
+    'data-card-targets',
+    JSON.stringify(['prior_insights.support', 'prior_insights.support'])
+  );
+  // Selecting prose remains useful for copying it out of the conversation.
+  const prose = decision.locator('.astra-record-preview__description');
+  await prose.evaluate(node => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await prose.dispatchEvent('click');
+  expect(
+    await page.evaluate(() => window.getSelection()?.toString())
+  ).toContain('Stable');
+  await expect(page.locator('body')).toHaveAttribute(
+    'data-card-targets',
+    JSON.stringify(['prior_insights.support', 'prior_insights.support'])
+  );
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
   // Chat owns only the DOM node: removal must unmount React and release leases.
   const cleaned = await figure.evaluate(async node => {
     const host = node.closest('lightcone-astra-card')!;
@@ -93,12 +153,12 @@ decisions:
   expect(cleaned).toBe(true);
   await expect(figure.locator('img')).toBeVisible();
   await test.info().attach('chat-mime-cards', {
-    body: await page.screenshot(),
+    body: await page.screenshot({
+      path: test.info().outputPath('chat-mime-cards.png')
+    }),
     contentType: 'image/png'
   });
-  await figure
-    .getByRole('button', { name: 'Open in tab', exact: true })
-    .click();
+  await figure.locator('img').click();
   await expect(
     page
       .locator('.jp-jupyterlab-lightcone-element')
@@ -116,9 +176,14 @@ decisions:
     await expect(
       page.locator('.jp-RenderedMySTMarkdown').first()
     ).toBeVisible();
-  await figure
-    .getByRole('button', { name: 'Open in tab', exact: true })
-    .dblclick();
+  const decisionLink = decision.getByRole('link', {
+    name: /Open Which estimator/
+  });
+  await decisionLink.press('Enter');
+  await expect(
+    page.locator('.jp-jupyterlab-lightcone-element:visible')
+  ).toContainText('Stable under perturbations.');
+  await figure.locator('img').dblclick();
   await expect(
     page
       .locator('.jp-jupyterlab-lightcone-element:visible')

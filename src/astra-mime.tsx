@@ -48,12 +48,18 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
             : 'Loading ASTRA preview…'}
         </p>
       )}
-      <small>
-        {reference.entrypoint} · {reference.universeId ?? 'defaults'} ·{' '}
-        {reference.target || '$'}
-      </small>
     </div>
   );
+}
+
+/** Let embedded links and controls handle their own pointer gestures. */
+function isCardContentEvent(event: React.MouseEvent<HTMLElement>): boolean {
+  if (event.defaultPrevented || !(event.target instanceof Element))
+    return false;
+  const control = event.target.closest(
+    'a, button, input, select, textarea, summary, audio, video, [role="button"], [role="link"], [tabindex], [contenteditable]:not([contenteditable="false"])'
+  );
+  return !control || control === event.currentTarget;
 }
 
 function CardBody({
@@ -86,38 +92,51 @@ function CardBody({
       );
   };
   return (
-    <>
-      <RecordPreview
-        entry={
-          resolved.record
-            ? {
-                kind: 'record',
-                record: resolved.record,
-                analysis: resolved.analysis
-              }
-            : { kind: 'analysis', analysis: resolved.analysis }
+    <RecordPreview
+      className="jp-jupyterlab-lightcone-card-preview"
+      role="link"
+      tabIndex={0}
+      aria-label={`Open ${resolved.record?.label || reference.target || 'analysis'} in a tab`}
+      onClick={event => {
+        if (
+          isCardContentEvent(event) &&
+          !event.currentTarget.ownerDocument.getSelection()?.toString()
+        )
+          navigate(reference.target);
+      }}
+      onDoubleClick={event => {
+        if (isCardContentEvent(event)) navigate(reference.target, true);
+      }}
+      onKeyDown={event => {
+        if (
+          event.target === event.currentTarget &&
+          (event.key === 'Enter' || event.key === ' ')
+        ) {
+          event.preventDefault();
+          navigate(reference.target);
         }
-        document={data.document}
-        index={data.index}
-        renderArtifact={renderers.renderArtifact}
-        onOpenRecord={record => navigate(record.canonicalPath)}
-        onOpenAnalysis={() =>
-          navigate(
-            resolved.analysis.canonicalPath === '$'
-              ? ''
-              : resolved.analysis.canonicalPath
-          )
-        }
-      />
-      <button
-        className="jp-jupyterlab-lightcone-card-open"
-        type="button"
-        onClick={() => navigate(reference.target)}
-        onDoubleClick={() => navigate(reference.target, true)}
-      >
-        Open in tab
-      </button>
-    </>
+      }}
+      entry={
+        resolved.record
+          ? {
+              kind: 'record',
+              record: resolved.record,
+              analysis: resolved.analysis
+            }
+          : { kind: 'analysis', analysis: resolved.analysis }
+      }
+      document={data.document}
+      index={data.index}
+      renderArtifact={renderers.renderArtifact}
+      onOpenRecord={record => navigate(record.canonicalPath)}
+      onOpenAnalysis={() =>
+        navigate(
+          resolved.analysis.canonicalPath === '$'
+            ? ''
+            : resolved.analysis.canonicalPath
+        )
+      }
+    />
   );
 }
 

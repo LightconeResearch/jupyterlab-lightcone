@@ -432,7 +432,6 @@
     }
   }
 
-  .jp-jupyterlab-lightcone-card-open,
   .jp-jupyterlab-lightcone-chat-context {
     border: 0;
     border-radius: 3px;
@@ -444,15 +443,27 @@
   }
 
   .jp-jupyterlab-lightcone-card {
-    padding: 12px;
     border: 1px solid var(--jp-border-color2);
     border-radius: 6px;
     max-width: 640px;
   }
 
-  .jp-jupyterlab-lightcone-card small {
-    display: block;
-    padding-top: 8px;
-    overflow-wrap: anywhere;
+  .jp-jupyterlab-lightcone-card > p {
+    margin: 12px;
+  }
+
+  .jp-jupyterlab-lightcone-card-preview {
+    padding: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .jp-jupyterlab-lightcone-card-preview:hover {
+    background: var(--jp-layout-color1);
+  }
+
+  .jp-jupyterlab-lightcone-card-preview:focus-visible {
+    outline: 2px solid var(--jp-brand-color1);
+    outline-offset: 2px;
   }
 }

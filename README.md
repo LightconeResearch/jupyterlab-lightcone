@@ -90,7 +90,8 @@ Ask the agent to show an ASTRA element in chat, for example:
 
 The agent calls `lightcone_preview_element`, which inserts a rich MIME card into
 its conversation. Cards display the existing ASTRA previews directly, including
-supported figures and tables, and offer **Open in tab**. They persist in saved
+supported figures and tables. Click a card to open it in a tab; links and controls
+inside the card keep their own actions. They persist in saved
 chats and resolve the current project data in the conversation's fixed universe.
 The text fallback remains readable without Lightcone installed. These cards work
 with both the stock Markdown renderer and `jupyterlab-myst` enabled.
@@ -126,7 +127,7 @@ app.commands.execute('jupyterlab_lightcone:open-element', {
 
 New results reuse an unpinned preview tab in the same project, universe, and
 result group. Its native tab title is italic. Choose **Pin tab**, double-click
-the native tab title or a card's **Open in tab** button, or use **Pin ASTRA tab**
+the native tab title or a card, or use **Pin ASTRA tab**
 in the tab context menu/command palette to keep that result. Moving a tab also
 pins it. Later results use another preview tab alongside retained tabs.
 Opening an already displayed record focuses it without creating a duplicate.
