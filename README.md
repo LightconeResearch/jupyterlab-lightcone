@@ -104,7 +104,7 @@ use another location; `ASTRA_PAPER_CACHE_DIR` remains supported as a fallback.
 On JupyterHub this configuration belongs to each single-user server.
 
 Missing PDFs are downloaded only when you choose **Fetch paper**, using
-`astra-tools==0.2.13`. Cache lookup and download failures do not prevent viewing
+`astra-tools==0.2.17`. Cache lookup and download failures do not prevent viewing
 the analysis. Cached PDFs are served from the authenticated Jupyter origin and
 support continuous scrolling, zoom, and navigation to cited passages.
 
@@ -112,6 +112,14 @@ support continuous scrolling, zoom, and navigation to cited passages.
 
 Inventory components use the shared Lightcone brand and follow JupyterLab's
 light/dark theme without changing the surrounding shell.
+
+The brand adapter from `@lightcone-research/brand` supplies every ASTRA UI
+token; the extension does not redefine any of them from JupyterLab settings.
+JupyterLab styles plain `button`, `a`, `select`, `code` and `pre` elements
+throughout its shell, which would otherwise override the shared components'
+layered styles (`style/base.css` explains the cascade). Inside the inventory
+those elements are handed back to the ASTRA UI and brand layers, so they render
+exactly as the shared components define them.
 
 ## Troubleshoot
 
