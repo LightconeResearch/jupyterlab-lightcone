@@ -428,14 +428,22 @@ for (const complete of [true, false]) {
     await page
       .getByRole('button', { name: 'Locate source passage 1 in paper' })
       .click();
-    const pdf = page.locator('.jp-jupyterlab-lightcone-pdf');
+    const pdf = page.getByRole('group', {
+      name: 'PDF viewer for Continuous scrolling test paper',
+      exact: true
+    });
     const pageNumber = complete ? 3 : 1;
     await expect(pdf.getByRole('status')).toHaveText(
       `${complete ? 'Quote' : 'Partial quote'} highlighted on page ${pageNumber} of 3`
     );
-    await expect(pdf.locator(`[data-page="${pageNumber}"] mark`)).toHaveText(
+    const highlight = pdf
+      .getByRole('group', { name: `Page ${pageNumber}`, exact: true })
+      .locator('mark');
+    await expect(highlight).toHaveText(
       complete ? QUOTE : 'A reproducible result appears'
     );
+    // Allow subpixel rounding in the browser's intersection ratio.
+    await expect(highlight).toBeInViewport({ ratio: 0.99 });
   });
 }
 
@@ -445,20 +453,26 @@ test('reads cached PDF pages and preserves quote navigation when zooming', async
 }) => {
   const path = await createProject(page, `${tmpPath}/project`, 'Paper project');
   await openInventory(page, path, { kind: 'paper', doi: DOI });
-  const pdf = page.locator('.jp-jupyterlab-lightcone-pdf');
-  await expect(pdf.locator('[data-page]')).toHaveCount(3);
+  const pdf = page.getByRole('group', {
+    name: 'PDF viewer for Continuous scrolling test paper',
+    exact: true
+  });
+  const pages = pdf.getByRole('region', { name: 'PDF pages', exact: true });
+  await expect(pages.getByRole('group', { name: /^Page \d+$/ })).toHaveCount(3);
   await page
     .getByRole('button', { name: 'Locate source passage 1 in paper' })
     .click();
-  await expect(pdf.locator('[data-page="3"] mark')).toHaveText(QUOTE);
-  await expect(pdf.locator('[data-page="3"] mark')).toBeInViewport({
-    ratio: 1
+  const lastPage = pages.getByRole('group', { name: 'Page 3', exact: true });
+  const highlight = lastPage.locator('mark');
+  await expect(highlight).toHaveText(QUOTE);
+  await expect(highlight).toBeInViewport({
+    ratio: 0.99
   });
-  const canvas = pdf.locator('[data-page="3"] canvas');
+  const canvas = lastPage.locator('canvas');
   const width = await canvas.evaluate(element =>
     element instanceof HTMLCanvasElement ? element.width : 0
   );
-  await page.getByRole('button', { name: 'Zoom PDF in' }).click();
+  await pdf.getByRole('button', { name: 'Zoom PDF in' }).click();
   await expect
     .poll(() =>
       canvas.evaluate(element =>
@@ -466,9 +480,9 @@ test('reads cached PDF pages and preserves quote navigation when zooming', async
       )
     )
     .toBeGreaterThan(width);
-  await expect(pdf.locator('[data-page="3"] mark')).toHaveText(QUOTE);
-  await expect(pdf.locator('[data-page="3"] mark')).toBeInViewport({
-    ratio: 1
+  await expect(highlight).toHaveText(QUOTE);
+  await expect(highlight).toBeInViewport({
+    ratio: 0.99
   });
   await page.getByRole('button', { name: 'Close paper details' }).click();
 
