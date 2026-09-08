@@ -1,4 +1,8 @@
-import type { IMessageMetadata } from '@jupyter/chat';
+import type {
+  IChatCommandProvider,
+  IInputModel,
+  IMessageMetadata
+} from '@jupyter/chat';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import {
   parseElementReference,
@@ -18,6 +22,36 @@ declare module '@jupyter/chat' {
 
 // Only live, tracked chats may route an agent command. No global active-project fallback.
 export const chatContexts = new Map<string, IChatContext>();
+
+/** Add the binding on submission, leaving new chats and unsent drafts empty. */
+export const chatContextProvider = {
+  id: 'jupyterlab_lightcone:context',
+  listCommandCompletions: async () => [],
+  onSubmit: async (
+    input: Pick<
+      IInputModel,
+      'value' | 'attachments' | 'chatContext' | 'getMetadata' | 'updateMetadata'
+    >
+  ) => {
+    if (!input.value.trim() && !input.attachments.length) return;
+    const context = contextForChat({
+      messages: (input.chatContext?.messages ?? []).map(content => ({
+        content
+      })),
+      input
+    });
+    if (!context) return;
+    const universe =
+      context.universeId === null
+        ? 'Use project defaults (no universe override) for decisions and artifacts.'
+        : `Use the bound universe ${JSON.stringify(context.universeId)} for decisions and artifacts.`;
+    const block = `ASTRA context: ${JSON.stringify(context.entrypoint)}. ${universe} Read astra.yaml and its referenced files directly. Use lightcone_preview_element for rich chat cards and lightcone_open_element for tabs.`;
+    // Preserve metadata after reload; avoid duplicate context when editing/retrying.
+    input.updateMetadata({ lightcone: context });
+    if (!input.value.includes(block))
+      input.value = `${input.value}\n\n${block}`;
+  }
+} satisfies IChatCommandProvider;
 
 /** Recover a fixed context from persisted messages, rejecting mixed histories. */
 export function contextForChat(model: {

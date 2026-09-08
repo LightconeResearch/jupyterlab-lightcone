@@ -19,6 +19,12 @@ class LightconePersona(BasePersona):
         )
 
     async def process_message(self, message: Message) -> None:
+        # Inspect the body an ACP persona forwards, not Lightcone's metadata.
+        if message.body.startswith("Compare the options."):
+            self.send_message("Agent received: " + message.body)
+            return
+        if "Use project defaults (no universe override)" not in message.body:
+            raise RuntimeError("The submitted prompt omitted project defaults")
         server = next(s for s in self.get_mcp_settings().mcp_servers if isinstance(s, McpServerHttp))
         headers = {header.name: header.value for header in server.headers}
         async with (

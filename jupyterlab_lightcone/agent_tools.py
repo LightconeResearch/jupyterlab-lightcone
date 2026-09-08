@@ -39,7 +39,7 @@ async def _command(name: str, args: dict) -> dict:
 async def lightcone_open_element(
     entrypoint: str,
     target: str = "",
-    universeId: str | None = None,
+    universe_id: str | None = None,
     doi: str | None = None,
 ) -> dict:
     """Open an ASTRA element as a tab in the browser that sent this prompt.
@@ -58,7 +58,7 @@ async def lightcone_open_element(
         {
             "entrypoint": entrypoint,
             "target": target,
-            "universeId": universeId,
+            "universeId": universe_id,
             **({"doi": doi} if doi else {}),
         },
     )
@@ -111,6 +111,23 @@ async def lightcone_preview_element(entrypoint: str, target: str) -> dict:
     result = await _command("resolve-preview", {"entrypoint": entrypoint, "target": target})
     if not result.get("success"):
         return result
+    element = result.get("result")
+    if (
+        not isinstance(element, dict)
+        or any(
+            not isinstance(element.get(key), str) or not element[key]
+            for key in ("entrypoint", "target", "label")
+        )
+        or "universeId" not in element
+        or (
+            element["universeId"] is not None
+            and not isinstance(element["universeId"], str)
+        )
+    ):
+        return {
+            "success": False,
+            "error": "INVALID_PREVIEW_RESPONSE: The browser returned an incomplete ASTRA reference.",
+        }
     persona = _origin_persona()
     if persona is None:
         return {
@@ -120,7 +137,6 @@ async def lightcone_preview_element(entrypoint: str, target: str) -> dict:
 
     from jupyterlab_chat.models import MimeModel, NewMessage
 
-    element = result["result"]
     payload = {
         "version": 1,
         "entrypoint": element["entrypoint"],
@@ -141,7 +157,7 @@ async def lightcone_preview_element(entrypoint: str, target: str) -> dict:
             and (mime.metadata or {}).get("lightcone_prompt") == prompt_id
             and mime.data.get(mime_type) == payload
         ):
-            return {"success": True, "messageId": message.id, "reused": True}
+            return {"success": True, "message_id": message.id, "reused": True}
     fallback = (
         f"ASTRA: {element['label']} ({target}) — "
         f"{element['entrypoint']} · {element['universeId'] or 'defaults'}"
@@ -156,4 +172,4 @@ async def lightcone_preview_element(entrypoint: str, target: str) -> dict:
             ),
         )
     )
-    return {"success": True, "messageId": message_id, "reused": False}
+    return {"success": True, "message_id": message_id, "reused": False}

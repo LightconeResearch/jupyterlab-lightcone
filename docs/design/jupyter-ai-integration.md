@@ -24,9 +24,9 @@ and controls retain their own actions, and selecting text does not open the card
 The agent can call `lightcone_open_element` to open a tab directly instead.
 
 **Lightcone Agent** uses the native chat icon in Lightcone gold and opens a bound conversation in
-the left Jupyter Chat sidebar, with visible tool guidance. Outside an ASTRA project,
+the left Jupyter Chat sidebar with an empty composer. Outside an ASTRA project,
 it shows the same missing-project guidance as the inventory shortcut.
-Prepared prompts name the bound universe (or explicit project defaults) in the
+Submitted messages name the bound universe (or explicit project defaults) in the
 message body, since ACP does not forward the chat's metadata to the agent.
 The project chip identifies the binding. Existing Jupyter AI model/persona selection
 continues to work normally.
@@ -95,17 +95,42 @@ remove the inline parser, DOM matching and hover adapter. Ordinary text remains
 owned by the installed Markdown renderer; tools and MIME cards remain functional.
 [MyST parser](https://github.com/jupyter-book/jupyterlab-myst/blob/402964a9b28d9dd7b617a125a22372d37359a5a2/src/myst.ts).
 
-Keep only MySTRA's vendored pure path parser for canonical element addresses,
-with its license and source revision. No build-time MyST plugin is bundled.
+### Shared path API needed in the SDK
+
+`@astra-spec/sdk` 0.1.2 (the current published release) already handles project
+loading, universe resolution and canonical record/analysis indexes. It does not
+export a parser for authored references. The remaining MySTRA copy translates
+paths such as `analyses.child.outputs.plot` and `decisions.method.options.robust`
+into SDK index keys, and identifies child options/evidence for existence checks.
+MySTRA itself is a private package distributed as a MyST plugin bundle, so it
+cannot currently be used as a normal published npm dependency.
+
+The minimum SDK addition is a browser-safe `parseAstraPath` export and its
+`AstraPath` type, plus `canonicalRecordPath` (or an equivalent reference resolver).
+It must preserve shorthand/explicit analysis scopes, collection navigation,
+option/evidence paths and malformed-path rejection. Both MySTRA and Lightcone
+could then import the same implementation. After that SDK release, update the
+dependency and remove `src/vendor/mystra-path.ts`, its license, and the packaging
+entries. No MyST dependency belongs in this shared parser.
+
+Until that is published, retain only the pure path subset and its attribution;
+unused display-text parsing and MyST anchor helpers have been removed. Replacing
+it with another local parser would still duplicate the grammar. Accepting only
+SDK canonical keys would instead remove existing reference syntax support.
 
 ## Project context without modifying Jupyter AI
 
 Bind a **new** Lightcone conversation to one entrypoint and universe/defaults
 context. Persist a versioned `lightcone` context object in the first sent user
 message's metadata, and repeat it on subsequent outgoing messages using the
-existing `input.getMetadata()` / `input.updateMetadata()` mechanism. Include a short visible context block so the
-agent receives the project and reference instructions too: metadata alone is not
-part of its prompt.
+existing `input.getMetadata()` / `input.updateMetadata()` mechanism. The launcher
+leaves the composer empty. Jupyter Chat's public `IChatCommandProvider.onSubmit`
+hook appends a short visible context block only when the user sends their own
+message, so ACP receives the project, universe/defaults and presentation-tool
+instructions in the body. Metadata alone is not part of its prompt. Ordinary
+unbound chats are left unchanged, and retrying an enriched draft does not append
+the same block again.
+[Submission hook](https://github.com/jupyterlab/jupyter-chat/blob/main/packages/jupyter-chat/src/registers/chat-commands.ts).
 [Message metadata](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/types.ts).
 
 On reload, derive the binding from the chat's persisted context messages. Keep it
@@ -206,7 +231,7 @@ validated reference and label, without exposing a separate read/context API.
 | Tool                                                             | Purpose                                                    |
 | ---------------------------------------------------------------- | ---------------------------------------------------------- |
 | `lightcone_preview_element(entrypoint, target)`                  | Publish an agent-attributed MIME preview in the bound chat |
-| `lightcone_open_element(entrypoint, target?, universeId?, doi?)` | Open/focus a native record or cited-paper tab              |
+| `lightcone_open_element(entrypoint, target?, universe_id?, doi?)` | Open/focus a native record or cited-paper tab              |
 
 Python imports are lazy so inventory, native tabs and the MIME renderer work
 without Jupyter AI. Tools use the existing `jupyter_server_mcp.tools` entrypoint.
@@ -221,8 +246,8 @@ persisted cards; opening a tab affects only the initiating browser.
 `lightcone-cli` main at `78059fa` produces `results/<universe>/<id>.<format>`,
 consistent with the SDK's artifact bindings. Agents can use `lc` and existing
 `agent-skills` through their normal terminal/ACP tools. This extension observes
-their changes; it adds no execution service. Tool docstrings and the prepared
-prompt explain that preview cards use a tool, even when installed research skills
+their changes; it adds no execution service. Tool docstrings and the submitted
+context block explain that preview cards use a tool, even when installed research skills
 teach MySTRA syntax for authoring documents. No skill-package change is required.
 
 ## Future simplifications
@@ -232,7 +257,7 @@ These are optional follow-ups, with no upstream PR planned now:
 - Jupyter AI's public rich-message publishing API could replace persona-registry access.
 - Correct MIME-widget disposal in Chat could remove our custom-element lifecycle adapter.
 - A shared message-body/role extension API with explicit project context could make inline references practical.
-- A browser-safe MySTRA parser package could replace the vendored grammar.
+- Publishing the shared path API in `@astra-spec/sdk` could remove the vendored grammar.
 - Workbench guidance in `agent-skills` could reduce repeated onboarding instructions.
 
 ## Validation boundaries

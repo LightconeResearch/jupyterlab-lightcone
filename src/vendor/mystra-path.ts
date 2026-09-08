@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/naming-convention -- Preserve the vendored upstream API. */
-// Vendored from LightconeResearch/MySTRA, revision 8b7dd797. See MYSTRA-LICENSE.
+// Path-only subset from LightconeResearch/MySTRA, revision 8b7dd797. See MYSTRA-LICENSE.
+// SDK 0.1.2 has canonical indexes but no authored-path parser.
+// Migration contract: docs/design/jupyter-ai-integration.md#shared-path-api-needed-in-the-sdk
 /**
  * The unified ASTRA reference path grammar.
  *
@@ -59,16 +61,6 @@ const CHILD_BY_COLLECTION: Partial<Record<Collection, ChildCollection>> = {
   prior_insights: 'evidence'
 };
 
-/** Map a collection to the singular `<kind>` used in mdast identifiers + classes. */
-export const KIND_BY_COLLECTION: Record<Collection, string> = {
-  inputs: 'input',
-  outputs: 'output',
-  decisions: 'decision',
-  findings: 'finding',
-  prior_insights: 'prior_insight',
-  analyses: 'analysis'
-};
-
 function canonicalCollection(seg: string): Collection | null {
   return COLLECTIONS.has(seg) ? (seg as Collection) : null;
 }
@@ -94,22 +86,6 @@ export function canonicalRecordPath(path: AstraPath): string | null {
     return null;
   }
   return [...path.scope, path.collection, path.id].join('.');
-}
-
-/**
- * Split a role/directive body into its display-text override and the path,
- * following MyST's `text <target>` convention (as used by `{ref}`):
- *
- *   "our preferred method <decisions.algorithm>"  → { display: "our preferred method", path: "decisions.algorithm" }
- *   "outputs.hubble_diagram"                       → { display: null, path: "outputs.hubble_diagram" }
- */
-export function splitDisplay(body: string): {
-  display: string | null;
-  path: string;
-} {
-  const m = /^(.*?)<([^>]*)>\s*$/.exec(body ?? '');
-  if (m) return { display: m[1].trim() || null, path: m[2].trim() };
-  return { display: null, path: (body ?? '').trim() };
 }
 
 /**
@@ -229,16 +205,4 @@ export function parseAstraPath(raw: string): AstraPath {
   }
 
   return { scope, collection, id, child };
-}
-
-/**
- * The in-page mdast identifier a path resolves to (`<kind>-<id>`), or `null`
- * when the path has no single anchorable element (a registry, or a
- * sub-analysis, which is a separate page). Children collapse to their parent
- * element's identifier: an option → its decision, an evidence → its
- * finding/insight, matching where the rendered anchor actually lives.
- */
-export function pathIdentifier(p: AstraPath): string | null {
-  if (!p.collection || !p.id || p.collection === 'analyses') return null;
-  return `${KIND_BY_COLLECTION[p.collection]}-${p.id}`;
 }

@@ -62,6 +62,25 @@ async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
     assert result["status"] == "unconfirmed"
 
 
+async def test_paper_and_universe_arguments_use_the_browser_contract(bridge):
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        result = await lightcone_open_element(
+            "project/astra.yaml", universe_id="baseline", doi="10.1234/example"
+        )
+    finally:
+        bridge.target_client_id.reset(token)
+    assert result["success"] is True
+    bridge.execute_command.assert_awaited_once_with(
+        "jupyterlab_lightcone:open-element",
+        {
+            "entrypoint": "project/astra.yaml", "target": "",
+            "universeId": "baseline", "doi": "10.1234/example",
+            "chatId": "origin-chat",
+        },
+    )
+
+
 @pytest.fixture
 def persona(bridge, monkeypatch):
     """Model the persisted chat contract without installing optional AI packages."""
@@ -122,8 +141,8 @@ async def test_preview_is_a_persisted_persona_mime_message_and_retries_reuse_it(
         second = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
     finally:
         bridge.target_client_id.reset(token)
-    assert first == {"success": True, "messageId": "card", "reused": False}
-    assert second == {"success": True, "messageId": "card", "reused": True}
+    assert first == {"success": True, "message_id": "card", "reused": False}
+    assert second == {"success": True, "message_id": "card", "reused": True}
     persona.chat.add_message.assert_called_once()
     message = persona.chat.add_message.call_args.args[0]
     assert message.sender == "agent"
@@ -156,4 +175,24 @@ async def test_preview_does_not_publish_when_context_validation_fails(bridge, pe
     finally:
         bridge.target_client_id.reset(token)
     assert result["error"] == "PROJECT_MISMATCH"
+    persona.chat.add_message.assert_not_called()
+
+
+@pytest.mark.parametrize("element", [
+    None, [], {},
+    {"entrypoint": "project/astra.yaml", "target": "outputs.figure", "label": "Figure"},
+    {"entrypoint": "project/astra.yaml", "target": "outputs.figure", "label": "Figure", "universeId": 1},
+    {"entrypoint": "project/astra.yaml", "target": "outputs.figure", "label": None, "universeId": None},
+])
+async def test_malformed_preview_response_does_not_publish(bridge, persona, element):
+    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
+
+    bridge.execute_command.return_value = {"success": True, "result": element}
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        result = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+    finally:
+        bridge.target_client_id.reset(token)
+    assert result["success"] is False
+    assert "INVALID_PREVIEW_RESPONSE" in result["error"]
     persona.chat.add_message.assert_not_called()

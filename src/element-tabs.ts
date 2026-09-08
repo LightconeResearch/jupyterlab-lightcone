@@ -26,25 +26,29 @@ export class ElementTabs {
       this.sync();
       this._observeMoves = true;
     });
-    app.commands.addCommand(CommandIDs.pinElement, {
-      label: 'Pin ASTRA tab',
-      isEnabled: args => {
-        const tab = this.target(args);
-        return !!tab && !tab.content.isPinned;
-      },
-      execute: args => {
-        const tab = this.target(args);
-        if (tab) this.pin(tab);
-      }
-    });
-    app.commands.addCommand(CommandIDs.unpinElement, {
-      label: 'Unpin ASTRA tab',
-      isEnabled: args => !!this.target(args)?.content.isPinned,
-      execute: args => {
-        const tab = this.target(args);
-        if (tab) this.unpin(tab);
-      }
-    });
+    this._commands.push(
+      app.commands.addCommand(CommandIDs.pinElement, {
+        label: 'Pin ASTRA tab',
+        isEnabled: args => {
+          const tab = this.target(args);
+          return !!tab && !tab.content.isPinned;
+        },
+        execute: args => {
+          const tab = this.target(args);
+          if (tab) this.pin(tab);
+        }
+      })
+    );
+    this._commands.push(
+      app.commands.addCommand(CommandIDs.unpinElement, {
+        label: 'Unpin ASTRA tab',
+        isEnabled: args => !!this.target(args)?.content.isPinned,
+        execute: args => {
+          const tab = this.target(args);
+          if (tab) this.unpin(tab);
+        }
+      })
+    );
     this._menus = [CommandIDs.pinElement, CommandIDs.unpinElement].map(
       command =>
         app.contextMenu.addItem({
@@ -203,6 +207,7 @@ export class ElementTabs {
   }
 
   dispose(): void {
+    if (this._isDisposed) return;
     this._isDisposed = true;
     this.shell?.layoutModified.disconnect(this.sync, this);
     this.app.shell.currentChanged?.disconnect(this.notifyPin, this);
@@ -211,6 +216,7 @@ export class ElementTabs {
     this._groups.clear();
     this._destinations.clear();
     for (const menu of this._menus) menu.dispose();
+    for (const command of this._commands) command.dispose();
   }
 
   private target(args: ReadonlyPartialJSONObject): ElementTab | undefined {
@@ -236,4 +242,5 @@ export class ElementTabs {
   private _groups = new Map<ElementTab, TabBar<Widget>>();
   private _bars = new Map<TabBar<Widget>, () => void>();
   private _menus: { dispose(): void }[];
+  private _commands: { dispose(): void }[] = [];
 }
