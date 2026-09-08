@@ -37,12 +37,23 @@ export class ElementTabs {
         if (tab) this.pin(tab);
       }
     });
-    this._menu = app.contextMenu.addItem({
-      command: CommandIDs.pinElement,
-      args: { contextMenu: true },
-      selector: '.lm-TabBar-tab[data-lightcone-element]',
-      rank: 5
+    app.commands.addCommand(CommandIDs.unpinElement, {
+      label: 'Unpin ASTRA tab',
+      isEnabled: args => !!this.target(args)?.content.isPinned,
+      execute: args => {
+        const tab = this.target(args);
+        if (tab) this.unpin(tab);
+      }
     });
+    this._menus = [CommandIDs.pinElement, CommandIDs.unpinElement].map(
+      command =>
+        app.contextMenu.addItem({
+          command,
+          args: { contextMenu: true },
+          selector: '.lm-TabBar-tab[data-lightcone-element]',
+          rank: 5
+        })
+    );
     app.shell.currentChanged?.connect(this.notifyPin, this);
   }
 
@@ -106,7 +117,28 @@ export class ElementTabs {
   /** Save an explicit user pin and update the native title and toolbar together. */
   pin(tab: ElementTab): void {
     if (tab.isDisposed || tab.content.isPinned) return;
-    tab.content.pin();
+    tab.content.setPinned(true);
+    this.save(tab);
+    this.notifyPin();
+  }
+
+  /** Make this the group's preview, retaining any displaced preview as a pin. */
+  unpin(tab: ElementTab): void {
+    if (tab.isDisposed || !tab.content.isPinned) return;
+    this.sync();
+    const context = elementContextKey(tab.content.reference);
+    const group = this.shell?.getMainAreaTabBar(tab);
+    this.tracker.forEach(other => {
+      if (
+        other !== tab &&
+        !other.content.isPinned &&
+        elementContextKey(other.content.reference) === context &&
+        (!group || this.shell?.getMainAreaTabBar(other) === group)
+      )
+        this.pin(other);
+    });
+    tab.content.setPinned(false);
+    this.remember(tab);
     this.save(tab);
     this.notifyPin();
   }
@@ -178,7 +210,7 @@ export class ElementTabs {
     this._bars.clear();
     this._groups.clear();
     this._destinations.clear();
-    this._menu.dispose();
+    for (const menu of this._menus) menu.dispose();
   }
 
   private target(args: ReadonlyPartialJSONObject): ElementTab | undefined {
@@ -196,11 +228,12 @@ export class ElementTabs {
 
   private notifyPin(): void {
     this.app.commands.notifyCommandChanged(CommandIDs.pinElement);
+    this.app.commands.notifyCommandChanged(CommandIDs.unpinElement);
   }
   private _observeMoves = false;
   private _isDisposed = false;
   private _destinations = new Map<string, ElementTab>();
   private _groups = new Map<ElementTab, TabBar<Widget>>();
   private _bars = new Map<TabBar<Widget>, () => void>();
-  private _menu: { dispose(): void };
+  private _menus: { dispose(): void }[];
 }

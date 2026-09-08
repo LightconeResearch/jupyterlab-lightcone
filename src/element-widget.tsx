@@ -308,12 +308,17 @@ function DetailBody({
         </div>
         <Button
           size="small"
-          disabled={widget.isPinned}
+          aria-pressed={widget.isPinned}
           onClick={() => {
             void commands
-              .execute(CommandIDs.pinElement, { widgetId: widget.tabId })
+              .execute(
+                widget.isPinned
+                  ? CommandIDs.unpinElement
+                  : CommandIDs.pinElement,
+                { widgetId: widget.tabId }
+              )
               .catch(reason =>
-                showErrorMessage('Could not pin ASTRA tab', reason)
+                showErrorMessage('Could not change ASTRA tab pin state', reason)
               );
           }}
         >
@@ -321,7 +326,7 @@ function DetailBody({
             className="jp-jupyterlab-lightcone-pin-icon"
             aria-hidden="true"
           />
-          {widget.isPinned ? 'Pinned' : 'Pin tab'}
+          {widget.isPinned ? 'Unpin tab' : 'Pin tab'}
         </Button>
       </div>
       <div
@@ -379,9 +384,9 @@ export class ElementWidget extends ReactWidget {
     return this._isPinned;
   }
 
-  /** Promotion never disables closing, moving, or live project refresh. */
-  pin(): void {
-    this._isPinned = true;
+  /** Update retention without changing the displayed record or its live data. */
+  setPinned(pinned: boolean): void {
+    this._isPinned = pinned;
     this._syncPin();
     this.update();
   }

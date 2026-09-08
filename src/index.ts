@@ -88,6 +88,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     app.docRegistry.addWidgetFactory(factory);
     registerElementCommands(app, themes, restorer, shell);
     palette?.addItem({ command: CommandIDs.pinElement, category: CATEGORY });
+    palette?.addItem({ command: CommandIDs.unpinElement, category: CATEGORY });
     registerCommands({
       app,
       documents,

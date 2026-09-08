@@ -62,7 +62,7 @@ test('reuses a preview and retains explicitly pinned native tabs in the same gro
   await expect(page.locator(viewer)).toContainText('Retain all observations.');
   await page.locator(`${tabs} .lm-TabBar-tabLabel`).dblclick();
   await expect(
-    page.getByRole('button', { name: 'Pinned', exact: true })
+    page.getByRole('button', { name: 'Unpin tab', exact: true })
   ).toBeVisible();
   await expect(page.locator(`${tabs} .lm-TabBar-tabLabel`)).toHaveCSS(
     'font-style',
@@ -177,6 +177,61 @@ test('pins from the native tab context menu, and preserves both tabs on reload',
   );
 });
 
+test('unpins from the native menu and toolbar, retaining another preview across reloads', async ({
+  page,
+  tmpPath
+}) => {
+  const open = (target: string) =>
+    page.evaluate(
+      async args =>
+        window.jupyterapp.commands.execute(
+          'jupyterlab_lightcone:open-element',
+          args
+        ),
+      { entrypoint: `${tmpPath}/astra.yaml`, target }
+    );
+  const first = await open('decisions.method');
+  await page.getByRole('button', { name: 'Pin tab', exact: true }).click();
+  const second = await open('decisions.sample');
+  const firstTab = page.locator(`[data-lightcone-element="${first.widgetId}"]`);
+  const secondTab = page.locator(
+    `[data-lightcone-element="${second.widgetId}"]`
+  );
+  // The menu acts on its target even while another result is active.
+  await firstTab.click({ button: 'right' });
+  await page
+    .getByRole('menuitem', { name: 'Unpin ASTRA tab', exact: true })
+    .click();
+  await expect(firstTab).toHaveClass(/preview-tab/);
+  await expect(secondTab).toHaveClass(/pinned-tab/);
+  await expect(page.locator(tabs)).toHaveCount(2);
+  await expect
+    .poll(async () =>
+      page.evaluate(async () =>
+        JSON.stringify(await window.jupyterapp.serviceManager.workspaces.list())
+      )
+    )
+    .toMatch(new RegExp(`"widgetId":"${first.widgetId}"[^}]*"pinned":false`));
+  await page.reload({ waitForIsReady: false });
+  await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
+  await expect(firstTab).toHaveClass(/preview-tab/);
+  await expect(secondTab).toHaveClass(/pinned-tab/);
+  const third = await open('decisions.scale');
+  expect(third.widgetId).toBe(first.widgetId);
+  await expect(page.locator(tabs)).toHaveCount(2);
+  await page.getByRole('button', { name: 'Pin tab', exact: true }).click();
+  const unpin = page.getByRole('button', { name: 'Unpin tab', exact: true });
+  await expect(unpin).toHaveAttribute('aria-pressed', 'true');
+  await unpin.click();
+  await expect(firstTab).toHaveClass(/preview-tab/);
+  const fourth = await open('decisions.method');
+  expect(fourth.widgetId).toBe(first.widgetId);
+  await secondTab.click();
+  await expect(page.locator(`${viewer}:visible`)).toContainText(
+    'Retain all observations.'
+  );
+});
+
 test('serializes concurrent opens, isolates projects and pins manually split views', async ({
   page,
   tmpPath
@@ -261,6 +316,15 @@ test('keeps separate previews for explicit universes', async ({
   await expect(page.locator(`${viewer}:visible`)).toContainText(
     'Universe: baseline'
   );
+  await page.evaluate(async widgetId => {
+    const commands = window.jupyterapp.commands;
+    await commands.execute('jupyterlab_lightcone:pin-element', { widgetId });
+    await commands.execute('jupyterlab_lightcone:unpin-element', { widgetId });
+  }, result.a.widgetId);
+  // Unpinning one universe must not retain or replace another universe's preview.
+  await expect(
+    page.locator(`[data-lightcone-element="${result.b.widgetId}"]`)
+  ).toHaveClass(/preview-tab/);
 });
 
 test('adapts figure and decision details to narrow panels and the dark theme', async ({

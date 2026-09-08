@@ -1,10 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { chatIcon, IChatTracker, type IChatPanel } from '@jupyter/chat';
-import {
-  MainAreaWidget,
-  ICommandPalette,
-  showErrorMessage
-} from '@jupyterlab/apputils';
+import { ICommandPalette, showErrorMessage } from '@jupyterlab/apputils';
 import type {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
@@ -12,19 +8,16 @@ import type {
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { PathExt } from '@jupyterlab/coreutils';
-import { recordTitle } from '@astra-spec/ui/model';
 import { CommandIDs } from './commands';
 import { ServerConnection } from '@jupyterlab/services';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import {
   chatContexts,
   contextForChat,
-  contextualArguments,
   type IChatContext
 } from './chat-context';
 import { acquireProjectDataService } from './project-data-service';
 import { parseElementReference } from './element-reference';
-import { ElementWidget } from './element-widget';
 import { InventoryDocument } from './document-widget';
 
 /** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
@@ -267,7 +260,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             if (reused) {
               panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}.`;
             } else
-              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.doi ? `, especially paper DOI ${reference.doi}` : reference.target ? `, especially ${reference.target}` : ''}. Use lightcone_project_context to inspect its real targets, use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
+              panel.model.input.value = `Discuss the ASTRA project ${entrypoint}${reference.doi ? `, especially paper DOI ${reference.doi}` : reference.target ? `, especially ${reference.target}` : ''}. Read astra.yaml and its referenced project files directly to inspect real targets. Use lightcone_preview_element to show rich cards directly in chat, and lightcone_open_element when a separate tab is useful. Inline MySTRA roles do not create previews.`;
             panel.model.input.focus();
             return { ...context, chatId: id, reused };
           } finally {
@@ -279,82 +272,6 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             reason instanceof Error ? reason : String(reason)
           );
           return null;
-        }
-      }
-    });
-    app.commands.addCommand(CommandIDs.projectContext, {
-      label: 'Read ASTRA project context',
-      describedBy: {
-        args: {
-          type: 'object',
-          properties: {
-            entrypoint: { type: 'string' },
-            universeId: { type: ['string', 'null'] },
-            query: { type: 'string' },
-            offset: { type: 'integer', minimum: 0 }
-          }
-        }
-      },
-      execute: async args => {
-        const contextual = contextualArguments(args);
-        const reference = parseElementReference({ ...contextual, target: '' });
-        const lease = acquireProjectDataService(
-          app.serviceManager.contents,
-          reference.entrypoint,
-          reference.universeId
-        );
-        try {
-          const data = await lease.service.get();
-          if (lease.service.state.error)
-            throw new Error(lease.service.state.error);
-          const query =
-            typeof args.query === 'string'
-              ? args.query.toLowerCase().slice(0, 200)
-              : '';
-          const offset =
-            typeof args.offset === 'number' &&
-            Number.isSafeInteger(args.offset) &&
-            args.offset >= 0
-              ? args.offset
-              : 0;
-          const records = [...data.index.recordByPath.values()]
-            .map(record => ({
-              target: record.canonicalPath,
-              kind: record.kind,
-              label: recordTitle(record).slice(0, 240)
-            }))
-            .filter(record =>
-              `${record.target} ${record.label}`.toLowerCase().includes(query)
-            );
-          const active = app.shell.currentWidget;
-          const activeReference =
-            active instanceof MainAreaWidget &&
-            active.content instanceof ElementWidget
-              ? active.content.reference
-              : undefined;
-          return {
-            capabilities: [
-              'mime-preview-cards',
-              'record-tabs',
-              'cited-paper-tabs',
-              'read-element'
-            ],
-            activeElement:
-              activeReference?.entrypoint === reference.entrypoint
-                ? { ...activeReference }
-                : null,
-            entrypoint: reference.entrypoint,
-            universeId:
-              data.document.universe.source === 'none'
-                ? null
-                : data.document.universe.universeId,
-            syntax:
-              'Targets such as outputs.figure and clustering.decisions.method are rooted at this project. Use lightcone_preview_element for rich cards in chat (the default), or lightcone_open_element for separate tabs. Inline MySTRA roles do not create previews. Child option/evidence targets open their owning record.',
-            records: records.slice(offset, offset + 50),
-            nextOffset: offset + 50 < records.length ? offset + 50 : null
-          };
-        } finally {
-          lease.release();
         }
       }
     });

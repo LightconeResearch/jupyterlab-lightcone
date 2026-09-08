@@ -6,8 +6,6 @@ Imports are lazy so the inventory works without the optional AI dependencies.
 TOOLS = [
     "jupyterlab_lightcone.agent_tools:lightcone_preview_element",
     "jupyterlab_lightcone.agent_tools:lightcone_open_element",
-    "jupyterlab_lightcone.agent_tools:lightcone_read_element",
-    "jupyterlab_lightcone.agent_tools:lightcone_project_context",
 ]
 
 
@@ -48,8 +46,8 @@ async def lightcone_open_element(
 
     entrypoint is a Jupyter Contents path to astra.yaml. target is a rooted
     MySTRA path, e.g. decisions.covariance_source or clustering.outputs.xi.
-    For a cited paper, pass doi and leave target empty. Inspect real targets
-    with lightcone_project_context first. Opens reuse the unpinned ASTRA preview
+    For a cited paper, pass doi and leave target empty. Read astra.yaml directly
+    to find real targets. Opens reuse the unpinned ASTRA preview
     in this project and universe. User-pinned tabs are retained; opening an
     already visible record focuses its tab. Pinning is controlled by the user.
     This does not execute recipes or download missing papers. A timeout is
@@ -63,42 +61,6 @@ async def lightcone_open_element(
             "universeId": universeId,
             **({"doi": doi} if doi else {}),
         },
-    )
-
-
-async def lightcone_read_element(
-    entrypoint: str,
-    target: str = "",
-    universeId: str | None = None,
-    doi: str | None = None,
-) -> dict:
-    """Read bounded ASTRA details, relations and artifact availability.
-
-    Paths always start at the project root. Use lightcone_preview_element
-    to display a rich card directly in chat, or lightcone_open_element for
-    a separate tab. MySTRA roles in prose do not produce preview cards.
-    """
-    return await _command(
-        "read-element",
-        {
-            "entrypoint": entrypoint,
-            "target": target,
-            "universeId": universeId,
-            **({"doi": doi} if doi else {}),
-        },
-    )
-
-
-async def lightcone_project_context(
-    entrypoint: str | None = None, query: str = "", offset: int = 0
-) -> dict:
-    """Discover the conversation's bound ASTRA project and reference targets.
-
-    Omit entrypoint to use this chat's context. Results are paginated, 50 at a
-    time, with nextOffset when more remain. query filters paths and labels.
-    """
-    return await _command(
-        "project-context", {"entrypoint": entrypoint, "query": query, "offset": offset}
     )
 
 
@@ -138,15 +100,15 @@ async def lightcone_preview_element(entrypoint: str, target: str) -> dict:
     """Display an ASTRA preview card directly in the originating chat.
 
     This is the default way to show figures, decisions, inputs, findings,
-    prior insights or analyses. Inspect real targets with
-    lightcone_project_context first. target is rooted at astra.yaml, e.g.
+    prior insights or analyses. Read astra.yaml directly to find real targets.
+    target is rooted at astra.yaml, e.g.
     outputs.fit or clustering.decisions.method. The chat's universe is used.
-    The card has an Open in tab button; use lightcone_open_element when a
+    Clicking the card opens its tab; use lightcone_open_element when a
     separate tab is explicitly wanted. Do not emit JSON or MySTRA roles in
     prose to create cards. No recipes execute and no papers are downloaded.
     Repeated previews of the same target in one prompt reuse the card.
     """
-    result = await _command("read-element", {"entrypoint": entrypoint, "target": target})
+    result = await _command("resolve-preview", {"entrypoint": entrypoint, "target": target})
     if not result.get("success"):
         return result
     persona = _origin_persona()

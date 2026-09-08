@@ -22,7 +22,7 @@ import { UUID, type ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { ElementTabs } from './element-tabs';
 import { canonicalRecordPath, parseAstraPath } from './vendor/mystra-path';
 
-/** Expose validated record views and JSON descriptions to UI and agent callers. */
+/** Expose record views and validate references before publishing chat previews. */
 export function registerElementCommands(
   app: JupyterFrontEnd,
   themes: IThemeManager,
@@ -109,7 +109,7 @@ export function registerElementCommands(
   };
   for (const command of [
     CommandIDs.openElement,
-    CommandIDs.readElement,
+    CommandIDs.resolvePreview,
     CommandIDs.restoreElement
   ]) {
     app.commands.addCommand(command, {
@@ -118,7 +118,7 @@ export function registerElementCommands(
           ? 'Open ASTRA element'
           : command === CommandIDs.restoreElement
             ? 'Restore ASTRA tab'
-            : 'Read ASTRA element',
+            : 'Resolve ASTRA preview',
       describedBy: {
         args: {
           type: 'object',
@@ -165,32 +165,12 @@ export function registerElementCommands(
                   ? null
                   : data.document.universe.universeId
             };
-            if (command === CommandIDs.readElement) {
-              const serialized = JSON.stringify(
-                resolved.record ?? resolved.paper ?? resolved.analysis
-              );
+            if (command === CommandIDs.resolvePreview) {
               return {
                 ...pinned,
-                kind:
-                  resolved.record?.kind ??
-                  (resolved.paper ? 'paper' : 'analysis'),
                 label: resolved.record
                   ? recordTitle(resolved.record)
-                  : (resolved.paper?.title ?? resolved.analysis.name),
-                reference: reference.doi
-                  ? `https://doi.org/${reference.doi}`
-                  : `{astra}\`${reference.target}\``,
-                detail: serialized.slice(0, 16000),
-                truncated: serialized.length > 16000,
-                materialized:
-                  resolved.record?.kind === 'output'
-                    ? !!resolved.record.artifact
-                    : undefined,
-                artifacts: data.bindings.filter(
-                  binding =>
-                    resolved.record &&
-                    binding.outputPath === resolved.record.canonicalPath
-                )
+                  : (resolved.paper?.title ?? resolved.analysis.name)
               };
             }
             if (!resolved.record && !resolved.paper) {
@@ -230,7 +210,7 @@ export function registerElementCommands(
             lease.release();
           }
         };
-        return command === CommandIDs.readElement
+        return command === CommandIDs.resolvePreview
           ? execute()
           : enqueue(execute);
       }

@@ -93,6 +93,15 @@ prior_insights:
     })
   });
   await expect(figure.locator('img')).toBeVisible();
+  // Streaming replies can still scroll the card away from the pointer.
+  await expect(
+    page
+      .locator('.jp-chat-rendered-message code')
+      .filter({ hasText: '{astra}`outputs.figure`' })
+  ).toBeVisible();
+  await expect(page.locator('.jp-chat-writers')).not.toContainText(
+    'Lightcone test agent'
+  );
   // The raised top edge must stay visible and clickable outside its old bounds.
   await figure.hover();
   await expect(figure).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, -2)');
@@ -179,11 +188,6 @@ prior_insights:
       .filter({ hasText: 'outputs.figure' })
   ).toBeVisible();
   await expect(
-    page
-      .locator('.jp-chat-rendered-message code')
-      .filter({ hasText: '{astra}`outputs.figure`' })
-  ).toBeVisible();
-  await expect(
     page.locator('.jp-jupyterlab-lightcone-reference-button')
   ).toHaveCount(0);
   if (process.env.LIGHTCONE_TEST_MYST === '1')
@@ -201,7 +205,7 @@ prior_insights:
   await expect(
     page
       .locator('.jp-jupyterlab-lightcone-element:visible')
-      .getByRole('button', { name: 'Pinned', exact: true })
+      .getByRole('button', { name: 'Unpin tab', exact: true })
   ).toBeVisible();
   const result = await page.evaluate(
     async entrypoint =>

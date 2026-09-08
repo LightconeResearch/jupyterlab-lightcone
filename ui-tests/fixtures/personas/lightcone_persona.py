@@ -26,10 +26,10 @@ class LightconePersona(BasePersona):
             ClientSession(read, write) as session,
         ):
             await session.initialize()
-            context = await session.call_tool("lightcone_project_context", {})
-            # Surface all bridge errors in the test instead of hiding a failed open.
-            if context.isError or not context.structuredContent.get("success"):
-                raise RuntimeError(str(context))
+            available = await session.list_tools()
+            lightcone_tools = {tool.name for tool in available.tools if tool.name.startswith("lightcone_")}
+            if lightcone_tools != {"lightcone_preview_element", "lightcone_open_element"}:
+                raise RuntimeError(f"Unexpected Lightcone tools: {lightcone_tools}")
             entrypoint = message.metadata["lightcone"]["entrypoint"]
             result = await session.call_tool("lightcone_open_element", {"entrypoint": entrypoint, "target": "decisions.method"})
             if result.isError or not result.structuredContent.get("success"):

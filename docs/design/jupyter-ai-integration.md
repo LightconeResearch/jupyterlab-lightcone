@@ -12,7 +12,7 @@ Status: implementation updated on 6 September 2026. No upstream or sibling-packa
 | Inline references         | Deferred; remove the Markdown DOM adapter                                                   | No parser or DOM coupling to stock Markdown or `jupyterlab-myst`           |
 | Project context           | One project and universe/defaults per conversation                                          | Start another discussion to change context                                 |
 | Element tabs              | Existing ASTRA UI detail components in native widgets                                       | Unsupported targets use their owner/inventory or a clear unavailable state |
-| Agent access              | Four tools through the existing Jupyter MCP server                                          | Requires the originating browser and a bound discussion                    |
+| Agent access              | Two presentation tools through the existing Jupyter MCP server                              | Requires the originating browser and a bound discussion                    |
 
 ## User experience
 
@@ -60,7 +60,7 @@ renders `text/markdown`.
 The ACP client's ordinary response stream is text; merely returning MIME JSON
 from a tool does not insert a rich chat message. The preview tool therefore:
 
-1. Runs the existing read-element command in the originating browser, validating
+1. Runs the internal resolve-preview command in the originating browser, validating
    the chat binding and resolving the target and universe through the SDK.
 2. Looks up the calling persona using the same chat/persona headers and server
    registry as Jupyter MCP routing, and verifies its processing-message browser.
@@ -161,7 +161,10 @@ context; child navigation reuses the owner tab. Each result group reuses its
 unpinned ASTRA preview. Pinning promotes the preview to a retained view; subsequent
 opens use a different preview in that group. Pins are explicit through the toolbar,
 native tab context menu, command palette, or double-clicking the native tab label
-or the card. Moving a tab also retains it. Focusing an older pinned
+or the card. Moving a tab also retains it. **Unpin tab** in the toolbar or
+**Unpin ASTRA tab** in the context menu/palette makes that tab the reusable preview.
+Any other preview in the same group, project and universe is retained as a pin,
+so unpinning never discards another result. Focusing an older pinned
 tab does not redirect later agent results or make it replaceable. Opens are
 serialized, with pin eligibility checked after data resolution.
 
@@ -194,12 +197,14 @@ currently manage arbitrary third-party views, so keep our subscription lifecycle
 
 ### Tools and transport
 
-| Tool                                                             | Purpose                                                      |
-| ---------------------------------------------------------------- | ------------------------------------------------------------ |
-| `lightcone_project_context(entrypoint?, query?, offset?)`        | Bound project, capabilities and paginated searchable targets |
-| `lightcone_read_element(entrypoint, target?, universeId?, doi?)` | Bounded details, relationships and artifact availability     |
-| `lightcone_preview_element(entrypoint, target)`                  | Publish an agent-attributed MIME preview in the bound chat   |
-| `lightcone_open_element(entrypoint, target?, universeId?, doi?)` | Open/focus a native record or cited-paper tab                |
+The agent reads `astra.yaml` and referenced files through its existing file tools.
+Only presentation needs an MCP tool. The internal preview resolver returns the
+validated reference and label, without exposing a separate read/context API.
+
+| Tool                                                             | Purpose                                                    |
+| ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| `lightcone_preview_element(entrypoint, target)`                  | Publish an agent-attributed MIME preview in the bound chat |
+| `lightcone_open_element(entrypoint, target?, universeId?, doi?)` | Open/focus a native record or cited-paper tab              |
 
 Python imports are lazy so inventory, native tabs and the MIME renderer work
 without Jupyter AI. Tools use the existing `jupyter_server_mcp.tools` entrypoint.

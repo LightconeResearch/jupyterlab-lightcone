@@ -97,10 +97,9 @@ chats and resolve the current project data in the conversation's fixed universe.
 The text fallback remains readable without Lightcone installed. These cards work
 with both the stock Markdown renderer and `jupyterlab-myst` enabled.
 
-The built-in Jupyter MCP server discovers four tools:
+The agent reads `astra.yaml` and referenced project files directly using its
+existing file tools. The built-in Jupyter MCP server adds two presentation tools:
 
-- `lightcone_project_context`: discover the bound project and its real targets.
-- `lightcone_read_element`: inspect bounded details and artifact availability.
 - `lightcone_preview_element`: display a card in chat (the default presentation).
 - `lightcone_open_element`: open or reuse a native ASTRA tab.
 
@@ -130,6 +129,9 @@ result group. Its native tab title is italic. Choose **Pin tab**, double-click
 the native tab title or a card, or use **Pin ASTRA tab**
 in the tab context menu/command palette to keep that result. Moving a tab also
 pins it. Later results use another preview tab alongside retained tabs.
+Choose **Unpin tab**, or **Unpin ASTRA tab** in the context menu/command palette,
+to make that tab reusable again. If its group already has a preview for the same
+project and universe, that other tab is pinned so both results remain available.
 Opening an already displayed record focuses it without creating a duplicate.
 Pins keep the record's identity while its data stays live; tabs remain movable
 and closable. The layout, records, and pins survive a browser reload.
