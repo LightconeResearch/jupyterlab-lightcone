@@ -548,7 +548,11 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   );
   for (const family of [
     styles.cardTitle['font-family'],
-    styles.selector['font-family'],
+    styles.selector['font-family']
+  ]) {
+    expect(family).toContain('Lightcone Brand Newsreader');
+  }
+  for (const family of [
     styles.action['font-family'],
     styles.close['font-family']
   ]) {

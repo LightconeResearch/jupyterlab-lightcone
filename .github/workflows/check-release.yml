@@ -24,8 +24,10 @@ jobs:
       - name: Check Release
         uses: jupyter-server/jupyter_releaser/.github/actions/check-release@v2
         with:
-
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Published versions come from release tags, not the source version.
+          # Use a unique version only in the dry-run checkout to avoid tag collisions.
+          version_spec: 0.0.0-rc.${{ github.run_id }}
 
       - name: Upload Distributions
         uses: actions/upload-artifact@v4
