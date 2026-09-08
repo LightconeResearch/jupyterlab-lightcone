@@ -68,7 +68,7 @@
         "@jupyterlab/services": "^7.5.10",
         "@jupyterlab/translation": "^4.5.10",
         "@jupyterlab/ui-components": "^4.5.10",
-        "@lightcone-research/brand": "git+https://github.com/LightconeResearch/brand.git#584fe2fb4c94ed62cf4a68c4a54277b04caa1465",
+        "@lightcone-research/brand": "https://pkg.pr.new/@lightcone-research/brand@70dbf36#package.tgz",
         "@lumino/coreutils": "^2.2.0",
         "@lumino/polling": "^2.1.6",
         "@lumino/signaling": "^2.1.6",

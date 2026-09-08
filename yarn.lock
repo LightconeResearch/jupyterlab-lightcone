@@ -3070,15 +3070,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@lightcone-research/brand@git+https://github.com/LightconeResearch/brand.git#584fe2fb4c94ed62cf4a68c4a54277b04caa1465":
+"@lightcone-research/brand@https://pkg.pr.new/@lightcone-research/brand@70dbf36#package.tgz":
   version: 0.0.2
-  resolution: "@lightcone-research/brand@https://github.com/LightconeResearch/brand.git#commit=584fe2fb4c94ed62cf4a68c4a54277b04caa1465"
+  resolution: "@lightcone-research/brand@https://pkg.pr.new/@lightcone-research/brand@70dbf36#package.tgz"
   peerDependencies:
     "@astra-spec/ui": ">=0.0.1 <0.1"
   peerDependenciesMeta:
     "@astra-spec/ui":
       optional: true
-  checksum: 30b760f193102c9aded4358f2b3808fc380e74596287d12cf1fd1f7c27d7b2bfe633f16b2d09fa1e0097165395cd1dfbc3cfb8aaff5b5098378a5854241e697c
+  checksum: 3d4f5e11963ce0c1ee87a95faf7a57a2d296e218957d958f10786a34557cc8d0f153b1cefca060f908bd5be4b49eede656af7bb85410807de0fa4208b366feda
   languageName: node
   linkType: hard
 
@@ -7872,7 +7872,7 @@ __metadata:
     "@jupyterlab/testutils": ^4.0.0
     "@jupyterlab/translation": ^4.5.10
     "@jupyterlab/ui-components": ^4.5.10
-    "@lightcone-research/brand": "git+https://github.com/LightconeResearch/brand.git#584fe2fb4c94ed62cf4a68c4a54277b04caa1465"
+    "@lightcone-research/brand": "https://pkg.pr.new/@lightcone-research/brand@70dbf36#package.tgz"
     "@lumino/coreutils": ^2.2.0
     "@lumino/polling": ^2.1.6
     "@lumino/signaling": ^2.1.6
