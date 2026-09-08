@@ -3,10 +3,10 @@ import type { InventoryProps } from '@astra-spec/ui/views';
 import React, { useMemo } from 'react';
 import { JupyterArtifactAccess } from './artifact-access';
 import { JupyterArtifactPreview } from './artifact-preview';
-import { JupyterPaperViewer } from './paper-pdf-viewer';
+import { loadPdfJs } from './pdf-runtime';
 import type { ILoadedProjectData } from './project-data';
 
-/** Supply Jupyter file access and PDF rendering through ASTRA UI's host slots. */
+/** Supply Jupyter file access and pdf.js through ASTRA UI's host slots. */
 export function useProjectRenderers(
   contents: Contents.IManager,
   entrypoint: string,
@@ -30,9 +30,7 @@ export function useProjectRenderers(
       />
     ),
     onOpenArtifact: output => access.open(output),
-    renderPaper: (paper, options) => (
-      <JupyterPaperViewer paper={paper} options={options} />
-    ),
+    loadPdfJs,
     onFetchPaper
   };
 }
