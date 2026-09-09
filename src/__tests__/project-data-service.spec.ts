@@ -262,3 +262,51 @@ describe('shared project data', () => {
     }
   });
 });
+
+it('isolates pinned universes and refuses to silently change defaults or a deleted universe', async () => {
+  const entries = { 'astra.yaml': fileModel(analysis('Universes')) } as Record<
+    string,
+    ReturnType<typeof fileModel>
+  >;
+  const { contents } = createContents(entries);
+  const defaults = acquireProjectDataService(contents, 'astra.yaml', null);
+  try {
+    await defaults.service.get();
+    entries['universes/baseline.yaml'] = fileModel('id: baseline\n');
+    entries['universes/alternate.yaml'] = fileModel('id: alternate\n');
+    await defaults.service.refresh();
+    expect(defaults.service.state.error).toContain('Universe files were added');
+    expect(defaults.service.state.data?.document.universe.source).toBe('none');
+    const baseline = acquireProjectDataService(
+      contents,
+      'astra.yaml',
+      'baseline'
+    );
+    const alternate = acquireProjectDataService(
+      contents,
+      'astra.yaml',
+      'alternate'
+    );
+    try {
+      expect(baseline.service).not.toBe(alternate.service);
+      expect((await baseline.service.get()).document.universe.universeId).toBe(
+        'baseline'
+      );
+      expect((await alternate.service.get()).document.universe.universeId).toBe(
+        'alternate'
+      );
+      delete entries['universes/baseline.yaml'];
+      await baseline.service.refresh();
+      expect(baseline.service.state.error).toContain('baseline');
+      expect(baseline.service.state.data?.document.universe.universeId).toBe(
+        'baseline'
+      );
+    } finally {
+      baseline.release();
+      alternate.release();
+    }
+  } finally {
+    defaults.release();
+    contents.dispose();
+  }
+});

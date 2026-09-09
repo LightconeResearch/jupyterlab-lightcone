@@ -1,25 +1,14 @@
-/*
- * Cascade contract for the shared ASTRA components.
- *
- * @astra-spec/ui keeps every rule inside the `astra.*` cascade layers so that a
- * host can override any of it with plain CSS. JupyterLab does exactly that,
- * unintentionally: `@jupyterlab/application` and `@jupyterlab/ui-components`
- * style `button`, `a`, `select` and the `code`/`pre` family on every element
- * below `.jp-ThemedContainer` (its UI font, a 2px radius, the code font and
- * size), and an unlayered declaration beats a layered one at any specificity.
- * The one unlayered rule below hands those elements back to the layered
- * cascade with `revert-layer`, so the brand and the components render as
- * written. Everything this extension styles itself lives in the `lightcone`
- * layer, declared after astra-ui's layers so it still takes precedence there.
- *
- * The brand adapter maps every astra-ui token to a Lightcone value; nothing
- * here redefines a token from a JupyterLab setting.
- */
+/* Shared UI isolation comes from @astra-spec/ui/isolate.css. Host chrome stays in its own layer. */
 @layer astra.tokens, astra.base, astra.components, astra.views, lightcone;
 
-.jp-jupyterlab-lightcone-InventoryPanel.astra-ui.lightcone-brand
-  :is(a, button, input, select, textarea, code, kbd, pre, samp, tt) {
-  all: revert-layer;
+/* Match the ASTRA mark without recoloring Jupyter Chat's shared icon. */
+.jp-jupyterlab-lightcone-AssistantIcon .jp-icon3 {
+  fill: var(--lc-palette-antique-gold, #a67c3c);
+}
+
+/* Chat's rich-output scroller clips transforms and shadows at the card edge. */
+.jp-chat-rendered-message.jp-OutputArea:has(> lightcone-astra-card) {
+  overflow: visible;
 }
 
 @layer lightcone {
@@ -30,7 +19,7 @@
     overflow: hidden;
     color: var(--astra-color-text);
     background: var(--astra-color-canvas);
-    font-family: var(--astra-font-ui);
+    font-family: var(--astra-font-body);
   }
 
   .jp-jupyterlab-lightcone-inventory-page {
@@ -39,7 +28,7 @@
     overflow: auto;
     color: var(--astra-color-text);
     background: var(--astra-color-canvas);
-    font-family: var(--astra-font-ui);
+    font-family: var(--astra-font-body);
   }
 
   .jp-jupyterlab-lightcone-project-topbar {
@@ -196,12 +185,294 @@
   }
 
   /* JupyterLab shares the first command icon between a section and its cards. */
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon {
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon,
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon {
     background: url('./lightcone-logo.svg') center / contain no-repeat;
   }
 
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg {
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg,
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon > svg {
     visibility: hidden;
+  }
+
+  .jp-jupyterlab-lightcone-ElementWidget {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .jp-jupyterlab-lightcone-preview-tab .lm-TabBar-tabLabel {
+    font-style: italic;
+  }
+
+  .jp-jupyterlab-lightcone-pinned-tab .lm-TabBar-tabLabel::before,
+  .jp-jupyterlab-lightcone-pin-icon {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+    margin-right: 5px;
+    background: currentcolor;
+    mask: url('./pin.svg') center / contain no-repeat;
+    content: '';
+  }
+
+  .jp-jupyterlab-lightcone-element {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--astra-color-text);
+    background: var(--astra-color-canvas);
+  }
+
+  .jp-jupyterlab-lightcone-element-toolbar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-element-context {
+    display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
+    gap: 6px 12px;
+    font: 0.8125rem/1.4 var(--astra-font-ui);
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-element-universe {
+    color: var(--astra-color-text-subtle);
+    font: 0.6875rem/1.6 var(--astra-font-mono);
+  }
+
+  .jp-jupyterlab-lightcone-element-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 28px clamp(16px, 3vw, 40px);
+    container-type: inline-size;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-reader='false']
+    > .astra-dialog {
+    max-width: 800px;
+    margin-inline: auto;
+  }
+
+  .jp-jupyterlab-lightcone-element-content
+    .astra-dialog[data-mode='embedded']
+    > .astra-dialog__panel {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-dialog__header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    margin-bottom: 22px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .astra-ui
+    .jp-jupyterlab-lightcone-element-content
+    [data-slot='surface-header-title'] {
+    font: 700 1.875rem/1.15 var(--astra-font-heading);
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-element-content
+    [data-slot='surface-header-identifier'] {
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-dialog__body {
+    display: block;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    border: 0;
+    border-top: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-detail__layout {
+    height: auto;
+    max-height: none;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-detail__main {
+    display: block;
+    padding: 24px 0;
+    overflow: visible;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-detail__section:first-child {
+    border-block-start: 0;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-paper-detail__artifact {
+    height: clamp(12rem, calc(100cqh - 3rem), 52rem);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /* Keep passage scrolling inside the reader, below the paper heading. */
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper'] {
+    display: flex;
+    overflow: hidden;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper'] > .astra-dialog,
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper']
+    > .astra-dialog
+    > .astra-dialog__panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper']
+    .astra-dialog__header {
+    flex: 0 0 auto;
+  }
+
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper']
+    .astra-dialog__body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    container-type: size;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-output-detail__layout {
+    height: auto;
+    max-height: none;
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+
+  .jp-jupyterlab-lightcone-element-content
+    .astra-output-detail__layout[data-layout='single'] {
+    grid-template-columns: 1fr;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-output-detail__result {
+    padding: 24px 20px 24px 0;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-output-detail__provenance {
+    padding: 24px 0 24px 20px;
+  }
+
+  .jp-jupyterlab-lightcone-element-content .astra-insight-list {
+    margin-top: 28px;
+  }
+
+  .jp-jupyterlab-lightcone-element-message {
+    padding: 24px;
+    overflow-wrap: anywhere;
+  }
+
+  @container (width < 700px) {
+    .jp-jupyterlab-lightcone-element-content .astra-output-detail__layout,
+    .jp-jupyterlab-lightcone-element-content .astra-paper-detail__layout,
+    .jp-jupyterlab-lightcone-element-content .astra-detail__layout {
+      grid-template-columns: minmax(0, 1fr);
+      max-height: none;
+    }
+
+    .jp-jupyterlab-lightcone-element-content .astra-output-detail__result {
+      padding: 20px 0;
+    }
+
+    .jp-jupyterlab-lightcone-element-content .astra-output-detail__provenance {
+      padding: 20px 0;
+      border-left: 0;
+      border-top: 1px solid var(--astra-color-border);
+    }
+
+    .jp-jupyterlab-lightcone-element-content .astra-decision-options li {
+      grid-template-columns: 16px minmax(0, 1fr);
+    }
+
+    .jp-jupyterlab-lightcone-element-content
+      .astra-decision-options
+      li
+      > small {
+      grid-column: 2;
+    }
+  }
+
+  .jp-jupyterlab-lightcone-chat-context {
+    border: 0;
+    border-radius: 3px;
+    padding: 2px 4px;
+    background: var(--jp-layout-color2);
+    color: var(--jp-ui-font-color1);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  lightcone-astra-card {
+    display: block;
+    padding-block: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-card {
+    border: 1px solid var(--jp-border-color2);
+    border-radius: 6px;
+    max-width: 640px;
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .jp-jupyterlab-lightcone-card > p {
+    margin: 12px;
+  }
+
+  .jp-jupyterlab-lightcone-card-preview {
+    padding: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .jp-jupyterlab-lightcone-card:has(
+      .jp-jupyterlab-lightcone-card-preview
+    ):hover {
+    transform: translateY(-2px);
+    box-shadow: var(--astra-shadow-raised);
+  }
+
+  .jp-jupyterlab-lightcone-card-preview:focus-visible {
+    outline: 2px solid var(--jp-brand-color1);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jp-jupyterlab-lightcone-card {
+      transition: none;
+    }
+
+    .jp-jupyterlab-lightcone-card:has(
+        .jp-jupyterlab-lightcone-card-preview
+      ):hover {
+      transform: none;
+    }
   }
 }
 

@@ -19,7 +19,8 @@
     "files": [
         "lib/**/*.{d.ts,eot,gif,html,jpg,js,js.map,json,png,svg,woff2,ttf}",
         "style/**/*.{css,js,eot,gif,html,jpg,json,png,svg,woff2,ttf}",
-        "src/**/*.{ts,tsx}"
+        "src/**/*.{ts,tsx}",
+        "src/vendor/MYSTRA-LICENSE"
     ],
     "main": "lib/index.js",
     "types": "lib/index.d.ts",
@@ -57,7 +58,8 @@
     },
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
-        "@astra-spec/ui": "^0.0.4",
+        "@astra-spec/ui": "0.0.5",
+        "@jupyter/chat": "~0.25.0",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
         "@jupyterlab/coreutils": "^6.5.10",
@@ -65,10 +67,12 @@
         "@jupyterlab/docregistry": "^4.5.10",
         "@jupyterlab/filebrowser": "^4.5.10",
         "@jupyterlab/launcher": "^4.5.10",
+        "@jupyterlab/rendermime": "^4.5.10",
+        "@jupyterlab/rendermime-interfaces": "^3.13.0",
         "@jupyterlab/services": "^7.5.10",
         "@jupyterlab/translation": "^4.5.10",
         "@jupyterlab/ui-components": "^4.5.10",
-        "@lightcone-research/brand": "^0.0.2",
+        "@lightcone-research/brand": "0.0.3",
         "@lumino/coreutils": "^2.2.0",
         "@lumino/polling": "^2.1.6",
         "@lumino/signaling": "^2.1.6",
@@ -129,7 +133,13 @@
             }
         },
         "extension": true,
-        "outputDir": "jupyterlab_lightcone/labextension"
+        "outputDir": "jupyterlab_lightcone/labextension",
+        "sharedPackages": {
+            "@jupyter/chat": {
+                "bundled": true,
+                "singleton": true
+            }
+        }
     },
     "prettier": {
         "singleQuote": true,

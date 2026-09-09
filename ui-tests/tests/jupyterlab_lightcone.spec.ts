@@ -540,15 +540,18 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
     };
   });
   // astra-ui's md step, not JupyterLab's --jp-ui-font-size1.
-  expect(styles.panel['font-size']).toBe('14px');
+  expect(styles.panel['font-size']).toBe('15px');
   // The brand's mono stack, not JupyterLab's code font.
   expect(styles.panel['--astra-font-mono']).toContain('IBM Plex Mono');
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );
+  // The selector inherits body text; card titles and buttons use the UI face.
+  expect(styles.selector['font-family']).toContain(
+    'Lightcone Brand Newsreader'
+  );
   for (const family of [
     styles.cardTitle['font-family'],
-    styles.selector['font-family'],
     styles.action['font-family'],
     styles.close['font-family']
   ]) {
@@ -556,7 +559,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   }
   // `.jp-ThemedContainer button` would round every button to 2px.
   expect(styles.card['border-radius']).toBe('0px');
-  expect(styles.selector['border-radius']).toBe('0px');
+  expect(styles.selector['border-radius']).toBe('3px');
   expect(styles.action['border-radius']).toBe('6px');
   expect(styles.close['border-radius']).toBe('6px');
   // `.jp-ThemedContainer a` would unset the outline's subtle link colour.

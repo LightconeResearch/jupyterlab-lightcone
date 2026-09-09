@@ -1,5 +1,6 @@
 import {
   ILayoutRestorer,
+  ILabShell,
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
@@ -12,6 +13,9 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
+import { chatPlugin } from './chat-plugin';
+import { astraMimePlugin } from './astra-mime';
+import { registerElementCommands } from './element-commands';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
 import {
@@ -36,7 +40,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     ILauncher,
     IFileBrowserFactory,
     ILayoutRestorer,
-    ITranslator
+    ITranslator,
+    ILabShell
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -46,7 +51,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     launcher: ILauncher | null,
     browser: IFileBrowserFactory | null,
     restorer: ILayoutRestorer | null,
-    translator: ITranslator | null
+    translator: ITranslator | null,
+    shell: ILabShell | null
   ) => {
     const inventories = new WidgetTracker<InventoryDocument>({
       namespace: 'lightcone-inventory'
@@ -80,6 +86,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     });
     app.docRegistry.addWidgetFactory(factory);
+    registerElementCommands(app, themes, restorer, shell);
+    palette?.addItem({ command: CommandIDs.pinElement, category: CATEGORY });
+    palette?.addItem({ command: CommandIDs.unpinElement, category: CATEGORY });
     registerCommands({
       app,
       documents,
@@ -97,10 +106,20 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     }
     palette?.addItem({ command: CommandIDs.openInventory, category: CATEGORY });
-    launcher?.add({ command: CommandIDs.openInventory, category: CATEGORY });
+    launcher?.add({
+      command: CommandIDs.openInventory,
+      category: CATEGORY,
+      categoryRank: -10,
+      rank: 1
+    });
     palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
     palette?.addItem({ command: CommandIDs.openMySTRA, category: CATEGORY });
-    launcher?.add({ command: CommandIDs.openMySTRA, category: CATEGORY });
+    launcher?.add({
+      command: CommandIDs.openMySTRA,
+      category: CATEGORY,
+      categoryRank: -10,
+      rank: 2
+    });
     app.contextMenu.addItem({
       command: CommandIDs.openMySTRA,
       selector: '.jp-DirListing-item',
@@ -110,4 +129,4 @@ const plugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export default plugin;
+export default [plugin, astraMimePlugin, chatPlugin];
