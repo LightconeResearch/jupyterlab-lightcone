@@ -4,6 +4,34 @@ This guide provides coding standards and best practices for developing JupyterLa
 
 **Extension type**: frontend-and-server
 
+## TEMPORARY WORKAROUND: MySTRA Viewer (remove when possible)
+
+The managed MySTRA Viewer introduced in PR #19 is a **stopgap, not a design we
+want to keep**. There is no straightforward way to serve the output of
+`myst start` inside JupyterLab, so the extension spawns the MyST CLI itself and
+proxies its theme and content servers through Jupyter-authenticated routes.
+This only works with our own `astra-theme` MyST theme, which implements the
+private `mystra-viewer.v1` capability contract (the `MYSTRA_BASE_URL`,
+`MYSTRA_CONTENT_URL`, and `MYSTRA_RELOAD_URL` environment variables and the
+`/site/mystra-capabilities` endpoint). Stock MyST themes cannot be used.
+
+The workaround lives in:
+
+- `jupyterlab_lightcone/mystra.py` — process-group supervision, port
+  selection, log parsing, readiness probing
+- `jupyterlab_lightcone/mystra_routes.py` — session, proxy, and WebSocket
+  relay handlers
+- `src/mystra-viewer.ts`, `src/api.ts` (`*MySTRA*` functions), the
+  `openMySTRA`/`restartMySTRA` commands in `src/commands.ts`, and
+  `style/myst-logo.svg`
+- `jupyterlab_lightcone/tests/test_mystra.py` and `ui-tests/tests/mystra.spec.ts`
+
+**Undo all of this** once MyST or JupyterLab offers a supported way to embed a
+`myst start` site (for example a first-party proxy or a static-build preview),
+and drop the matching `mystra-viewer.v1` support from `astra-theme`. Do not
+extend this hack to further themes or generalize it; keep changes to it
+minimal and bug-fix only.
+
 ## External Documentation and Resources
 
 ### PRIORITY RESOURCE USAGE

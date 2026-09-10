@@ -9,7 +9,10 @@ export function apiUrl(
   return URLExt.join(settings.baseUrl, 'jupyterlab_lightcone', endpoint);
 }
 
-/** Make an authenticated JSON request; callers validate the response contract. */
+/**
+ * Make an authenticated JSON request; callers validate the response contract.
+ * A 204 response resolves to undefined.
+ */
 export async function requestAPI(
   endpoint: string,
   settings: ServerConnection.ISettings,
@@ -29,6 +32,9 @@ export async function requestAPI(
   }
   if (!response.ok) {
     throw await ServerConnection.ResponseError.create(response);
+  }
+  if (response.status === 204) {
+    return undefined;
   }
   return response.json();
 }

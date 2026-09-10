@@ -1,17 +1,21 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
-import { showErrorMessage } from '@jupyterlab/apputils';
+import { WidgetTracker, showErrorMessage } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
-import { astraIcon } from './icons';
+import { astraIcon, mystIcon } from './icons';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
+import { startMySTRA } from './api';
+import { MySTRAViewer } from './mystra-viewer';
 
 export namespace CommandIDs {
+  export const restartMySTRA = 'jupyterlab_lightcone:restart-mystra';
+  export const openMySTRA = 'jupyterlab_lightcone:open-mystra';
   export const pinElement = 'jupyterlab_lightcone:pin-element';
   export const unpinElement = 'jupyterlab_lightcone:unpin-element';
   export const restoreElement = 'jupyterlab_lightcone:restore-element';
@@ -64,6 +68,80 @@ export function registerCommands(options: ICommandOptions): void {
     }
     return 'astra.yaml';
   };
+
+  app.commands.addCommand(CommandIDs.restartMySTRA, {
+    label: trans.__('Restart MySTRA Viewer'),
+    describedBy: { args: { type: 'object', properties: {} } },
+    isEnabled: () => app.shell.currentWidget instanceof MySTRAViewer,
+    execute: () => {
+      const viewer = app.shell.currentWidget;
+      if (viewer instanceof MySTRAViewer) return viewer.restartSession();
+    }
+  });
+
+  const viewers = new WidgetTracker<MySTRAViewer>({
+    namespace: 'lightcone-mystra'
+  });
+  app.commands.addCommand(CommandIDs.openMySTRA, {
+    label: trans.__('MySTRA Viewer'),
+    caption: trans.__('Open this project with its ASTRA publication theme'),
+    describedBy: {
+      args: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          cwd: { type: 'string' },
+          fromContextMenu: { type: 'boolean' }
+        }
+      }
+    },
+    icon: mystIcon,
+    execute: async args => {
+      try {
+        const current = app.shell.currentWidget;
+        const context = current
+          ? documents.contextForWidget(current)
+          : undefined;
+        const fileBrowser = browser?.tracker.currentWidget;
+        const selected = fileBrowser ? [...fileBrowser.selectedItems()] : [];
+        const path =
+          typeof args.path === 'string'
+            ? args.path
+            : typeof args.cwd === 'string'
+              ? args.cwd
+              : args.fromContextMenu === true && selected[0]
+                ? selected[0].path
+                : current instanceof MySTRAViewer
+                  ? current.path
+                  : (context?.path ??
+                    selected[0]?.path ??
+                    fileBrowser?.model.path ??
+                    '');
+        const session = await startMySTRA(contents.serverSettings, path);
+        let viewer = viewers.find(candidate => candidate.path === session.path);
+        if (viewer) {
+          // The server may have minted a new session after the old one expired.
+          viewer.adopt(session);
+        } else {
+          viewer = new MySTRAViewer(
+            session,
+            contents.serverSettings,
+            options.translator
+          );
+          await viewers.add(viewer);
+          app.shell.add(viewer, 'main');
+        }
+        app.shell.activateById(viewer.id);
+        return viewer;
+      } catch (error) {
+        await showErrorMessage(
+          trans.__('Could not open MySTRA Viewer'),
+          error instanceof Error ? error : String(error)
+        );
+        return undefined;
+      }
+    }
+  });
 
   app.commands.addCommand(CommandIDs.openInventory, {
     label: trans.__('ASTRA Inventory'),

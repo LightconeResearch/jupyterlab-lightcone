@@ -113,6 +113,20 @@ const plugin: JupyterFrontEndPlugin<void> = {
       rank: 1
     });
     palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
+    palette?.addItem({ command: CommandIDs.openMySTRA, category: CATEGORY });
+    palette?.addItem({ command: CommandIDs.restartMySTRA, category: CATEGORY });
+    launcher?.add({
+      command: CommandIDs.openMySTRA,
+      category: CATEGORY,
+      categoryRank: -10,
+      rank: 2
+    });
+    app.contextMenu.addItem({
+      command: CommandIDs.openMySTRA,
+      selector: '.jp-DirListing-item',
+      args: { fromContextMenu: true },
+      rank: 20
+    });
   }
 };
 

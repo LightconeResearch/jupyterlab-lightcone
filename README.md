@@ -11,7 +11,7 @@ analysis format; `astra.yaml` and its SDK contracts retain their names.
 
 - Python >= 3.11
 - JupyterLab >= 4.5.10, < 5
-- Node.js >= 20 for extension development only
+- Node.js >= 20 for extension development or the optional MySTRA viewer
 
 ## Install
 
@@ -53,6 +53,53 @@ Projects refresh after relevant file operations, through **Refresh ASTRA
 Inventory**, and by polling while the browser is visible. Multiple views of the
 same project share that work. A transient invalid edit preserves the last valid
 view and displays a notice until the project recovers.
+
+### MySTRA Viewer
+
+Choose **MySTRA Viewer** in the launcher, command palette, or file-browser
+context menu. Lightcone finds the nearest `myst.yml` or `myst.yaml`, starts its
+MyST CLI, and opens the actual ASTRA article/book application in a tab. Opening
+the same project reuses the viewer. Saved Markdown and research data changes
+are handled by MyST's watcher; unsaved editor changes are not rendered.
+
+This feature requires Node.js, the `myst` CLI, the project's MySTRA plugin, and
+an ASTRA theme implementing `mystra-viewer.v1` in the **Jupyter server's**
+environment. It is a MySTRA viewer, not a universal MyST theme preview. Older
+ASTRA versions and stock MyST themes produce an actionable compatibility error.
+The project retains its own `site.template` and plugin configuration; Lightcone
+does not substitute a renderer or install MyST automatically. The first theme
+launch may install its dependencies and require network access.
+
+The tab shows status and a bounded build log during startup or on errors;
+the controls disappear when the report is ready. **Restart MySTRA Viewer** in
+the command palette stops and restarts the active project's process group.
+Closing the tab stops its heartbeat; processes expire after two minutes
+without a viewer and stop when Jupyter shuts down. An expired tab explains
+that its session ended and offers a restart. If another process takes one of
+the ports chosen for MyST, the tab reports it and a restart picks new ports. Up to five sessions can run at once. Each session belongs to its Jupyter
+identity, and different project directories receive distinct routes/processes.
+
+Opening a viewer executes the project's configured plugins and theme as the
+Jupyter server user. Use trusted projects. An authorizer must permit `execute`
+on the `mystra` resource and `read` on `contents`. Site content and WebSockets
+remain behind Jupyter authentication, including JupyterHub URL prefixes. The
+iframe shares Jupyter's origin and is not a security sandbox for untrusted code.
+Only a local filesystem ContentsManager is supported, and the Jupyter server
+must run on a POSIX system; Windows servers receive a clear error because
+process-group cleanup is not implemented there.
+
+Administrators can configure `jupyter_server_config.py`:
+
+```python
+c.LightconeApp.mystra_command = ["/path/to/myst"]
+c.LightconeApp.mystra_startup_timeout = 120
+c.LightconeApp.mystra_idle_timeout = 120
+```
+
+The integration was validated with MyST 1.10.1 and Node.js 22/26. It requires
+the companion [ASTRA theme changes](https://github.com/LightconeResearch/astra-theme/pull/16)
+and the documented `mystra-viewer.v1` contract.
+No separate preview domain or publicly exposed Node port is needed.
 
 ### Cited papers
 
