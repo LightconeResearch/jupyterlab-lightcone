@@ -114,6 +114,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
     palette?.addItem({ command: CommandIDs.openMySTRA, category: CATEGORY });
+    palette?.addItem({ command: CommandIDs.restartMySTRA, category: CATEGORY });
     launcher?.add({
       command: CommandIDs.openMySTRA,
       category: CATEGORY,

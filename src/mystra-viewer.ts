@@ -3,7 +3,7 @@ import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import { PanelLayout, Widget } from '@lumino/widgets';
 import { IMySTRASession, readMySTRA, startMySTRA, stopMySTRA } from './api';
-import { astraIcon } from './icons';
+import { mystIcon } from './icons';
 
 /** The selected ASTRA theme, isolated from the workbench's CSS and React tree. */
 export class MySTRAViewer extends Widget {
@@ -13,22 +13,21 @@ export class MySTRAViewer extends Widget {
     translator: ITranslator = nullTranslator
   ) {
     super();
-    const trans = translator.load('jupyterlab_lightcone');
+    const trans = (this.trans = translator.load('jupyterlab_lightcone'));
     this.session = session;
     this.id = `lightcone-mystra-${session.id}`;
     this.title.label = `MySTRA — ${session.path.split('/').slice(-2, -1)[0] || 'Project'}`;
     this.title.caption = session.path;
-    this.title.icon = astraIcon;
+    this.title.icon = mystIcon;
     this.title.closable = true;
     this.addClass('jp-jupyterlab-lightcone-MySTRA');
     const layout = new PanelLayout();
     this.layout = layout;
-    const controls = new Widget();
+    const controls = this.controls;
     controls.addClass('jp-jupyterlab-lightcone-MySTRAControls');
     this.status.setAttribute('role', 'status');
     this.restart.textContent = trans.__('Restart');
     this.restart.onclick = () => {
-      this.status.textContent = trans.__('Restarting MySTRA…');
       void this.restartSession();
     };
     controls.node.append(this.status, this.restart);
@@ -69,6 +68,8 @@ export class MySTRAViewer extends Widget {
     this.session = session;
     this.status.textContent = session.message;
     this.logs.textContent = session.logs.join('\n');
+    if (session.state === 'ready') this.controls.hide();
+    else this.controls.show();
     if (session.state === 'ready' && this.frame.url !== session.url) {
       this.frame.url = session.url;
     }
@@ -92,14 +93,20 @@ export class MySTRAViewer extends Widget {
       if (!this.isDisposed && generation === this.generation)
         this.display(session);
     } catch (error) {
-      if (!this.isDisposed && generation === this.generation)
+      if (!this.isDisposed && generation === this.generation) {
         this.status.textContent = String(error);
+        this.controls.show();
+      }
     } finally {
       this.schedule();
     }
   }
 
-  private async restartSession(): Promise<void> {
+  /** Restart the project from an error panel or a native JupyterLab command. */
+  async restartSession(): Promise<void> {
+    if (this.isDisposed || this.restart.disabled) return;
+    this.status.textContent = this.trans.__('Restarting MySTRA…');
+    this.controls.show();
     this.generation++;
     this.restart.disabled = true;
     clearTimeout(this.timer);
@@ -118,6 +125,8 @@ export class MySTRAViewer extends Widget {
     }
   }
 
+  private trans: ReturnType<ITranslator['load']>;
+  private controls = new Widget();
   private generation = 0;
   private session: IMySTRASession;
   private frame: IFrame;

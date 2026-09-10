@@ -6,7 +6,7 @@ import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
-import { astraIcon } from './icons';
+import { astraIcon, mystIcon } from './icons';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
@@ -14,6 +14,7 @@ import { startMySTRA } from './api';
 import { MySTRAViewer } from './mystra-viewer';
 
 export namespace CommandIDs {
+  export const restartMySTRA = 'jupyterlab_lightcone:restart-mystra';
   export const openMySTRA = 'jupyterlab_lightcone:open-mystra';
   export const pinElement = 'jupyterlab_lightcone:pin-element';
   export const unpinElement = 'jupyterlab_lightcone:unpin-element';
@@ -68,6 +69,16 @@ export function registerCommands(options: ICommandOptions): void {
     return 'astra.yaml';
   };
 
+  app.commands.addCommand(CommandIDs.restartMySTRA, {
+    label: trans.__('Restart MySTRA Viewer'),
+    describedBy: { args: { type: 'object', properties: {} } },
+    isEnabled: () => app.shell.currentWidget instanceof MySTRAViewer,
+    execute: () => {
+      const viewer = app.shell.currentWidget;
+      if (viewer instanceof MySTRAViewer) return viewer.restartSession();
+    }
+  });
+
   const viewers = new Map<string, MySTRAViewer>();
   app.commands.addCommand(CommandIDs.openMySTRA, {
     label: trans.__('MySTRA Viewer'),
@@ -82,7 +93,7 @@ export function registerCommands(options: ICommandOptions): void {
         }
       }
     },
-    icon: astraIcon,
+    icon: mystIcon,
     execute: async args => {
       try {
         const current = app.shell.currentWidget;

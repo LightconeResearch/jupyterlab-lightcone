@@ -70,8 +70,9 @@ The project retains its own `site.template` and plugin configuration; Lightcone
 does not substitute a renderer or install MyST automatically. The first theme
 launch may install its dependencies and require network access.
 
-The tab shows startup status and a bounded build log. **Restart** stops and
-restarts the project's process group. Closing the tab stops its heartbeat;
+The tab shows status and a bounded build log during startup or on errors;
+the controls disappear when the report is ready. **Restart MySTRA Viewer** in
+the command palette stops and restarts the active project's process group. Closing the tab stops its heartbeat;
 processes expire after two minutes without a viewer and stop when Jupyter shuts
 down. Up to five sessions can run at once. Each session belongs to its Jupyter
 identity, and different project directories receive distinct routes/processes.
