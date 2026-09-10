@@ -1,7 +1,7 @@
 """Authenticated, owner-scoped MySTRA control and transport routes."""
 
 import asyncio
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from jupyter_server.auth import authorized
 from jupyter_server.auth.decorator import ws_authenticated
@@ -114,6 +114,32 @@ class MySTRASessionHandler(MySTRARouteHandler):
 
 class MySTRAProxyHandler(MySTRARouteHandler):
     """Read-only forwarding of theme HTML/assets and MyST content."""
+
+    def check_xsrf_cookie(self):
+        """Allow browser resource reads from this user's own Jupyter pages.
+
+        Hub checks XSRF even for cookie-authenticated GETs in CORS mode,
+        including module imports and fonts, which cannot add an XSRF header.
+        Require browser fetch metadata and a same-origin Referer within this
+        server's base URL: another Hub user's page can share our origin.
+        Authentication, authorization and session ownership still apply.
+        """
+        if (
+            self.request.method in {"GET", "HEAD"}
+            and self.request.headers.get("Sec-Fetch-Site") == "same-origin"
+        ):
+            try:
+                referer = urlsplit(self.request.headers.get("Referer", ""))
+            except ValueError:
+                pass
+            else:
+                if (
+                    referer.scheme == self.request.protocol
+                    and referer.netloc == self.request.host
+                    and referer.path.startswith(self.base_url.rstrip("/") + "/")
+                ):
+                    return
+        return super().check_xsrf_cookie()
 
     @web.authenticated
     @authorized
