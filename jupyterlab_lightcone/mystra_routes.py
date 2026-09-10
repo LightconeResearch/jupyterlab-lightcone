@@ -173,8 +173,9 @@ class MySTRAProxyHandler(MySTRARouteHandler):
                 502, log_message="MySTRA theme is unavailable; check viewer status"
             ) from error
         self.set_status(response.code)
-        for name in FORWARDED_RESPONSE_HEADERS:
-            if name in response.headers:
+        for name in response.headers:
+            # Remix carries client-side navigation redirects and status in X-Remix-*.
+            if name in FORWARDED_RESPONSE_HEADERS or name.lower().startswith("x-remix-"):
                 self.set_header(name, response.headers[name])
         # Hashed theme assets may be cached by the browser, never by shared caches.
         if "Cache-Control" in response.headers:

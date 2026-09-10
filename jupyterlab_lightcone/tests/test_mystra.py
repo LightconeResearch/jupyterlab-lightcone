@@ -270,6 +270,7 @@ async def test_proxy_preserves_html_and_filters_credentials(
         def get(self, path):
             captured.append(self.request)
             self.set_header("Content-Type", "text/html")
+            self.set_header("X-Remix-Redirect", "/elsewhere")
             self.finish("<!doctype html><p>Publication</p>")
 
     server = httpserver.HTTPServer(web.Application([(r"/(.*)", Theme)]))
@@ -303,6 +304,7 @@ async def test_proxy_preserves_html_and_filters_credentials(
         assert response.headers["Content-Type"].startswith("text/html")
         assert response.body == b"<!doctype html><p>Publication</p>"
         assert response.headers["Content-Security-Policy"] == "frame-ancestors 'self'"
+        assert response.headers["X-Remix-Redirect"] == "/elsewhere"
         assert "Authorization" not in captured[0].headers
         assert "Cookie" not in captured[0].headers
         assert "token=" not in captured[0].query
