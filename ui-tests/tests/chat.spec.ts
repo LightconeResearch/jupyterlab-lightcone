@@ -253,7 +253,7 @@ prior_insights:
   await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
   ).toContainText('outputs.figure');
-  // The binding survives a full browser reload and reopening the persisted chat.
+  // Cards survive a full browser reload and reopening the persisted chat.
   await page.reload({ waitForIsReady: false });
   await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
   await page.evaluate(async filepath => {
@@ -269,9 +269,6 @@ prior_insights:
       .locator('.jp-chat-rendered-message')
       .filter({ hasText: 'Show the decision and figure.' })
   ).toHaveText('Show the decision and figure.');
-  await expect(
-    page.locator('.jp-jupyterlab-lightcone-chat-context')
-  ).toContainText('defaults');
   await page
     .locator('.jp-chat-input-container')
     .getByRole('combobox')
@@ -281,13 +278,11 @@ prior_insights:
     page
       .locator('.jp-chat-rendered-message')
       .filter({ hasText: 'Agent received:' })
-  ).toContainText('Use project defaults (no universe override)', {
-    timeout: 30000
-  });
+  ).toHaveText('Agent received: Compare the options.', { timeout: 30000 });
   expect(errors).toEqual([]);
 });
 
-test('bound chats send agent-only context and preserve user text and reused drafts', async ({
+test('chats send unchanged messages without a context API and preserve reused drafts', async ({
   page,
   tmpPath
 }) => {
@@ -301,96 +296,60 @@ test('bound chats send agent-only context and preserve user text and reused draf
     `${tmpPath}/.jupyter/personas/lightcone_persona.py`
   );
   await page.contents.uploadContent(
-    `version: "0.0.14"
-name: Multiple universes
-inputs: []
-outputs: []
-decisions:
-  method:
-    label: Which estimator?
-    options:
-      robust:
-        label: Robust estimator
-      fast:
-        label: Fast estimator
-    default: robust
-`,
+    'version: "0.0.14"\nname: Chat project\ninputs: []\noutputs: []\n',
     'text',
     entrypoint
   );
-  for (const [id, option] of [
-    ['baseline', 'robust'],
-    ['alternate', 'fast']
-  ])
-    await page.contents.uploadContent(
-      `id: ${id}\ndecisions:\n  method: ${option}\n`,
-      'text',
-      `${tmpPath}/universes/${id}.yaml`
-    );
+  let contextRequests = 0;
+  await page.route('**/jupyterlab_lightcone/api/chat-context*', route => {
+    contextRequests++;
+    return route.fulfill({ status: 404, body: 'Not found' });
+  });
+  const opened = await page.evaluate(
+    async entrypoint =>
+      window.jupyterapp.commands.execute('jupyterlab_lightcone:discuss', {
+        entrypoint
+      }),
+    entrypoint
+  );
   const composer = page
     .locator('.jp-chat-input-container')
     .getByRole('combobox');
-  const chatIds = new Set<string>();
-  for (const universeId of ['baseline', 'alternate']) {
-    const context = await page.evaluate(
-      async args =>
-        window.jupyterapp.commands.execute(
-          'jupyterlab_lightcone:discuss',
-          args
-        ),
-      { entrypoint, universeId }
-    );
-    expect(context.universeId).toBe(universeId);
-    chatIds.add(context.chatId);
-    await expect(composer).toHaveText('');
-    await composer.fill('Compare the options.');
-    const reused = await page.evaluate(
-      async args =>
-        window.jupyterapp.commands.execute(
-          'jupyterlab_lightcone:discuss',
-          args
-        ),
-      { entrypoint, universeId, target: 'decisions.method' }
-    );
-    expect(reused.reused).toBe(true);
-    await expect(composer).toContainText('Compare the options.');
-    await expect(composer).toContainText(
-      'Discuss ASTRA element decisions.method.'
-    );
-    await expect(composer).not.toContainText('ASTRA context:');
-    const userDraft = await composer.inputValue();
-    if (universeId === 'baseline') {
-      await page.route('**/jupyterlab_lightcone/api/chat-context*', route =>
-        route.fulfill({ json: { available: false } })
-      );
-      await page.locator('.jp-chat-send-button').click();
-      const dialog = page.getByRole('dialog');
-      await expect(dialog).toContainText('Your message has not been sent.');
-      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-      await expect(composer).toHaveValue(userDraft);
-      await expect(page.locator('.jp-chat-rendered-message')).toHaveCount(0);
-      await page.unroute('**/jupyterlab_lightcone/api/chat-context*');
-    }
-    await page.locator('.jp-chat-send-button').click();
-    await expect(
-      page
-        .locator('.jp-chat-rendered-message')
-        .filter({
-          hasText: 'Compare the options.'
-        })
-        .filter({ hasNotText: 'Agent received:' })
-    ).toHaveText(userDraft, { useInnerText: true });
-    const received = page
+  await expect(composer).toHaveText('');
+  await composer.fill('Compare the options.');
+  const reused = await page.evaluate(
+    async entrypoint =>
+      window.jupyterapp.commands.execute('jupyterlab_lightcone:discuss', {
+        entrypoint,
+        target: 'decisions.method'
+      }),
+    entrypoint
+  );
+  expect(reused.reused).toBe(true);
+  expect(reused.chatId).toBe(opened.chatId);
+  await expect(composer).toContainText('Compare the options.');
+  await expect(composer).toContainText(
+    'Discuss ASTRA element decisions.method.'
+  );
+  const userDraft = await composer.inputValue();
+  await page.locator('.jp-chat-send-button').click();
+  await expect(
+    page
       .locator('.jp-chat-rendered-message')
-      .filter({ hasText: 'Agent received:' });
-    await expect(received).toContainText(
-      new RegExp(`Use the bound universe ["“]${universeId}["”]`),
-      { timeout: 30000 }
-    );
-    await expect(received).toContainText(entrypoint);
-    await expect(composer).toHaveText('');
-  }
-  expect(chatIds.size).toBe(2);
+      .filter({ hasText: 'Compare the options.' })
+      .filter({ hasNotText: 'Agent received:' })
+  ).toHaveText(userDraft, { useInnerText: true });
+  await expect(
+    page
+      .locator('.jp-chat-rendered-message')
+      .filter({ hasText: 'Agent received:' })
+  ).toHaveText(`Agent received: ${userDraft}`, {
+    useInnerText: true,
+    timeout: 30000
+  });
+  await expect(composer).toHaveText('');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(contextRequests).toBe(0);
 });
 
 test('opens only cited papers as native tabs without downloading them', async ({

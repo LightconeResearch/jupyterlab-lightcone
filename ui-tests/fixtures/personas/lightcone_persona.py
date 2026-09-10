@@ -4,7 +4,6 @@ import os
 
 from jupyter_ai_persona_manager import BasePersona, McpServerHttp, PersonaDefaults
 from jupyterlab_chat.models import Message
-from jupyter_ai_acp_client.prompt_context import get_prompt_context
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -20,16 +19,11 @@ class LightconePersona(BasePersona):
         )
 
     async def process_message(self, message: Message) -> None:
-        # Custom personas opt into the same hook as BaseAcpPersona.
-        context = await get_prompt_context(message, self.chat.get_messages())
-        prompt = message.body + ('\n\n' + context if context else '')
-        if 'ASTRA context:' in message.body:
-            raise RuntimeError('Context leaked into the saved user message')
+        if (message.metadata or {}).get("lightcone") is not None:
+            raise RuntimeError("Unexpected Lightcone context metadata")
         if message.body.startswith("Compare the options."):
-            self.send_message("Agent received: " + prompt)
+            self.send_message("Agent received: " + message.body)
             return
-        if "Use project defaults (no universe override)" not in prompt:
-            raise RuntimeError("The submitted prompt omitted project defaults")
         server = next(s for s in self.get_mcp_settings().mcp_servers if isinstance(s, McpServerHttp))
         headers = {header.name: header.value for header in server.headers}
         async with (
@@ -41,7 +35,9 @@ class LightconePersona(BasePersona):
             lightcone_tools = {tool.name for tool in available.tools if tool.name.startswith("lightcone_")}
             if lightcone_tools != {"lightcone_preview_element", "lightcone_open_element"}:
                 raise RuntimeError(f"Unexpected Lightcone tools: {lightcone_tools}")
-            entrypoint = message.metadata["lightcone"]["entrypoint"]
+            entrypoint = os.path.relpath(
+                os.path.join(self.get_chat_dir(), "astra.yaml"), self.parent.root_dir
+            )
             result = await session.call_tool("lightcone_open_element", {"entrypoint": entrypoint, "target": "decisions.method"})
             if result.isError or not result.structuredContent.get("success"):
                 raise RuntimeError(str(result))

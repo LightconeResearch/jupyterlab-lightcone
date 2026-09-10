@@ -17,7 +17,6 @@ import {
   type IElementReference
 } from './element-reference';
 import { acquireProjectDataService } from './project-data-service';
-import { contextualArguments } from './chat-context';
 import { UUID, type ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { ElementTabs } from './element-tabs';
 import { canonicalRecordPath, parseAstraPath } from './vendor/mystra-path';
@@ -133,7 +132,7 @@ export function registerElementCommands(
       },
       execute: args => {
         const execute = async () => {
-          const reference = parseElementReference(contextualArguments(args));
+          const reference = parseElementReference(args);
           if (command === CommandIDs.restoreElement) {
             const target = reference.doi
               ? `doi:${reference.doi}`

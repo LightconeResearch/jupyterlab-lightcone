@@ -217,22 +217,3 @@ export async function stopMySTRA(
     throw mySTRAError(error);
   }
 }
-
-/** Require agent-only context support before submitting a bound conversation. */
-export async function requireChatContext(
-  settings: ServerConnection.ISettings
-): Promise<void> {
-  try {
-    const payload = await requestAPI('api/chat-context', settings);
-    if (!isRecord(payload) || typeof payload.available !== 'boolean') {
-      throw new Error('The server returned invalid chat context capabilities.');
-    }
-    if (!payload.available) {
-      throw new Error(
-        'Lightcone Agent requires a Jupyter AI ACP client with prompt-context support. Update the server installation and restart JupyterLab. Your message has not been sent.'
-      );
-    }
-  } catch (error) {
-    throw new RequestError('Chat context', error);
-  }
-}

@@ -417,16 +417,6 @@
     }
   }
 
-  .jp-jupyterlab-lightcone-chat-context {
-    border: 0;
-    border-radius: 3px;
-    padding: 2px 4px;
-    background: var(--jp-layout-color2);
-    color: var(--jp-ui-font-color1);
-    font: inherit;
-    cursor: pointer;
-  }
-
   lightcone-astra-card {
     display: block;
     padding-block: 6px;

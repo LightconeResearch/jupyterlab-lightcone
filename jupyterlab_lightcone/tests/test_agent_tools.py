@@ -32,7 +32,7 @@ async def test_missing_browser_never_broadcasts(bridge):
     bridge.execute_command.assert_not_called()
 
 
-async def test_uses_middleware_routing_and_origin_chat(bridge):
+async def test_uses_middleware_routing_without_chat_binding(bridge):
     token = bridge.target_client_id.set("origin-browser")
     try:
         result = await lightcone_open_element("project/astra.yaml", "decisions.method")
@@ -44,8 +44,6 @@ async def test_uses_middleware_routing_and_origin_chat(bridge):
         {
             "entrypoint": "project/astra.yaml",
             "target": "decisions.method",
-            "universeId": None,
-            "chatId": "origin-chat",
         },
     )
 
@@ -76,7 +74,6 @@ async def test_paper_and_universe_arguments_use_the_browser_contract(bridge):
         {
             "entrypoint": "project/astra.yaml", "target": "",
             "universeId": "baseline", "doi": "10.1234/example",
-            "chatId": "origin-chat",
         },
     )
 
@@ -132,17 +129,25 @@ def persona(bridge, monkeypatch):
     return agent
 
 
-async def test_preview_is_a_persisted_persona_mime_message_and_retries_reuse_it(bridge, persona):
+@pytest.mark.parametrize("universe_id", [None, "baseline"])
+async def test_preview_is_a_persisted_persona_mime_message_and_retries_reuse_it(bridge, persona, universe_id):
     from jupyterlab_lightcone.agent_tools import lightcone_preview_element
 
     token = bridge.target_client_id.set("origin-browser")
     try:
-        first = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
-        second = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+        first = await lightcone_preview_element("project/astra.yaml", "outputs.figure", universe_id)
+        second = await lightcone_preview_element("project/astra.yaml", "outputs.figure", universe_id)
     finally:
         bridge.target_client_id.reset(token)
     assert first == {"success": True, "message_id": "card", "reused": False}
     assert second == {"success": True, "message_id": "card", "reused": True}
+    bridge.execute_command.assert_awaited_with(
+        "jupyterlab_lightcone:resolve-preview",
+        {
+            "entrypoint": "project/astra.yaml", "target": "outputs.figure",
+            **({"universeId": universe_id} if universe_id is not None else {}),
+        },
+    )
     persona.chat.add_message.assert_called_once()
     message = persona.chat.add_message.call_args.args[0]
     assert message.sender == "agent"
@@ -165,16 +170,16 @@ async def test_preview_requires_the_originating_persona_and_browser(bridge, pers
     persona.chat.add_message.assert_not_called()
 
 
-async def test_preview_does_not_publish_when_context_validation_fails(bridge, persona):
+async def test_preview_does_not_publish_when_target_resolution_fails(bridge, persona):
     from jupyterlab_lightcone.agent_tools import lightcone_preview_element
 
-    bridge.execute_command.return_value = {"success": False, "error": "PROJECT_MISMATCH"}
+    bridge.execute_command.return_value = {"success": False, "error": "TARGET_NOT_FOUND"}
     token = bridge.target_client_id.set("origin-browser")
     try:
         result = await lightcone_preview_element("other/astra.yaml", "outputs.figure")
     finally:
         bridge.target_client_id.reset(token)
-    assert result["error"] == "PROJECT_MISMATCH"
+    assert result["error"] == "TARGET_NOT_FOUND"
     persona.chat.add_message.assert_not_called()
 
 

@@ -151,19 +151,8 @@ jobs:
         jlpm playwright install chromium --only-shell
       working-directory: ui-tests
 
-    # Test the proposed backend hook until ACP PR #195 is released.
-    - name: Checkout ACP prompt context API
-      uses: actions/checkout@v4
-      with:
-        repository: EiffL/jupyter-ai-acp-client
-        ref: 9b38a9a0fa0e0cd8f662514379add6ffe488d8c3
-        path: .ci/acp-client
-        persist-credentials: false
-
     - name: Execute integration tests
       working-directory: ui-tests
-      env:
-        PYTHONPATH: ${{ github.workspace }}/.ci/acp-client
       run: |
         jlpm playwright test
 

@@ -1,10 +1,5 @@
 import { ServerConnection } from '@jupyterlab/services';
-import {
-  collectPaperMetadata,
-  fetchPaper,
-  paperPdfUrl,
-  requireChatContext
-} from '../api';
+import { collectPaperMetadata, fetchPaper, paperPdfUrl } from '../api';
 
 const settings = ServerConnection.makeSettings({
   baseUrl: 'https://example.org/user/researcher/'
@@ -104,23 +99,3 @@ it('does not render server HTML in user-facing errors', async () => {
     'Paper request failed (502):'
   );
 });
-
-it('checks agent-only context support under the configured Hub prefix', async () => {
-  const request = jest
-    .spyOn(ServerConnection, 'makeRequest')
-    .mockResolvedValue(new Response(JSON.stringify({ available: true })));
-  await expect(requireChatContext(settings)).resolves.toBeUndefined();
-  expect(request.mock.calls[0][0]).toBe(
-    'https://example.org/user/researcher/jupyterlab_lightcone/api/chat-context'
-  );
-});
-
-it.each([{ available: false }, {}, { available: 'true' }])(
-  'rejects unavailable or malformed context support: %j',
-  async payload => {
-    jest
-      .spyOn(ServerConnection, 'makeRequest')
-      .mockResolvedValue(new Response(JSON.stringify(payload)));
-    await expect(requireChatContext(settings)).rejects.toThrow();
-  }
-);
