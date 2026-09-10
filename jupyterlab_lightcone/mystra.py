@@ -266,7 +266,7 @@ class MySTRAManager:
             await self._verify_content_server(client, session)
             session.state = "ready"
             session.message = "MySTRA viewer is running"
-            await session.process.wait()
+            await self._exited(session.process)
             # Grandchildren may still hold the log pipe; kill the group before
             # draining so an orphaned node server can never hang this task.
             await self._terminate(session)
@@ -336,6 +336,20 @@ class MySTRAManager:
             f"MyST could not use content port {session.content_port}; another process took it. Restart the viewer to choose new ports."
         )
 
+    async def _exited(self, process, timeout=None):
+        """Wait for the CLI parent to exit without waiting for its pipes.
+
+        asyncio's Process.wait() on Python 3.12 also waits for inherited pipes
+        to close, which an orphaned grandchild can hold open indefinitely; the
+        child watcher sets returncode as soon as the parent itself is gone.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while process.returncode is None:
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.1)
+        return True
+
     async def _terminate(self, session):
         """Stop descendants even when the CLI parent exited unexpectedly."""
         process = session.process
@@ -346,9 +360,7 @@ class MySTRAManager:
         except ProcessLookupError:
             return
         self.log.debug("Terminating MySTRA session %s process group", session.id)
-        try:
-            await asyncio.wait_for(process.wait(), 3)
-        except asyncio.TimeoutError:
+        if not await self._exited(process, 3):
             self.log.warning(
                 "MySTRA session %s ignored SIGTERM; killing its process group",
                 session.id,
@@ -357,7 +369,7 @@ class MySTRAManager:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        await process.wait()
+        await self._exited(process)
 
     async def stop(self, session):
         """Finish process cleanup before another request can restart the project."""
