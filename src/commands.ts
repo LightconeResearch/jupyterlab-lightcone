@@ -1,5 +1,5 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
-import { showErrorMessage } from '@jupyterlab/apputils';
+import { WidgetTracker, showErrorMessage } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ServerConnection } from '@jupyterlab/services';
@@ -79,7 +79,9 @@ export function registerCommands(options: ICommandOptions): void {
     }
   });
 
-  const viewers = new Map<string, MySTRAViewer>();
+  const viewers = new WidgetTracker<MySTRAViewer>({
+    namespace: 'lightcone-mystra'
+  });
   app.commands.addCommand(CommandIDs.openMySTRA, {
     label: trans.__('MySTRA Viewer'),
     caption: trans.__('Open this project with its ASTRA publication theme'),
@@ -116,16 +118,18 @@ export function registerCommands(options: ICommandOptions): void {
                     fileBrowser?.model.path ??
                     '');
         const session = await startMySTRA(contents.serverSettings, path);
-        let viewer = viewers.get(session.path);
-        if (!viewer || viewer.isDisposed) {
+        let viewer = viewers.find(candidate => candidate.path === session.path);
+        if (viewer) {
+          // The server may have minted a new session after the old one expired.
+          viewer.adopt(session);
+        } else {
           viewer = new MySTRAViewer(
             session,
             contents.serverSettings,
             options.translator
           );
-          viewers.set(session.path, viewer);
+          await viewers.add(viewer);
           app.shell.add(viewer, 'main');
-          viewer.disposed.connect(() => viewers.delete(session.path));
         }
         app.shell.activateById(viewer.id);
         return viewer;

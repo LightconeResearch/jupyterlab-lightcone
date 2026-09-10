@@ -2,7 +2,13 @@ import { IFrame } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import { PanelLayout, Widget } from '@lumino/widgets';
-import { IMySTRASession, readMySTRA, startMySTRA, stopMySTRA } from './api';
+import {
+  IMySTRASession,
+  RequestError,
+  readMySTRA,
+  startMySTRA,
+  stopMySTRA
+} from './api';
 import { mystIcon } from './icons';
 
 /** The selected ASTRA theme, isolated from the workbench's CSS and React tree. */
@@ -47,7 +53,7 @@ export class MySTRAViewer extends Widget {
     this.frame.node.setAttribute('aria-label', trans.__('MySTRA viewer'));
     layout.addWidget(controls);
     layout.addWidget(this.frame);
-    this.display(session);
+    this.adopt(session);
     this.schedule();
   }
 
@@ -64,8 +70,16 @@ export class MySTRAViewer extends Widget {
     super.dispose();
   }
 
-  private display(session: IMySTRASession): void {
+  /**
+   * Adopt a session for this project, for example one freshly started after
+   * the previous one expired, and resume polling it.
+   */
+  adopt(session: IMySTRASession): void {
+    const replaced = session.id !== this.session.id;
+    // Polls still in flight for the previous session must not overwrite this one.
+    if (replaced) this.generation++;
     this.session = session;
+    this.expired = false;
     this.status.textContent = session.message;
     this.logs.textContent = session.logs.join('\n');
     if (session.state === 'ready') this.controls.hide();
@@ -73,33 +87,7 @@ export class MySTRAViewer extends Widget {
     if (session.state === 'ready' && this.frame.url !== session.url) {
       this.frame.url = session.url;
     }
-  }
-
-  private schedule(): void {
-    clearTimeout(this.timer);
-    if (this.isDisposed || this.restart.disabled) return;
-    this.timer = setTimeout(
-      () => {
-        void this.poll();
-      },
-      this.session.state === 'starting' ? 1000 : 15000
-    );
-  }
-
-  private async poll(): Promise<void> {
-    const generation = this.generation;
-    try {
-      const session = await readMySTRA(this.settings, this.session.id);
-      if (!this.isDisposed && generation === this.generation)
-        this.display(session);
-    } catch (error) {
-      if (!this.isDisposed && generation === this.generation) {
-        this.status.textContent = String(error);
-        this.controls.show();
-      }
-    } finally {
-      this.schedule();
-    }
+    if (replaced) this.schedule();
   }
 
   /** Restart the project from an error panel or a native JupyterLab command. */
@@ -111,12 +99,10 @@ export class MySTRAViewer extends Widget {
     this.restart.disabled = true;
     clearTimeout(this.timer);
     try {
-      await stopMySTRA(this.settings, this.session.id).catch(error => {
-        // An expired session is already stopped; a new one can be started.
-        if (!String(error).includes('(404)')) throw error;
-      });
+      // Stopping is idempotent on the server, so an expired session is fine.
+      await stopMySTRA(this.settings, this.session.id);
       const session = await startMySTRA(this.settings, this.path);
-      if (!this.isDisposed) this.display(session);
+      if (!this.isDisposed) this.adopt(session);
     } catch (error) {
       if (!this.isDisposed) this.status.textContent = String(error);
     } finally {
@@ -125,9 +111,45 @@ export class MySTRAViewer extends Widget {
     }
   }
 
+  /** Arm the next heartbeat: fast while starting, slow once ready, never once expired. */
+  private schedule(): void {
+    clearTimeout(this.timer);
+    if (this.isDisposed || this.restart.disabled || this.expired) return;
+    this.timer = setTimeout(
+      () => {
+        void this.poll();
+      },
+      this.session.state === 'starting' ? 1000 : 15000
+    );
+  }
+
+  /** Refresh status and renew the lease; a vanished session stops the heartbeat. */
+  private async poll(): Promise<void> {
+    const generation = this.generation;
+    try {
+      const session = await readMySTRA(this.settings, this.session.id);
+      if (!this.isDisposed && generation === this.generation)
+        this.adopt(session);
+    } catch (error) {
+      if (this.isDisposed || generation !== this.generation) return;
+      this.controls.show();
+      if (error instanceof RequestError && error.status === 404) {
+        this.expired = true;
+        this.status.textContent = this.trans.__(
+          'This MySTRA session has expired. Restart the viewer to continue.'
+        );
+      } else {
+        this.status.textContent = String(error);
+      }
+    } finally {
+      this.schedule();
+    }
+  }
+
   private trans: ReturnType<ITranslator['load']>;
   private controls = new Widget();
   private generation = 0;
+  private expired = false;
   private session: IMySTRASession;
   private frame: IFrame;
   private status = document.createElement('span');

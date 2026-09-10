@@ -22,19 +22,32 @@ function isPaperMetadata(value: unknown): value is IPaperMetadata {
   );
 }
 
-/** Format server failures without placing a full HTML error page in the UI. */
-function paperError(error: unknown): Error {
-  if (error instanceof ServerConnection.ResponseError) {
-    const detail = /<!doctype|<html/i.test(error.message)
-      ? 'The server returned an HTML error page.'
-      : error.message;
-    return new Error(
-      `Paper request failed (${error.response.status}): ${detail}`
-    );
+/** A server failure with its HTTP status, without an HTML error page in the UI. */
+export class RequestError extends Error {
+  readonly status: number | undefined;
+
+  constructor(subject: string, error: unknown) {
+    if (error instanceof ServerConnection.ResponseError) {
+      const detail = /<!doctype|<html/i.test(error.message)
+        ? 'The server returned an HTML error page.'
+        : error.message;
+      super(`${subject} request failed (${error.response.status}): ${detail}`);
+      this.status = error.response.status;
+    } else {
+      super(
+        `${subject} request failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      this.status = undefined;
+    }
+    this.name = 'RequestError';
   }
-  return new Error(
-    `Paper request failed: ${error instanceof Error ? error.message : String(error)}`
-  );
+}
+
+/** Format paper service failures for dialogs. */
+function paperError(error: unknown): Error {
+  return error instanceof RequestError
+    ? error
+    : new RequestError('Paper', error);
 }
 
 /** Cached PDFs are served by the authenticated Jupyter server. */
@@ -152,17 +165,11 @@ function mySTRASession(value: unknown): IMySTRASession {
   };
 }
 
-/** Explain API errors without including an HTML error page. */
+/** Format viewer service failures, keeping the HTTP status for callers. */
 function mySTRAError(error: unknown): Error {
-  if (error instanceof ServerConnection.ResponseError) {
-    const detail = /<!doctype|<html/i.test(error.message)
-      ? 'The server returned an HTML error page.'
-      : error.message;
-    return new Error(
-      `MySTRA request failed (${error.response.status}): ${detail}`
-    );
-  }
-  return error instanceof Error ? error : new Error(String(error));
+  return error instanceof RequestError
+    ? error
+    : new RequestError('MySTRA', error);
 }
 
 /** Start or reuse the CLI for the nearest local MyST project. */
@@ -197,19 +204,15 @@ export async function readMySTRA(
   }
 }
 
-/** Explicitly stop a project's process group. */
+/** Explicitly stop a project's process group; expired sessions are already stopped. */
 export async function stopMySTRA(
   settings: ServerConnection.ISettings,
   id: string
 ): Promise<void> {
   try {
-    const response = await ServerConnection.makeRequest(
-      apiUrl(`mystra/sessions/${encodeURIComponent(id)}`, settings),
-      { method: 'DELETE' },
-      settings
-    );
-    if (!response.ok)
-      throw await ServerConnection.ResponseError.create(response);
+    await requestAPI(`mystra/sessions/${encodeURIComponent(id)}`, settings, {
+      method: 'DELETE'
+    });
   } catch (error) {
     throw mySTRAError(error);
   }

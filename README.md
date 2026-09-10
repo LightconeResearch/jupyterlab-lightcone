@@ -72,9 +72,11 @@ launch may install its dependencies and require network access.
 
 The tab shows status and a bounded build log during startup or on errors;
 the controls disappear when the report is ready. **Restart MySTRA Viewer** in
-the command palette stops and restarts the active project's process group. Closing the tab stops its heartbeat;
-processes expire after two minutes without a viewer and stop when Jupyter shuts
-down. Up to five sessions can run at once. Each session belongs to its Jupyter
+the command palette stops and restarts the active project's process group.
+Closing the tab stops its heartbeat; processes expire after two minutes
+without a viewer and stop when Jupyter shuts down. An expired tab explains
+that its session ended and offers a restart. If another process takes one of
+the ports chosen for MyST, the tab reports it and a restart picks new ports. Up to five sessions can run at once. Each session belongs to its Jupyter
 identity, and different project directories receive distinct routes/processes.
 
 Opening a viewer executes the project's configured plugins and theme as the
@@ -82,7 +84,9 @@ Jupyter server user. Use trusted projects. An authorizer must permit `execute`
 on the `mystra` resource and `read` on `contents`. Site content and WebSockets
 remain behind Jupyter authentication, including JupyterHub URL prefixes. The
 iframe shares Jupyter's origin and is not a security sandbox for untrusted code.
-Only a local filesystem ContentsManager is supported.
+Only a local filesystem ContentsManager is supported, and the Jupyter server
+must run on a POSIX system; Windows servers receive a clear error because
+process-group cleanup is not implemented there.
 
 Administrators can configure `jupyter_server_config.py`:
 

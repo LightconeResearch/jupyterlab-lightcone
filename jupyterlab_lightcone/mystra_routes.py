@@ -1,20 +1,43 @@
 """Authenticated, owner-scoped MySTRA control and transport routes."""
 
 import asyncio
-import inspect
 from urllib.parse import parse_qsl, urlencode
 
 from jupyter_server.auth import authorized
 from jupyter_server.auth.decorator import ws_authenticated
-from jupyter_server.base.handlers import APIHandler
-from jupyter_server.utils import url_path_join
+from jupyter_server.base.handlers import APIHandler, JupyterHandler
+from jupyter_server.base.websocket import WebSocketMixin
+from jupyter_server.utils import ensure_async, url_path_join
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from tornado import web, websocket
 from tornado.httpclient import AsyncHTTPClient, HTTPClientError, HTTPRequest
 
+# Request headers a browser may send that are safe to relay to a local theme.
+FORWARDED_REQUEST_HEADERS = (
+    "Accept",
+    "Accept-Encoding",
+    "Range",
+    "If-Range",
+    "If-None-Match",
+    "If-Modified-Since",
+)
+# Response headers relayed verbatim; Cache-Control is rewritten separately.
+FORWARDED_RESPONSE_HEADERS = (
+    "Content-Type",
+    "Content-Disposition",
+    "Content-Length",
+    "Content-Encoding",
+    "Content-Range",
+    "Accept-Ranges",
+    "ETag",
+    "Last-Modified",
+    "Location",
+    "Vary",
+)
 
-class MySTRARouteHandler(APIHandler):
-    """Common session lookup; URLs never accept arbitrary upstream hosts/ports."""
+
+class MySTRASessionLookup:
+    """Owner-scoped session resolution shared by HTTP and WebSocket handlers."""
 
     auth_resource = "contents"
 
@@ -26,10 +49,14 @@ class MySTRARouteHandler(APIHandler):
         """Enforce ownership even when a user can guess another session URL."""
         return self.manager.get(identifier, self.current_user.username)
 
+
+class MySTRARouteHandler(MySTRASessionLookup, APIHandler):
+    """Common HTTP behavior; URLs never accept arbitrary upstream hosts/ports."""
+
     def set_default_headers(self):
-        """Keep private content out of shared caches."""
+        """Keep private content out of shared caches while allowing revalidation."""
         super().set_default_headers()
-        self.set_header("Cache-Control", "private, no-store")
+        self.set_header("Cache-Control", "private, no-cache")
         self.set_header("X-Content-Type-Options", "nosniff")
 
 
@@ -40,11 +67,9 @@ class MySTRASessionsHandler(MySTRARouteHandler):
     @authorized(action="execute", resource="mystra")
     async def post(self):
         """Resolve a readable local project and start/reuse its viewer."""
-        allowed = self.authorizer.is_authorized(
-            self, self.current_user, "read", "contents"
+        allowed = await ensure_async(
+            self.authorizer.is_authorized(self, self.current_user, "read", "contents")
         )
-        if inspect.isawaitable(allowed):
-            allowed = await allowed
         if not allowed:
             raise web.HTTPError(
                 403, log_message="Reading this project is not authorized"
@@ -56,11 +81,14 @@ class MySTRASessionsHandler(MySTRARouteHandler):
             )
         body = self.get_json_body()
         path = body.get("path", "") if isinstance(body, dict) else None
-        _, config_path = await asyncio.to_thread(self.manager.project_root, path)
-        readable = self.contents_manager.get(config_path, content=False)
-        if inspect.isawaitable(readable):
-            await readable
-        session = await self.manager.start(self.current_user.username, path)
+        project, config_path = await asyncio.to_thread(
+            self.manager.project_root, path
+        )
+        # The contents manager applies the server's hidden-file policy.
+        await ensure_async(self.contents_manager.get(config_path, content=False))
+        session = await self.manager.start(
+            self.current_user.username, project, config_path
+        )
         self.finish(session.payload())
 
 
@@ -76,8 +104,10 @@ class MySTRASessionHandler(MySTRARouteHandler):
     @web.authenticated
     @authorized(action="execute", resource="mystra")
     async def delete(self, identifier):
-        """Explicitly stop this owner's project process group."""
-        await self.manager.stop(self.session(identifier))
+        """Stop this owner's project process group; unknown sessions are already stopped."""
+        session = self.manager.sessions.get(identifier)
+        if session is not None and session.owner == self.current_user.username:
+            await self.manager.stop(session)
         self.set_status(204)
         self.finish()
 
@@ -98,6 +128,11 @@ class MySTRAProxyHandler(MySTRARouteHandler):
         await self._proxy(identifier, service, path)
 
     async def _proxy(self, identifier, service, path):
+        """Relay one request to the session's loopback theme or content server.
+
+        Bodies pass through untouched, including any upstream compression, so
+        the forwarded validators and lengths stay accurate.
+        """
         session = self.session(identifier)
         if session.state != "ready":
             raise web.HTTPError(503, log_message=session.message)
@@ -118,16 +153,9 @@ class MySTRAProxyHandler(MySTRARouteHandler):
         url = f"http://127.0.0.1:{port}{upstream_path}" + ("?" + query if query else "")
         headers = {
             name: self.request.headers[name]
-            for name in (
-                "Accept",
-                "Range",
-                "If-Range",
-                "If-None-Match",
-                "If-Modified-Since",
-            )
+            for name in FORWARDED_REQUEST_HEADERS
             if name in self.request.headers
         }
-        headers["Accept-Encoding"] = "identity"
         try:
             response = await AsyncHTTPClient().fetch(
                 HTTPRequest(
@@ -135,52 +163,44 @@ class MySTRAProxyHandler(MySTRARouteHandler):
                     method=self.request.method,
                     headers=headers,
                     follow_redirects=False,
+                    decompress_response=False,
                     request_timeout=30,
                 ),
                 raise_error=False,
             )
-        except HTTPClientError as error:
+        except (HTTPClientError, OSError) as error:
             raise web.HTTPError(
                 502, log_message="MySTRA theme is unavailable; check viewer status"
             ) from error
         self.set_status(response.code)
-        for name in (
-            "Content-Type",
-            "Content-Disposition",
-            "Content-Length",
-            "Content-Range",
-            "Accept-Ranges",
-            "ETag",
-            "Last-Modified",
-            "Location",
-        ):
+        for name in FORWARDED_RESPONSE_HEADERS:
             if name in response.headers:
                 self.set_header(name, response.headers[name])
+        # Hashed theme assets may be cached by the browser, never by shared caches.
+        if "Cache-Control" in response.headers:
+            self.set_header(
+                "Cache-Control",
+                response.headers["Cache-Control"].replace("public", "private"),
+            )
         # Only this same-origin viewer surface is embeddable, not the rest of Jupyter.
         self.set_header("Content-Security-Policy", "frame-ancestors 'self'")
+        content_type = response.headers.get("Content-Type", "application/octet-stream")
         if self.request.method != "HEAD" and response.code not in (204, 304):
-            self.finish(
-                response.body,
-                set_content_type=response.headers.get(
-                    "Content-Type", "application/octet-stream"
-                ),
-            )
+            self.finish(response.body, set_content_type=content_type)
         else:
-            self.finish(
-                set_content_type=response.headers.get(
-                    "Content-Type", "application/octet-stream"
-                )
-            )
+            self.finish(set_content_type=content_type)
 
 
-class MySTRASocketHandler(websocket.WebSocketHandler, MySTRARouteHandler):
-    """Relay native reload events after authenticating and checking ownership."""
+class MySTRASocketHandler(
+    MySTRASessionLookup, WebSocketMixin, websocket.WebSocketHandler, JupyterHandler
+):
+    """Relay native reload events after authenticating and checking ownership.
+
+    Jupyter's WebSocketMixin supplies the origin policy and keepalive pings that
+    stop proxies from dropping a quiet reload channel.
+    """
 
     upstream = None
-
-    def check_origin(self, origin=""):
-        """Use Jupyter's origin policy for both API prepare and WS upgrade."""
-        return APIHandler.check_origin(self, origin)
 
     @ws_authenticated
     @authorized(action="read", resource="contents")
@@ -191,6 +211,7 @@ class MySTRASocketHandler(websocket.WebSocketHandler, MySTRARouteHandler):
 
     async def open(self, identifier):
         """Connect only to this session's loopback content WebSocket."""
+        super().open(identifier)
         session = self.session(identifier)
         try:
             self.upstream = await websocket.websocket_connect(
@@ -204,6 +225,7 @@ class MySTRASocketHandler(websocket.WebSocketHandler, MySTRARouteHandler):
             self.close(1011, "MySTRA reload connection unavailable")
 
     def _message(self, message):
+        """Forward upstream frames and mirror an upstream close."""
         if message is None:
             self.close()
         elif self.ws_connection is not None:
