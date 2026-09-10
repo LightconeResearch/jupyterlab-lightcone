@@ -14,6 +14,23 @@ from tornado import httpserver, web
 from jupyterlab_lightcone.mystra import ViewerSession
 
 
+@pytest.fixture
+def http_server(jp_asyncio_loop, http_server_port, jp_web_app):
+    """Honor forwarded schemes as the real Hub single-user server does."""
+    async def start_server():
+        server = httpserver.HTTPServer(jp_web_app, xheaders=True)
+        server.add_socket(http_server_port[0])
+        return server
+
+    server = jp_asyncio_loop.run_until_complete(start_server())
+    try:
+        yield server
+    finally:
+        server.stop()
+        jp_asyncio_loop.run_until_complete(server.close_all_connections())
+        http_server_port[0].close()
+
+
 @pytest.fixture(params=["local", "hub"])
 def viewer_environment(request):
     """Exercise standalone Jupyter and the Hub's additional cookie/XSRF checks."""
@@ -145,6 +162,39 @@ async def test_browser_resource_cookie_auth(
     assert "Cookie" not in upstream.headers
     assert "Authorization" not in upstream.headers
     assert "Referer" not in upstream.headers
+
+
+@pytest.mark.parametrize("viewer_environment", ["hub"], indirect=True)
+@pytest.mark.parametrize(
+    "forwarded_proto,expected_status",
+    [("https", 200), ("https,http", 403)],
+)
+async def test_hub_resource_auth_behind_tls_proxy(
+    jp_fetch, viewer_asset, browser_headers, forwarded_proto, expected_status
+):
+    """The edge's HTTPS scheme must survive every downstream proxy hop.
+
+    CHP's default forwarding appends its HTTP hop. Tornado uses the last
+    scheme, making an HTTPS browser referrer fail the same-origin check.
+    Preserving the edge header with CHP's --no-x-forward fixes authentication.
+    """
+    browser_headers.update(
+        {
+            "Referer": browser_headers["Referer"].replace("http:", "https:", 1),
+            "X-Forwarded-Proto": forwarded_proto,
+        }
+    )
+    response = await jp_fetch(
+        "jupyterlab_lightcone",
+        "mystra",
+        viewer_asset.session.id,
+        "site",
+        "mystra-manifest.js",
+        headers=browser_headers,
+        raise_error=False,
+    )
+    assert response.code == expected_status
+    assert bool(viewer_asset.captured) == (expected_status == 200)
 
 
 @pytest.mark.parametrize("viewer_environment", ["hub"], indirect=True)
