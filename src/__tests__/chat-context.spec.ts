@@ -1,10 +1,13 @@
 import {
   chatContexts,
-  chatContextProvider,
+  createChatContextProvider,
   contextForChat,
   contextualArguments,
   type IChatContext
 } from '../chat-context';
+
+const ensureAvailable = jest.fn(async () => undefined);
+const chatContextProvider = createChatContextProvider(ensureAvailable);
 
 const context: IChatContext = {
   version: 1,
@@ -18,9 +21,12 @@ const model = (history: IChatContext[], pending?: IChatContext) => ({
   input: { getMetadata: () => ({ lightcone: pending }) }
 });
 
-afterEach(() => chatContexts.clear());
+afterEach(() => {
+  chatContexts.clear();
+  ensureAvailable.mockClear();
+});
 
-test('adds agent-readable context only on submit, without duplicating it on retry', async () => {
+test('persists agent context without changing the user text, including retries', async () => {
   const input = {
     value: 'Compare the options.',
     attachments: [],
@@ -28,13 +34,11 @@ test('adds agent-readable context only on submit, without duplicating it on retr
     updateMetadata: jest.fn()
   };
   await chatContextProvider.onSubmit(input);
-  expect(input.value).toContain(
-    'Compare the options.\n\nASTRA context: "first/astra.yaml".'
-  );
-  expect(input.value).toContain('Use the bound universe "baseline"');
-  const submitted = input.value;
+  expect(input.value).toBe('Compare the options.');
+  expect(input.updateMetadata).toHaveBeenCalledWith({ lightcone: context });
+  expect(ensureAvailable).toHaveBeenCalledTimes(1);
   await chatContextProvider.onSubmit(input);
-  expect(input.value).toBe(submitted);
+  expect(input.value).toBe('Compare the options.');
 });
 
 test('leaves empty drafts and ordinary unbound chats untouched', async () => {
@@ -51,9 +55,10 @@ test('leaves empty drafts and ordinary unbound chats untouched', async () => {
   await chatContextProvider.onSubmit(unbound);
   expect(unbound.value).toBe('Hello');
   expect(unbound.updateMetadata).not.toHaveBeenCalled();
+  expect(ensureAvailable).not.toHaveBeenCalled();
 });
 
-test('includes explicit defaults and rejects a conflicting history before sending', async () => {
+test('persists explicit defaults and rejects a conflicting history before sending', async () => {
   const input = {
     value: 'Explain this project.',
     attachments: [],
@@ -61,7 +66,10 @@ test('includes explicit defaults and rejects a conflicting history before sendin
     updateMetadata: jest.fn()
   };
   await chatContextProvider.onSubmit(input);
-  expect(input.value).toContain('Use project defaults (no universe override)');
+  expect(input.value).toBe('Explain this project.');
+  expect(input.updateMetadata).toHaveBeenCalledWith({
+    lightcone: { ...context, universeId: null }
+  });
   const conflict = {
     ...input,
     chatContext: {
@@ -86,7 +94,7 @@ test('includes explicit defaults and rejects a conflicting history before sendin
   );
 });
 
-test('includes context when sending an attachment without prose', async () => {
+test('persists context when sending an attachment without prose', async () => {
   const input: Parameters<typeof chatContextProvider.onSubmit>[0] = {
     value: '',
     attachments: [{ type: 'file', value: 'first/astra.yaml' }],
@@ -94,7 +102,8 @@ test('includes context when sending an attachment without prose', async () => {
     updateMetadata: jest.fn()
   };
   await chatContextProvider.onSubmit(input);
-  expect(input.value).toContain('Use the bound universe "baseline"');
+  expect(input.value).toBe('');
+  expect(input.updateMetadata).toHaveBeenCalledWith({ lightcone: context });
   expect(input.attachments).toEqual([
     { type: 'file', value: 'first/astra.yaml' }
   ]);
@@ -132,4 +141,19 @@ test('routes against the originating chat and rejects a project or universe swit
   expect(() =>
     contextualArguments({ chatId: 'first', universeId: 'changed' })
   ).toThrow('UNIVERSE_MISMATCH');
+});
+
+test('does not send or alter drafts when agent-only context is unavailable', async () => {
+  const provider = createChatContextProvider(async () => {
+    throw new Error('Update the server');
+  });
+  const input = {
+    value: 'Keep my draft.',
+    attachments: [],
+    getMetadata: () => ({ lightcone: context }),
+    updateMetadata: jest.fn()
+  };
+  await expect(provider.onSubmit(input)).rejects.toThrow('Update the server');
+  expect(input.value).toBe('Keep my draft.');
+  expect(input.updateMetadata).not.toHaveBeenCalled();
 });

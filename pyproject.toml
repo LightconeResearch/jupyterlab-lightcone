@@ -31,6 +31,9 @@ dynamic = ["version", "description", "authors", "urls", "keywords"]
 [project.entry-points."jupyter_server_mcp.tools"]
 lightcone = "jupyterlab_lightcone.agent_tools:TOOLS"
 
+[project.entry-points."jupyter_ai_acp_client.prompt_context"]
+lightcone = "jupyterlab_lightcone.chat_context:prompt_context"
+
 [project.optional-dependencies]
 ai = ["jupyter-ai>=3.2.0,<3.3"]
 dev = [

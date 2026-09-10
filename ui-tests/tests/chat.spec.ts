@@ -265,12 +265,29 @@ prior_insights:
   await expect(cards).toHaveCount(2);
   await expect(figure.locator('img')).toBeVisible();
   await expect(
+    page
+      .locator('.jp-chat-rendered-message')
+      .filter({ hasText: 'Show the decision and figure.' })
+  ).toHaveText('Show the decision and figure.');
+  await expect(
     page.locator('.jp-jupyterlab-lightcone-chat-context')
   ).toContainText('defaults');
+  await page
+    .locator('.jp-chat-input-container')
+    .getByRole('combobox')
+    .fill('Compare the options.');
+  await page.locator('.jp-chat-send-button').click();
+  await expect(
+    page
+      .locator('.jp-chat-rendered-message')
+      .filter({ hasText: 'Agent received:' })
+  ).toContainText('Use project defaults (no universe override)', {
+    timeout: 30000
+  });
   expect(errors).toEqual([]);
 });
 
-test('empty chats send their bound universe with the user message and preserve reused drafts', async ({
+test('bound chats send agent-only context and preserve user text and reused drafts', async ({
   page,
   tmpPath
 }) => {
@@ -341,7 +358,28 @@ decisions:
       'Discuss ASTRA element decisions.method.'
     );
     await expect(composer).not.toContainText('ASTRA context:');
+    const userDraft = await composer.inputValue();
+    if (universeId === 'baseline') {
+      await page.route('**/jupyterlab_lightcone/api/chat-context*', route =>
+        route.fulfill({ json: { available: false } })
+      );
+      await page.locator('.jp-chat-send-button').click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toContainText('Your message has not been sent.');
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(composer).toHaveValue(userDraft);
+      await expect(page.locator('.jp-chat-rendered-message')).toHaveCount(0);
+      await page.unroute('**/jupyterlab_lightcone/api/chat-context*');
+    }
     await page.locator('.jp-chat-send-button').click();
+    await expect(
+      page
+        .locator('.jp-chat-rendered-message')
+        .filter({
+          hasText: 'Compare the options.'
+        })
+        .filter({ hasNotText: 'Agent received:' })
+    ).toHaveText(userDraft, { useInnerText: true });
     const received = page
       .locator('.jp-chat-rendered-message')
       .filter({ hasText: 'Agent received:' });

@@ -127,9 +127,14 @@ Jupyter AI as usual. With an inventory open (or its folder selected), run
 launcher section at the top of the launcher page. The gold chat shortcut opens
 Jupyter Chat in the left sidebar and uses the
 launcher’s current folder. Outside an ASTRA project it shows guidance for opening
-a folder containing `astra.yaml`. The composer opens empty. Write your own message; when you send it, a short
-ASTRA context block is appended with the project and bound universe (or project
-defaults), so the agent receives the same context shown by the project chip.
+a folder containing `astra.yaml`. The composer opens empty. Write your own message; Lightcone keeps its text unchanged and stores the
+project and bound universe (or project defaults) in message metadata. The server
+adds the corresponding ASTRA context only to the prompt sent to the agent, so
+the agent receives the same context shown by the project chip.
+This requires an ACP client with the `jupyter_ai_acp_client.prompt_context`
+provider API ([upstream proposal](https://github.com/jupyter-ai-contrib/jupyter-ai-acp-client/pull/195)). If that support is missing, submission shows an upgrade message
+and preserves your draft. Custom non-ACP personas must call the context API
+explicitly.
 Each discussion keeps its project and universe fixed; start a new one to
 change them. The project chip shows that binding, including after reopening a
 saved `.chat` file.

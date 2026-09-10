@@ -4,6 +4,7 @@ import os
 
 from jupyter_ai_persona_manager import BasePersona, McpServerHttp, PersonaDefaults
 from jupyterlab_chat.models import Message
+from jupyter_ai_acp_client.prompt_context import get_prompt_context
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -19,11 +20,15 @@ class LightconePersona(BasePersona):
         )
 
     async def process_message(self, message: Message) -> None:
-        # Inspect the body an ACP persona forwards, not Lightcone's metadata.
+        # Custom personas opt into the same hook as BaseAcpPersona.
+        context = await get_prompt_context(message, self.chat.get_messages())
+        prompt = message.body + ('\n\n' + context if context else '')
+        if 'ASTRA context:' in message.body:
+            raise RuntimeError('Context leaked into the saved user message')
         if message.body.startswith("Compare the options."):
-            self.send_message("Agent received: " + message.body)
+            self.send_message("Agent received: " + prompt)
             return
-        if "Use project defaults (no universe override)" not in message.body:
+        if "Use project defaults (no universe override)" not in prompt:
             raise RuntimeError("The submitted prompt omitted project defaults")
         server = next(s for s in self.get_mcp_settings().mcp_servers if isinstance(s, McpServerHttp))
         headers = {header.name: header.value for header in server.headers}

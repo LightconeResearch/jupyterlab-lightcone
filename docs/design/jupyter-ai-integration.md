@@ -2,7 +2,7 @@
 
 The open AI-assisted research workbench
 
-Status: implementation updated on 6 September 2026. No upstream or sibling-package changes.
+Status: implementation updated on 10 September 2026. Depends on the upstream ACP prompt-context provider API; no sibling-package changes.
 
 ## Decisions
 
@@ -26,8 +26,9 @@ The agent can call `lightcone_open_element` to open a tab directly instead.
 **Lightcone Agent** uses the native chat icon in Lightcone gold and opens a bound conversation in
 the left Jupyter Chat sidebar with an empty composer. Outside an ASTRA project,
 it shows the same missing-project guidance as the inventory shortcut.
-Submitted messages name the bound universe (or explicit project defaults) in the
-message body, since ACP does not forward the chat's metadata to the agent.
+Submitted messages preserve user-authored text and store the binding in metadata.
+A server-side prompt-context provider adds the bound universe (or explicit project
+defaults) when the ACP client constructs the outgoing prompt.
 The project chip identifies the binding. Existing Jupyter AI model/persona selection
 continues to work normally.
 
@@ -118,32 +119,38 @@ unused display-text parsing and MyST anchor helpers have been removed. Replacing
 it with another local parser would still duplicate the grammar. Accepting only
 SDK canonical keys would instead remove existing reference syntax support.
 
-## Project context without modifying Jupyter AI
+## Agent-only project context
 
-Bind a **new** Lightcone conversation to one entrypoint and universe/defaults
-context. Persist a versioned `lightcone` context object in the first sent user
-message's metadata, and repeat it on subsequent outgoing messages using the
-existing `input.getMetadata()` / `input.updateMetadata()` mechanism. The launcher
-leaves the composer empty. Jupyter Chat's public `IChatCommandProvider.onSubmit`
-hook appends a short visible context block only when the user sends their own
-message, so ACP receives the project, universe/defaults and presentation-tool
-instructions in the body. Metadata alone is not part of its prompt. Ordinary
-unbound chats are left unchanged, and retrying an enriched draft does not append
-the same block again.
-[Submission hook](https://github.com/jupyterlab/jupyter-chat/blob/main/packages/jupyter-chat/src/registers/chat-commands.ts).
-[Message metadata](https://github.com/jupyterlab/jupyter-chat/blob/6081b7d6eaa8249171ba9be6bc51b287e131ab8b/packages/jupyter-chat/src/types.ts).
+Bind each new Lightcone conversation to one entrypoint and universe/defaults.
+The frontend submission hook validates this fixed binding and repeats versioned
+`lightcone` metadata on outgoing messages. It never edits the user's message body
+or attachments. The project chip remains visible; existing saved message bodies
+are not rewritten, including context text added by older versions.
 
-On reload, derive the binding from the chat's persisted context messages. Keep it
-fixed for that conversation. Switching files changes neither saved cards nor
-in-flight responses; discussing another project or universe starts another chat.
-All personas in the chat therefore interpret rooted MySTRA paths consistently,
-even though current ACP replies do not inherit our metadata.
+The server registers `jupyterlab_lightcone.chat_context:prompt_context` in the
+`jupyter_ai_acp_client.prompt_context` entry-point group. The upstream ACP hook
+passes snapshots of the current message and non-deleted history to installed
+providers before constructing each prompt. Lightcone validates metadata, rejects
+mixed project/universe bindings and returns the short ASTRA guidance block. It
+uses persisted bindings only, never the active file browser or a global project.
+This also restores context after reopening a saved chat, session recovery and
+automatic resumption after agent authentication. Context errors abort the prompt
+through Jupyter AI's normal persona error handling.
 
-Do not retroactively enrich an existing unbound history based on the current file
-browser. If binding metadata is missing or conflicting, show the context problem
-and reject agent commands. Repeating metadata makes deletion of the first
-message recoverable, but deleting all binding messages loses that context. This
-is simpler than server monkey-patching or inferring reply parents from timing.
+`GET api/chat-context` checks the optional upstream API and this package's
+entry-point registration. Bound-chat submission requires this capability before
+sending. An older ACP installation shows an upgrade error and preserves the draft
+rather than silently dropping context. Unbound chats and the standalone inventory
+do not require ACP. Custom personas overriding ACP prompt construction must call
+the upstream context helper explicitly; the browser-test persona does so.
+
+The [upstream hook](https://github.com/jupyter-ai-contrib/jupyter-ai-acp-client/pull/195)
+is a dependency of this change and must be released before shipping this Lightcone
+integration. Browser CI pins that proposal until a released ACP dependency can
+replace it. There is no server monkey-patching or
+renderer-specific hiding. All personas using the base ACP implementation consume
+the same conversation binding. The metadata survives reloads and message edits;
+deleting all binding messages loses the saved binding, as before.
 
 Use the same validated target for cards and commands:
 
@@ -246,7 +253,7 @@ persisted cards; opening a tab affects only the initiating browser.
 `lightcone-cli` main at `78059fa` produces `results/<universe>/<id>.<format>`,
 consistent with the SDK's artifact bindings. Agents can use `lc` and existing
 `agent-skills` through their normal terminal/ACP tools. This extension observes
-their changes; it adds no execution service. Tool docstrings and the submitted
+their changes; it adds no execution service. Tool docstrings and the agent-only
 context block explain that preview cards use a tool, even when installed research skills
 teach MySTRA syntax for authoring documents. No skill-package change is required.
 
