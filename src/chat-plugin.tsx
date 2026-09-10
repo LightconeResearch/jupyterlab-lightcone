@@ -18,13 +18,14 @@ import { ServerConnection } from '@jupyterlab/services';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import {
   chatContexts,
-  chatContextProvider,
+  createChatContextProvider,
   contextForChat,
   type IChatContext
 } from './chat-context';
 import { acquireProjectDataService } from './project-data-service';
 import { parseElementReference } from './element-reference';
 import { InventoryDocument } from './document-widget';
+import { requireChatContext } from './api';
 
 /** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
 export const chatPlugin: JupyterFrontEndPlugin<void> = {
@@ -49,7 +50,19 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     chatCommands: IChatCommandRegistry | null
   ) => {
     if (!tracker || !chatCommands) return;
-    chatCommands.addProvider(chatContextProvider);
+    chatCommands.addProvider(
+      createChatContextProvider(async () => {
+        try {
+          await requireChatContext(app.serviceManager.serverSettings);
+        } catch (error) {
+          await showErrorMessage(
+            'Lightcone Agent unavailable',
+            error instanceof Error ? error : String(error)
+          );
+          throw error;
+        }
+      })
+    );
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const watch = async (panel: IChatPanel) => {
       const model = panel.model;
