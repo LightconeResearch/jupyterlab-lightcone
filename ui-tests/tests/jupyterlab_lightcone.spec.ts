@@ -353,24 +353,16 @@ for (const width of [1440, 720]) {
       page.locator('.jp-jupyterlab-lightcone-analysis-selector')
     ).toHaveCount(0);
     const hierarchy = page.getByRole('navigation', {
-      name: 'Project hierarchy'
+      name: 'ASTRA project'
     });
     await expect(hierarchy).toBeVisible();
-    const toggle = hierarchy.getByRole('button', {
-      name: 'Child analysis sub-analyses'
+    const nested = hierarchy.getByRole('button', {
+      name: 'Nested checks',
+      exact: true
     });
-    await toggle.focus();
+    await expect(nested).toBeVisible();
+    await nested.focus();
     await page.keyboard.press('Enter');
-    await expect(
-      hierarchy.getByRole('button', { name: 'Nested checks', exact: true })
-    ).toBeHidden();
-    await expect(
-      page.getByRole('heading', { name: 'Parent analysis', exact: true })
-    ).toBeVisible();
-    await page.keyboard.press('Space');
-    await hierarchy
-      .getByRole('button', { name: 'Nested checks', exact: true })
-      .click();
     await expect(
       page.getByRole('heading', { name: 'Nested checks', exact: true })
     ).toBeVisible();
@@ -399,7 +391,7 @@ test('an explicit scope changes the analysis in a reused inventory document', as
     path
   );
   const id = await openInventory(page, path);
-  const hierarchy = page.getByRole('navigation', { name: 'Project hierarchy' });
+  const hierarchy = page.getByRole('navigation', { name: 'ASTRA project' });
   for (const scope of ['child', 'root']) {
     await page.evaluate(
       async ({ path, scope }) => {
@@ -462,7 +454,7 @@ for (const edit of ['remove', 'rename']) {
       REFRESH
     );
     const hierarchy = page.getByRole('navigation', {
-      name: 'Project hierarchy'
+      name: 'ASTRA project'
     });
     await expect(
       hierarchy.getByRole('button', { name: 'Parent analysis', exact: true })
@@ -629,7 +621,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   }
   // `.jp-ThemedContainer button` would round every button to 2px.
   expect(styles.card['border-radius']).toBe('0px');
-  expect(styles.selector['border-radius']).toBe('4px');
+  expect(styles.selector['border-radius']).toBe('0px');
   expect(styles.action['border-radius']).toBe('6px');
   expect(styles.close['border-radius']).toBe('6px');
   // `.jp-ThemedContainer a` would unset the outline's subtle link colour.
