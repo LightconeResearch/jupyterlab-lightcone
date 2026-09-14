@@ -1,3 +1,5 @@
+import type { CommandRegistry } from '@lumino/commands';
+import { AddToChat } from './add-to-chat';
 import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import { listIcon } from '@jupyterlab/ui-components';
@@ -95,12 +97,14 @@ function readyState(
 
 function ReadyInventoryView({
   contents,
+  commands,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
   contents: Contents.IManager;
+  commands?: CommandRegistry;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
   onSelectAnalysis: (analysisPath: string) => void;
@@ -160,6 +164,20 @@ function ReadyInventoryView({
         <Inventory
           className="jp-jupyterlab-lightcone-inventory-content"
           {...renderers}
+          renderRecordActions={record => (
+            <AddToChat
+              commands={commands}
+              reference={{
+                entrypoint: state.entrypoint,
+                target: record.canonicalPath,
+                universeId:
+                  state.data.document.universe.source === 'none'
+                    ? null
+                    : state.data.document.universe.universeId
+              }}
+              onAdded={() => onDetailChange([])}
+            />
+          )}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
           detail={state.detail}
@@ -172,12 +190,14 @@ function ReadyInventoryView({
 
 function InventoryPanelView({
   contents,
+  commands,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
   contents: Contents.IManager;
+  commands?: CommandRegistry;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
   onSelectAnalysis: (analysisPath: string) => void;
@@ -208,6 +228,7 @@ function InventoryPanelView({
   return (
     <ReadyInventoryView
       contents={contents}
+      commands={commands}
       state={state}
       onDetailChange={onDetailChange}
       onSelectAnalysis={onSelectAnalysis}
@@ -219,7 +240,8 @@ function InventoryPanelView({
 export class AstraInventoryPanel extends ReactWidget {
   constructor(
     private readonly contents: Contents.IManager,
-    themeManager: IThemeManager
+    themeManager: IThemeManager,
+    private readonly commands?: CommandRegistry
   ) {
     super();
     this.title.label = 'ASTRA Inventory';
@@ -309,6 +331,7 @@ export class AstraInventoryPanel extends ReactWidget {
     return (
       <InventoryPanelView
         contents={this.contents}
+        commands={this.commands}
         state={this._state}
         onDetailChange={detail => {
           if (this._state.status === 'ready') {

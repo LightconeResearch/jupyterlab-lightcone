@@ -1,6 +1,8 @@
 """Deterministic agent that exercises the real MCP routing and streamed replies."""
 import asyncio
 import os
+import json
+from pathlib import Path
 
 from jupyter_ai_persona_manager import BasePersona, McpServerHttp, PersonaDefaults
 from jupyterlab_chat.models import Message
@@ -22,6 +24,15 @@ class LightconePersona(BasePersona):
         # Inspect the body an ACP persona forwards, not Lightcone's metadata.
         if message.body.startswith("Compare the options."):
             self.send_message("Agent received: " + message.body)
+            for attachment_id in message.attachments or []:
+                attachment = self.chat.get_attachments().get(attachment_id)
+                if attachment:
+                    snapshot = json.loads((Path(self.parent.root_dir) / attachment.value).read_text())
+                    self.send_message("Agent attachment: " + json.dumps({
+                        "target": snapshot["reference"]["target"],
+                        "universe": snapshot["reference"]["universeId"],
+                        "choice": snapshot["record"].get("selectedOptionId"),
+                    }))
             return
         if "Use project defaults (no universe override)" not in message.body:
             raise RuntimeError("The submitted prompt omitted project defaults")

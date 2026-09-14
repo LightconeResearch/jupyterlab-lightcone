@@ -3,6 +3,7 @@ import {
   chatIcon,
   IChatCommandRegistry,
   IChatTracker,
+  IAttachmentOpenerRegistry,
   type IChatPanel
 } from '@jupyter/chat';
 import { ICommandPalette, showErrorMessage } from '@jupyterlab/apputils';
@@ -25,6 +26,13 @@ import {
 import { acquireProjectDataService } from './project-data-service';
 import { parseElementReference } from './element-reference';
 import { InventoryDocument } from './document-widget';
+import {
+  elementSnapshot,
+  saveElementAttachment,
+  isElementAttachment,
+  readElementAttachment,
+  validateElementAttachments
+} from './element-attachment';
 
 /** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
 export const chatPlugin: JupyterFrontEndPlugin<void> = {
@@ -37,7 +45,8 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     IFileBrowserFactory,
     ILauncher,
     ITranslator,
-    IChatCommandRegistry
+    IChatCommandRegistry,
+    IAttachmentOpenerRegistry
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -46,10 +55,43 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     browser: IFileBrowserFactory | null,
     launcher: ILauncher | null,
     translator: ITranslator | null,
-    chatCommands: IChatCommandRegistry | null
+    chatCommands: IChatCommandRegistry | null,
+    attachmentOpeners: IAttachmentOpenerRegistry | null
   ) => {
     if (!tracker || !chatCommands) return;
-    chatCommands.addProvider(chatContextProvider);
+    chatCommands.addProvider({
+      ...chatContextProvider,
+      onSubmit: async input => {
+        const bound = contextForChat({
+          messages: (input.chatContext?.messages ?? []).map(content => ({
+            content
+          })),
+          input
+        });
+        await validateElementAttachments(
+          app.serviceManager.contents,
+          input.attachments,
+          bound
+        );
+        await chatContextProvider.onSubmit(input);
+      }
+    });
+    const openFile = attachmentOpeners?.get('file');
+    attachmentOpeners?.set('file', attachment => {
+      if (!isElementAttachment(attachment)) {
+        openFile?.(attachment);
+        return;
+      }
+      void readElementAttachment(app.serviceManager.contents, attachment)
+        .then(snapshot =>
+          app.commands.execute(CommandIDs.openElement, {
+            ...snapshot.reference
+          })
+        )
+        .catch(reason =>
+          showErrorMessage('Could not open attached ASTRA element', reason)
+        );
+    });
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const watch = async (panel: IChatPanel) => {
       const model = panel.model;
@@ -225,40 +267,50 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
                   ? null
                   : data.document.universe.universeId
             };
-            // Adding a record reuses only a chat with the exact same pinned context.
-            let panel =
+            const snapshot =
               reference.target || reference.doi
-                ? tracker.find(item => {
-                    try {
-                      const bound = contextForChat(item.model);
-                      return (
-                        bound?.entrypoint === context.entrypoint &&
-                        bound.universeId === context.universeId
-                      );
-                    } catch {
-                      return false;
-                    }
-                  })
+                ? elementSnapshot(data, reference)
                 : undefined;
+            // Adding a record reuses only a chat with the exact same pinned context.
+            const matches = (item: IChatPanel) => {
+              if (item.isDisposed) return false;
+              try {
+                const bound = contextForChat(item.model);
+                return (
+                  bound?.entrypoint === context.entrypoint &&
+                  bound.universeId === context.universeId
+                );
+              } catch {
+                return false;
+              }
+            };
+            let panel = snapshot
+              ? tracker.currentWidget && matches(tracker.currentWidget)
+                ? tracker.currentWidget
+                : tracker.find(matches)
+              : undefined;
             const reused = !!panel;
-            const draft = panel?.model.input.value ?? '';
-            const filepath: unknown = panel
-              ? panel.model.name
-              : await app.commands.execute('jupyterlab-chat:create', {
-                  path: PathExt.dirname(reference.entrypoint),
-                  inSidePanel: true
-                });
-            if (typeof filepath !== 'string' || !filepath)
-              throw new Error('The chat could not be created.');
-            // A newly opened sidebar chat returns null; locate its tracked panel by path.
-            // The native open command also reveals the sidebar and selects a reused chat.
-            await app.commands.execute('jupyterlab-chat:open', {
-              filepath,
-              inSidePanel: true
-            });
-            panel = tracker.find(
-              item => item.area === 'sidebar' && item.model.name === filepath
-            );
+            if (panel?.area === 'main') {
+              app.shell.activateById(panel.id);
+            } else {
+              const filepath: unknown = panel
+                ? panel.model.name
+                : await app.commands.execute('jupyterlab-chat:create', {
+                    path: PathExt.dirname(reference.entrypoint),
+                    inSidePanel: true
+                  });
+              if (typeof filepath !== 'string' || !filepath)
+                throw new Error('The chat could not be created.');
+              // A newly opened sidebar chat returns null; locate its tracked panel by path.
+              // The native open command also reveals the sidebar and selects a reused chat.
+              await app.commands.execute('jupyterlab-chat:open', {
+                filepath,
+                inSidePanel: true
+              });
+              panel = tracker.find(
+                item => item.area === 'sidebar' && item.model.name === filepath
+              );
+            }
             if (!panel)
               throw new Error(
                 'The chat did not open. Check that Jupyter AI is enabled.'
@@ -266,10 +318,27 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             const id = await panel.model.ready;
             panel.model.input.updateMetadata({ lightcone: context });
             chatContexts.set(id, context);
-            if (reference.target || reference.doi)
-              panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}.`;
-            panel.model.input.focus();
-            return { ...context, chatId: id, reused };
+            if (snapshot) {
+              const addAttachment = panel.model.input.addAttachment;
+              if (!addAttachment)
+                throw new Error('This chat does not support attachments.');
+              const attachment = await saveElementAttachment(
+                app.serviceManager.contents,
+                snapshot
+              );
+              addAttachment.call(panel.model.input, attachment);
+            }
+            const destination = panel;
+            // Let the originating inventory dialog close before moving focus.
+            requestAnimationFrame(() => {
+              if (!destination.isDisposed) destination.model.input.focus();
+            });
+            return {
+              ...context,
+              chatId: id,
+              chatPath: panel.model.name,
+              reused
+            };
           } finally {
             lease.release();
           }

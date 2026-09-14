@@ -1,3 +1,4 @@
+import { AddToChat } from './add-to-chat';
 import React, { useEffect, useState } from 'react';
 import {
   showErrorMessage,
@@ -306,6 +307,9 @@ function DetailBody({
             Universe: {reference.universeId ?? 'defaults'}
           </span>
         </div>
+        {record ? (
+          <AddToChat commands={commands} reference={reference} />
+        ) : null}
         <Button
           size="small"
           aria-pressed={widget.isPinned}

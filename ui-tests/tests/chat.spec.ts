@@ -252,7 +252,10 @@ prior_insights:
   ).toBeVisible();
   await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
-  ).toContainText('outputs.figure');
+  ).toHaveText('');
+  await expect(
+    page.locator('.jp-chat-input-container .jp-chat-attachment')
+  ).toContainText('outputs.figure.json');
   // The binding survives a full browser reload and reopening the persisted chat.
   await page.reload({ waitForIsReady: false });
   await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
@@ -314,6 +317,7 @@ decisions:
     .locator('.jp-chat-input-container')
     .getByRole('combobox');
   const chatIds = new Set<string>();
+  const chatPaths: string[] = [];
   for (const universeId of ['baseline', 'alternate']) {
     const context = await page.evaluate(
       async args =>
@@ -325,6 +329,7 @@ decisions:
     );
     expect(context.universeId).toBe(universeId);
     chatIds.add(context.chatId);
+    chatPaths.push(context.chatPath);
     await expect(composer).toHaveText('');
     await composer.fill('Compare the options.');
     const reused = await page.evaluate(
@@ -336,10 +341,33 @@ decisions:
       { entrypoint, universeId, target: 'decisions.method' }
     );
     expect(reused.reused).toBe(true);
-    await expect(composer).toContainText('Compare the options.');
-    await expect(composer).toContainText(
-      'Discuss ASTRA element decisions.method.'
+    await expect(composer).toHaveText('Compare the options.');
+    const attachments = page.locator(
+      '.jp-chat-input-container .jp-chat-attachment'
     );
+    await expect(attachments).toHaveCount(1);
+    await expect(attachments).toContainText('decisions.method.json');
+    // Adding the same element again keeps one removable attachment.
+    await page.evaluate(
+      async args =>
+        window.jupyterapp.commands.execute(
+          'jupyterlab_lightcone:discuss',
+          args
+        ),
+      { entrypoint, universeId, target: 'decisions.method' }
+    );
+    await expect(attachments).toHaveCount(1);
+    // Native attachment clicks reopen the record in its original universe.
+    await attachments.locator('.jp-chat-attachment-clickable').click();
+    await expect(
+      page.locator('.jp-jupyterlab-lightcone-element:visible')
+    ).toContainText(`Universe: ${universeId}`);
+    await page
+      .locator('.jp-jupyterlab-lightcone-element:visible')
+      .getByRole('button', { name: 'Add to chat', exact: true })
+      .click();
+    await expect(attachments).toHaveCount(1);
+    await expect(composer).toHaveText('Compare the options.');
     await expect(composer).not.toContainText('ASTRA context:');
     await page.locator('.jp-chat-send-button').click();
     const received = page
@@ -350,9 +378,36 @@ decisions:
       { timeout: 30000 }
     );
     await expect(received).toContainText(entrypoint);
+    const snapshot = page
+      .locator('.jp-chat-rendered-message')
+      .filter({ hasText: 'Agent attachment:' });
+    await expect(snapshot).toContainText('decisions.method');
+    await expect(snapshot).toContainText(universeId);
+    await expect(snapshot).toContainText(
+      universeId === 'baseline' ? 'robust' : 'fast'
+    );
     await expect(composer).toHaveText('');
+    await expect(
+      page.locator('.jp-chat-input-container .jp-chat-attachment')
+    ).toHaveCount(0);
   }
   expect(chatIds.size).toBe(2);
+  await page.reload({ waitForIsReady: false });
+  await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
+  await page.evaluate(async filepath => {
+    await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
+      filepath,
+      inSidePanel: true
+    });
+  }, chatPaths[1]);
+  const saved = page
+    .locator('.jp-chat-attachment')
+    .filter({ hasText: 'decisions.method.json' });
+  await expect(saved).toHaveCount(1);
+  await saved.locator('.jp-chat-attachment-clickable').click();
+  await expect(
+    page.locator('.jp-jupyterlab-lightcone-element:visible')
+  ).toContainText('Universe: alternate');
 });
 
 test('opens only cited papers as native tabs without downloading them', async ({
@@ -494,4 +549,106 @@ test('Lightcone Agent appears first with a gold chat icon and explains a missing
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.locator('.jp-chat-input-container')).toHaveCount(0);
   expect(writes).toEqual([]);
+});
+
+test('inventory actions attach decisions, inputs, findings and outputs without sending', async ({
+  page,
+  tmpPath
+}) => {
+  const entrypoint = `${tmpPath}/astra.yaml`;
+  await page.contents.uploadContent(
+    `version: "0.0.14"
+name: Attach from inventory
+inputs:
+  - id: catalog
+    type: data
+outputs:
+  - id: plot
+    type: figure
+    format: png
+decisions:
+  method:
+    label: Which estimator?
+    options:
+      robust:
+        label: Robust estimator
+    default: robust
+findings:
+  agreement:
+    claim: The fit agrees.
+    created_at: "2026-01-01T00:00:00Z"
+    evidence:
+      - id: plot
+        artifact: plot
+`,
+    'text',
+    entrypoint
+  );
+  await page.evaluate(async path => {
+    await window.jupyterapp.commands.execute(
+      'jupyterlab_lightcone:open-inventory',
+      { path }
+    );
+  }, entrypoint);
+  const composer = page
+    .locator('.jp-chat-input-container')
+    .getByRole('combobox');
+  for (const [index, target] of [
+    'decisions.method',
+    'inputs.catalog',
+    'findings.agreement',
+    'outputs.plot'
+  ].entries()) {
+    await page.evaluate(
+      async args => {
+        await window.jupyterapp.commands.execute(
+          'jupyterlab_lightcone:open-inventory',
+          {
+            path: args.entrypoint,
+            openReference: {
+              kind: args.target.split('.')[0].replace(/s$/, ''),
+              id: args.target.split('.')[1],
+              canonicalPath: args.target
+            }
+          }
+        );
+      },
+      { entrypoint, target }
+    );
+    // Use the record dialog action, not the command directly.
+    await page
+      .locator('dialog[open]')
+      .getByRole('button', { name: 'Add to chat', exact: true })
+      .click();
+    await expect(
+      page.locator('.jp-chat-input-container .jp-chat-attachment')
+    ).toHaveCount(index + 1);
+    await expect(
+      page.locator('.jp-chat-input-container .jp-chat-attachment')
+    ).toContainText(
+      Array.from(
+        [
+          'decisions.method',
+          'inputs.catalog',
+          'findings.agreement',
+          'outputs.plot'
+        ].slice(0, index + 1),
+        path => `${path}.json`
+      )
+    );
+    await expect(composer).toHaveText(index ? 'My unfinished question' : '');
+    if (!index) await composer.fill('My unfinished question');
+  }
+  await page
+    .locator('.jp-chat-input-container .jp-chat-attachment')
+    .last()
+    .getByRole('button', { name: 'Remove attachment' })
+    .click();
+  await expect(
+    page.locator('.jp-chat-input-container .jp-chat-attachment')
+  ).toHaveCount(3);
+  await expect(page.locator('.jp-chat-rendered-message')).toHaveCount(0);
+  await page.screenshot({
+    path: test.info().outputPath('element-attachments.png')
+  });
 });

@@ -158,6 +158,29 @@ in one prompt reuse the card.
 Existing agent terminal tools, `lc`, and research skills remain available through
 the agent's normal setup; Lightcone observes changes without starting recipes.
 
+### Attach an ASTRA element to your question
+
+Open a decision, finding, input, output, or prior insight and choose **Add to chat**.
+The action is available in inventory detail dialogs and standalone element tabs.
+It stages a removable attachment in a discussion with the same project and
+universe, preserving any text already in the composer. It never sends a message.
+Repeatedly adding the same unchanged element produces one attachment.
+
+Attachments are JSON snapshots in `chat-attachments/<content-hash>/<element>.json`
+inside the project. They capture the selected record, its immediate related
+records, selected decision options, and available artifact paths/cache tokens.
+They use Jupyter Chat's native file attachments, so existing agent providers can
+read them and saved `.chat` files retain the references. Keep the snapshot files
+with the project when moving or sharing a chat. Removing an attachment from a
+draft does not delete its snapshot, which another saved message may reference.
+
+Clicking an attachment opens the live element in its original project and universe.
+The JSON snapshot preserves the earlier record data; binary artifact contents are
+not copied. Modified snapshots and attachments from a different project/universe
+are rejected before submission.
+
+The optional chat integration does not add controls when Jupyter Chat is unavailable.
+
 For direct UI integrations:
 
 ```typescript
