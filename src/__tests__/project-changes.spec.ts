@@ -39,8 +39,16 @@ findings:
         artifact: fit
 `;
 
-async function snapshot(text = spec) {
-  const { contents } = createContents({ 'astra.yaml': fileModel(text) });
+async function snapshot(text = spec, artifacts: Record<string, string> = {}) {
+  const { contents } = createContents({
+    'astra.yaml': fileModel(text),
+    ...Object.fromEntries(
+      Object.entries(artifacts).map(([path, content]) => [
+        path,
+        fileModel(content)
+      ])
+    )
+  });
   try {
     const resolved = await resolveProject(contents);
     return snapshotProject(assembleLoadedProject(resolved.bundle, {}));
@@ -116,6 +124,34 @@ it('reports hierarchy additions, removals, and renames without duplicating desce
   expect(diffProjects(await snapshot(), before)).toMatchObject([
     { kind: 'subanalysis', action: 'added' }
   ]);
+});
+
+it('reports a finding whose evidence changes to another existing output', async () => {
+  const original = spec.replace(
+    'decisions:',
+    '  - id: other\n    type: metric\n    format: json\ndecisions:'
+  );
+  const before = await snapshot(original);
+  const after = await snapshot(
+    original.replace('artifact: fit', 'artifact: other')
+  );
+  expect(diffProjects(before, after)).toMatchObject([
+    { kind: 'finding', action: 'changed', detail: 'evidence' }
+  ]);
+});
+
+it('does not report output definition changes when runtime artifact metadata changes', async () => {
+  const before = await snapshot();
+  const materialized = await snapshot(spec, {
+    'results/default/fit.json': '{"value":42}'
+  });
+  expect(diffProjects(before, materialized)).toMatchObject([
+    { kind: 'result', action: 'ready' }
+  ]);
+  const rewritten = await snapshot(spec, {
+    'results/default/fit.json': '{"value":4200}'
+  });
+  expect(diffProjects(materialized, rewritten)).toEqual([]);
 });
 
 it('separates artifact availability from definitions, and requires content hashes for reruns', async () => {

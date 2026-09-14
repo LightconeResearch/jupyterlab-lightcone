@@ -22,7 +22,6 @@ export interface IProjectChange extends IProjectItem {
 const DERIVED_FIELDS = new Set([
   'canonicalPath',
   'kind',
-  'artifact',
   'provenance',
   'resolvedFrom',
   'resolvedInsightPaths',
@@ -74,13 +73,17 @@ export function snapshotProject(data: ILoadedProjectData): IProjectSnapshot {
     });
   }
   for (const [path, record] of data.index.recordByPath) {
+    const fields: Record<string, unknown> = { ...record };
+    // Output artifacts are runtime metadata; evidence.artifact is a declared
+    // reference and must remain part of the comparison.
+    if (record.kind === 'output') delete fields.artifact;
     items.set(path, {
       kind: record.kind === 'prior_insight' ? 'insight' : record.kind,
       label: record.label ?? record.id,
       analysisPath:
         data.index.analysisByRecordPath.get(path)?.canonicalPath ?? '$',
       reference: { kind: record.kind, id: record.id, canonicalPath: path },
-      fields: { ...record }
+      fields
     });
   }
   for (const source of collectCitedDois(data.document)) {
