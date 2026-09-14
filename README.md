@@ -35,7 +35,7 @@ The inventory shows outputs, decisions, inputs, findings, and a bibliography
 using the shared ASTRA components. Prior insights remain accessible through their
 decisions and source papers. The project hierarchy below the
 contents replaces the analysis dropdown: select a name to switch analyses.
-Sub-analyses remain visible, indented beneath their parent with a bent arrow.
+Sub-analyses remain visible, indented beneath their parent without icons or arrows.
 In narrow panels the hierarchy
 appears above the inventory sections. Select an analysis or record to
 inspect its details. Figures, CSV/TSV tables, and JSON tables/metrics have bounded

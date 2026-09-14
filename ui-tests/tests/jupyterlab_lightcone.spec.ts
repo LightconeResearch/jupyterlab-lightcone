@@ -353,7 +353,7 @@ for (const width of [1440, 720]) {
       page.locator('.jp-jupyterlab-lightcone-analysis-selector')
     ).toHaveCount(0);
     const hierarchy = page.getByRole('navigation', {
-      name: 'ASTRA project'
+      name: 'Project hierarchy'
     });
     await expect(hierarchy).toBeVisible();
     const nested = hierarchy.getByRole('button', {
@@ -391,7 +391,7 @@ test('an explicit scope changes the analysis in a reused inventory document', as
     path
   );
   const id = await openInventory(page, path);
-  const hierarchy = page.getByRole('navigation', { name: 'ASTRA project' });
+  const hierarchy = page.getByRole('navigation', { name: 'Project hierarchy' });
   for (const scope of ['child', 'root']) {
     await page.evaluate(
       async ({ path, scope }) => {
@@ -454,7 +454,7 @@ for (const edit of ['remove', 'rename']) {
       REFRESH
     );
     const hierarchy = page.getByRole('navigation', {
-      name: 'ASTRA project'
+      name: 'Project hierarchy'
     });
     await expect(
       hierarchy.getByRole('button', { name: 'Parent analysis', exact: true })
