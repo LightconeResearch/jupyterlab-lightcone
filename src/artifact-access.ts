@@ -1,3 +1,4 @@
+import type { CommandRegistry } from '@lumino/commands';
 import { PathExt } from '@jupyterlab/coreutils';
 import type { Contents } from '@jupyterlab/services';
 import { ServerConnection } from '@jupyterlab/services';
@@ -75,7 +76,8 @@ export class JupyterArtifactAccess {
   constructor(
     private readonly contents: Contents.IManager,
     entrypoint: string,
-    bindings: readonly ArtifactBinding[]
+    bindings: readonly ArtifactBinding[],
+    private readonly commands: CommandRegistry
   ) {
     this._projectRoot = projectDirectory(entrypoint);
     this._bindingByOutputPath = new Map(
@@ -200,8 +202,12 @@ export class JupyterArtifactAccess {
   }
 
   async open(output: ResolvedOutput): Promise<void> {
-    const url = await this.getUrl(output);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const binding = this.bindingFor(output);
+    if (!binding) {
+      throw new Error(`Output ${output.canonicalPath} is not materialized.`);
+    }
+    const path = this.contents.resolvePath(this._projectRoot, binding.path);
+    await this.commands.execute('docmanager:open', { path });
   }
 
   private readonly _bindingByOutputPath: ReadonlyMap<string, ArtifactBinding>;

@@ -1,3 +1,4 @@
+import type { CommandRegistry } from '@lumino/commands';
 import type { IThemeManager } from '@jupyterlab/apputils';
 import {
   ABCWidgetFactory,
@@ -17,11 +18,12 @@ export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
   constructor(
     context: DocumentRegistry.Context,
     contents: Contents.IManager,
-    themeManager: IThemeManager
+    themeManager: IThemeManager,
+    commands: CommandRegistry
   ) {
     super({
       context,
-      content: new AstraInventoryPanel(contents, themeManager)
+      content: new AstraInventoryPanel(contents, themeManager, commands)
     });
     this.addClass('jp-jupyterlab-lightcone-Document');
     context.pathChanged.connect(this._onProjectPathChanged, this);
@@ -73,7 +75,8 @@ export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
 export class InventoryDocumentFactory extends ABCWidgetFactory<InventoryDocument> {
   constructor(
     private readonly _contents: Contents.IManager,
-    private readonly _themes: IThemeManager
+    private readonly _themes: IThemeManager,
+    private readonly _commands: CommandRegistry
   ) {
     super({
       name: INVENTORY_FACTORY,
@@ -90,6 +93,11 @@ export class InventoryDocumentFactory extends ABCWidgetFactory<InventoryDocument
   protected createNewWidget(
     context: DocumentRegistry.Context
   ): InventoryDocument {
-    return new InventoryDocument(context, this._contents, this._themes);
+    return new InventoryDocument(
+      context,
+      this._contents,
+      this._themes,
+      this._commands
+    );
   }
 }

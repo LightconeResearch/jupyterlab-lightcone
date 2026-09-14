@@ -69,7 +69,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     const factory = new InventoryDocumentFactory(
       app.serviceManager.contents,
-      themes
+      themes,
+      app.commands
     );
     factory.widgetCreated.connect((_sender, widget) => {
       widget.title.icon = astraIcon;
