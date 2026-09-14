@@ -22,6 +22,18 @@ export interface IProjectDataState {
   paperError?: string;
 }
 
+export interface IProjectDataUpdate {
+  service: object;
+  contents: Contents.IManager;
+  entrypoint: string;
+  data: ILoadedProjectData;
+}
+
+/** Valid project snapshots only; paper-cache updates are deliberately excluded. */
+export const projectDataUpdated = new Signal<object, IProjectDataUpdate>({});
+
+export const projectDataDisposed = new Signal<object, object>({});
+
 /** One polling data source shared by all panels viewing an entrypoint. */
 export class ProjectDataService {
   constructor(
@@ -96,6 +108,7 @@ export class ProjectDataService {
   }
 
   dispose(): void {
+    projectDataDisposed.emit(this);
     this.contents.fileChanged.disconnect(this._onContentsChanged, this);
     this._poll.dispose();
     Signal.clearData(this);
@@ -150,6 +163,12 @@ export class ProjectDataService {
           this._data?.papers ?? {}
         );
         this._projectSnapshot = resolution.snapshot;
+        projectDataUpdated.emit({
+          service: this,
+          contents: this.contents,
+          entrypoint: this.entrypoint,
+          data: this._data
+        });
       }
       const recovered = this._error !== undefined;
       this._error = undefined;
