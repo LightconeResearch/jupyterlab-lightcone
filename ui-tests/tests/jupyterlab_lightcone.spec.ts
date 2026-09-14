@@ -328,6 +328,64 @@ test('samples large CSV artifacts and refreshes previews after the artifact chan
   expect(requests.at(-1)?.url).not.toBe(originalUrl);
 });
 
+for (const width of [1440, 720]) {
+  test(`navigates nested analyses from the hierarchy at ${width}px`, async ({
+    page,
+    tmpPath
+  }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const directory = `${tmpPath}/project`;
+    await createProject(page, `${directory}/child/grandchild`, 'Nested checks');
+    await createProject(page, `${directory}/child`, 'Child analysis');
+    await page.contents.uploadContent(
+      `${analysis('Child analysis')}analyses:\n  grandchild:\n    path: grandchild\n`,
+      'text',
+      `${directory}/child/astra.yaml`
+    );
+    const path = `${directory}/astra.yaml`;
+    await page.contents.uploadContent(
+      `${analysis('Parent analysis')}analyses:\n  child:\n    path: child\n`,
+      'text',
+      path
+    );
+    await openInventory(page, path);
+    await expect(
+      page.locator('.jp-jupyterlab-lightcone-analysis-selector')
+    ).toHaveCount(0);
+    const hierarchy = page.getByRole('navigation', {
+      name: 'Project hierarchy'
+    });
+    await expect(hierarchy).toBeVisible();
+    const toggle = hierarchy.getByRole('button', {
+      name: 'Child analysis sub-analyses'
+    });
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(
+      hierarchy.getByRole('button', { name: 'Nested checks', exact: true })
+    ).toBeHidden();
+    await expect(
+      page.getByRole('heading', { name: 'Parent analysis', exact: true })
+    ).toBeVisible();
+    await page.keyboard.press('Space');
+    await hierarchy
+      .getByRole('button', { name: 'Nested checks', exact: true })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Nested checks', exact: true })
+    ).toBeVisible();
+    await expect(
+      hierarchy.getByRole('button', { name: 'Nested checks', exact: true })
+    ).toHaveAttribute('aria-current', 'page');
+    await hierarchy
+      .getByRole('button', { name: 'Parent analysis', exact: true })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Parent analysis', exact: true })
+    ).toBeVisible();
+  });
+}
+
 test('an explicit scope changes the analysis in a reused inventory document', async ({
   page,
   tmpPath
@@ -341,9 +399,7 @@ test('an explicit scope changes the analysis in a reused inventory document', as
     path
   );
   const id = await openInventory(page, path);
-  const selector = page.locator(
-    '.jp-jupyterlab-lightcone-analysis-selector select'
-  );
+  const hierarchy = page.getByRole('navigation', { name: 'Project hierarchy' });
   for (const scope of ['child', 'root']) {
     await page.evaluate(
       async ({ path, scope }) => {
@@ -354,9 +410,19 @@ test('an explicit scope changes the analysis in a reused inventory document', as
       },
       { path, scope }
     );
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    await expect(
+      hierarchy.getByRole('button', {
+        name: scope === 'root' ? 'Parent analysis' : 'Child analysis',
+        exact: true
+      })
+    ).toHaveAttribute('aria-current', 'page');
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    await expect(
+      hierarchy.getByRole('button', {
+        name: scope === 'root' ? 'Parent analysis' : 'Child analysis',
+        exact: true
+      })
+    ).toHaveAttribute('aria-current', 'page');
   }
 });
 
@@ -395,15 +461,21 @@ for (const edit of ['remove', 'rename']) {
       command => window.jupyterapp.commands.execute(command),
       REFRESH
     );
-    const selector = page.locator(
-      '.jp-jupyterlab-lightcone-analysis-selector select'
-    );
-    await expect(selector).toHaveValue('$');
+    const hierarchy = page.getByRole('navigation', {
+      name: 'Project hierarchy'
+    });
+    await expect(
+      hierarchy.getByRole('button', { name: 'Parent analysis', exact: true })
+    ).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue('$');
+    await expect(
+      hierarchy.getByRole('button', { name: 'Parent analysis', exact: true })
+    ).toHaveAttribute('aria-current', 'page');
     if (edit === 'rename') {
-      await selector.selectOption('renamed');
+      await hierarchy
+        .getByRole('button', { name: 'Child analysis', exact: true })
+        .click();
       await expect(
         page.getByRole('heading', { name: 'Child analysis', exact: true })
       ).toBeVisible();
@@ -525,7 +597,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
         'color',
         'text-decoration-line'
       ]),
-      selector: read('.jp-jupyterlab-lightcone-analysis-selector select', [
+      selector: read('.astra-analysis-tree__select', [
         'font-family',
         'border-radius'
       ]),
@@ -546,10 +618,8 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );
-  // The selector inherits body text; card titles and buttons use the UI face.
-  expect(styles.selector['font-family']).toContain(
-    'Lightcone Brand Newsreader'
-  );
+  // Analysis navigation, card titles, and buttons use the UI face.
+  expect(styles.selector['font-family']).toContain('Lightcone Brand Alegreya');
   for (const family of [
     styles.cardTitle['font-family'],
     styles.action['font-family'],
@@ -559,7 +629,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   }
   // `.jp-ThemedContainer button` would round every button to 2px.
   expect(styles.card['border-radius']).toBe('0px');
-  expect(styles.selector['border-radius']).toBe('3px');
+  expect(styles.selector['border-radius']).toBe('4px');
   expect(styles.action['border-radius']).toBe('6px');
   expect(styles.close['border-radius']).toBe('6px');
   // `.jp-ThemedContainer a` would unset the outline's subtle link colour.

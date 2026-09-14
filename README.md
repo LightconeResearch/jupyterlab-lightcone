@@ -31,8 +31,12 @@ result files and starts no kernel. JupyterLab may create its standard document
 checkpoint when opening a writable file; the normal text editor remains
 available for editing.
 
-The inventory shows outputs, decisions, inputs, findings, prior insights, and
-cited papers using the shared ASTRA components. Select an analysis or record to
+The inventory shows outputs, decisions, inputs, findings, and a bibliography
+using the shared ASTRA components. Prior insights remain accessible through their
+decisions and source papers. The project hierarchy below the
+contents replaces the analysis dropdown: select a name to switch analyses, or
+use its chevron to expand or collapse sub-analyses. In narrow panels the hierarchy
+appears above the inventory sections. Select an analysis or record to
 inspect its details. Figures, CSV/TSV tables, and JSON tables/metrics have bounded
 previews and an action to open the full artifact. Paths, universe selection,
 validation, and artifact cache tokens come from `@astra-spec/sdk`.
