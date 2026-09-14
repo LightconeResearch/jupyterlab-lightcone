@@ -26,17 +26,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@astra-spec/ui@npm:0.0.5":
+"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@f095bce.tgz":
   version: 0.0.5
-  resolution: "@astra-spec/ui@npm:0.0.5"
+  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@f095bce.tgz"
   dependencies:
     "@floating-ui/react": ^0.27.20
     katex: ^0.16.47
+    react-zoom-pan-pinch: ^4.2.0
   peerDependencies:
     "@astra-spec/sdk": ^0.1.1
     react: ">=18 <20"
     react-dom: ">=18 <20"
-  checksum: dcb066eb673b47b8b90666b27d4b2d0128070d60c97656d5340cd4d9641779b67d09fe196f3efa5c1e653ca6eb5022cdca67a497065b2d6b2c85419badf82a5b
+  checksum: 2b8df48593125dc8534d43c0a9b3696daea81cf449e75450a8764a2b8394a42c962bb19fefeaff42fa60911be9ebb3aa15d6d746f0a7816cfb7d195d8bfe99a4
   languageName: node
   linkType: hard
 
@@ -8350,7 +8351,7 @@ __metadata:
   resolution: "jupyterlab-lightcone@workspace:."
   dependencies:
     "@astra-spec/sdk": ^0.1.2
-    "@astra-spec/ui": 0.0.5
+    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@f095bce.tgz"
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/chat": ~0.25.0
@@ -8390,6 +8391,7 @@ __metadata:
     react: ^18.2.0
     react-dom: ^18.2.0
     rimraf: ^5.0.1
+    shell-quote: ^1.10.0
     stylelint: ^15.10.1
     stylelint-config-recommended: ^13.0.0
     stylelint-config-standard: ^34.0.0
@@ -9705,6 +9707,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-zoom-pan-pinch@npm:^4.2.0":
+  version: 4.2.0
+  resolution: "react-zoom-pan-pinch@npm:4.2.0"
+  peerDependencies:
+    react: "*"
+    react-dom: "*"
+  checksum: b47c27b72382ea51503e2d899d7ede5f8d8a154e2788d58a4babe31f1fe2f8371c4dc109d6d30cb7602f6a69d1259e3ac1410f38d6f47c6b4d0017910a449d48
+  languageName: node
+  linkType: hard
+
 "react@npm:>=17.0.0 <19.0.0, react@npm:^18.2.0":
   version: 18.3.1
   resolution: "react@npm:18.3.1"
@@ -10075,7 +10087,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"shell-quote@npm:^1.7.3":
+"shell-quote@npm:^1.10.0, shell-quote@npm:^1.7.3":
   version: 1.10.0
   resolution: "shell-quote@npm:1.10.0"
   checksum: d4bc0757ae0e493d0f6e3327c93be7d5af1d39e9969eb4332ed4e40bb2c3f9112ec31e979d713d302605f7e3431d9f5f061719e0e177077ffd9c03c0b9cc5f73

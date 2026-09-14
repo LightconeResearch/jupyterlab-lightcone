@@ -4,6 +4,7 @@ import type { ArtifactRenderer } from '@astra-spec/ui/components';
 import { isVisualOutput } from '@astra-spec/ui/model';
 import type { InventoryProps } from '@astra-spec/ui/views';
 import React, { useMemo } from 'react';
+import { JupyterCodeLink } from './code-link';
 import { JupyterArtifactAccess } from './artifact-access';
 import { JupyterArtifactPreview } from './artifact-preview';
 import { loadPdfJs } from './pdf-runtime';
@@ -40,7 +41,8 @@ export function useProjectRenderers(
   entrypoint: string,
   data: ILoadedProjectData,
   onFetchPaper: (doi: string) => void,
-  commands: CommandRegistry
+  commands: CommandRegistry,
+  beforeOpenCode?: () => void
 ): InventoryProps {
   const access = useMemo(
     () =>
@@ -53,6 +55,16 @@ export function useProjectRenderers(
     index: data.index,
     paperMetadata: data.papers,
     renderArtifact,
+    renderCodeLink: output => (
+      <JupyterCodeLink
+        contents={contents}
+        entrypoint={entrypoint}
+        data={data}
+        output={output}
+        commands={commands}
+        beforeOpen={beforeOpenCode}
+      />
+    ),
     onOpenArtifact: output => access.open(output),
     loadPdfJs,
     onFetchPaper

@@ -195,6 +195,7 @@ function DetailBody({
             record={record}
             relations={outputRelations(data.index, record)}
             renderArtifact={renderers.renderArtifact}
+            renderCodeLink={renderers.renderCodeLink}
             onOpenRecord={open}
             expanded={expanded}
             onExpandedChange={setExpanded}

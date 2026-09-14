@@ -120,7 +120,8 @@ function ReadyInventoryView({
     state.entrypoint,
     state.data,
     onFetchPaper,
-    commands
+    commands,
+    () => flushSync(() => onDetailChange([]))
   );
   const activeAnalysis = state.data.index.analysisByPath.get(
     state.analysisPath
