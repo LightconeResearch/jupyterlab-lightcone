@@ -37,14 +37,17 @@ inspect its details. Figures, CSV/TSV tables, and JSON tables/metrics have bound
 previews and an action to open the full artifact. Paths, universe selection,
 validation, and artifact cache tokens come from `@astra-spec/sdk`.
 
-Inventory results retain their output glyph. The installed `lightcone-cli`
-(`lc status --json`) supplies exception labels: Out of date below a result's
-name, or Not materialized in its empty preview. Materialized results, including
-those from an earlier environment, show no extra status label. Status checks run
-every 15 seconds while the page is visible and after local file changes. CLI
-failures clear execution-status labels and show one message in the headbar;
-status returns automatically after recovery. The integration currently covers
-local root-analysis outputs.
+Inventory results show a small marker when they are **Out of date** or **Not
+materialized**. Hover over it to see the state and the reason reported by the
+installed `lightcone-cli` (`lc status --json`). Materialized results, including
+those from an earlier environment, show no extra marker. Status checks run every
+15 seconds while the page is visible and after local file changes. CLI failures
+clear markers and show one message in the headbar; status returns automatically
+after recovery. The integration currently covers local root-analysis outputs.
+
+Open a result to see its **Provenance** below Recipe: status, last run, and Git
+revision. **Details** opens the recorded recipe, input versions, environment, and
+Lightcone version without leaving the result.
 
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its

@@ -90,7 +90,9 @@ outputs:
       exact: true
     })
   ).toBeVisible();
-  await expect(page.getByTitle('Out of date: the input changed')).toBeVisible();
+  await expect(
+    page.getByRole('img', { name: 'Out of date: the input changed' })
+  ).toBeVisible();
   expect(await sizes()).toEqual(originalSizes);
   // File markers belong inside their row; cards and pills keep the corner overlay.
   for (const result of await results.all()) {
@@ -112,9 +114,16 @@ outputs:
       ).toBeLessThanOrEqual(2);
     }
     await marker.hover();
-    expect(await marker.getAttribute('title')).toBe(
-      await marker.getAttribute('aria-label')
+    const tooltip = page.getByRole('tooltip');
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveText(
+      (await marker.getAttribute('aria-label'))!
     );
+    const tip = (await tooltip.boundingBox())!;
+    expect(tip.x).toBeGreaterThanOrEqual(0);
+    expect(tip.x + tip.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await page.keyboard.press('Escape');
+    await expect(tooltip).toHaveCount(0);
   }
   await expect(page.getByText('Materialized', { exact: true })).toHaveCount(0);
   await expect(results.locator('[data-slot="kind-glyph"]')).toHaveCount(0);
