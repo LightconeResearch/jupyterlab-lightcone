@@ -81,11 +81,14 @@ outputs:
       content: '# update status'
     });
   }, `${tmpPath}/script.py`);
+  await expect(page.getByRole('img', { name: /^Out of date: / })).toHaveCount(
+    2
+  );
   await expect(
-    page.getByRole('img', { name: 'Out of date', exact: true })
-  ).toHaveCount(2);
-  await expect(
-    page.getByRole('img', { name: 'Not materialized', exact: true })
+    page.getByRole('img', {
+      name: 'Not materialized: no manifest',
+      exact: true
+    })
   ).toBeVisible();
   await expect(page.getByTitle('Out of date: the input changed')).toBeVisible();
   expect(await sizes()).toEqual(originalSizes);
@@ -109,6 +112,9 @@ outputs:
       ).toBeLessThanOrEqual(2);
     }
     await marker.hover();
+    expect(await marker.getAttribute('title')).toBe(
+      await marker.getAttribute('aria-label')
+    );
   }
   await expect(page.getByText('Materialized', { exact: true })).toHaveCount(0);
   await expect(results.locator('[data-slot="kind-glyph"]')).toHaveCount(0);
