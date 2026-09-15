@@ -1,3 +1,4 @@
+import type { ResolvedOutput } from '@astra-spec/sdk';
 import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import { listIcon } from '@jupyterlab/ui-components';
@@ -14,6 +15,10 @@ import {
   detailEntryForOpenReference,
   type InventoryOpenReference
 } from './open-reference';
+import {
+  useMaterializationStatus,
+  outputMaterializationStatus
+} from './materialization-status';
 import { ProjectTopbar } from './project-topbar';
 import { LightconeThemeBinding } from './theme-adapter';
 
@@ -107,6 +112,11 @@ function ReadyInventoryView({
   state: Extract<InventoryPanelState, { status: 'ready' }>;
 }): React.ReactElement {
   const inventoryId = useId().replace(/:/g, '');
+  const materialization = useMaterializationStatus(
+    contents,
+    state.entrypoint,
+    state.data.document
+  );
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
@@ -117,9 +127,23 @@ function ReadyInventoryView({
     state.analysisPath
   );
 
+  const getOutputStatus = (output: ResolvedOutput) =>
+    outputMaterializationStatus(materialization.statuses, state.data, output);
+  const reportIsIncomplete =
+    materialization.statuses !== undefined &&
+    activeAnalysis?.outputs.some(output => !getOutputStatus(output));
+  const statusError =
+    materialization.error ??
+    (reportIsIncomplete
+      ? 'Lightcone did not report statuses for this analysis.'
+      : undefined);
+
   return (
     <main className="jp-jupyterlab-lightcone-inventory-page">
-      <ProjectTopbar projectName={state.data.document.analysis.name} />
+      <ProjectTopbar
+        projectName={state.data.document.analysis.name}
+        statusError={statusError}
+      />
       {state.staleMessage ? (
         <div className="jp-jupyterlab-lightcone-refresh-warning" role="status">
           Showing the last valid project data: {state.staleMessage}
@@ -160,6 +184,7 @@ function ReadyInventoryView({
         <Inventory
           className="jp-jupyterlab-lightcone-inventory-content"
           {...renderers}
+          getOutputStatus={getOutputStatus}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
           detail={state.detail}
