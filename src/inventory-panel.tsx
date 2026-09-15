@@ -1,3 +1,4 @@
+import { JupyterOutputProvenance } from './output-provenance';
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
@@ -16,6 +17,7 @@ import {
   type InventoryOpenReference
 } from './open-reference';
 import {
+  isRootAnalysisOutput,
   useMaterializationStatus,
   outputMaterializationStatus
 } from './materialization-status';
@@ -185,6 +187,17 @@ function ReadyInventoryView({
           className="jp-jupyterlab-lightcone-inventory-content"
           {...renderers}
           getOutputStatus={getOutputStatus}
+          renderProvenance={output => (
+            <JupyterOutputProvenance
+              key={`${state.entrypoint}:${state.data.document.universe.universeId}:${output.canonicalPath}`}
+              contents={contents}
+              entrypoint={state.entrypoint}
+              universe={state.data.document.universe.universeId}
+              output={output}
+              status={getOutputStatus(output)}
+              supported={isRootAnalysisOutput(state.data, output)}
+            />
+          )}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
           detail={state.detail}

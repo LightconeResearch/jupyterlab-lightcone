@@ -26,9 +26,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@6002cf2.tgz":
+"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@830eb78.tgz":
   version: 0.0.5
-  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@6002cf2.tgz"
+  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@830eb78.tgz"
   dependencies:
     "@floating-ui/react": ^0.27.20
     katex: ^0.16.47
@@ -36,7 +36,7 @@ __metadata:
     "@astra-spec/sdk": ^0.1.1
     react: ">=18 <20"
     react-dom: ">=18 <20"
-  checksum: a55418807bcea273835946e2a97070861ed65880ee0d00f7744116d1e7142620b26f4b709bd1516c855f793ac22971aef5e247db65fc22cf794d791a64180b02
+  checksum: 2ec98a1cc7fbf087d6900222b3202f2a734e228a08a35ddaea30a05572cee50c2b0f8428e34f0596489bbe46a67685a4457e5b30486f475d12030fdbd4f7b22e
   languageName: node
   linkType: hard
 
@@ -8350,7 +8350,7 @@ __metadata:
   resolution: "jupyterlab-lightcone@workspace:."
   dependencies:
     "@astra-spec/sdk": ^0.1.2
-    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@6002cf2.tgz"
+    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@830eb78.tgz"
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/chat": ~0.25.0

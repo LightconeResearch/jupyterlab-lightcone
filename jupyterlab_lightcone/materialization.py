@@ -25,6 +25,33 @@ def project_root(root: Path, path: str) -> Path:
     return entrypoint.parent
 
 
+class ProjectAPIHandler(APIHandler):
+    """Read-only access to one local ASTRA project, on the contents manager's terms.
+
+    Every Lightcone read endpoint shares this preamble, so the local-manager
+    requirement, the entrypoint resolution and the contents manager's own read
+    and hidden-file rules are stated once.
+    """
+
+    auth_resource = "contents"
+    unavailable_reason = "This endpoint requires local files"
+
+    @property
+    def contents_root(self) -> Path:
+        return Path(self.contents_manager.root_dir).resolve()
+
+    async def project(self) -> Path:
+        """Resolve and authorize the requested project directory."""
+        if not isinstance(self.contents_manager, FileContentsManager):
+            raise web.HTTPError(503, reason=self.unavailable_reason)
+        path = self.get_query_argument("path")
+        project = project_root(self.contents_root, path)
+        # Apply the contents manager's read and hidden-file rules too.
+        await ensure_async(self.contents_manager.get(path, content=False, type="file"))
+        self.set_header("Cache-Control", "no-store")
+        return project
+
+
 STATUS_TIMEOUT_SECONDS = 30
 
 _ROW_FIELDS = ("output", "status", "why", "git_sha", "data_version")
@@ -88,23 +115,16 @@ def read_status(project: Path) -> dict:
     return {"outputs": outputs}
 
 
-class MaterializationStatusHandler(APIHandler):
+class MaterializationStatusHandler(ProjectAPIHandler):
     """An authenticated status lookup; an unavailable CLI is an optional-service error."""
 
-    auth_resource = "contents"
+    unavailable_reason = "Materialization status requires local files"
 
     @web.authenticated
     @authorized
     async def get(self):
         """Report all universes together so the client can select the active one."""
-        manager = self.contents_manager
-        if not isinstance(manager, FileContentsManager):
-            raise web.HTTPError(503, reason="Materialization status requires local files")
-        path = self.get_query_argument("path")
-        project = project_root(Path(manager.root_dir), path)
-        # Apply the contents manager's read and hidden-file rules too.
-        await ensure_async(manager.get(path, content=False, type="file"))
-        self.set_header("Cache-Control", "no-store")
+        project = await self.project()
         self.finish(await asyncio.to_thread(read_status, project))
 
 

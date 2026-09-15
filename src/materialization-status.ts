@@ -41,16 +41,24 @@ export function parseMaterializationStatuses(
   return result;
 }
 
+/** The CLI reports status, and Lightcone records runs, only for the root analysis. */
+export function isRootAnalysisOutput(
+  data: ILoadedProjectData,
+  output: ResolvedOutput
+): boolean {
+  return (
+    data.index.analysisByRecordPath.get(output.canonicalPath)?.canonicalPath ===
+    '$'
+  );
+}
+
 /** Match CLI output IDs only in their owning root analysis and selected universe. */
 export function outputMaterializationStatus(
   statuses: MaterializationStatuses | undefined,
   data: ILoadedProjectData,
   output: ResolvedOutput
 ): OutputStatus | undefined {
-  if (
-    data.index.analysisByRecordPath.get(output.canonicalPath)?.canonicalPath !==
-    '$'
-  ) {
+  if (!isRootAnalysisOutput(data, output)) {
     return undefined;
   }
   return statuses?.[`${data.document.universe.universeId}/${output.id}`];

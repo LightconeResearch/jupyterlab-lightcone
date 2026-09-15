@@ -4,6 +4,7 @@ from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
 from .materialization import setup_materialization_handlers
+from .provenance import setup_provenance_handlers
 from .mystra import MySTRAManager
 from .mystra_routes import setup_mystra_handlers
 from .routes import setup_route_handlers
@@ -37,6 +38,7 @@ class LightconeApp(ExtensionApp):
         app = self.serverapp.web_app
         setup_route_handlers(app)
         setup_materialization_handlers(app)
+        setup_provenance_handlers(app)
         self.manager = MySTRAManager(
             getattr(
                 self.serverapp.contents_manager, "root_dir", self.serverapp.root_dir
