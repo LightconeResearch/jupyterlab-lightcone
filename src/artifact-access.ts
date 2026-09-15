@@ -1,5 +1,4 @@
 import type { CommandRegistry } from '@lumino/commands';
-import { PathExt } from '@jupyterlab/coreutils';
 import type { Contents } from '@jupyterlab/services';
 import { ServerConnection } from '@jupyterlab/services';
 import type { ArtifactBinding, ResolvedOutput } from '@astra-spec/sdk';
@@ -87,11 +86,6 @@ export class JupyterArtifactAccess {
 
   bindingFor(output: ResolvedOutput): ArtifactBinding | undefined {
     return this._bindingByOutputPath.get(output.canonicalPath);
-  }
-
-  fileNameFor(output: ResolvedOutput): string | undefined {
-    const binding = this.bindingFor(output);
-    return binding ? PathExt.basename(binding.path) : undefined;
   }
 
   async getUrl(output: ResolvedOutput): Promise<string> {
