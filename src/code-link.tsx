@@ -2,7 +2,7 @@ import type { ResolvedOutput } from '@astra-spec/sdk';
 import { showErrorMessage } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import type { CommandRegistry } from '@lumino/commands';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { ILoadedProjectData } from './project-data';
 import { resolveOutputCode, type ICodeReference } from './code-access';
 
@@ -22,33 +22,33 @@ export function JupyterCodeLink({
   commands: CommandRegistry;
   beforeOpen?: () => void;
 }): React.ReactElement | null {
+  // One identity for the lookup inputs: the effect and the staleness guard
+  // cannot drift apart as the resolver's arguments change.
+  const inputs = useMemo(
+    () => ({ contents, entrypoint, data, output }),
+    [contents, entrypoint, data, output]
+  );
   const [resolved, setResolved] = useState<{
-    contents: Contents.IManager;
-    entrypoint: string;
-    data: ILoadedProjectData;
-    output: ResolvedOutput;
+    inputs: typeof inputs;
     reference?: ICodeReference;
   }>();
   const [opening, setOpening] = useState(false);
   useEffect(() => {
     let active = true;
-    void resolveOutputCode(contents, entrypoint, data, output).then(
-      reference => {
-        if (active)
-          setResolved({ contents, entrypoint, data, output, reference });
-      }
-    );
+    void resolveOutputCode(
+      inputs.contents,
+      inputs.entrypoint,
+      inputs.data,
+      inputs.output
+    ).then(reference => {
+      if (active) setResolved({ inputs, reference });
+    });
     return () => {
       active = false;
     };
-  }, [contents, entrypoint, data, output]);
+  }, [inputs]);
   const reference =
-    resolved?.contents === contents &&
-    resolved.entrypoint === entrypoint &&
-    resolved.data === data &&
-    resolved.output === output
-      ? resolved.reference
-      : undefined;
+    resolved?.inputs === inputs ? resolved.reference : undefined;
   if (!reference) return null;
   const open = async () => {
     setOpening(true);

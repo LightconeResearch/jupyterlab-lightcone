@@ -115,13 +115,15 @@ function ReadyInventoryView({
   state: Extract<InventoryPanelState, { status: 'ready' }>;
 }): React.ReactElement {
   const inventoryId = useId().replace(/:/g, '');
+  // Let the dialog restore focus before Jupyter activates the file tab.
+  const dismissDetail = (): void => flushSync(() => onDetailChange([]));
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
     state.data,
     onFetchPaper,
     commands,
-    () => flushSync(() => onDetailChange([]))
+    dismissDetail
   );
   const activeAnalysis = state.data.index.analysisByPath.get(
     state.analysisPath
@@ -171,8 +173,7 @@ function ReadyInventoryView({
           className="jp-jupyterlab-lightcone-inventory-content"
           {...renderers}
           onOpenArtifact={async output => {
-            // Let the dialog restore focus before Jupyter activates the file tab.
-            flushSync(() => onDetailChange([]));
+            dismissDetail();
             try {
               await renderers.onOpenArtifact?.(output);
             } catch (reason) {

@@ -42,9 +42,10 @@ validation, and artifact cache tokens come from `@astra-spec/sdk`.
 Output details also offer **Open code** beside Recipe when a local script can be
 resolved. It opens the current file in a reusable editor tab, preferring the
 executed command in a matching Lightcone run manifest over the declared recipe.
-This supports direct script commands in the root analysis; module, inline, and
-compound commands or unresolved paths have no link. It does not restore the
-revision used for an earlier run.
+This supports direct script commands in the root analysis, including a script
+named through an `{inputs.<id>}` placeholder, which resolves to that input's
+declared source. Module, inline, and compound commands or unresolved paths have
+no link. It does not restore the revision used for an earlier run.
 
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its

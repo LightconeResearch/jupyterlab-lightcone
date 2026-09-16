@@ -18,6 +18,20 @@ it.each([
   expect(scriptFromCommand(command)).toBe(expected);
 });
 
+it.each([
+  ['python {inputs.script}', 'src/declared.py'],
+  ['uv run python3 {inputs.script} --out result.png', 'src/declared.py'],
+  ['python {inputs.missing}', undefined],
+  ['python {inputs.absolute}', undefined],
+  ['python {outputs.script}', undefined]
+])('resolves a declared script placeholder: %s', (command, expected) => {
+  const sources = new Map([
+    ['script', 'src/declared.py'],
+    ['absolute', '/etc/passwd']
+  ]);
+  expect(scriptFromCommand(command, sources)).toBe(expected);
+});
+
 it('prefers the matching run manifest, supports quoted paths, and checks existence', async () => {
   const project = `version: '0.0.14'\nname: Code preview\ninputs: []\noutputs:\n  - id: plot\n    type: figure\n    format: png\n    recipe:\n      command: python src/current.py\n`;
   const manifest = fileModel(
@@ -64,6 +78,28 @@ it('prefers the matching run manifest, supports quoted paths, and checks existen
     expect(
       await resolveOutputCode(contents, 'work/astra.yaml', data, output)
     ).toBeUndefined();
+  } finally {
+    contents.dispose();
+  }
+});
+
+it('opens the script a recipe names through an input, with no run manifest', async () => {
+  const project = `version: '0.0.14'\nname: Code preview\ninputs:\n  - id: extract_script\n    type: data\n    source: src/extract_metric.py\noutputs:\n  - id: metric\n    type: metric\n    format: json\n    inputs:\n      - extract_script\n    recipe:\n      command: python {inputs.extract_script} --out {output}\n`;
+  const { contents } = createContents({
+    'work/astra.yaml': fileModel(project),
+    'work/src/extract_metric.py': fileModel('# extract')
+  });
+  try {
+    const { bundle } = await resolveProject(contents, 'work/astra.yaml');
+    const data = assembleLoadedProject(bundle, {});
+    const output = data.document.analysis.outputs[0];
+    expect(
+      await resolveOutputCode(contents, 'work/astra.yaml', data, output)
+    ).toMatchObject({
+      path: 'work/src/extract_metric.py',
+      relativePath: 'src/extract_metric.py',
+      source: 'declared recipe'
+    });
   } finally {
     contents.dispose();
   }
