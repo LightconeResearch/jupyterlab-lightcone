@@ -1,19 +1,35 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
-import { WidgetTracker, showErrorMessage } from '@jupyterlab/apputils';
+import {
+  MainAreaWidget,
+  WidgetTracker,
+  showErrorMessage
+} from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
-import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
+import { type IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
-import { astraIcon, mystIcon } from './icons';
+import {
+  astraIcon,
+  mystIcon,
+  createProjectIcon,
+  openProjectIcon
+} from './icons';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
 import { startMySTRA } from './api';
 import { MySTRAViewer } from './mystra-viewer';
+import { browseProjectFolder } from './project-browser';
+import { findProjectRoot, projectEntrypoint } from './project-root';
+import { ProjectSetup } from './project-setup';
 
 export namespace CommandIDs {
+  export const openExistingProject =
+    'jupyterlab_lightcone:open-existing-project';
+  export const finishProjectSetup = 'jupyterlab_lightcone:finish-project-setup';
+  export const createProject = 'jupyterlab_lightcone:create-project';
   export const restartMySTRA = 'jupyterlab_lightcone:restart-mystra';
   export const openMySTRA = 'jupyterlab_lightcone:open-mystra';
   export const pinElement = 'jupyterlab_lightcone:pin-element';
@@ -41,12 +57,14 @@ export function registerCommands(options: ICommandOptions): void {
     'jupyterlab_lightcone'
   );
 
-  const projectPath = (args: ReadonlyPartialJSONObject): string => {
+  const projectPath = async (
+    args: ReadonlyPartialJSONObject
+  ): Promise<string> => {
     if (typeof args.path === 'string') {
       return contents.normalize(args.path);
     }
     if (typeof args.cwd === 'string') {
-      return contents.resolvePath(args.cwd, 'astra.yaml');
+      return projectEntrypoint(contents, args.cwd);
     }
     const current = app.shell.currentWidget;
     if (current instanceof InventoryDocument) {
@@ -54,7 +72,8 @@ export function registerCommands(options: ICommandOptions): void {
     }
     const context = current ? documents.contextForWidget(current) : undefined;
     if (context) {
-      return contents.resolvePath(projectDirectory(context.path), 'astra.yaml');
+      const directory = projectDirectory(context.path);
+      return projectEntrypoint(contents, directory);
     }
     const fileBrowser = browser?.tracker.currentWidget;
     if (fileBrowser) {
@@ -64,10 +83,122 @@ export function registerCommands(options: ICommandOptions): void {
       if (selected.length === 1) {
         return selected[0].path;
       }
-      return contents.resolvePath(fileBrowser.model.path, 'astra.yaml');
+      return projectEntrypoint(contents, fileBrowser.model.path);
     }
-    return 'astra.yaml';
+    return projectEntrypoint(contents, '');
   };
+
+  const openFolder = async (path: string): Promise<unknown> => {
+    const drive = contents.driveName(path);
+    const fileBrowser = browser?.tracker.find(
+      widget => contents.driveName(widget.model.path) === drive
+    );
+    if (browser && !fileBrowser)
+      throw new Error('No file browser is available for this drive.');
+    await fileBrowser?.model.cd(`/${contents.localPath(path)}`);
+    return app.commands.execute('launcher:create', {
+      cwd: path,
+      activate: true
+    });
+  };
+  app.commands.addCommand(CommandIDs.openExistingProject, {
+    label: trans.__('Open project'),
+    icon: openProjectIcon,
+    describedBy: {
+      args: { type: 'object', properties: { cwd: { type: 'string' } } }
+    },
+    execute: async args => {
+      try {
+        const path = await browseProjectFolder(
+          documents,
+          typeof args.cwd === 'string'
+            ? args.cwd
+            : (browser?.tracker.currentWidget?.model.path ?? ''),
+          options.translator
+        );
+        if (path === undefined) return;
+        const root = await findProjectRoot(contents, path);
+        if (root) return await openFolder(root.path);
+        return await app.commands.execute(CommandIDs.createProject, { path });
+      } catch (error) {
+        await showErrorMessage(
+          trans.__('Could not open project'),
+          error instanceof Error ? error : String(error)
+        );
+      }
+    }
+  });
+  const showSetup = (path: string, mode: 'create' | 'finish') => {
+    const content = new ProjectSetup({
+      path,
+      mode,
+      settings: contents.serverSettings,
+      browse: () =>
+        browseProjectFolder(
+          documents,
+          browser?.tracker.currentWidget?.model.path ?? '',
+          options.translator
+        ),
+      open: async project => {
+        await openFolder(project.path);
+        setup.dispose();
+      }
+    });
+    const setup = new MainAreaWidget({ content });
+    setup.title.label =
+      mode === 'finish'
+        ? trans.__('Finish project setup')
+        : trans.__('Create project');
+    setup.title.icon = createProjectIcon;
+    setup.title.closable = true;
+    app.shell.add(setup, 'main');
+    app.shell.activateById(setup.id);
+    return setup;
+  };
+  app.commands.addCommand(CommandIDs.createProject, {
+    label: trans.__('Create project'),
+    icon: createProjectIcon,
+    describedBy: {
+      args: {
+        type: 'object',
+        properties: { cwd: { type: 'string' }, path: { type: 'string' } }
+      }
+    },
+    execute: args =>
+      showSetup(
+        typeof args.path === 'string'
+          ? args.path
+          : contents.resolvePath(
+              typeof args.cwd === 'string'
+                ? args.cwd
+                : (browser?.tracker.currentWidget?.model.path ?? ''),
+              'my-project'
+            ),
+        'create'
+      )
+  });
+  app.commands.addCommand(CommandIDs.finishProjectSetup, {
+    label: trans.__('Finish project setup'),
+    icon: createProjectIcon,
+    describedBy: {
+      args: { type: 'object', properties: { cwd: { type: 'string' } } }
+    },
+    execute: async args => {
+      try {
+        const directory =
+          typeof args.cwd === 'string'
+            ? args.cwd
+            : (browser?.tracker.currentWidget?.model.path ?? '');
+        const project = await findProjectRoot(contents, directory);
+        return showSetup(project?.path ?? directory, 'finish');
+      } catch (error) {
+        await showErrorMessage(
+          trans.__('Could not finish project setup'),
+          error instanceof Error ? error : String(error)
+        );
+      }
+    }
+  });
 
   app.commands.addCommand(CommandIDs.restartMySTRA, {
     label: trans.__('Restart MySTRA Viewer'),
@@ -117,7 +248,15 @@ export function registerCommands(options: ICommandOptions): void {
                     selected[0]?.path ??
                     fileBrowser?.model.path ??
                     '');
-        const session = await startMySTRA(contents.serverSettings, path);
+        const model = await contents.get(path, { content: false });
+        const root = await findProjectRoot(
+          contents,
+          model.type === 'directory' ? path : projectDirectory(path)
+        );
+        const session = await startMySTRA(
+          contents.serverSettings,
+          root?.path ?? path
+        );
         let viewer = viewers.find(candidate => candidate.path === session.path);
         if (viewer) {
           // The server may have minted a new session after the old one expired.
@@ -170,7 +309,7 @@ export function registerCommands(options: ICommandOptions): void {
     },
     execute: async args => {
       try {
-        const path = projectPath(args);
+        const path = await projectPath(args);
         // Check existence before creating a document context (which may create new files).
         try {
           await contents.get(path, { content: false });
@@ -179,13 +318,9 @@ export function registerCommands(options: ICommandOptions): void {
             error instanceof ServerConnection.ResponseError &&
             error.response.status === 404
           ) {
-            await showErrorMessage(
-              trans.__('No ASTRA project found'),
-              trans.__(
-                'No ASTRA project file was found at "%1". Open a folder containing astra.yaml in the file browser, then choose ASTRA Inventory.',
-                path
-              )
-            );
+            await app.commands.execute(CommandIDs.createProject, {
+              path: projectDirectory(path)
+            });
             return undefined;
           }
           throw error;

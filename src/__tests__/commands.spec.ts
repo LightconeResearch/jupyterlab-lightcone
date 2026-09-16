@@ -7,10 +7,18 @@ import { ContentsManager, Drive, ServerConnection } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
+import { browseProjectFolder } from '../project-browser';
+import { inspectProjectFolder } from '../api';
+import { ProjectSetup } from '../project-setup';
 import { CommandIDs, registerCommands } from '../commands';
 import { InventoryDocument } from '../document-widget';
 import { fileModel } from './project-fixtures';
 
+jest.mock('../project-browser', () => ({ browseProjectFolder: jest.fn() }));
+jest.mock('../api', () => ({
+  ...jest.requireActual('../api'),
+  inspectProjectFolder: jest.fn()
+}));
 jest.mock('@jupyterlab/apputils', () => ({
   ...jest.requireActual('@jupyterlab/apputils'),
   showErrorMessage: jest.fn().mockResolvedValue(undefined)
@@ -88,6 +96,108 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
 }
 
 describe('project opening commands', () => {
+  it('opens an existing project on its Contents drive without local initialization', async () => {
+    const cd = jest.fn().mockResolvedValue(undefined);
+    const remote = { model: { path: 'archive:elsewhere', cd } };
+    const browser = {
+      tracker: { currentWidget: remote, find: () => remote }
+    } as unknown as IFileBrowserFactory;
+    const host = commandHost(browser);
+    const launcher = new Widget();
+    const createLauncher = jest.fn().mockReturnValue(launcher);
+    host.commands.addCommand('launcher:create', { execute: createLauncher });
+    jest.mocked(browseProjectFolder).mockResolvedValue('archive:project');
+    jest.mocked(inspectProjectFolder).mockClear();
+    try {
+      expect(await host.commands.execute(CommandIDs.openExistingProject)).toBe(
+        launcher
+      );
+      expect(cd).toHaveBeenCalledWith('/project');
+      expect(createLauncher).toHaveBeenCalledWith({
+        cwd: 'archive:project',
+        activate: true
+      });
+      expect(inspectProjectFolder).not.toHaveBeenCalled();
+      expect(host.openOrReveal).not.toHaveBeenCalled();
+    } finally {
+      launcher.dispose();
+      host.dispose();
+    }
+  });
+
+  it('shows errors from finish setup and asynchronous folder navigation', async () => {
+    const error = new Error('Access denied');
+    const remote = {
+      model: { path: 'project', cd: jest.fn().mockRejectedValue(error) }
+    };
+    const host = commandHost({
+      tracker: { currentWidget: remote, find: () => remote }
+    } as unknown as IFileBrowserFactory);
+    try {
+      host.get.mockRejectedValueOnce(error);
+      await host.commands.execute(CommandIDs.finishProjectSetup);
+      expect(showErrorMessage).toHaveBeenLastCalledWith(
+        'Could not finish project setup',
+        error
+      );
+      jest.mocked(browseProjectFolder).mockResolvedValue('project');
+      await host.commands.execute(CommandIDs.openExistingProject);
+      expect(showErrorMessage).toHaveBeenLastCalledWith(
+        'Could not open project',
+        error
+      );
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('opens a fresh setup for the folder chosen after another setup form was edited', async () => {
+    const host = commandHost();
+    const first = await host.commands.execute(CommandIDs.createProject, {
+      path: 'A'
+    });
+    jest.mocked(browseProjectFolder).mockResolvedValue('B');
+    jest
+      .mocked(inspectProjectFolder)
+      .mockResolvedValue({ path: 'B', directory: '/server/B', hasSpec: false });
+    host.get.mockRejectedValue(
+      new ServerConnection.ResponseError(new Response('', { status: 404 }))
+    );
+    try {
+      await host.commands.execute(CommandIDs.openExistingProject);
+      const second = host.shell.add.mock.calls[1][0];
+      expect(second).not.toBe(first);
+      expect((second.content as ProjectSetup).render().props.path).toBe('B');
+      expect((first.content as ProjectSetup).render().props.path).toBe('A');
+      expect(host.openOrReveal).not.toHaveBeenCalled();
+    } finally {
+      host.shell.add.mock.calls.forEach(([widget]) => widget.dispose());
+      host.dispose();
+    }
+  });
+
+  it('opens the enclosing inventory from a project subfolder', async () => {
+    const host = commandHost();
+    host.get.mockImplementation(async path => {
+      if (path !== 'project/astra.yaml')
+        throw new ServerConnection.ResponseError(
+          new Response('', { status: 404 })
+        );
+      return fileModel('project');
+    });
+    try {
+      await host.commands.execute(CommandIDs.openInventory, {
+        cwd: 'project/data/raw'
+      });
+      expect(host.openOrReveal).toHaveBeenCalledWith(
+        'project/astra.yaml',
+        'Lightcone Lab'
+      );
+    } finally {
+      host.dispose();
+    }
+  });
+
   it('resolves the launcher directory on its registered drive', async () => {
     const host = commandHost();
     try {
@@ -173,7 +283,7 @@ describe('project opening commands', () => {
     }
   });
 
-  it('reports missing files without asking the document manager to create them', async () => {
+  it('offers project setup without asking the document manager to create missing files', async () => {
     const host = commandHost();
     host.get.mockRejectedValue(
       new ServerConnection.ResponseError(new Response('', { status: 404 }))
@@ -185,10 +295,13 @@ describe('project opening commands', () => {
         })
       ).toBeUndefined();
       expect(host.openOrReveal).not.toHaveBeenCalled();
-      expect(showErrorMessage).toHaveBeenCalledWith(
-        'No ASTRA project found',
-        'No ASTRA project file was found at "missing/astra.yaml". Open a folder containing astra.yaml in the file browser, then choose ASTRA Inventory.'
+      expect(host.shell.add).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: expect.objectContaining({ label: 'Create project' })
+        }),
+        'main'
       );
+      host.shell.add.mock.calls[0][0].dispose();
     } finally {
       host.dispose();
     }

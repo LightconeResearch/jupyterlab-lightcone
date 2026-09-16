@@ -3,6 +3,83 @@ import type { InventoryPaperMetadata } from '@astra-spec/ui/model';
 import { ServerConnection } from '@jupyterlab/services';
 import { apiUrl, requestAPI } from './request';
 
+export interface IProjectFolder {
+  path: string;
+  directory: string;
+  hasSpec: boolean;
+}
+
+/** Inspect a selected directory without changing it. */
+export function inspectProjectFolder(
+  settings: ServerConnection.ISettings,
+  path: string
+): Promise<IProjectFolder> {
+  return requestProjectFolder(
+    settings,
+    `api/projects?${new URLSearchParams({ path: path || '.' })}`
+  );
+}
+
+/** Explicitly create or finish setting up the selected directory. */
+export function initializeProjectFolder(
+  settings: ServerConnection.ISettings,
+  path: string
+): Promise<IProjectFolder> {
+  return requestProjectFolder(settings, 'api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: path || '.' })
+  });
+}
+
+async function requestProjectFolder(
+  settings: ServerConnection.ISettings,
+  endpoint: string,
+  init: RequestInit = {}
+): Promise<IProjectFolder> {
+  try {
+    const data = await requestAPI(endpoint, settings, init);
+    if (
+      !isRecord(data) ||
+      typeof data.path !== 'string' ||
+      typeof data.directory !== 'string' ||
+      typeof data.hasSpec !== 'boolean'
+    ) {
+      throw new Error('The server returned an invalid project folder.');
+    }
+    return {
+      path: data.path,
+      directory: data.directory,
+      hasSpec: data.hasSpec
+    };
+  } catch (error) {
+    throw new RequestError('Project setup', error);
+  }
+}
+
+/** Recognize project directories in one shallow, read-only listing. */
+export async function projectFolders(
+  settings: ServerConnection.ISettings,
+  path: string
+): Promise<string[]> {
+  try {
+    const data = await requestAPI(
+      `api/projects?${new URLSearchParams({ path: path || '.', children: 'true' })}`,
+      settings
+    );
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.projects) ||
+      !data.projects.every((path): path is string => typeof path === 'string')
+    ) {
+      throw new Error('The server returned an invalid project listing.');
+    }
+    return data.projects;
+  } catch (error) {
+    throw new RequestError('Project browser', error);
+  }
+}
+
 interface IPaperMetadata {
   doi: string;
   title?: string;

@@ -16,6 +16,7 @@ import { ITranslator } from '@jupyterlab/translation';
 import { chatPlugin } from './chat-plugin';
 import { astraMimePlugin } from './astra-mime';
 import { registerElementCommands } from './element-commands';
+import { configureProjectLauncher } from './project-launcher';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
 import {
@@ -95,6 +96,18 @@ const plugin: JupyterFrontEndPlugin<void> = {
       browser,
       translator: translator ?? undefined
     });
+    palette?.addItem({ command: CommandIDs.createProject, category: CATEGORY });
+    palette?.addItem({
+      command: CommandIDs.finishProjectSetup,
+      category: CATEGORY
+    });
+    palette?.addItem({
+      command: CommandIDs.openExistingProject,
+      category: CATEGORY
+    });
+    if (launcher && browser) {
+      configureProjectLauncher(app, launcher, browser);
+    }
     if (restorer) {
       void restorer.restore(inventories, {
         command: 'docmanager:open',
@@ -106,21 +119,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     }
     palette?.addItem({ command: CommandIDs.openInventory, category: CATEGORY });
-    launcher?.add({
-      command: CommandIDs.openInventory,
-      category: CATEGORY,
-      categoryRank: -10,
-      rank: 1
-    });
     palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
     palette?.addItem({ command: CommandIDs.openMySTRA, category: CATEGORY });
     palette?.addItem({ command: CommandIDs.restartMySTRA, category: CATEGORY });
-    launcher?.add({
-      command: CommandIDs.openMySTRA,
-      category: CATEGORY,
-      categoryRank: -10,
-      rank: 2
-    });
     app.contextMenu.addItem({
       command: CommandIDs.openMySTRA,
       selector: '.jp-DirListing-item',

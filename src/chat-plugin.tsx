@@ -11,8 +11,6 @@ import type {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
-import { ILauncher } from '@jupyterlab/launcher';
-import { PathExt } from '@jupyterlab/coreutils';
 import { CommandIDs } from './commands';
 import { ServerConnection } from '@jupyterlab/services';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
@@ -24,6 +22,8 @@ import {
 } from './chat-context';
 import { acquireProjectDataService } from './project-data-service';
 import { parseElementReference } from './element-reference';
+import { projectEntrypoint } from './project-root';
+import { projectDirectory } from './project-data';
 import { InventoryDocument } from './document-widget';
 
 /** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
@@ -35,7 +35,6 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     IChatTracker,
     ICommandPalette,
     IFileBrowserFactory,
-    ILauncher,
     ITranslator,
     IChatCommandRegistry
   ],
@@ -44,7 +43,6 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     tracker: IChatTracker | null,
     palette: ICommandPalette | null,
     browser: IFileBrowserFactory | null,
-    launcher: ILauncher | null,
     translator: ITranslator | null,
     chatCommands: IChatCommandRegistry | null
   ) => {
@@ -134,7 +132,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
               }}
             >
               {context
-                ? `✦ ${PathExt.dirname(context.entrypoint) || 'ASTRA'} · ${context.universeId ?? 'defaults'}`
+                ? `✦ ${projectDirectory(context.entrypoint) || 'ASTRA'} · ${context.universeId ?? 'defaults'}`
                 : (error ?? trans.__('Lightcone Agent'))}
             </button>
           );
@@ -175,12 +173,12 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             typeof args.entrypoint === 'string'
               ? args.entrypoint
               : typeof args.cwd === 'string'
-                ? PathExt.join(args.cwd, 'astra.yaml')
+                ? await projectEntrypoint(app.serviceManager.contents, args.cwd)
                 : current instanceof InventoryDocument
                   ? current.context.path
-                  : PathExt.join(
-                      browser?.tracker.currentWidget?.model.path ?? '',
-                      'astra.yaml'
+                  : await projectEntrypoint(
+                      app.serviceManager.contents,
+                      browser?.tracker.currentWidget?.model.path ?? ''
                     );
           const reference = parseElementReference({
             ...args,
@@ -197,13 +195,9 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
               error instanceof ServerConnection.ResponseError &&
               error.response.status === 404
             ) {
-              await showErrorMessage(
-                trans.__('No ASTRA project found'),
-                trans.__(
-                  'No ASTRA project file was found at "%1". Open a folder containing astra.yaml in the file browser, then choose Lightcone Agent.',
-                  reference.entrypoint
-                )
-              );
+              await app.commands.execute(CommandIDs.createProject, {
+                path: projectDirectory(reference.entrypoint)
+              });
               return null;
             }
             throw error;
@@ -245,7 +239,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             const filepath: unknown = panel
               ? panel.model.name
               : await app.commands.execute('jupyterlab-chat:create', {
-                  path: PathExt.dirname(reference.entrypoint),
+                  path: projectDirectory(reference.entrypoint),
                   inSidePanel: true
                 });
             if (typeof filepath !== 'string' || !filepath)
@@ -285,12 +279,6 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     palette?.addItem({
       command: CommandIDs.discuss,
       category: 'Lightcone Lab'
-    });
-    launcher?.add({
-      command: CommandIDs.discuss,
-      category: 'Lightcone Lab',
-      categoryRank: -10,
-      rank: 0
     });
   }
 };
