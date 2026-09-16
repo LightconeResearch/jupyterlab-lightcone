@@ -157,30 +157,29 @@ it('does not report output definition changes when runtime artifact metadata cha
 it('separates artifact availability from definitions, and requires content hashes for reruns', async () => {
   const before = await snapshot();
   const after = await snapshot();
-  const result = {
-    token: 'first',
-    path: 'results/default/fit.json',
-    hash: 'sha256:one'
-  };
-  after.results.set('outputs.fit', result);
+  after.results.set('outputs.fit', 'sha256:one');
   expect(diffProjects(before, after)).toMatchObject([
     { kind: 'result', action: 'ready' }
   ]);
   const touched = await snapshot();
-  touched.results.set('outputs.fit', { ...result, token: 'touched' });
+  touched.results.set('outputs.fit', 'sha256:one');
   expect(diffProjects(after, touched)).toEqual([]);
-  touched.results.set('outputs.fit', {
-    ...result,
-    token: 'rewritten',
-    hash: 'sha256:two'
-  });
+  touched.results.set('outputs.fit', 'sha256:two');
   expect(diffProjects(after, touched)).toMatchObject([
     { kind: 'result', action: 'updated' }
   ]);
-  touched.results.set('outputs.fit', {
-    ...result,
-    token: 'unsupported-drive',
-    hash: undefined
-  });
+  // A drive without hashes reports availability but never a rerun.
+  touched.results.set('outputs.fit', undefined);
   expect(diffProjects(after, touched)).toEqual([]);
+  expect(diffProjects(before, touched)).toMatchObject([
+    { kind: 'result', action: 'ready' }
+  ]);
+});
+
+it('carries no record payload on change rows', async () => {
+  const before = await snapshot();
+  const after = await snapshot(spec.replace('Original data', 'Revised source'));
+  for (const change of diffProjects(before, after)) {
+    expect(change).not.toHaveProperty('fields');
+  }
 });

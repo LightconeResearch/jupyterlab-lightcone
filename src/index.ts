@@ -13,8 +13,8 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
-import { ProjectNotifications } from './project-notifications';
 import { chatPlugin } from './chat-plugin';
+import { projectNotificationsPlugin } from './project-notifications';
 import { astraMimePlugin } from './astra-mime';
 import { registerElementCommands } from './element-commands';
 import { astraIcon } from './icons';
@@ -55,12 +55,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
     translator: ITranslator | null,
     shell: ILabShell | null
   ) => {
-    // Application-lifetime observer; project services already own polling.
-    const notifications = new ProjectNotifications(
-      app.serviceManager.contents,
-      app.commands
-    );
-    app.shell.disposed.connect(() => notifications.dispose());
     const inventories = new WidgetTracker<InventoryDocument>({
       namespace: 'lightcone-inventory'
     });
@@ -137,4 +131,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export default [plugin, astraMimePlugin, chatPlugin];
+export default [
+  plugin,
+  astraMimePlugin,
+  chatPlugin,
+  projectNotificationsPlugin
+];

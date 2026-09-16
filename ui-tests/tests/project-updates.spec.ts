@@ -64,7 +64,7 @@ test('minimal project notifications group edits, review records, and distinguish
     .getByRole('button', { name: 'Fitting range', exact: true })
     .click();
   await expect(
-    page.locator('.jp-jupyterlab-lightcone-project-updates')
+    page.locator('.jp-jupyterlab-lightcone-ProjectUpdates')
   ).toHaveCount(0);
   await expect(
     page.getByRole('dialog').getByText('Fitting range', { exact: true }).first()

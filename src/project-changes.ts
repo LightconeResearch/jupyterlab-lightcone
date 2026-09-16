@@ -1,4 +1,10 @@
 import { collectCitedDois, normalizeDoi } from '@astra-spec/sdk';
+import {
+  analysisTitle,
+  countLabel,
+  recordTitle,
+  selectedOptionLabel
+} from '@astra-spec/ui/model';
 import type { ILoadedProjectData } from './project-data';
 import type { InventoryOpenReference } from './open-reference';
 
@@ -7,46 +13,86 @@ export interface IProjectItem {
   label: string;
   analysisPath: string;
   reference?: InventoryOpenReference;
+  /** A decision's option label, resolved while the record itself is in hand. */
+  selection?: string;
   fields: Record<string, unknown>;
 }
+
 export interface IProjectSnapshot {
   items: Map<string, IProjectItem>;
-  results: Map<string, { token: string; path: string; hash?: string }>;
+  /**
+   * Output path to server-side content hash. Membership means the artifact
+   * exists; an absent hash means the drive does not offer one.
+   */
+  results: Map<string, string | undefined>;
 }
-export interface IProjectChange extends IProjectItem {
+
+/** Rows outlive the snapshot they came from, so they carry no record payload. */
+export interface IProjectChange extends Omit<
+  IProjectItem,
+  'fields' | 'selection'
+> {
   key: string;
   action: 'added' | 'removed' | 'changed' | 'ready' | 'updated';
   detail?: string;
 }
 
-const DERIVED_FIELDS = new Set([
+/** Added by the resolver: comparing them reports its work as the user's. */
+const RESOLVED_FIELDS = [
   'canonicalPath',
   'kind',
   'provenance',
   'resolvedFrom',
   'resolvedInsightPaths',
-  'resolvedOutputPath',
-  'created_at'
+  'resolvedOutputPath'
+];
+
+/** Authored, but not what a reader means by "this record changed". */
+const NOISY_AUTHORED_FIELDS = ['created_at'];
+
+/**
+ * Matched by name at every depth, because the SDK does not yet expose which
+ * keys it derived. A future authored field sharing one of these names would be
+ * compared away silently, so this set tracks `resolved-types.d.ts` by hand.
+ */
+const IGNORED_FIELDS = new Set([...RESOLVED_FIELDS, ...NOISY_AUTHORED_FIELDS]);
+
+/** Analysis members that are records in their own right, snapshotted separately. */
+const SECTION_FIELDS = new Set([
+  'inputs',
+  'outputs',
+  'decisions',
+  'findings',
+  'prior_insights',
+  'analyses'
 ]);
+
+function normalize(item: unknown): unknown {
+  if (Array.isArray(item)) {
+    // Serialise each element once rather than twice per comparison.
+    return item
+      .map(entry => {
+        const value = normalize(entry);
+        return [JSON.stringify(value) ?? '', value] as const;
+      })
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, value]) => value);
+  }
+  if (item !== null && typeof item === 'object') {
+    return Object.fromEntries(
+      Object.entries(item)
+        .filter(
+          ([key, value]) => !IGNORED_FIELDS.has(key) && value !== undefined
+        )
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, value]) => [key, normalize(value)])
+    );
+  }
+  return item;
+}
 
 /** Compare resolved meaning, ignoring YAML/map/list order and runtime metadata. */
 export function semanticValue(value: unknown): string {
-  const normalize = (item: unknown): unknown => {
-    if (Array.isArray(item)) {
-      return item
-        .map(normalize)
-        .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    }
-    if (item !== null && typeof item === 'object') {
-      return Object.fromEntries(
-        Object.entries(item)
-          .filter(([key, val]) => !DERIVED_FIELDS.has(key) && val !== undefined)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([key, val]) => [key, normalize(val)])
-      );
-    }
-    return item;
-  };
   return JSON.stringify(normalize(value)) ?? '';
 }
 
@@ -54,22 +100,13 @@ export function semanticValue(value: unknown): string {
 export function snapshotProject(data: ILoadedProjectData): IProjectSnapshot {
   const items = new Map<string, IProjectItem>();
   for (const [path, node] of data.index.analysisByPath) {
-    const sections = new Set([
-      'inputs',
-      'outputs',
-      'decisions',
-      'findings',
-      'prior_insights',
-      'analyses'
-    ]);
-    const fields = Object.fromEntries(
-      Object.entries(node).filter(([key]) => !sections.has(key))
-    );
     items.set(path, {
       kind: path === '$' ? 'project' : 'subanalysis',
-      label: node.name ?? node.id ?? path,
+      label: analysisTitle(node),
       analysisPath: path,
-      fields
+      fields: Object.fromEntries(
+        Object.entries(node).filter(([key]) => !SECTION_FIELDS.has(key))
+      )
     });
   }
   for (const [path, record] of data.index.recordByPath) {
@@ -79,10 +116,13 @@ export function snapshotProject(data: ILoadedProjectData): IProjectSnapshot {
     if (record.kind === 'output') delete fields.artifact;
     items.set(path, {
       kind: record.kind === 'prior_insight' ? 'insight' : record.kind,
-      label: record.label ?? record.id,
+      label: recordTitle(record),
       analysisPath:
         data.index.analysisByRecordPath.get(path)?.canonicalPath ?? '$',
       reference: { kind: record.kind, id: record.id, canonicalPath: path },
+      ...(record.kind === 'decision'
+        ? { selection: selectedOptionLabel(record) }
+        : {}),
       fields
     });
   }
@@ -99,10 +139,7 @@ export function snapshotProject(data: ILoadedProjectData): IProjectSnapshot {
   return {
     items,
     results: new Map(
-      data.bindings.map(binding => [
-        binding.outputPath,
-        { token: binding.cacheToken, path: binding.path }
-      ])
+      data.bindings.map(binding => [binding.outputPath, undefined])
     )
   };
 }
@@ -118,23 +155,21 @@ const FIELD_LABELS: Record<string, string> = {
   active: 'availability'
 };
 
-function selectedLabel(fields: Record<string, unknown>): string {
-  const options = fields.options;
-  const option: unknown = Array.isArray(options)
-    ? options.find(
-        (value: unknown) =>
-          value !== null &&
-          typeof value === 'object' &&
-          'id' in value &&
-          value.id === fields.selectedOptionId
-      )
-    : undefined;
-  return option &&
-    typeof option === 'object' &&
-    'label' in option &&
-    typeof option.label === 'string'
-    ? option.label
-    : String(fields.selectedOptionId ?? 'none');
+function changeRow(
+  item: IProjectItem,
+  key: string,
+  action: IProjectChange['action'],
+  detail?: string
+): IProjectChange {
+  return {
+    key,
+    action,
+    kind: item.kind,
+    label: item.label,
+    analysisPath: item.analysisPath,
+    ...(item.reference ? { reference: item.reference } : {}),
+    ...(detail ? { detail } : {})
+  };
 }
 
 /** Produce one row per changed record; materialization never changes its definition. */
@@ -148,50 +183,50 @@ export function diffProjects(
     const next = after.items.get(key);
     const item = next ?? old!;
     if (!old || !next) {
-      changes.push({ ...item, key, action: next ? 'added' : 'removed' });
-    } else if (semanticValue(old.fields) !== semanticValue(next.fields)) {
-      const fields = [
-        ...new Set([...Object.keys(old.fields), ...Object.keys(next.fields)])
-      ].filter(
-        field =>
-          !DERIVED_FIELDS.has(field) &&
-          semanticValue(old.fields[field]) !== semanticValue(next.fields[field])
-      );
-      const selection = fields.includes('selectedOptionId')
-        ? `${selectedLabel(old.fields)} → ${selectedLabel(next.fields)}`
-        : undefined;
-      changes.push({
-        ...item,
-        key,
-        action: 'changed',
-        detail: [
-          selection,
-          fields
-            .filter(
-              field =>
-                !selection || !['selectedOptionId', 'default'].includes(field)
-            )
-            .map(field => FIELD_LABELS[field] ?? field)
-            .join(', ')
-        ]
-          .filter(Boolean)
-          .join('; ')
-      });
+      changes.push(changeRow(item, key, next ? 'added' : 'removed'));
+      continue;
     }
+    // This pass also answers "did anything change"; comparing the whole record
+    // first would walk the same subtrees a second time.
+    const fields = [
+      ...new Set([...Object.keys(old.fields), ...Object.keys(next.fields)])
+    ].filter(
+      field =>
+        !IGNORED_FIELDS.has(field) &&
+        semanticValue(old.fields[field]) !== semanticValue(next.fields[field])
+    );
+    if (!fields.length) continue;
+    const selection = fields.includes('selectedOptionId')
+      ? `${old.selection} → ${next.selection}`
+      : undefined;
+    // The arrow already names the selection, so its own fields stay out of the list.
+    const remaining = fields
+      .filter(
+        field =>
+          !selection || (field !== 'selectedOptionId' && field !== 'default')
+      )
+      .map(field => FIELD_LABELS[field] ?? field)
+      .join(', ');
+    changes.push(
+      changeRow(
+        item,
+        key,
+        'changed',
+        [selection, remaining].filter(Boolean).join('; ')
+      )
+    );
   }
-  for (const [key, result] of after.results) {
-    const old = before.results.get(key);
+  for (const [key, hash] of after.results) {
     const item = after.items.get(key);
     if (!item) continue;
-    const updated = old?.hash && result.hash && old.hash !== result.hash;
-    if (!old || updated) {
-      changes.push({
-        ...item,
-        key: `result:${key}`,
-        kind: 'result',
-        action: old ? 'updated' : 'ready'
-      });
-    }
+    const known = before.results.has(key);
+    const previous = before.results.get(key);
+    // Without a hash on both sides, a rerun is indistinguishable from a touch.
+    if (known && !(previous && hash && previous !== hash)) continue;
+    changes.push({
+      ...changeRow(item, `result:${key}`, known ? 'updated' : 'ready'),
+      kind: 'result'
+    });
   }
   return changes;
 }
@@ -201,8 +236,8 @@ export function summarizeChanges(changes: readonly IProjectChange[]): string {
   const results = changes.filter(change => change.kind === 'result').length;
   const edits = changes.length - results;
   return [
-    edits ? `${edits} project ${edits === 1 ? 'change' : 'changes'}` : '',
-    results ? `${results} ${results === 1 ? 'result' : 'results'} ready` : ''
+    edits ? countLabel(edits, 'project change') : '',
+    results ? `${countLabel(results, 'result')} ready` : ''
   ]
     .filter(Boolean)
     .join(' · ');

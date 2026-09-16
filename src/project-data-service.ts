@@ -2,6 +2,11 @@ import { normalizeDoi } from '@astra-spec/sdk';
 import type { InventoryPaperMetadata } from '@astra-spec/ui/model';
 import type { Contents } from '@jupyterlab/services';
 import { Poll } from '@lumino/polling';
+import {
+  DisposableDelegate,
+  type IDisposable,
+  type IObservableDisposable
+} from '@lumino/disposable';
 import { Signal, type ISignal } from '@lumino/signaling';
 import { fetchPaper } from './api';
 import {
@@ -22,20 +27,8 @@ export interface IProjectDataState {
   paperError?: string;
 }
 
-export interface IProjectDataUpdate {
-  service: object;
-  contents: Contents.IManager;
-  entrypoint: string;
-  data: ILoadedProjectData;
-}
-
-/** Valid project snapshots only; paper-cache updates are deliberately excluded. */
-export const projectDataUpdated = new Signal<object, IProjectDataUpdate>({});
-
-export const projectDataDisposed = new Signal<object, object>({});
-
 /** One polling data source shared by all panels viewing an entrypoint. */
-export class ProjectDataService {
+export class ProjectDataService implements IObservableDisposable {
   constructor(
     readonly contents: Contents.IManager,
     readonly entrypoint: string,
@@ -58,6 +51,15 @@ export class ProjectDataService {
 
   get changed(): ISignal<this, IProjectDataState> {
     return this._changed;
+  }
+
+  /** Valid project resolutions only; paper-cache updates are excluded. */
+  get projectChanged(): ISignal<this, ILoadedProjectData> {
+    return this._projectChanged;
+  }
+
+  get disposed(): ISignal<this, void> {
+    return this._disposed;
   }
 
   get isDisposed(): boolean {
@@ -108,9 +110,12 @@ export class ProjectDataService {
   }
 
   dispose(): void {
-    projectDataDisposed.emit(this);
+    if (this.isDisposed) {
+      return;
+    }
     this.contents.fileChanged.disconnect(this._onContentsChanged, this);
     this._poll.dispose();
+    this._disposed.emit();
     Signal.clearData(this);
   }
 
@@ -163,12 +168,7 @@ export class ProjectDataService {
           this._data?.papers ?? {}
         );
         this._projectSnapshot = resolution.snapshot;
-        projectDataUpdated.emit({
-          service: this,
-          contents: this.contents,
-          entrypoint: this.entrypoint,
-          data: this._data
-        });
+        this._projectChanged.emit(this._data);
       }
       const recovered = this._error !== undefined;
       this._error = undefined;
@@ -295,6 +295,8 @@ export class ProjectDataService {
   private _paperVersion = 0;
   private readonly _paperFetches = new Map<string, Promise<void>>();
   private readonly _changed = new Signal<this, IProjectDataState>(this);
+  private readonly _projectChanged = new Signal<this, ILoadedProjectData>(this);
+  private readonly _disposed = new Signal<this, void>(this);
   private readonly _poll: Poll<void, unknown>;
 }
 
@@ -309,6 +311,34 @@ export interface IProjectDataLease {
 }
 
 const services = new WeakMap<Contents.IManager, Map<string, IServiceRecord>>();
+const observers = new WeakMap<
+  Contents.IManager,
+  Set<(service: ProjectDataService) => void>
+>();
+
+/**
+ * Watch every shared service for a contents manager, including those already
+ * live. Each service announces its own updates and disposal, so observers need
+ * no registry bookkeeping of their own.
+ */
+export function observeProjectDataServices(
+  contents: Contents.IManager,
+  onService: (service: ProjectDataService) => void
+): IDisposable {
+  let watching = observers.get(contents);
+  if (!watching) {
+    watching = new Set();
+    observers.set(contents, watching);
+  }
+  const registered = watching;
+  registered.add(onService);
+  for (const record of services.get(contents)?.values() ?? []) {
+    onService(record.service);
+  }
+  return new DisposableDelegate(() => {
+    registered.delete(onService);
+  });
+}
 
 /** Acquire a shared service until this panel releases its lease. */
 export function acquireProjectDataService(
@@ -334,6 +364,9 @@ export function acquireProjectDataService(
       service: new ProjectDataService(contents, path, universeId)
     };
     registry.set(key, record);
+    for (const observe of observers.get(contents) ?? []) {
+      observe(record.service);
+    }
   }
   const acquired = record;
   const byEntrypoint = registry;
