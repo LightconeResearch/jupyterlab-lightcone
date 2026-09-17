@@ -502,3 +502,53 @@
   flex: 1 1 auto;
   min-height: 0;
 }
+
+@layer lightcone {
+  /* Updates remain quiet until the user asks to review them. */
+  .jp-jupyterlab-lightcone-ProjectUpdates {
+    width: min(420px, 70vw);
+    max-height: 55vh;
+    overflow-y: auto;
+    font-family: var(--jp-ui-font-family);
+  }
+
+  .jp-jupyterlab-lightcone-ProjectUpdates p {
+    margin: 0 0 16px;
+    color: var(--jp-ui-font-color2);
+  }
+
+  .jp-jupyterlab-lightcone-ProjectUpdates ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .jp-jupyterlab-lightcone-ProjectUpdates li {
+    display: grid;
+    gap: 3px;
+    margin-bottom: 14px;
+  }
+
+  .jp-jupyterlab-lightcone-ProjectUpdates li > span,
+  .jp-jupyterlab-lightcone-ProjectUpdates small {
+    color: var(--jp-ui-font-color2);
+    font-size: var(--jp-ui-font-size0);
+  }
+
+  .jp-jupyterlab-lightcone-ProjectUpdates button,
+  .jp-jupyterlab-lightcone-ProjectUpdates strong {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--jp-ui-font-color1);
+    font: inherit;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-ProjectUpdates button {
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}

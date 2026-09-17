@@ -27,6 +27,14 @@ export interface IProjectResolution {
   snapshot: string;
 }
 
+/** The universe a view is pinned to, or null when the project declares none. */
+export function effectiveUniverseId(
+  document: ResolvedAnalysisDocument
+): string | null {
+  const { source, universeId } = document.universe;
+  return source === 'none' ? null : universeId;
+}
+
 /** Get an entrypoint's directory while retaining a Jupyter contents drive. */
 export function projectDirectory(entrypoint: string): string {
   assertProjectPath(entrypoint);
