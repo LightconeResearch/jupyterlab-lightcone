@@ -42,7 +42,12 @@ outputs:
       schema_version: 1,
       output_id: 'plot',
       universe_id: 'default',
-      recipe: 'python "src/plot code.py"'
+      finished_at: '2026-09-15T10:00:00Z',
+      git_sha: 'abcdef0123456789',
+      recipe: 'python "src/plot code.py"',
+      env_version: 'sha256:env',
+      lc_version: '0.5',
+      input_versions: {}
     }),
     'text',
     `${tmpPath}/results/default/.plot.manifest.json`

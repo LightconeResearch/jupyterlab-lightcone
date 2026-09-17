@@ -2,6 +2,7 @@ import type { ResolvedOutput } from '@astra-spec/sdk';
 import { PathExt } from '@jupyterlab/coreutils';
 import type { Contents } from '@jupyterlab/services';
 import { parse } from 'shell-quote';
+import { isRootAnalysisOutput } from './materialization-status';
 import { projectDirectory, type ILoadedProjectData } from './project-data';
 
 export interface ICodeReference {
@@ -49,65 +50,24 @@ export function scriptFromCommand(
   return PathExt.normalize(candidate);
 }
 
-/** Locate the current working file named by this output's recorded or declared recipe. */
+/**
+ * Locate the current working file named by this output's recipe.
+ *
+ * `recordedCommand` is the recipe from a matching Lightcone run record; when
+ * given it takes precedence over the declared recipe, since it is what
+ * actually produced the artifact.
+ */
 export async function resolveOutputCode(
   contents: Contents.IManager,
   entrypoint: string,
   data: ILoadedProjectData,
-  output: ResolvedOutput
+  output: ResolvedOutput,
+  recordedCommand?: string
 ): Promise<ICodeReference | undefined> {
   // The resolved SDK does not expose path-backed subanalysis working directories.
   // Until it does, do not guess which same-named script a nested recipe used.
-  if (
-    data.index.analysisByRecordPath.get(output.canonicalPath)?.canonicalPath !==
-    '$'
-  )
-    return undefined;
-  const root = projectDirectory(entrypoint);
-  const readText = async (relativePath: string): Promise<string> => {
-    const model = await contents.get(contents.resolvePath(root, relativePath), {
-      content: true,
-      type: 'file',
-      format: 'text'
-    });
-    if (typeof model.content !== 'string') {
-      throw new Error(`Jupyter could not read ${relativePath} as text.`);
-    }
-    return model.content;
-  };
-  let command = output.recipe?.command;
-  let source: ICodeReference['source'] = 'declared recipe';
-  const binding = data.bindings.find(
-    item => item.outputPath === output.canonicalPath
-  );
-  if (binding) {
-    // Lightcone names the sidecar from the output id alone, never the
-    // artifact's format: stripping one extension answers `x.tar` for `x.tar.gz`.
-    const manifest = PathExt.join(
-      PathExt.dirname(binding.path),
-      `.${output.id}.manifest.json`
-    );
-    try {
-      const {
-        schema_version: schemaVersion,
-        output_id: outputId,
-        universe_id: universeId,
-        recipe
-      } = JSON.parse(await readText(manifest)) as Record<string, unknown>;
-      if (
-        schemaVersion === 1 &&
-        outputId === output.id &&
-        universeId === data.document.universe.universeId &&
-        typeof recipe === 'string'
-      ) {
-        command = recipe;
-        source = 'recorded run';
-      }
-    } catch {
-      // Manifests are optional Lightcone metadata, and Jupyter answers 404 for
-      // hidden files unless the server allows them; the declared recipe stands in.
-    }
-  }
+  if (!isRootAnalysisOutput(data, output)) return undefined;
+  const command = recordedCommand ?? output.recipe?.command;
   if (!command) return undefined;
   const inputSources = new Map(
     output.provenance.inputPaths.flatMap(path => {
@@ -119,7 +79,7 @@ export async function resolveOutputCode(
   );
   const relativePath = scriptFromCommand(command, inputSources);
   if (!relativePath) return undefined;
-  const path = contents.resolvePath(root, relativePath);
+  const path = contents.resolvePath(projectDirectory(entrypoint), relativePath);
   try {
     // One metadata request; a listing cache would not outlive this call.
     if ((await contents.get(path, { content: false })).type !== 'file')
@@ -128,5 +88,9 @@ export async function resolveOutputCode(
     /* Missing or unreadable locations have no navigation action. */
     return undefined;
   }
-  return { path, relativePath, source };
+  return {
+    path,
+    relativePath,
+    source: recordedCommand ? 'recorded run' : 'declared recipe'
+  };
 }

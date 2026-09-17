@@ -32,58 +32,39 @@ it.each([
   expect(scriptFromCommand(command, sources)).toBe(expected);
 });
 
-it('prefers the matching run manifest, supports quoted paths, and checks existence', async () => {
+it('prefers the recorded command, supports quoted paths, and checks existence', async () => {
   const project = `version: '0.0.14'\nname: Code preview\ninputs: []\noutputs:\n  - id: plot\n    type: figure\n    format: png\n    recipe:\n      command: python src/current.py\n`;
-  const manifest = fileModel(
-    JSON.stringify({
-      schema_version: 1,
-      output_id: 'plot',
-      universe_id: 'default',
-      recipe: 'python "src/recorded script.py" --out results/default/plot.png'
-    })
-  );
-  const entries = {
+  const { contents } = createContents({
     'work/astra.yaml': fileModel(project),
-    'work/results/default/plot.png': fileModel('image'),
-    'work/results/default/.plot.manifest.json': manifest,
     'work/src/current.py': fileModel('# current'),
     'work/src/recorded script.py': fileModel('# recorded')
-  };
-  const { contents } = createContents(entries);
+  });
   try {
     const { bundle } = await resolveProject(contents, 'work/astra.yaml');
     const data = assembleLoadedProject(bundle, {});
     const output = data.document.analysis.outputs[0];
+    const resolve = (recorded?: string) =>
+      resolveOutputCode(contents, 'work/astra.yaml', data, output, recorded);
     expect(
-      await resolveOutputCode(contents, 'work/astra.yaml', data, output)
-    ).toMatchObject({
+      await resolve('python "src/recorded script.py" --out results/plot.png')
+    ).toEqual({
       path: 'work/src/recorded script.py',
+      relativePath: 'src/recorded script.py',
       source: 'recorded run'
     });
-    manifest.content = JSON.stringify({
-      schema_version: 1,
-      output_id: 'wrong',
-      universe_id: 'default',
-      recipe: 'python src/wrong.py'
+    expect(await resolve()).toEqual({
+      path: 'work/src/current.py',
+      relativePath: 'src/current.py',
+      source: 'declared recipe'
     });
-    expect(
-      await resolveOutputCode(contents, 'work/astra.yaml', data, output)
-    ).toMatchObject({ path: 'work/src/current.py', source: 'declared recipe' });
-    manifest.content = JSON.stringify({
-      schema_version: 1,
-      output_id: 'plot',
-      universe_id: 'default',
-      recipe: 'python src/missing.py'
-    });
-    expect(
-      await resolveOutputCode(contents, 'work/astra.yaml', data, output)
-    ).toBeUndefined();
+    // A recorded run names what actually ran; do not substitute the declaration.
+    expect(await resolve('python src/missing.py')).toBeUndefined();
   } finally {
     contents.dispose();
   }
 });
 
-it('opens the script a recipe names through an input, with no run manifest', async () => {
+it('opens the script a recipe names through an input, with no recorded run', async () => {
   const project = `version: '0.0.14'\nname: Code preview\ninputs:\n  - id: extract_script\n    type: data\n    source: src/extract_metric.py\noutputs:\n  - id: metric\n    type: metric\n    format: json\n    inputs:\n      - extract_script\n    recipe:\n      command: python {inputs.extract_script} --out {output}\n`;
   const { contents } = createContents({
     'work/astra.yaml': fileModel(project),
@@ -95,7 +76,7 @@ it('opens the script a recipe names through an input, with no run manifest', asy
     const output = data.document.analysis.outputs[0];
     expect(
       await resolveOutputCode(contents, 'work/astra.yaml', data, output)
-    ).toMatchObject({
+    ).toEqual({
       path: 'work/src/extract_metric.py',
       relativePath: 'src/extract_metric.py',
       source: 'declared recipe'

@@ -57,15 +57,12 @@ Lightcone version without leaving the result.
 
 Output details also offer **Open code** beside Recipe when a local script can be
 resolved. It opens the current file in a reusable editor tab, preferring the
-executed command in a matching Lightcone run manifest over the declared recipe.
-Lightcone stores that manifest as a hidden `.<output-id>.manifest.json` beside
-the artifact, which Jupyter Server only serves when `allow_hidden` is enabled
-(`c.ContentsManager.allow_hidden = True`); otherwise the declared recipe is
-used, and the link's tooltip names which one applied. This supports direct
-script commands in the root analysis, including a script named through an
-`{inputs.<id>}` placeholder, which resolves to that input's declared source.
-Module, inline, and compound commands or unresolved paths have no link. It does
-not restore the revision used for an earlier run.
+command from the recorded run over the declared recipe; the link's tooltip
+names which one applied. This supports direct script commands in the root
+analysis, including a script named through an `{inputs.<id>}` placeholder,
+which resolves to that input's declared source. Module, inline, and compound
+commands or unresolved paths have no link. It does not restore the revision
+used for an earlier run.
 
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its

@@ -37,6 +37,26 @@ export function parseRunRecord(payload: unknown): OutputRun | null {
   };
 }
 
+/** Read one output's run record for the selected universe; `null` when none was recorded. */
+export async function fetchRunRecord(
+  contents: Contents.IManager,
+  entrypoint: string,
+  universe: string,
+  outputId: string,
+  signal?: AbortSignal
+): Promise<OutputRun | null> {
+  const query = new URLSearchParams({
+    path: entrypoint,
+    universe,
+    output: outputId
+  }).toString();
+  return parseRunRecord(
+    await requestAPI(`api/provenance?${query}`, contents.serverSettings, {
+      signal
+    })
+  );
+}
+
 /** Mounted only for the open output detail; never reads every output's record. */
 export function JupyterOutputProvenance({
   contents,
@@ -53,11 +73,6 @@ export function JupyterOutputProvenance({
   status: OutputStatus | undefined;
   supported: boolean;
 }): React.ReactElement {
-  const query = new URLSearchParams({
-    path: entrypoint,
-    universe,
-    output: output.id
-  }).toString();
   const [result, setResult] = useState<{
     record?: OutputRun | null;
     error?: string;
@@ -73,12 +88,13 @@ export function JupyterOutputProvenance({
           throw new Error(
             'Run records require an output in a local root analysis.'
           );
-        const payload = await requestAPI(
-          `api/provenance?${query}`,
-          contents.serverSettings,
-          { signal: controller.signal }
+        const record = await fetchRunRecord(
+          contents,
+          entrypoint,
+          universe,
+          output.id,
+          controller.signal
         );
-        const record = parseRunRecord(payload);
         if (!controller.signal.aborted) setResult({ record });
       } catch (reason) {
         if (!controller.signal.aborted)
@@ -86,11 +102,10 @@ export function JupyterOutputProvenance({
       }
     };
     void load();
-    // Aborting on re-run is what keeps a superseded response from landing;
-    // `query` already carries the entrypoint, universe and output identity.
+    // Aborting on re-run is what keeps a superseded response from landing.
     // A refreshed output can represent a new run even when its status is unchanged.
     return () => controller.abort();
-  }, [contents, entrypoint, query, supported, output, state, detail]);
+  }, [contents, entrypoint, universe, supported, output, state, detail]);
   return (
     <OutputProvenance
       status={status}
