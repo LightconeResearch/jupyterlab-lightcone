@@ -2,6 +2,8 @@ import { expect, test, type IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Request } from '@playwright/test';
 
 const OPEN_INVENTORY = 'jupyterlab_lightcone:open-inventory';
+const ANALYSIS_TREE = '.astra-analysis-tree';
+const CURRENT_ANALYSIS = `${ANALYSIS_TREE} [aria-current="page"]`;
 const REFRESH = 'jupyterlab_lightcone:refresh';
 const DOI = '10.1234/continuous-test';
 const QUOTE = 'A reproducible result appears on the final page.';
@@ -410,9 +412,7 @@ test('an explicit scope changes the analysis in a reused inventory document', as
     path
   );
   const id = await openInventory(page, path);
-  const selector = page.locator(
-    '.jp-jupyterlab-lightcone-analysis-selector select'
-  );
+  const selected = page.locator(CURRENT_ANALYSIS);
   for (const scope of ['child', 'root']) {
     await page.evaluate(
       async ({ path, scope }) => {
@@ -423,9 +423,10 @@ test('an explicit scope changes the analysis in a reused inventory document', as
       },
       { path, scope }
     );
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    const title = scope === 'root' ? 'Parent analysis' : 'Child analysis';
+    await expect(selected).toHaveText(title);
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    await expect(selected).toHaveText(title);
   }
 });
 
@@ -464,15 +465,16 @@ for (const edit of ['remove', 'rename']) {
       command => window.jupyterapp.commands.execute(command),
       REFRESH
     );
-    const selector = page.locator(
-      '.jp-jupyterlab-lightcone-analysis-selector select'
-    );
-    await expect(selector).toHaveValue('$');
+    const selected = page.locator(CURRENT_ANALYSIS);
+    await expect(selected).toHaveText('Parent analysis');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue('$');
+    await expect(selected).toHaveText('Parent analysis');
     if (edit === 'rename') {
-      await selector.selectOption('renamed');
+      await page
+        .locator(ANALYSIS_TREE)
+        .getByRole('button', { name: 'Child analysis' })
+        .click();
       await expect(
         page.getByRole('heading', { name: 'Child analysis', exact: true })
       ).toBeVisible();
@@ -594,10 +596,6 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
         'color',
         'text-decoration-line'
       ]),
-      selector: read('.jp-jupyterlab-lightcone-analysis-selector select', [
-        'font-family',
-        'border-radius'
-      ]),
       action: read('dialog[open] .astra-dialog__action', [
         'border-radius',
         'font-family'
@@ -615,10 +613,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );
-  // The selector inherits body text; card titles and buttons use the UI face.
-  expect(styles.selector['font-family']).toContain(
-    'Lightcone Brand Newsreader'
-  );
+  // Card titles and buttons use the UI face.
   for (const family of [
     styles.cardTitle['font-family'],
     styles.action['font-family'],
@@ -628,7 +623,6 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   }
   // `.jp-ThemedContainer button` would round every button to 2px.
   expect(styles.card['border-radius']).toBe('0px');
-  expect(styles.selector['border-radius']).toBe('3px');
   expect(styles.action['border-radius']).toBe('6px');
   expect(styles.close['border-radius']).toBe('6px');
   // `.jp-ThemedContainer a` would unset the outline's subtle link colour.
