@@ -74,7 +74,8 @@ function CardBody({
     app.serviceManager.contents,
     reference.entrypoint,
     data,
-    state.fetchPaper
+    state.fetchPaper,
+    app.commands
   );
   let resolved: ReturnType<typeof resolveElement>;
   try {

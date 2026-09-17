@@ -34,7 +34,9 @@ available for editing.
 The inventory shows outputs, decisions, inputs, findings, prior insights, and
 cited papers using the shared ASTRA components. Select an analysis or record to
 inspect its details. Figures, CSV/TSV tables, and JSON tables/metrics have bounded
-previews and an action to open the full artifact. Paths, universe selection,
+previews and an action to open the full artifact in a JupyterLab document tab,
+using the file's default viewer. Opening an artifact again reveals its existing
+tab. Paths, universe selection,
 validation, and artifact cache tokens come from `@astra-spec/sdk`.
 
 Launcher actions use the launcher's directory. Palette actions use the current

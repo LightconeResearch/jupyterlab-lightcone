@@ -140,7 +140,8 @@ function DetailBody({
     contents,
     reference.entrypoint,
     data,
-    fetchPaper
+    fetchPaper,
+    commands
   );
   const [expanded, setExpanded] = useState(false);
   let resolved: ReturnType<typeof resolveReference> | undefined;
