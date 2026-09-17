@@ -1,3 +1,4 @@
+import type { CommandRegistry } from '@lumino/commands';
 import type { Contents } from '@jupyterlab/services';
 import type { ArtifactRenderer } from '@astra-spec/ui/components';
 import { isVisualOutput } from '@astra-spec/ui/model';
@@ -38,11 +39,13 @@ export function useProjectRenderers(
   contents: Contents.IManager,
   entrypoint: string,
   data: ILoadedProjectData,
-  onFetchPaper: (doi: string) => void
+  onFetchPaper: (doi: string) => void,
+  commands: CommandRegistry
 ): InventoryProps {
   const access = useMemo(
-    () => new JupyterArtifactAccess(contents, entrypoint, data.bindings),
-    [contents, entrypoint, data.bindings]
+    () =>
+      new JupyterArtifactAccess(contents, entrypoint, data.bindings, commands),
+    [contents, entrypoint, data.bindings, commands]
   );
   const renderArtifact = useMemo(() => hostArtifactRenderer(access), [access]);
   return {

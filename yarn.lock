@@ -26,17 +26,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@7d00815.tgz":
-  version: 0.0.5
-  resolution: "@astra-spec/ui@https://pkg.pr.new/@astra-spec/ui@7d00815.tgz"
+"@astra-spec/ui@npm:0.0.6":
+  version: 0.0.6
+  resolution: "@astra-spec/ui@npm:0.0.6"
   dependencies:
     "@floating-ui/react": ^0.27.20
     katex: ^0.16.47
+    react-zoom-pan-pinch: ^4.2.0
   peerDependencies:
     "@astra-spec/sdk": ^0.1.1
     react: ">=18 <20"
     react-dom: ">=18 <20"
-  checksum: 373fdb3505ea22dc3dace23534a2100f4dfeea595a093b0ea3a2b2a8894d22fd5f6114b2b75dce6cc1bc83b9c2ef7406b6eb028453ecd01809c7984887807883
+  checksum: 5f340e73fcff03b49b5e1f500e6439f737e3dad35648d001a4d3a14e22c419c3e453963f18030aa052cc01d2a58fefd3806aebd4291524cccbdfe776fbfe78bf
   languageName: node
   linkType: hard
 
@@ -8350,7 +8351,7 @@ __metadata:
   resolution: "jupyterlab-lightcone@workspace:."
   dependencies:
     "@astra-spec/sdk": ^0.1.2
-    "@astra-spec/ui": "https://pkg.pr.new/@astra-spec/ui@7d00815.tgz"
+    "@astra-spec/ui": 0.0.6
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/chat": ~0.25.0
@@ -9702,6 +9703,16 @@ __metadata:
     react: ">=16.6.0"
     react-dom: ">=16.6.0"
   checksum: 75602840106aa9c6545149d6d7ae1502fb7b7abadcce70a6954c4b64a438ff1cd16fc77a0a1e5197cdd72da398f39eb929ea06f9005c45b132ed34e056ebdeb1
+  languageName: node
+  linkType: hard
+
+"react-zoom-pan-pinch@npm:^4.2.0":
+  version: 4.2.0
+  resolution: "react-zoom-pan-pinch@npm:4.2.0"
+  peerDependencies:
+    react: "*"
+    react-dom: "*"
+  checksum: b47c27b72382ea51503e2d899d7ede5f8d8a154e2788d58a4babe31f1fe2f8371c4dc109d6d30cb7602f6a69d1259e3ac1410f38d6f47c6b4d0017910a449d48
   languageName: node
   linkType: hard
 

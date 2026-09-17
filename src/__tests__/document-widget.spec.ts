@@ -1,3 +1,4 @@
+import { CommandRegistry } from '@lumino/commands';
 import type { IThemeManager } from '@jupyterlab/apputils';
 import { DocumentRegistry } from '@jupyterlab/docregistry';
 import { ContentsManager } from '@jupyterlab/services';
@@ -22,7 +23,11 @@ describe('inventory document registration', () => {
       fileFormat: 'text'
     });
     registry.addWidgetFactory(
-      new InventoryDocumentFactory(contents, {} as IThemeManager)
+      new InventoryDocumentFactory(
+        contents,
+        {} as IThemeManager,
+        new CommandRegistry()
+      )
     );
     try {
       for (const path of [

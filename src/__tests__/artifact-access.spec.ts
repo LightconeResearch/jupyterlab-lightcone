@@ -1,7 +1,50 @@
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { TextDecoder, TextEncoder } from 'node:util';
 import { tablePreviewFromDelimited } from '@astra-spec/ui/lib';
-import { readBoundedText } from '../artifact-access';
+import { ContentsManager, Drive } from '@jupyterlab/services';
+import { CommandRegistry } from '@lumino/commands';
+import type { ResolvedOutput } from '@astra-spec/sdk';
+import { JupyterArtifactAccess, readBoundedText } from '../artifact-access';
+
+describe('opening artifacts', () => {
+  it.each(['work/astra.yaml', 'archive:work/astra.yaml'])(
+    'opens the bound file through the document command for %s',
+    async entrypoint => {
+      const contents = new ContentsManager();
+      contents.addDrive(new Drive({ name: 'archive' }));
+      const commands = new CommandRegistry();
+      const open = jest.fn();
+      commands.addCommand('docmanager:open', { execute: open });
+      const download = jest.spyOn(contents, 'getDownloadUrl');
+      const output = { canonicalPath: 'checks.outputs.fit' } as ResolvedOutput;
+      const access = new JupyterArtifactAccess(
+        contents,
+        entrypoint,
+        [
+          {
+            outputPath: output.canonicalPath,
+            path: 'results/alternate/checks/fit plot.png',
+            cacheToken: 'version'
+          }
+        ],
+        commands
+      );
+      try {
+        await access.open(output);
+        expect(open).toHaveBeenCalledWith({
+          path: `${entrypoint.startsWith('archive:') ? 'archive:' : ''}work/results/alternate/checks/fit plot.png`
+        });
+        expect(download).not.toHaveBeenCalled();
+        await expect(
+          access.open({ canonicalPath: 'outputs.missing' } as ResolvedOutput)
+        ).rejects.toThrow('not materialized');
+        expect(open).toHaveBeenCalledTimes(1);
+      } finally {
+        contents.dispose();
+      }
+    }
+  );
+});
 
 describe('bounded artifact reading', () => {
   beforeAll(() => {
