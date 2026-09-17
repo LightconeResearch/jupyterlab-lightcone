@@ -399,6 +399,49 @@ test('samples large CSV artifacts and refreshes previews after the artifact chan
   expect(requests.at(-1)?.url).not.toBe(originalUrl);
 });
 
+for (const width of [1440, 720]) {
+  test(`navigates nested analyses from the hierarchy at ${width}px`, async ({
+    page,
+    tmpPath
+  }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const directory = `${tmpPath}/project`;
+    await createProject(page, `${directory}/child/grandchild`, 'Nested checks');
+    await createProject(page, `${directory}/child`, 'Child analysis');
+    await page.contents.uploadContent(
+      `${analysis('Child analysis')}analyses:\n  grandchild:\n    path: grandchild\n`,
+      'text',
+      `${directory}/child/astra.yaml`
+    );
+    const path = `${directory}/astra.yaml`;
+    await page.contents.uploadContent(
+      `${analysis('Parent analysis')}analyses:\n  child:\n    path: child\n`,
+      'text',
+      path
+    );
+    await openInventory(page, path);
+    const tree = page.locator(ANALYSIS_TREE);
+    await expect(tree).toBeVisible();
+    const selected = page.locator(CURRENT_ANALYSIS);
+    await expect(selected).toHaveText('Parent analysis');
+    await tree
+      .getByRole('button', { name: 'Nested checks', exact: true })
+      .focus();
+    await page.keyboard.press('Enter');
+    await expect(
+      page.getByRole('heading', { name: 'Nested checks', exact: true })
+    ).toBeVisible();
+    await expect(selected).toHaveText('Nested checks');
+    await tree
+      .getByRole('button', { name: 'Parent analysis', exact: true })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Parent analysis', exact: true })
+    ).toBeVisible();
+    await expect(selected).toHaveText('Parent analysis');
+  });
+}
+
 test('an explicit scope changes the analysis in a reused inventory document', async ({
   page,
   tmpPath
@@ -596,6 +639,10 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
         'color',
         'text-decoration-line'
       ]),
+      tree: read('.astra-analysis-tree__select', [
+        'font-family',
+        'border-radius'
+      ]),
       action: read('dialog[open] .astra-dialog__action', [
         'border-radius',
         'font-family'
@@ -613,7 +660,8 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );
-  // Card titles and buttons use the UI face.
+  // Analysis navigation, card titles, and buttons use the UI face.
+  expect(styles.tree['font-family']).toContain('Lightcone Brand Alegreya');
   for (const family of [
     styles.cardTitle['font-family'],
     styles.action['font-family'],
@@ -623,6 +671,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   }
   // `.jp-ThemedContainer button` would round every button to 2px.
   expect(styles.card['border-radius']).toBe('0px');
+  expect(styles.tree['border-radius']).toBe('0px');
   expect(styles.action['border-radius']).toBe('6px');
   expect(styles.close['border-radius']).toBe('6px');
   // `.jp-ThemedContainer a` would unset the outline's subtle link colour.

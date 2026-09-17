@@ -151,10 +151,7 @@ function ReadyInventoryView({
 
   return (
     <main className="jp-jupyterlab-lightcone-inventory-page">
-      <ProjectTopbar
-        projectName={state.data.document.analysis.name}
-        statusError={statusError}
-      />
+      <ProjectTopbar statusError={statusError} />
       {state.staleMessage ? (
         <div className="jp-jupyterlab-lightcone-refresh-warning" role="status">
           Showing the last valid project data: {state.staleMessage}

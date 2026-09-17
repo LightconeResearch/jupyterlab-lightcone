@@ -57,13 +57,11 @@
     white-space: nowrap;
   }
 
-  .jp-jupyterlab-lightcone-project-name {
-    overflow: hidden;
-    color: var(--astra-color-text-subtle);
-    font-family: var(--astra-font-ui);
-    font-size: 0.8125rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .jp-jupyterlab-lightcone-project-logo {
+    flex: 0 0 20px;
+    width: 20px;
+    height: 24px;
+    background: url('./lightcone-logo.svg') center / contain no-repeat;
   }
 
   .jp-jupyterlab-lightcone-inventory-main {
@@ -150,10 +148,6 @@
     .jp-jupyterlab-lightcone-project-topbar {
       gap: 0.875rem;
       padding-inline: 1rem;
-    }
-
-    .jp-jupyterlab-lightcone-project-name {
-      display: none;
     }
 
     .jp-jupyterlab-lightcone-inventory-main {
