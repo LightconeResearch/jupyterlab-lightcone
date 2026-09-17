@@ -145,26 +145,6 @@ function ReadyInventoryView({
           eyebrow="ASTRA inventory"
           title={analysisTitle(activeAnalysis ?? state.data.document.analysis)}
           titleAs="h1"
-          actions={
-            <label className="jp-jupyterlab-lightcone-analysis-selector">
-              <span>Analysis</span>
-              <select
-                value={state.analysisPath}
-                onChange={event => onSelectAnalysis(event.target.value)}
-              >
-                {[...state.data.index.analysisByPath.values()].map(analysis => (
-                  <option
-                    key={analysis.canonicalPath}
-                    value={analysis.canonicalPath}
-                  >
-                    {analysis.canonicalPath === '$'
-                      ? analysisTitle(analysis)
-                      : `${analysis.canonicalPath}: ${analysisTitle(analysis)}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          }
         />
         <Inventory
           className="jp-jupyterlab-lightcone-inventory-content"
@@ -180,6 +160,7 @@ function ReadyInventoryView({
           }}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
+          onSelectAnalysis={onSelectAnalysis}
           detail={state.detail}
           onDetailChange={onDetailChange}
         />

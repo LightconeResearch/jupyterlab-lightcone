@@ -410,9 +410,9 @@ test('an explicit scope changes the analysis in a reused inventory document', as
     path
   );
   const id = await openInventory(page, path);
-  const selector = page.locator(
-    '.jp-jupyterlab-lightcone-analysis-selector select'
-  );
+  const current = page
+    .getByRole('navigation', { name: 'Project hierarchy' })
+    .locator('[aria-current="page"]');
   for (const scope of ['child', 'root']) {
     await page.evaluate(
       async ({ path, scope }) => {
@@ -423,9 +423,10 @@ test('an explicit scope changes the analysis in a reused inventory document', as
       },
       { path, scope }
     );
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    const title = scope === 'root' ? 'Parent analysis' : 'Child analysis';
+    await expect(current).toHaveText(title);
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    await expect(current).toHaveText(title);
   }
 });
 
@@ -464,15 +465,16 @@ for (const edit of ['remove', 'rename']) {
       command => window.jupyterapp.commands.execute(command),
       REFRESH
     );
-    const selector = page.locator(
-      '.jp-jupyterlab-lightcone-analysis-selector select'
-    );
-    await expect(selector).toHaveValue('$');
+    const hierarchy = page.getByRole('navigation', {
+      name: 'Project hierarchy'
+    });
+    const current = hierarchy.locator('[aria-current="page"]');
+    await expect(current).toHaveText('Parent analysis');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue('$');
+    await expect(current).toHaveText('Parent analysis');
     if (edit === 'rename') {
-      await selector.selectOption('renamed');
+      await hierarchy.getByRole('button', { name: 'Child analysis' }).click();
       await expect(
         page.getByRole('heading', { name: 'Child analysis', exact: true })
       ).toBeVisible();
@@ -594,7 +596,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
         'color',
         'text-decoration-line'
       ]),
-      selector: read('.jp-jupyterlab-lightcone-analysis-selector select', [
+      hierarchy: read('.astra-analysis-tree__select', [
         'font-family',
         'border-radius'
       ]),
@@ -615,11 +617,9 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );
-  // The selector inherits body text; card titles and buttons use the UI face.
-  expect(styles.selector['font-family']).toContain(
-    'Lightcone Brand Newsreader'
-  );
+  // Hierarchy buttons, card titles and dialog buttons use the UI face.
   for (const family of [
+    styles.hierarchy['font-family'],
     styles.cardTitle['font-family'],
     styles.action['font-family'],
     styles.close['font-family']
@@ -628,7 +628,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   }
   // `.jp-ThemedContainer button` would round every button to 2px.
   expect(styles.card['border-radius']).toBe('0px');
-  expect(styles.selector['border-radius']).toBe('3px');
+  expect(styles.hierarchy['border-radius']).toBe('0px');
   expect(styles.action['border-radius']).toBe('6px');
   expect(styles.close['border-radius']).toBe('6px');
   // `.jp-ThemedContainer a` would unset the outline's subtle link colour.

@@ -167,23 +167,6 @@
     }
   }
 
-  .jp-jupyterlab-lightcone-analysis-selector {
-    display: grid;
-    gap: 0.35rem;
-    color: var(--astra-color-text-muted);
-    font-size: 0.8rem;
-  }
-
-  .jp-jupyterlab-lightcone-analysis-selector select {
-    max-width: 20rem;
-    padding: 0.35rem;
-    border: 1px solid var(--astra-color-border);
-    border-radius: var(--astra-radius-control);
-    color: var(--astra-color-text);
-    background: var(--astra-color-surface);
-    font: inherit;
-  }
-
   /* JupyterLab shares the first command icon between a section and its cards. */
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon,
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon {
