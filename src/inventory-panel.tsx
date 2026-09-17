@@ -180,6 +180,7 @@ function ReadyInventoryView({
           }}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
+          onSelectAnalysis={onSelectAnalysis}
           detail={state.detail}
           onDetailChange={onDetailChange}
         />
