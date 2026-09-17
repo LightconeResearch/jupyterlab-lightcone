@@ -3,7 +3,6 @@ import { PathExt } from '@jupyterlab/coreutils';
 import type { Contents } from '@jupyterlab/services';
 import { parse } from 'shell-quote';
 import { projectDirectory, type ILoadedProjectData } from './project-data';
-import { createJupyterProjectReader } from './project-reader';
 
 export interface ICodeReference {
   path: string;
@@ -22,13 +21,9 @@ export function scriptFromCommand(
   command: string,
   inputSources?: ReadonlyMap<string, string>
 ): string | undefined {
+  // Substitution and multi-line commands stay opaque; `parse` only throws on `$`.
   if (/[\n\r`$]/.test(command)) return undefined;
-  let tokens: ReturnType<typeof parse>;
-  try {
-    tokens = parse(command);
-  } catch {
-    return undefined;
-  }
+  const tokens = parse(command);
   if (!tokens.every((token): token is string => typeof token === 'string'))
     return undefined;
   const words =
@@ -69,7 +64,17 @@ export async function resolveOutputCode(
   )
     return undefined;
   const root = projectDirectory(entrypoint);
-  const reader = createJupyterProjectReader(contents, root);
+  const readText = async (relativePath: string): Promise<string> => {
+    const model = await contents.get(contents.resolvePath(root, relativePath), {
+      content: true,
+      type: 'file',
+      format: 'text'
+    });
+    if (typeof model.content !== 'string') {
+      throw new Error(`Jupyter could not read ${relativePath} as text.`);
+    }
+    return model.content;
+  };
   let command = output.recipe?.command;
   let source: ICodeReference['source'] = 'declared recipe';
   const binding = data.bindings.find(
@@ -88,10 +93,7 @@ export async function resolveOutputCode(
         output_id: outputId,
         universe_id: universeId,
         recipe
-      } = JSON.parse(await reader.readText(manifest)) as Record<
-        string,
-        unknown
-      >;
+      } = JSON.parse(await readText(manifest)) as Record<string, unknown>;
       if (
         schemaVersion === 1 &&
         outputId === output.id &&
@@ -117,15 +119,14 @@ export async function resolveOutputCode(
   );
   const relativePath = scriptFromCommand(command, inputSources);
   if (!relativePath) return undefined;
+  const path = contents.resolvePath(root, relativePath);
   try {
-    if ((await reader.stat(relativePath))?.type !== 'file') return undefined;
+    // One metadata request; a listing cache would not outlive this call.
+    if ((await contents.get(path, { content: false })).type !== 'file')
+      return undefined;
   } catch {
-    /* Unreadable locations have no navigation action. */
+    /* Missing or unreadable locations have no navigation action. */
     return undefined;
   }
-  return {
-    path: contents.resolvePath(root, relativePath),
-    relativePath,
-    source
-  };
+  return { path, relativePath, source };
 }
