@@ -39,6 +39,20 @@ using the file's default viewer. Opening an artifact again reveals its existing
 tab. Paths, universe selection,
 validation, and artifact cache tokens come from `@astra-spec/sdk`.
 
+Inventory results show a small marker when `lc status` reports them as
+**Behind** (still valid, but the environment moved since) or **Stale**
+(definition or input changed, hand-edited, or never materialized). Hover over it
+to see the state and the reason reported by the installed `lightcone-cli`
+(`lc status --json`); the states and reasons are the CLI's own. Current results
+show no extra marker. Status checks run every 15 seconds while the page is
+visible and after local file changes. CLI failures clear markers and show one
+message in the headbar; status returns automatically after recovery. The
+integration currently covers local root-analysis outputs.
+
+Open a result to see its **Provenance** below Recipe: status, last run, and Git
+revision. **Details** opens the recorded recipe, input versions, environment, and
+Lightcone version without leaving the result.
+
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its
 document tab; different projects keep their own selection and dialogs. You can

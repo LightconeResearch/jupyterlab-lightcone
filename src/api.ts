@@ -9,7 +9,8 @@ interface IPaperMetadata {
   authors?: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** Narrow an untrusted server payload to a plain object before reading fields. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 

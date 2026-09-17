@@ -1,3 +1,4 @@
+import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { CommandRegistry } from '@lumino/commands';
 import {
   ReactWidget,
@@ -20,6 +21,12 @@ import {
   detailEntryForOpenReference,
   type InventoryOpenReference
 } from './open-reference';
+import {
+  isRootAnalysisOutput,
+  useMaterializationStatus,
+  outputMaterializationStatus
+} from './materialization-status';
+import { JupyterOutputProvenance } from './output-provenance';
 import { ProjectTopbar } from './project-topbar';
 import { LightconeThemeBinding } from './theme-adapter';
 
@@ -115,6 +122,11 @@ function ReadyInventoryView({
   state: Extract<InventoryPanelState, { status: 'ready' }>;
 }): React.ReactElement {
   const inventoryId = useId().replace(/:/g, '');
+  const materialization = useMaterializationStatus(
+    contents,
+    state.entrypoint,
+    state.data.document
+  );
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
@@ -126,9 +138,23 @@ function ReadyInventoryView({
     state.analysisPath
   );
 
+  const getOutputStatus = (output: ResolvedOutput) =>
+    outputMaterializationStatus(materialization.statuses, state.data, output);
+  const reportIsIncomplete =
+    materialization.statuses !== undefined &&
+    activeAnalysis?.outputs.some(output => !getOutputStatus(output));
+  const statusError =
+    materialization.error ??
+    (reportIsIncomplete
+      ? 'Lightcone did not report statuses for this analysis.'
+      : undefined);
+
   return (
     <main className="jp-jupyterlab-lightcone-inventory-page">
-      <ProjectTopbar projectName={state.data.document.analysis.name} />
+      <ProjectTopbar
+        projectName={state.data.document.analysis.name}
+        statusError={statusError}
+      />
       {state.staleMessage ? (
         <div className="jp-jupyterlab-lightcone-refresh-warning" role="status">
           Showing the last valid project data: {state.staleMessage}
@@ -149,6 +175,18 @@ function ReadyInventoryView({
         <Inventory
           className="jp-jupyterlab-lightcone-inventory-content"
           {...renderers}
+          getOutputStatus={getOutputStatus}
+          renderProvenance={output => (
+            <JupyterOutputProvenance
+              key={`${state.entrypoint}:${state.data.document.universe.universeId}:${output.canonicalPath}`}
+              contents={contents}
+              entrypoint={state.entrypoint}
+              universe={state.data.document.universe.universeId}
+              output={output}
+              status={getOutputStatus(output)}
+              supported={isRootAnalysisOutput(state.data, output)}
+            />
+          )}
           onOpenArtifact={async output => {
             // Let the dialog restore focus before Jupyter activates the file tab.
             flushSync(() => onDetailChange([]));
