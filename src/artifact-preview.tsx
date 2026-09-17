@@ -44,7 +44,7 @@ export function JupyterArtifactPreview({
       output={output}
       preview={preview}
       compact={compact}
-      caption={access.fileNameFor(output)}
+      caption={null}
     />
   );
 }

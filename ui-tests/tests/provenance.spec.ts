@@ -38,8 +38,8 @@ outputs:
     route.fulfill({
       json: {
         outputs: {
-          'default/plot': { state: 'outdated', detail: 'the recipe changed' },
-          'default/missing': { state: 'unmaterialized', detail: 'no manifest' }
+          'default/plot': { state: 'stale', detail: 'the recipe changed' },
+          'default/missing': { state: 'stale', detail: 'no manifest' }
         }
       }
     })
@@ -73,7 +73,7 @@ outputs:
       .locator('[data-slot="output-provenance"]')
       .evaluate(node => node.previousElementSibling?.textContent)
   ).toContain('python current.py');
-  await expect(dialog.getByText('Out of date', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Stale', { exact: true })).toBeVisible();
   await expect(dialog.getByText('abcdef01', { exact: true })).toBeVisible();
   await expect(
     dialog.getByText('python original.py', { exact: true })
@@ -98,7 +98,7 @@ outputs:
     .getByRole('button', { name: 'Close run details', exact: true })
     .click();
   await expect(dialog).toBeVisible();
-  // A newly recorded run must refresh even when the CLI state stays outdated.
+  // A newly recorded run must refresh even when the CLI state stays stale.
   record.git_sha = 'fedcba9876543210';
   await page.evaluate(async path => {
     const contents = window.jupyterapp.serviceManager.contents;

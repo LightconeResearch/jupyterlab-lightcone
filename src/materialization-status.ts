@@ -1,5 +1,5 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import type { OutputStatus } from '@astra-spec/ui/lib';
+import type { OutputStatus } from '@astra-spec/ui/model';
 import type { Contents } from '@jupyterlab/services';
 import { Poll } from '@lumino/polling';
 import { useEffect, useState } from 'react';
@@ -9,11 +9,16 @@ import { projectDirectory, type ILoadedProjectData } from './project-data';
 
 export type MaterializationStatuses = Record<string, OutputStatus>;
 
-const STATES: ReadonlySet<string> = new Set([
-  'materialized',
-  'outdated',
-  'unmaterialized'
+/** `lc status` states, passed through unchanged by the server and the UI. */
+const STATES: ReadonlySet<OutputStatus['state']> = new Set([
+  'current',
+  'behind',
+  'stale'
 ]);
+
+function isStatusState(value: string): value is OutputStatus['state'] {
+  return (STATES as ReadonlySet<string>).has(value);
+}
 
 /** Validate the optional server response before showing any success indicators. */
 export function parseMaterializationStatuses(
@@ -28,15 +33,12 @@ export function parseMaterializationStatuses(
     if (
       !isRecord(value) ||
       typeof value.state !== 'string' ||
-      !STATES.has(value.state) ||
+      !isStatusState(value.state) ||
       typeof value.detail !== 'string'
     ) {
       throw invalid();
     }
-    result[key] = {
-      state: value.state as OutputStatus['state'],
-      detail: value.detail
-    };
+    result[key] = { state: value.state, detail: value.detail };
   }
   return result;
 }

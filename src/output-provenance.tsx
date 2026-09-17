@@ -1,6 +1,6 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import { OutputProvenance } from '@astra-spec/ui/components';
-import type { OutputRun, OutputStatus } from '@astra-spec/ui/lib';
+import type { OutputRun, OutputStatus } from '@astra-spec/ui/model';
 import type { Contents } from '@jupyterlab/services';
 import React, { useEffect, useState } from 'react';
 import { isRecord, RequestError } from './api';

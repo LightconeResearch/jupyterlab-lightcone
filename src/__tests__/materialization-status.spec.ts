@@ -10,7 +10,7 @@ it('rejects unavailable or malformed reports rather than showing successful chec
     null,
     {},
     { outputs: [] },
-    { outputs: { a: { state: 'unknown', detail: '' } } }
+    { outputs: { a: { state: 'outdated', detail: '' } } }
   ]) {
     expect(() => parseMaterializationStatuses(payload)).toThrow();
   }
@@ -28,12 +28,12 @@ it('uses the selected universe instead of matching output IDs across universes',
     const output = data.document.analysis.outputs[0];
     const statuses = parseMaterializationStatuses({
       outputs: {
-        'default/result': { state: 'outdated', detail: 'Input changed' },
-        'other/result': { state: 'materialized', detail: '' }
+        'default/result': { state: 'stale', detail: 'Input changed' },
+        'other/result': { state: 'current', detail: '' }
       }
     });
     expect(outputMaterializationStatus(statuses, data, output)?.state).toBe(
-      'outdated'
+      'stale'
     );
     expect(
       outputMaterializationStatus(undefined, data, output)

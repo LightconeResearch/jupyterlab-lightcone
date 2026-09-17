@@ -2,6 +2,8 @@ import { expect, test, type IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Request } from '@playwright/test';
 
 const OPEN_INVENTORY = 'jupyterlab_lightcone:open-inventory';
+const ANALYSIS_TREE = '.astra-analysis-tree';
+const CURRENT_ANALYSIS = `${ANALYSIS_TREE} [aria-current="page"]`;
 const REFRESH = 'jupyterlab_lightcone:refresh';
 const DOI = '10.1234/continuous-test';
 const QUOTE = 'A reproducible result appears on the final page.';
@@ -84,6 +86,75 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(() => {
   expect(runtimeErrors, 'No browser runtime errors').toEqual([]);
 });
+
+for (const artifact of [
+  { type: 'table', format: 'csv', content: 'id,value\nexample,42\n' },
+  { type: 'metric', format: 'json', content: '{"value":42}' },
+  {
+    type: 'figure',
+    format: 'svg',
+    content:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="gold"/></svg>'
+  }
+]) {
+  for (const surface of ['inventory', 'element']) {
+    test(`opens ${artifact.format} artifacts from ${surface} in a reusable JupyterLab file tab`, async ({
+      page,
+      tmpPath
+    }) => {
+      const path = `${tmpPath}/project with spaces/astra.yaml`;
+      const outputPath = `${tmpPath}/project with spaces/results/default/sample.${artifact.format}`;
+      await page.contents.uploadContent(
+        `version: "0.0.14"\nname: Artifact navigation\ninputs: []\noutputs:\n  - id: sample\n    type: ${artifact.type}\n    format: ${artifact.format}\n`,
+        'text',
+        path
+      );
+      await page.contents.uploadContent(artifact.content, 'text', outputPath);
+      const openDetails = async () => {
+        if (surface === 'inventory') {
+          await openInventory(page, path, { kind: 'output', id: 'sample' });
+        } else {
+          await page.evaluate(async path => {
+            await window.jupyterapp.commands.execute(
+              'jupyterlab_lightcone:open-element',
+              {
+                entrypoint: path,
+                target: 'outputs.sample'
+              }
+            );
+          }, path);
+        }
+      };
+      const tabsBefore = page.context().pages().length;
+      let fileWidgetId: string | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await openDetails();
+        await page
+          .getByRole('button', { name: 'Open artifact', exact: true })
+          .click();
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const widget = window.jupyterapp.shell.currentWidget as {
+                context?: { path: string };
+              } | null;
+              return widget?.context?.path;
+            })
+          )
+          .toBe(outputPath);
+        const id = await page.evaluate(
+          () => window.jupyterapp.shell.currentWidget?.id
+        );
+        if (attempt === 0) fileWidgetId = id;
+        else expect(id).toBe(fileWidgetId);
+        if (surface === 'inventory') {
+          await expect(page.getByRole('dialog')).toHaveCount(0);
+        }
+        expect(page.context().pages()).toHaveLength(tabsBefore);
+      }
+    });
+  }
+}
 
 test('viewing a project preserves source files, starts no kernels, and keeps the text editor writable', async ({
   page,
@@ -341,9 +412,7 @@ test('an explicit scope changes the analysis in a reused inventory document', as
     path
   );
   const id = await openInventory(page, path);
-  const selector = page.locator(
-    '.jp-jupyterlab-lightcone-analysis-selector select'
-  );
+  const selected = page.locator(CURRENT_ANALYSIS);
   for (const scope of ['child', 'root']) {
     await page.evaluate(
       async ({ path, scope }) => {
@@ -354,9 +423,10 @@ test('an explicit scope changes the analysis in a reused inventory document', as
       },
       { path, scope }
     );
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    const title = scope === 'root' ? 'Parent analysis' : 'Child analysis';
+    await expect(selected).toHaveText(title);
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue(scope === 'root' ? '$' : scope);
+    await expect(selected).toHaveText(title);
   }
 });
 
@@ -395,15 +465,16 @@ for (const edit of ['remove', 'rename']) {
       command => window.jupyterapp.commands.execute(command),
       REFRESH
     );
-    const selector = page.locator(
-      '.jp-jupyterlab-lightcone-analysis-selector select'
-    );
-    await expect(selector).toHaveValue('$');
+    const selected = page.locator(CURRENT_ANALYSIS);
+    await expect(selected).toHaveText('Parent analysis');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await openInventory(page, path)).toBe(id);
-    await expect(selector).toHaveValue('$');
+    await expect(selected).toHaveText('Parent analysis');
     if (edit === 'rename') {
-      await selector.selectOption('renamed');
+      await page
+        .locator(ANALYSIS_TREE)
+        .getByRole('button', { name: 'Child analysis' })
+        .click();
       await expect(
         page.getByRole('heading', { name: 'Child analysis', exact: true })
       ).toBeVisible();
@@ -525,10 +596,6 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
         'color',
         'text-decoration-line'
       ]),
-      selector: read('.jp-jupyterlab-lightcone-analysis-selector select', [
-        'font-family',
-        'border-radius'
-      ]),
       action: read('dialog[open] .astra-dialog__action', [
         'border-radius',
         'font-family'
@@ -546,10 +613,7 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   expect(styles.panel['--astra-font-mono']).not.toBe(
     styles.panel['--jp-code-font-family']
   );
-  // The selector inherits body text; card titles and buttons use the UI face.
-  expect(styles.selector['font-family']).toContain(
-    'Lightcone Brand Newsreader'
-  );
+  // Card titles and buttons use the UI face.
   for (const family of [
     styles.cardTitle['font-family'],
     styles.action['font-family'],
@@ -559,7 +623,6 @@ test('renders the shared components in the Lightcone brand, free of JupyterLab e
   }
   // `.jp-ThemedContainer button` would round every button to 2px.
   expect(styles.card['border-radius']).toBe('0px');
-  expect(styles.selector['border-radius']).toBe('3px');
   expect(styles.action['border-radius']).toBe('6px');
   expect(styles.close['border-radius']).toBe('6px');
   // `.jp-ThemedContainer a` would unset the outline's subtle link colour.

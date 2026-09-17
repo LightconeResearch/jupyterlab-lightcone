@@ -54,15 +54,15 @@ class ProjectAPIHandler(APIHandler):
 
 STATUS_TIMEOUT_SECONDS = 30
 
-_ROW_FIELDS = ("output", "status", "why", "git_sha", "data_version")
+_ROW_FIELDS = ("output", "status", "why")
 _ROW_STATUSES = frozenset({"current", "behind", "stale"})
 
 
 def output_status(row: object) -> tuple[str, dict]:
-    """Map one CLI row to a UI state, rejecting anything it does not recognise.
+    """Pass one CLI row through unchanged, rejecting anything not recognised.
 
-    Only a stale row is not materialized: one that recorded no provenance was
-    never built, one that did is a result whose inputs have since moved on.
+    The UI shows the states `lc status` reports (current, behind, stale) and
+    the CLI's own reason, so a marker and a terminal line name the same thing.
     """
     if not isinstance(row, dict) or any(
         not isinstance(row.get(key), str) for key in _ROW_FIELDS
@@ -70,13 +70,7 @@ def output_status(row: object) -> tuple[str, dict]:
         raise ValueError("Invalid output status")
     if row["status"] not in _ROW_STATUSES:
         raise ValueError("Unknown output status")
-    if row["status"] != "stale":
-        state = "materialized"
-    elif row["git_sha"] or row["data_version"]:
-        state = "outdated"
-    else:
-        state = "unmaterialized"
-    return row["output"], {"state": state, "detail": row["why"]}
+    return row["output"], {"state": row["status"], "detail": row["why"]}
 
 
 def read_status(project: Path) -> dict:

@@ -34,16 +34,20 @@ available for editing.
 The inventory shows outputs, decisions, inputs, findings, prior insights, and
 cited papers using the shared ASTRA components. Select an analysis or record to
 inspect its details. Figures, CSV/TSV tables, and JSON tables/metrics have bounded
-previews and an action to open the full artifact. Paths, universe selection,
+previews and an action to open the full artifact in a JupyterLab document tab,
+using the file's default viewer. Opening an artifact again reveals its existing
+tab. Paths, universe selection,
 validation, and artifact cache tokens come from `@astra-spec/sdk`.
 
-Inventory results show a small marker when they are **Out of date** or **Not
-materialized**. Hover over it to see the state and the reason reported by the
-installed `lightcone-cli` (`lc status --json`). Materialized results, including
-those from an earlier environment, show no extra marker. Status checks run every
-15 seconds while the page is visible and after local file changes. CLI failures
-clear markers and show one message in the headbar; status returns automatically
-after recovery. The integration currently covers local root-analysis outputs.
+Inventory results show a small marker when `lc status` reports them as
+**Behind** (still valid, but the environment moved since) or **Stale**
+(definition or input changed, hand-edited, or never materialized). Hover over it
+to see the state and the reason reported by the installed `lightcone-cli`
+(`lc status --json`); the states and reasons are the CLI's own. Current results
+show no extra marker. Status checks run every 15 seconds while the page is
+visible and after local file changes. CLI failures clear markers and show one
+message in the headbar; status returns automatically after recovery. The
+integration currently covers local root-analysis outputs.
 
 Open a result to see its **Provenance** below Recipe: status, last run, and Git
 revision. **Details** opens the recorded recipe, input versions, environment, and
@@ -65,6 +69,28 @@ Projects refresh after relevant file operations, through **Refresh ASTRA
 Inventory**, and by polling while the browser is visible. Multiple views of the
 same project share that work. A transient invalid edit preserves the last valid
 view and displays a notice until the project recovers.
+
+### Project updates
+
+While a project is open in an inventory, record, or chat view, a small JupyterLab
+notification groups meaningful edits and newly available results. **Review changes**
+opens a compact list linking to affected records; removed items remain listed.
+Decision selections show their previous and new labels. Changes to inputs,
+outputs, decisions, findings, insights, cited papers, and the project hierarchy
+are included. Renames/moves that change an ID appear as a removal and addition.
+
+Initial loading/reopening, navigation, YAML formatting/order, insight timestamps,
+and paper-cache activity stay quiet. Notifications group changes over three
+seconds, share one outstanding notification per project/universe, and hide the
+toast after five seconds while retaining it in JupyterLab's notification center.
+They never activate another tab automatically. This is session activity, not a
+persistent audit log; monitoring stops when the last project view closes.
+
+Result rewrites are compared using server-side Contents hashes, requested only
+when artifact metadata changes (and once on initial load). Identical rewrites
+stay quiet. Custom drives without hashes still report newly available results,
+but cannot report content changes to existing results. Input file contents are
+not monitored: input notifications concern their ASTRA declarations.
 
 ### MySTRA Viewer
 

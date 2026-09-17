@@ -1,4 +1,4 @@
-"""Status mapping, a fixed read-only CLI command, and the authenticated endpoint."""
+"""Status pass-through, a fixed read-only CLI command, and the authenticated endpoint."""
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -13,16 +13,16 @@ ENDPOINT = ('jupyterlab_lightcone', 'api', 'materialization')
 
 def test_status_command_and_states(tmp_path, monkeypatch):
     rows = [
-        dict(output='baseline/a', status='current', why='', git_sha='abc', data_version='hash'),
-        dict(output='baseline/b', status='behind', why='earlier environment', git_sha='abc', data_version='hash'),
-        dict(output='baseline/c', status='stale', why='input changed', git_sha='abc', data_version='hash'),
-        dict(output='baseline/d', status='stale', why='no manifest', git_sha='', data_version=''),
+        dict(output='baseline/a', status='current', why=''),
+        dict(output='baseline/b', status='behind', why='earlier environment'),
+        dict(output='baseline/c', status='stale', why='input changed'),
+        dict(output='baseline/d', status='stale', why='no manifest'),
     ]
     run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps({'outputs': rows})))
     monkeypatch.setattr(materialization.shutil, 'which', lambda name: '/tools/lc')
     monkeypatch.setattr(materialization.subprocess, 'run', run)
     report = materialization.read_status(tmp_path)['outputs']
-    assert [item['state'] for item in report.values()] == ['materialized', 'materialized', 'outdated', 'unmaterialized']
+    assert [item['state'] for item in report.values()] == ['current', 'behind', 'stale', 'stale']
     assert report['baseline/b']['detail'] == 'earlier environment'
     assert run.call_args.args == (['/tools/lc', 'status', '--json'],)
     assert run.call_args.kwargs['cwd'] == tmp_path
@@ -61,11 +61,11 @@ def test_rejects_outside_symlink(tmp_path):
 async def test_status_endpoint(jp_fetch, jp_serverapp, monkeypatch):
     root = materialization.Path(jp_serverapp.contents_manager.root_dir)
     (root / 'astra.yaml').write_text('version: 0.0.14\n')
-    read = Mock(return_value={'outputs': {'baseline/a': {'state': 'materialized', 'detail': ''}}})
+    read = Mock(return_value={'outputs': {'baseline/a': {'state': 'current', 'detail': ''}}})
     monkeypatch.setattr(materialization, 'read_status', read)
     response = await jp_fetch(*ENDPOINT, params={'path': 'astra.yaml'})
     assert response.code == 200
-    assert json.loads(response.body)['outputs']['baseline/a']['state'] == 'materialized'
+    assert json.loads(response.body)['outputs']['baseline/a']['state'] == 'current'
     read.assert_called_once_with(root.resolve())
     assert response.headers['Cache-Control'] == 'no-store'
 

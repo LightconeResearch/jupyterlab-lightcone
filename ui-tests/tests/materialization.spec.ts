@@ -37,15 +37,15 @@ outputs:
             : {
                 outputs: {
                   'default/plot': {
-                    state: currentOnly ? 'materialized' : 'outdated',
+                    state: currentOnly ? 'current' : 'stale',
                     detail: 'the recipe changed'
                   },
                   'default/value': {
-                    state: currentOnly ? 'materialized' : 'outdated',
-                    detail: 'the input changed'
+                    state: currentOnly ? 'current' : 'behind',
+                    detail: 'the environment changed'
                   },
                   'default/data': {
-                    state: currentOnly ? 'materialized' : 'unmaterialized',
+                    state: currentOnly ? 'current' : 'stale',
                     detail: 'no manifest'
                   }
                 }
@@ -81,18 +81,18 @@ outputs:
       content: '# update status'
     });
   }, `${tmpPath}/script.py`);
-  await expect(page.getByRole('img', { name: /^Out of date: / })).toHaveCount(
-    2
-  );
+  await expect(page.getByRole('img', { name: /^Stale: / })).toHaveCount(2);
   await expect(
     page.getByRole('img', {
-      name: 'Not materialized: no manifest',
+      name: 'Behind: the environment changed',
       exact: true
     })
   ).toBeVisible();
   await expect(
-    page.getByRole('img', { name: 'Out of date: the input changed' })
+    page.getByRole('img', { name: 'Stale: the recipe changed' })
   ).toBeVisible();
+  // Markers overlay results without shifting them; a stale metric with no
+  // artifact is the one entry astra-ui redraws, so the metric here is behind.
   expect(await sizes()).toEqual(originalSizes);
   // File markers belong inside their row; cards and pills keep the corner overlay.
   for (const result of await results.all()) {
@@ -125,7 +125,7 @@ outputs:
     await page.keyboard.press('Escape');
     await expect(tooltip).toHaveCount(0);
   }
-  await expect(page.getByText('Materialized', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Current', { exact: true })).toHaveCount(0);
   await expect(results.locator('[data-slot="kind-glyph"]')).toHaveCount(0);
   const error = page.getByText('Materialization status unavailable', {
     exact: true
