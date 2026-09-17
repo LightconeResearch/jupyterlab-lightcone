@@ -83,20 +83,27 @@ export async function resolveOutputCode(
       `.${output.id}.manifest.json`
     );
     try {
-      const { schema_version, output_id, universe_id, recipe } = JSON.parse(
-        await reader.readText(manifest)
-      ) as Record<string, unknown>;
+      const {
+        schema_version: schemaVersion,
+        output_id: outputId,
+        universe_id: universeId,
+        recipe
+      } = JSON.parse(await reader.readText(manifest)) as Record<
+        string,
+        unknown
+      >;
       if (
-        schema_version === 1 &&
-        output_id === output.id &&
-        universe_id === data.document.universe.universeId &&
+        schemaVersion === 1 &&
+        outputId === output.id &&
+        universeId === data.document.universe.universeId &&
         typeof recipe === 'string'
       ) {
         command = recipe;
         source = 'recorded run';
       }
     } catch {
-      // Manifests are optional Lightcone metadata; ASTRA recipes work without them.
+      // Manifests are optional Lightcone metadata, and Jupyter answers 404 for
+      // hidden files unless the server allows them; the declared recipe stands in.
     }
   }
   if (!command) return undefined;
