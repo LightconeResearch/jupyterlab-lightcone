@@ -208,16 +208,7 @@ function DetailBody({
               data.bindings.some(
                 binding => binding.outputPath === record.canonicalPath
               )
-                ? async output => {
-                    try {
-                      await renderers.onOpenArtifact?.(output);
-                    } catch (reason) {
-                      await showErrorMessage(
-                        'Could not open artifact',
-                        String(reason)
-                      );
-                    }
-                  }
+                ? renderers.onOpenArtifact
                 : undefined
             }
             expanded={expanded}

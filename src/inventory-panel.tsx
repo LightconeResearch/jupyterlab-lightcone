@@ -1,10 +1,6 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { CommandRegistry } from '@lumino/commands';
-import {
-  ReactWidget,
-  showErrorMessage,
-  type IThemeManager
-} from '@jupyterlab/apputils';
+import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import { listIcon } from '@jupyterlab/ui-components';
 import { analysisTitle } from '@astra-spec/ui/model';
@@ -22,7 +18,6 @@ import {
   type InventoryOpenReference
 } from './open-reference';
 import {
-  isRootAnalysisOutput,
   useMaterializationStatus,
   outputMaterializationStatus
 } from './materialization-status';
@@ -127,15 +122,14 @@ function ReadyInventoryView({
     state.entrypoint,
     state.data.document
   );
-  // Let the dialog restore focus before Jupyter activates the file tab.
-  const dismissDetail = (): void => flushSync(() => onDetailChange([]));
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
     state.data,
     onFetchPaper,
     commands,
-    dismissDetail
+    // Let the dialog restore focus before Jupyter activates the file tab.
+    () => flushSync(() => onDetailChange([]))
   );
   const activeAnalysis = state.data.index.analysisByPath.get(
     state.analysisPath
@@ -182,19 +176,11 @@ function ReadyInventoryView({
               contents={contents}
               entrypoint={state.entrypoint}
               universe={state.data.document.universe.universeId}
+              index={state.data.index}
               output={output}
               status={getOutputStatus(output)}
-              supported={isRootAnalysisOutput(state.data, output)}
             />
           )}
-          onOpenArtifact={async output => {
-            dismissDetail();
-            try {
-              await renderers.onOpenArtifact?.(output);
-            } catch (reason) {
-              await showErrorMessage('Could not open artifact', String(reason));
-            }
-          }}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
           onSelectAnalysis={onSelectAnalysis}

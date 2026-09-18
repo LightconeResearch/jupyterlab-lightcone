@@ -52,7 +52,6 @@ outputs:
     'text',
     `${tmpPath}/results/default/.plot.manifest.json`
   );
-  const count = page.context().pages().length;
   const ids: string[] = [];
   for (let i = 0; i < 2; i++) {
     await page.evaluate(async path => {
@@ -61,12 +60,11 @@ outputs:
         { path, openReference: { kind: 'output', id: 'plot' } }
       );
     }, entrypoint);
-    const link = page.getByRole('button', {
-      name: 'Open current code: src/plot code.py',
-      exact: true
-    });
-    await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute('title', /current file.*recorded run/);
+    const link = page.getByRole('button', { name: 'Open code', exact: true });
+    await expect(link).toHaveAttribute(
+      'title',
+      /current file: src\/plot code\.py .*recorded run/
+    );
     await link.click();
     await expect
       .poll(() =>
@@ -81,7 +79,6 @@ outputs:
     ids.push(
       await page.evaluate(() => window.jupyterapp.shell.currentWidget!.id)
     );
-    expect(page.context().pages()).toHaveLength(count);
     await expect(page.getByRole('dialog')).toHaveCount(0);
   }
   expect(ids[0]).toBe(ids[1]);

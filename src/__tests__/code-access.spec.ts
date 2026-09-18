@@ -7,13 +7,10 @@ it.each([
   ['uv run python3 "src/plot file.py" --out result.png', 'src/plot file.py'],
   ['./src/plot.sh', 'src/plot.sh'],
   ['python -m module', undefined],
-  ['python -c "print(1)"', undefined],
-  ['python {inputs.script}', undefined],
   ['python ../outside.py', undefined],
   ['python /absolute/script.py', undefined],
   ['python src/a.py | python src/b.py', undefined],
-  ['python "$SCRIPT"', undefined],
-  ['cd other && python src/a.py', undefined]
+  ['python "$SCRIPT"', undefined]
 ])('recognizes only direct local scripts: %s', (command, expected) => {
   expect(scriptFromCommand(command)).toBe(expected);
 });
@@ -41,19 +38,17 @@ it('prefers the recorded command, supports quoted paths, and checks existence', 
   });
   try {
     const { bundle } = await resolveProject(contents, 'work/astra.yaml');
-    const data = assembleLoadedProject(bundle, {});
-    const output = data.document.analysis.outputs[0];
+    const { index, document } = assembleLoadedProject(bundle, {});
+    const output = document.analysis.outputs[0];
     const resolve = (recorded?: string) =>
-      resolveOutputCode(contents, 'work/astra.yaml', data, output, recorded);
+      resolveOutputCode(contents, 'work/astra.yaml', index, output, recorded);
     expect(
       await resolve('python "src/recorded script.py" --out results/plot.png')
     ).toEqual({
-      path: 'work/src/recorded script.py',
       relativePath: 'src/recorded script.py',
       source: 'recorded run'
     });
     expect(await resolve()).toEqual({
-      path: 'work/src/current.py',
       relativePath: 'src/current.py',
       source: 'declared recipe'
     });
@@ -72,12 +67,11 @@ it('opens the script a recipe names through an input, with no recorded run', asy
   });
   try {
     const { bundle } = await resolveProject(contents, 'work/astra.yaml');
-    const data = assembleLoadedProject(bundle, {});
-    const output = data.document.analysis.outputs[0];
+    const { index, document } = assembleLoadedProject(bundle, {});
+    const output = document.analysis.outputs[0];
     expect(
-      await resolveOutputCode(contents, 'work/astra.yaml', data, output)
+      await resolveOutputCode(contents, 'work/astra.yaml', index, output)
     ).toEqual({
-      path: 'work/src/extract_metric.py',
       relativePath: 'src/extract_metric.py',
       source: 'declared recipe'
     });

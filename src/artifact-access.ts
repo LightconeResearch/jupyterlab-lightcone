@@ -200,8 +200,13 @@ export class JupyterArtifactAccess {
     if (!binding) {
       throw new Error(`Output ${output.canonicalPath} is not materialized.`);
     }
-    const path = this.contents.resolvePath(this._projectRoot, binding.path);
-    await this.commands.execute('docmanager:open', { path });
+    await this.openPath(binding.path);
+  }
+
+  /** Open a project file in a JupyterLab document tab, reusing an open one. */
+  async openPath(relativePath: string, factory?: string): Promise<void> {
+    const path = this.contents.resolvePath(this._projectRoot, relativePath);
+    await this.commands.execute('docmanager:open', { path, factory });
   }
 
   private readonly _bindingByOutputPath: ReadonlyMap<string, ArtifactBinding>;

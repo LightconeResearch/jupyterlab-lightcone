@@ -1,12 +1,11 @@
-import type { ResolvedOutput } from '@astra-spec/sdk';
+import { assertProjectPath, type ResolvedOutput } from '@astra-spec/sdk';
+import type { AnalysisIndex } from '@astra-spec/sdk';
 import { PathExt } from '@jupyterlab/coreutils';
 import type { Contents } from '@jupyterlab/services';
 import { parse } from 'shell-quote';
-import { isRootAnalysisOutput } from './materialization-status';
-import { projectDirectory, type ILoadedProjectData } from './project-data';
+import { projectDirectory } from './project-data';
 
 export interface ICodeReference {
-  path: string;
   relativePath: string;
   source: 'recorded run' | 'declared recipe';
 }
@@ -22,7 +21,8 @@ export function scriptFromCommand(
   command: string,
   inputSources?: ReadonlyMap<string, string>
 ): string | undefined {
-  // Substitution and multi-line commands stay opaque; `parse` only throws on `$`.
+  // Reject substitution and line breaks up front: `parse` expands `$VAR`
+  // silently and joins lines instead of failing.
   if (/[\n\r`$]/.test(command)) return undefined;
   const tokens = parse(command);
   if (!tokens.every((token): token is string => typeof token === 'string'))
@@ -38,45 +38,42 @@ export function scriptFromCommand(
   }
   const declared = candidate?.match(/^\{inputs\.([^{}]+)\}$/);
   if (declared) candidate = inputSources?.get(declared[1]);
-  if (
-    !candidate ||
-    candidate.startsWith('-') ||
-    /[{}~:\\]/.test(candidate) ||
-    candidate.startsWith('/') ||
-    candidate.split('/').includes('..')
-  )
-    return undefined;
+  // Normalizing would fold an absolute path into a relative one.
+  if (!candidate || /^\/|[{}~:]/.test(candidate)) return undefined;
   if (!/\.(py|r|js|mjs|cjs|sh)$/i.test(candidate)) return undefined;
-  return PathExt.normalize(candidate);
+  const relativePath = PathExt.normalize(candidate);
+  try {
+    assertProjectPath(relativePath);
+  } catch {
+    return undefined;
+  }
+  return relativePath;
 }
 
 /**
- * Locate the current working file named by this output's recipe.
+ * Locate the current working file named by a root-analysis output's recipe.
  *
  * `recordedCommand` is the recipe from a matching Lightcone run record; when
  * given it takes precedence over the declared recipe, since it is what
- * actually produced the artifact.
+ * actually produced the artifact. Callers keep nested outputs out: the SDK
+ * does not expose subanalysis working directories, so their scripts cannot
+ * be located.
  */
 export async function resolveOutputCode(
   contents: Contents.IManager,
   entrypoint: string,
-  data: ILoadedProjectData,
+  index: AnalysisIndex,
   output: ResolvedOutput,
   recordedCommand?: string
 ): Promise<ICodeReference | undefined> {
-  // The resolved SDK does not expose path-backed subanalysis working directories.
-  // Until it does, do not guess which same-named script a nested recipe used.
-  if (!isRootAnalysisOutput(data, output)) return undefined;
   const command = recordedCommand ?? output.recipe?.command;
   if (!command) return undefined;
-  const inputSources = new Map(
-    output.provenance.inputPaths.flatMap(path => {
-      const record = data.index.recordByPath.get(path);
-      return record?.kind === 'input' && record.source
-        ? ([[record.id, record.source]] as [string, string][])
-        : [];
-    })
-  );
+  const inputSources = new Map<string, string>();
+  for (const path of output.provenance.inputPaths) {
+    const record = index.recordByPath.get(path);
+    if (record?.kind === 'input' && record.source)
+      inputSources.set(record.id, record.source);
+  }
   const relativePath = scriptFromCommand(command, inputSources);
   if (!relativePath) return undefined;
   const path = contents.resolvePath(projectDirectory(entrypoint), relativePath);
@@ -89,7 +86,6 @@ export async function resolveOutputCode(
     return undefined;
   }
   return {
-    path,
     relativePath,
     source: recordedCommand ? 'recorded run' : 'declared recipe'
   };

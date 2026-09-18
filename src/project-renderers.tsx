@@ -3,10 +3,11 @@ import type { Contents } from '@jupyterlab/services';
 import type { ArtifactRenderer } from '@astra-spec/ui/components';
 import { isVisualOutput } from '@astra-spec/ui/model';
 import type { InventoryProps } from '@astra-spec/ui/views';
+import { showErrorMessage } from '@jupyterlab/apputils';
 import React, { useMemo } from 'react';
-import { JupyterCodeLink } from './code-link';
 import { JupyterArtifactAccess } from './artifact-access';
 import { JupyterArtifactPreview } from './artifact-preview';
+import { JupyterCodeLink } from './code-link';
 import { loadPdfJs } from './pdf-runtime';
 import type { ILoadedProjectData } from './project-data';
 
@@ -35,14 +36,19 @@ export function hostArtifactRenderer(
   };
 }
 
-/** Supply Jupyter file access and pdf.js through ASTRA UI's host slots. */
+/**
+ * Supply Jupyter file access and pdf.js through ASTRA UI's host slots.
+ *
+ * `beforeOpenDocument` runs synchronously before any project file opens in a
+ * JupyterLab tab, so a host can dismiss its own dialog first.
+ */
 export function useProjectRenderers(
   contents: Contents.IManager,
   entrypoint: string,
   data: ILoadedProjectData,
   onFetchPaper: (doi: string) => void,
   commands: CommandRegistry,
-  beforeOpenCode?: () => void
+  beforeOpenDocument?: () => void
 ): InventoryProps {
   const access = useMemo(
     () =>
@@ -50,6 +56,17 @@ export function useProjectRenderers(
     [contents, entrypoint, data.bindings, commands]
   );
   const renderArtifact = useMemo(() => hostArtifactRenderer(access), [access]);
+  const openDocument = async (
+    subject: string,
+    open: () => Promise<void>
+  ): Promise<void> => {
+    beforeOpenDocument?.();
+    try {
+      await open();
+    } catch (reason) {
+      await showErrorMessage(`Could not open ${subject}`, String(reason));
+    }
+  };
   return {
     document: data.document,
     index: data.index,
@@ -59,13 +76,16 @@ export function useProjectRenderers(
       <JupyterCodeLink
         contents={contents}
         entrypoint={entrypoint}
-        data={data}
+        index={data.index}
+        universe={data.document.universe.universeId}
         output={output}
-        commands={commands}
-        beforeOpen={beforeOpenCode}
+        onOpen={path =>
+          openDocument('code', () => access.openPath(path, 'Editor'))
+        }
       />
     ),
-    onOpenArtifact: output => access.open(output),
+    onOpenArtifact: output =>
+      openDocument('artifact', () => access.open(output)),
     loadPdfJs,
     onFetchPaper
   };
