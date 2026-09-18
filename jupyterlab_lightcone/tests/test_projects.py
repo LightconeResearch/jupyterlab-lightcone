@@ -70,7 +70,10 @@ async def test_delegates_to_the_engine_with_exact_selected_path(tmp_path, monkey
     "outcome,expected",
     [
         (ProjectError("uv is 50% installed"), "50% installed"),
-        (ConvergenceReport(blocked=[".venv", "git"]), ".venv; git"),
+        (
+            ConvergenceReport(blocked=["data/", "git"], warnings=["data exists but is not a directory."]),
+            "data/; git\ndata exists but is not a directory.",
+        ),
     ],
 )
 async def test_engine_refusals_reach_the_user_verbatim(tmp_path, monkeypatch, outcome, expected):
@@ -79,6 +82,8 @@ async def test_engine_refusals_reach_the_user_verbatim(tmp_path, monkeypatch, ou
         await projects.initialize_project(tmp_path, tmp_path / "new")
     assert error.value.status_code == 400
     assert expected in str(error.value)
+    # jupyter_server replies with log_message as it stands, never formatted.
+    assert not error.value.args
 
 
 def test_engine_tools_are_found_without_an_activated_environment(monkeypatch):

@@ -81,9 +81,12 @@ async def initialize_project(root: Path, project: Path) -> dict:
         # Convergence installs the environment, so it runs off the event loop.
         report = await asyncio.to_thread(converge, project)
     except ProjectError as error:
-        raise HTTPError(400, "Lightcone could not initialize this folder:\n%s", str(error)) from error
+        # The client is sent log_message unformatted, so it carries no arguments.
+        raise HTTPError(400, f"Lightcone could not initialize this folder:\n{error}") from error
     if report.blocked:
-        raise HTTPError(400, "Project setup needs attention: %s", "; ".join(report.blocked))
+        # The engine names what is blocked; its warnings say what to do about it.
+        details = "\n".join(["; ".join(report.blocked), *report.warnings])
+        raise HTTPError(400, f"Project setup needs attention: {details}")
     info = describe_project(root, project)
     if not info["hasSpec"]:
         raise HTTPError(502, "Lightcone finished without creating astra.yaml.")

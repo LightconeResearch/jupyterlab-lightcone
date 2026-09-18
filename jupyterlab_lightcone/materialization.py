@@ -21,7 +21,8 @@ def read_status(project: Path) -> dict:
     try:
         report = status(current_project(project))
     except ProjectError as error:
-        raise web.HTTPError(503, "Lightcone could not read this project's status:\n%s", str(error)) from error
+        # The client is sent log_message unformatted, so it carries no arguments.
+        raise web.HTTPError(503, f"Lightcone could not read this project's status:\n{error}") from error
     return {
         "outputs": {
             output.output: {"state": output.status, "detail": output.why}

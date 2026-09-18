@@ -31,6 +31,8 @@ def test_a_folder_the_engine_cannot_read_is_unavailable(tmp_path):
     with pytest.raises(HTTPError) as raised:
         materialization.read_status(tmp_path)
     assert raised.value.status_code == 503
+    # jupyter_server replies with log_message as it stands, never formatted.
+    assert not raised.value.args
 
 
 @pytest.mark.parametrize('path', ['../astra.yaml', '/astra.yaml', 'drive:astra.yaml', 'other.yaml'])
