@@ -1,5 +1,6 @@
 """Project selection stays read-only; only explicit creation invokes the engine."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, Mock
 
@@ -160,6 +161,28 @@ async def test_finish_existing_project_runs_initializer(jp_fetch, jp_root_dir, m
     assert response.code == 200
     init.assert_awaited_once_with(jp_root_dir.resolve(), target.resolve())
     assert spec.read_text() == "name: preserve me"
+
+
+async def test_a_running_setup_blocks_only_its_own_folder(jp_fetch, jp_root_dir, monkeypatch):
+    release = asyncio.Event()
+
+    async def init(root, project):
+        if project.name == "slow":
+            await release.wait()
+        return projects.describe_project(root, project)
+
+    monkeypatch.setattr(project_routes, "initialize_project", init)
+
+    def create(name, **kwargs):
+        return jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": name}), **kwargs)
+
+    slow = asyncio.ensure_future(create("slow"))
+    await asyncio.sleep(0.1)
+    assert (await create("slow", raise_error=False)).code == 409
+    assert (await create("other")).code == 200
+    release.set()
+    assert (await slow).code == 200
+    assert (await create("slow")).code == 200
 
 
 async def test_sync_contents_calls_run_off_the_event_loop():

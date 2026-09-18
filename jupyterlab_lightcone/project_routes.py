@@ -59,8 +59,8 @@ class ProjectsHandler(ProjectAPIHandler):
 
     unavailable_message = "Project setup requires a local filesystem ContentsManager."
 
-    def initialize(self, lock):
-        self.lock = lock
+    def initialize(self, initializing):
+        self.initializing = initializing
 
     async def resolve(self, value):
         """Resolve an entered folder, which need not exist or hold a project yet."""
@@ -103,13 +103,20 @@ class ProjectsHandler(ProjectAPIHandler):
         body = self.get_json_body()
         if not isinstance(body, dict) or not isinstance(body.get("path"), str):
             raise web.HTTPError(400, "A project folder path is required.")
-        async with self.lock:
-            project, _ = await self.resolve(body["path"])
+        project, _ = await self.resolve(body["path"])
+        # Setup runs in a thread that cannot be stopped, so a slow one must hold
+        # up only a second attempt on its own folder, never other folders.
+        if project in self.initializing:
+            raise web.HTTPError(409, "Setup is already running in this folder. Wait for it to finish, then retry.")
+        self.initializing.add(project)
+        try:
             # The create endpoint also permits retrying a partially initialized project.
             self.finish(await initialize_project(self.contents_root, project))
+        finally:
+            self.initializing.discard(project)
 
 
 def setup_project_handlers(web_app):
     """Register under the server base URL, including JupyterHub prefixes."""
     route = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "projects")
-    web_app.add_handlers(".*$", [(route, ProjectsHandler, {"lock": asyncio.Lock()})])
+    web_app.add_handlers(".*$", [(route, ProjectsHandler, {"initializing": set()})])
