@@ -30,8 +30,13 @@ class ProjectFolderRenderer extends DirListing.Renderer {
 }
 
 class ProjectFileBrowser extends FileBrowser {
+  /**
+   * Re-read the model's items as well as repainting the badges. The listing
+   * skips a model refresh while hidden, as it is before the dialog opens, so
+   * a plain `update()` would leave the first folder empty.
+   */
   refreshMarkers(): void {
-    this.listing.update();
+    this.listing.sort(this.listing.sortState);
   }
 }
 
