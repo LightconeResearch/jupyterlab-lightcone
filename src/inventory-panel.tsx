@@ -122,6 +122,8 @@ function ReadyInventoryView({
     state.entrypoint,
     state.data.document
   );
+  const getOutputStatus = (output: ResolvedOutput) =>
+    outputMaterializationStatus(materialization.statuses, state.data, output);
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
@@ -129,14 +131,12 @@ function ReadyInventoryView({
     onFetchPaper,
     commands,
     // Let the dialog restore focus before Jupyter activates the file tab.
-    () => flushSync(() => onDetailChange([]))
+    () => flushSync(() => onDetailChange([])),
+    getOutputStatus
   );
   const activeAnalysis = state.data.index.analysisByPath.get(
     state.analysisPath
   );
-
-  const getOutputStatus = (output: ResolvedOutput) =>
-    outputMaterializationStatus(materialization.statuses, state.data, output);
   const reportIsIncomplete =
     materialization.statuses !== undefined &&
     activeAnalysis?.outputs.some(output => !getOutputStatus(output));

@@ -1,7 +1,8 @@
+import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { CommandRegistry } from '@lumino/commands';
 import type { Contents } from '@jupyterlab/services';
 import type { ArtifactRenderer } from '@astra-spec/ui/components';
-import { isVisualOutput } from '@astra-spec/ui/model';
+import { isVisualOutput, type OutputStatus } from '@astra-spec/ui/model';
 import type { InventoryProps } from '@astra-spec/ui/views';
 import { showErrorMessage } from '@jupyterlab/apputils';
 import React, { useMemo } from 'react';
@@ -40,7 +41,8 @@ export function hostArtifactRenderer(
  * Supply Jupyter file access and pdf.js through ASTRA UI's host slots.
  *
  * `beforeOpenDocument` runs synchronously before any project file opens in a
- * JupyterLab tab, so a host can dismiss its own dialog first.
+ * JupyterLab tab, so a host can dismiss its own dialog first. A host that
+ * polls `lc status` passes `getOutputStatus`, so code links follow new runs.
  */
 export function useProjectRenderers(
   contents: Contents.IManager,
@@ -48,7 +50,8 @@ export function useProjectRenderers(
   data: ILoadedProjectData,
   onFetchPaper: (doi: string) => void,
   commands: CommandRegistry,
-  beforeOpenDocument?: () => void
+  beforeOpenDocument?: () => void,
+  getOutputStatus?: (output: ResolvedOutput) => OutputStatus | undefined
 ): InventoryProps {
   const access = useMemo(
     () =>
@@ -74,11 +77,13 @@ export function useProjectRenderers(
     renderArtifact,
     renderCodeLink: output => (
       <JupyterCodeLink
+        key={`${entrypoint}:${data.document.universe.universeId}:${output.canonicalPath}`}
         contents={contents}
         entrypoint={entrypoint}
         index={data.index}
         universe={data.document.universe.universeId}
         output={output}
+        status={getOutputStatus?.(output)}
         onOpen={path =>
           openDocument('code', () => access.openPath(path, 'Editor'))
         }

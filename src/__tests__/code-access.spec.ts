@@ -6,7 +6,30 @@ it.each([
   ['python src/plot.py --out result.png', 'src/plot.py'],
   ['uv run python3 "src/plot file.py" --out result.png', 'src/plot file.py'],
   ['./src/plot.sh', 'src/plot.sh'],
+  ['python src/metric.py > results/metric.json', 'src/metric.py'],
+  ['python src/a.py >> run.log 2>&1', 'src/a.py'],
+  ['python src/a.py # note', 'src/a.py'],
+  ['python src/a.py --glob *.csv', 'src/a.py'],
+  ['python -u src/train.py', 'src/train.py'],
+  ['python -W ignore src/plot.py', 'src/plot.py'],
+  ['python -- src/plot.py', 'src/plot.py'],
+  ['Rscript --vanilla src/fit.R', 'src/fit.R'],
+  ['bash -e scripts/run.sh', 'scripts/run.sh'],
+  ['uv run --with numpy python src/a.py', 'src/a.py'],
   ['python -m module', undefined],
+  ['python -um module src/a.py', undefined],
+  ['python -c "import a" src/a.py', undefined],
+  ['python - src/a.py', undefined],
+  ['python -u run src/a.py', undefined],
+  ['node -e "run()" src/a.js', undefined],
+  ['bash -c src/a.sh', undefined],
+  ['uv run --directory other python src/a.py', undefined],
+  ['python src/*.py', undefined],
+  ['python < src/a.py', undefined],
+  ['python src/a.py && python src/b.py', undefined],
+  ['python src/a.py; python src/b.py', undefined],
+  ['python src/a.py &', undefined],
+  ['(python src/a.py)', undefined],
   ['python ../outside.py', undefined],
   ['python /absolute/script.py', undefined],
   ['python src/a.py | python src/b.py', undefined],
@@ -54,6 +77,11 @@ it('prefers the recorded command, supports quoted paths, and checks existence', 
     });
     // A recorded run names what actually ran; do not substitute the declaration.
     expect(await resolve('python src/missing.py')).toBeUndefined();
+    // An empty recorded recipe names nothing, the same as no record.
+    expect(await resolve('')).toEqual({
+      relativePath: 'src/current.py',
+      source: 'declared recipe'
+    });
   } finally {
     contents.dispose();
   }

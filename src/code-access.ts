@@ -5,9 +5,65 @@ import type { Contents } from '@jupyterlab/services';
 import { parse } from 'shell-quote';
 import { projectDirectory } from './project-data';
 
+/** A project script an output's recipe names, and which recipe named it. */
 export interface ICodeReference {
+  /** Script location relative to the project directory. */
   relativePath: string;
+  /** Whether the matching run record or the declaration supplied the recipe. */
   source: 'recorded run' | 'declared recipe';
+}
+
+/** Options to look past before the script, per launcher. */
+interface ILauncherOptions {
+  /** Options that take code or a module instead of a script file. */
+  inline: RegExp;
+  /** Options whose value is the following word. */
+  valued: RegExp;
+}
+
+const UV_RUN: ILauncherOptions = {
+  // `--directory` moves the working directory the script path is relative to.
+  inline: /^(-m|--module|--directory)$/,
+  valued:
+    /^(-p|--python|--with|--with-editable|--with-requirements|--project|--extra|--group|--env-file|--index|--default-index)$/
+};
+
+const INTERPRETERS: ReadonlyArray<[RegExp, ILauncherOptions]> = [
+  [
+    /^python(?:\d+(?:\.\d+)*)?$/,
+    { inline: /^-[A-Za-z]*[cm]$/, valued: /^-[WX]$/ }
+  ],
+  [/^Rscript$/, { inline: /^-e$/, valued: /^$/ }],
+  [
+    /^node$/,
+    {
+      inline: /^(-[ep]|--eval|--print)$/,
+      valued: /^(-r|--require|--import)$/
+    }
+  ],
+  [/^(bash|sh)$/, { inline: /^-[A-Za-z]*[cs]$/, valued: /^[-+][oO]$/ }]
+];
+
+/** Redirections, globs and comments leave a single command a single command. */
+const HARMLESS_OPERATORS = new Set(['>', '>>', '<', '>&', 'glob']);
+
+/**
+ * Index of the first word after a launcher's options, or `undefined` when an
+ * option replaces the script with inline code, a module or standard input.
+ */
+function skipOptions(
+  words: readonly string[],
+  start: number,
+  options: ILauncherOptions
+): number | undefined {
+  let position = start;
+  while (position < words.length && words[position].startsWith('-')) {
+    const word = words[position];
+    if (word === '-' || options.inline.test(word)) return undefined;
+    if (word === '--') return position + 1;
+    position += options.valued.test(word) ? 2 : 1;
+  }
+  return position;
 }
 
 /**
@@ -25,14 +81,31 @@ export function scriptFromCommand(
   // silently and joins lines instead of failing.
   if (/[\n\r`$]/.test(command)) return undefined;
   const tokens = parse(command);
-  if (!tokens.every((token): token is string => typeof token === 'string'))
+  // Pipelines, lists, subshells and background jobs run more than one command.
+  if (
+    tokens.some(
+      token =>
+        typeof token !== 'string' &&
+        'op' in token &&
+        !HARMLESS_OPERATORS.has(token.op)
+    )
+  )
     return undefined;
-  const words =
-    tokens[0] === 'uv' && tokens[1] === 'run' ? tokens.slice(2) : tokens;
-  const executable = words[0] ?? '';
+  // The script has to precede any redirection, glob or comment.
+  const operator = tokens.findIndex(token => typeof token !== 'string');
+  const words = tokens
+    .slice(0, operator < 0 ? undefined : operator)
+    .filter((token): token is string => typeof token === 'string');
+  let position: number | undefined = 0;
+  if (words[0] === 'uv' && words[1] === 'run')
+    position = skipOptions(words, 2, UV_RUN);
+  if (position === undefined) return undefined;
+  const executable = words[position] ?? '';
   let candidate: string | undefined;
-  if (/^(python(?:\d+(?:\.\d+)*)?|Rscript|node|bash|sh)$/.test(executable)) {
-    candidate = words[1];
+  const interpreter = INTERPRETERS.find(([name]) => name.test(executable));
+  if (interpreter) {
+    const script = skipOptions(words, position + 1, interpreter[1]);
+    candidate = script === undefined ? undefined : words[script];
   } else if (executable.startsWith('./')) {
     candidate = executable;
   }
@@ -66,7 +139,9 @@ export async function resolveOutputCode(
   output: ResolvedOutput,
   recordedCommand?: string
 ): Promise<ICodeReference | undefined> {
-  const command = recordedCommand ?? output.recipe?.command;
+  // An empty recorded recipe names nothing, the same as no record.
+  const recorded = recordedCommand || undefined;
+  const command = recorded ?? output.recipe?.command;
   if (!command) return undefined;
   const inputSources = new Map<string, string>();
   for (const path of output.provenance.inputPaths) {
@@ -87,6 +162,6 @@ export async function resolveOutputCode(
   }
   return {
     relativePath,
-    source: recordedCommand ? 'recorded run' : 'declared recipe'
+    source: recorded ? 'recorded run' : 'declared recipe'
   };
 }

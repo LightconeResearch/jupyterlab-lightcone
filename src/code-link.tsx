@@ -1,17 +1,22 @@
 import type { AnalysisIndex, ResolvedOutput } from '@astra-spec/sdk';
+import type { OutputStatus } from '@astra-spec/ui/model';
 import type { Contents } from '@jupyterlab/services';
 import React, { useEffect, useState } from 'react';
+import { fetchRunRecord } from './api';
 import { resolveOutputCode, type ICodeReference } from './code-access';
 import { isRootAnalysisOutput } from './materialization-status';
-import { fetchRunRecord } from './output-provenance';
 
-/** Resolve on demand: code lookup runs only for an open output detail. */
+/**
+ * Resolve on demand: code lookup runs only for an open output detail. Hosts
+ * key this by output, so a reference never carries over to another output.
+ */
 export function JupyterCodeLink({
   contents,
   entrypoint,
   index,
   universe,
   output,
+  status,
   onOpen
 }: {
   contents: Contents.IManager;
@@ -19,40 +24,57 @@ export function JupyterCodeLink({
   index: AnalysisIndex;
   universe: string;
   output: ResolvedOutput;
+  /** Hosts that poll `lc status` pass it, so a finished run refreshes the link. */
+  status?: OutputStatus;
   onOpen: (relativePath: string) => Promise<void>;
 }): React.ReactElement | null {
   const [reference, setReference] = useState<ICodeReference>();
+  const state = status?.state;
+  const detail = status?.detail;
   useEffect(() => {
     let active = true;
-    setReference(undefined);
-    if (!isRootAnalysisOutput(index, output)) return;
-    const load = async () => {
-      let recorded: string | undefined;
-      try {
-        recorded = (
-          await fetchRunRecord(contents, entrypoint, index, universe, output)
-        )?.recipe;
-      } catch (reason) {
-        if (!active) return;
-        console.warn(
-          `No usable run record for ${output.id}; using the declared recipe.`,
-          reason
+    // The previous reference stays up while a refresh resolves, so the button
+    // keeps its focus instead of remounting on every project refresh.
+    const publish = (value: ICodeReference | undefined) => {
+      if (active)
+        setReference(current =>
+          current?.relativePath === value?.relativePath &&
+          current?.source === value?.source
+            ? current
+            : value
         );
-      }
-      const value = await resolveOutputCode(
-        contents,
-        entrypoint,
-        index,
-        output,
-        recorded
-      );
-      if (active) setReference(value);
     };
-    void load();
+    const load = async () => {
+      if (!isRootAnalysisOutput(index, output)) return undefined;
+      let recorded: string | undefined;
+      // Run records exist only for local files; other drives have the declaration.
+      if (!contents.driveName(entrypoint)) {
+        try {
+          recorded = (
+            await fetchRunRecord(
+              contents.serverSettings,
+              entrypoint,
+              universe,
+              output,
+              state ? { state, detail } : undefined
+            )
+          )?.recipe;
+        } catch (reason) {
+          // An unreadable record may name another script than the declaration.
+          console.warn(
+            `No usable run record for ${output.id}; offering no code link.`,
+            reason
+          );
+          return undefined;
+        }
+      }
+      return resolveOutputCode(contents, entrypoint, index, output, recorded);
+    };
+    void load().then(publish);
     return () => {
       active = false;
     };
-  }, [contents, entrypoint, index, universe, output]);
+  }, [contents, entrypoint, index, universe, output, state, detail]);
   if (!reference) return null;
   return (
     <button
