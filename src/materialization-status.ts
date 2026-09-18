@@ -1,4 +1,4 @@
-import type { ResolvedOutput } from '@astra-spec/sdk';
+import type { AnalysisIndex, ResolvedOutput } from '@astra-spec/sdk';
 import type { OutputStatus } from '@astra-spec/ui/model';
 import type { Contents } from '@jupyterlab/services';
 import { Poll } from '@lumino/polling';
@@ -45,12 +45,11 @@ export function parseMaterializationStatuses(
 
 /** The CLI reports status, and Lightcone records runs, only for the root analysis. */
 export function isRootAnalysisOutput(
-  data: ILoadedProjectData,
+  index: AnalysisIndex,
   output: ResolvedOutput
 ): boolean {
   return (
-    data.index.analysisByRecordPath.get(output.canonicalPath)?.canonicalPath ===
-    '$'
+    index.analysisByRecordPath.get(output.canonicalPath)?.canonicalPath === '$'
   );
 }
 
@@ -60,7 +59,7 @@ export function outputMaterializationStatus(
   data: ILoadedProjectData,
   output: ResolvedOutput
 ): OutputStatus | undefined {
-  if (!isRootAnalysisOutput(data, output)) {
+  if (!isRootAnalysisOutput(data.index, output)) {
     return undefined;
   }
   return statuses?.[`${data.document.universe.universeId}/${output.id}`];

@@ -55,6 +55,17 @@ Open a result to see its **Provenance** below Recipe: status, last run, and Git
 revision. **Details** opens the recorded recipe, input versions, environment, and
 Lightcone version without leaving the result.
 
+Output details also offer **Open code** beside Recipe when a local script can be
+resolved. It opens the current file in a reusable editor tab, preferring the
+command from the recorded run over the declared recipe; the link's tooltip
+names which one applied. This supports direct script commands in the root
+analysis, including a script named through an `{inputs.<id>}` placeholder,
+which resolves to that input's declared source. Interpreter options before the
+script and redirections, globs or comments after it are fine. Module, inline,
+and compound commands or unresolved paths have no link, and neither does an
+output whose run record cannot be read. It does not restore the revision used
+for an earlier run.
+
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its
 document tab; different projects keep their own selection and dialogs. You can

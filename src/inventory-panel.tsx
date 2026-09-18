@@ -1,10 +1,6 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { CommandRegistry } from '@lumino/commands';
-import {
-  ReactWidget,
-  showErrorMessage,
-  type IThemeManager
-} from '@jupyterlab/apputils';
+import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import { listIcon } from '@jupyterlab/ui-components';
 import { analysisTitle } from '@astra-spec/ui/model';
@@ -22,7 +18,6 @@ import {
   type InventoryOpenReference
 } from './open-reference';
 import {
-  isRootAnalysisOutput,
   useMaterializationStatus,
   outputMaterializationStatus
 } from './materialization-status';
@@ -127,19 +122,21 @@ function ReadyInventoryView({
     state.entrypoint,
     state.data.document
   );
+  const getOutputStatus = (output: ResolvedOutput) =>
+    outputMaterializationStatus(materialization.statuses, state.data, output);
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
     state.data,
     onFetchPaper,
-    commands
+    commands,
+    // Let the dialog restore focus before Jupyter activates the file tab.
+    () => flushSync(() => onDetailChange([])),
+    getOutputStatus
   );
   const activeAnalysis = state.data.index.analysisByPath.get(
     state.analysisPath
   );
-
-  const getOutputStatus = (output: ResolvedOutput) =>
-    outputMaterializationStatus(materialization.statuses, state.data, output);
   const reportIsIncomplete =
     materialization.statuses !== undefined &&
     activeAnalysis?.outputs.some(output => !getOutputStatus(output));
@@ -179,20 +176,11 @@ function ReadyInventoryView({
               contents={contents}
               entrypoint={state.entrypoint}
               universe={state.data.document.universe.universeId}
+              index={state.data.index}
               output={output}
               status={getOutputStatus(output)}
-              supported={isRootAnalysisOutput(state.data, output)}
             />
           )}
-          onOpenArtifact={async output => {
-            // Let the dialog restore focus before Jupyter activates the file tab.
-            flushSync(() => onDetailChange([]));
-            try {
-              await renderers.onOpenArtifact?.(output);
-            } catch (reason) {
-              await showErrorMessage('Could not open artifact', String(reason));
-            }
-          }}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
           onSelectAnalysis={onSelectAnalysis}

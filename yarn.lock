@@ -8391,6 +8391,7 @@ __metadata:
     react: ^18.2.0
     react-dom: ^18.2.0
     rimraf: ^5.0.1
+    shell-quote: ^1.10.0
     stylelint: ^15.10.1
     stylelint-config-recommended: ^13.0.0
     stylelint-config-standard: ^34.0.0
@@ -10086,7 +10087,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"shell-quote@npm:^1.7.3":
+"shell-quote@npm:^1.10.0, shell-quote@npm:^1.7.3":
   version: 1.10.0
   resolution: "shell-quote@npm:1.10.0"
   checksum: d4bc0757ae0e493d0f6e3327c93be7d5af1d39e9969eb4332ed4e40bb2c3f9112ec31e979d713d302605f7e3431d9f5f061719e0e177077ffd9c03c0b9cc5f73

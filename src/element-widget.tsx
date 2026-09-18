@@ -195,6 +195,7 @@ function DetailBody({
             record={record}
             relations={outputRelations(data.index, record)}
             renderArtifact={renderers.renderArtifact}
+            renderCodeLink={renderers.renderCodeLink}
             onOpenRecord={open}
             expanded={expanded}
             onExpandedChange={setExpanded}
@@ -207,16 +208,7 @@ function DetailBody({
               data.bindings.some(
                 binding => binding.outputPath === record.canonicalPath
               )
-                ? async output => {
-                    try {
-                      await renderers.onOpenArtifact?.(output);
-                    } catch (reason) {
-                      await showErrorMessage(
-                        'Could not open artifact',
-                        String(reason)
-                      );
-                    }
-                  }
+                ? renderers.onOpenArtifact
                 : undefined
             }
             expanded={expanded}
