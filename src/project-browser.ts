@@ -31,7 +31,7 @@ class ProjectFolderRenderer extends DirListing.Renderer {
 
 class ProjectFileBrowser extends FileBrowser {
   refreshMarkers(): void {
-    this.listing.sort(this.listing.sortState);
+    this.listing.update();
   }
 }
 
@@ -62,28 +62,26 @@ class ProjectBrowserBody extends Widget {
 
   private async refresh(): Promise<void> {
     const generation = ++this.generation;
-    if (this.manager.services.contents.driveName(this.browser.model.path)) {
-      this.renderer.projects.clear();
-      this.status.node.textContent =
+    const contents = this.manager.services.contents;
+    let paths: string[] = [];
+    let status: string;
+    if (contents.driveName(this.browser.model.path)) {
+      status =
         'Select a project folder to open it. Project badges are available on the local drive.';
-      this.browser.refreshMarkers();
-      return;
+    } else {
+      try {
+        paths = await projectFolders(
+          contents.serverSettings,
+          this.browser.model.path
+        );
+        status = 'ASTRA project labels mark folders containing astra.yaml.';
+      } catch (error) {
+        status = error instanceof Error ? error.message : String(error);
+      }
     }
-    try {
-      const paths = await projectFolders(
-        this.manager.services.contents.serverSettings,
-        this.browser.model.path
-      );
-      if (this.isDisposed || generation !== this.generation) return;
-      this.renderer.projects = new Set(paths);
-      this.status.node.textContent =
-        'ASTRA project labels mark folders containing astra.yaml.';
-    } catch (error) {
-      if (this.isDisposed || generation !== this.generation) return;
-      this.renderer.projects.clear();
-      this.status.node.textContent =
-        error instanceof Error ? error.message : String(error);
-    }
+    if (this.isDisposed || generation !== this.generation) return;
+    this.renderer.projects = new Set(paths);
+    this.status.node.textContent = status;
     this.browser.refreshMarkers();
   }
 

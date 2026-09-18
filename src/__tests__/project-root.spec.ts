@@ -1,5 +1,5 @@
 import { ContentsManager, Drive, ServerConnection } from '@jupyterlab/services';
-import { findProjectRoot, projectEntrypoint } from '../project-root';
+import { findProjectRoot } from '../project-root';
 import { fileModel } from './project-fixtures';
 
 function host(specs: string[]) {
@@ -65,14 +65,3 @@ it.each([403, 500])(
     }
   }
 );
-
-it('keeps the Contents drive in the missing-project fallback', async () => {
-  const { contents } = host([]);
-  try {
-    expect(await projectEntrypoint(contents, 'archive:')).toBe(
-      'archive:astra.yaml'
-    );
-  } finally {
-    contents.dispose();
-  }
-});

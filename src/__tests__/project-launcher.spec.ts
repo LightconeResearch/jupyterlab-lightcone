@@ -36,8 +36,7 @@ function host() {
     path: 'project',
     // Simulate a sidebar filter that excludes the spec entirely.
     items: () => [{ name: 'index.md', type: 'file' }].values(),
-    refreshed: new Signal<object, void>({}),
-    pathChanged: new Signal<object, void>({})
+    refreshed: new Signal<object, void>({})
   };
   const tracker = {
     currentWidget: { model },
@@ -82,7 +81,7 @@ it('ignores filters, retains project root in subfolders, and updates late chat r
       CommandIDs.openMySTRA
     ]);
     h.model.path = 'project/data';
-    h.model.pathChanged.emit();
+    h.model.refreshed.emit();
     await flush();
     expect(h.visible.get(CommandIDs.openInventory)?.args).toEqual({});
     expect(h.visible.get(CommandIDs.openMySTRA)?.args).toEqual({});
@@ -115,8 +114,10 @@ it('ignores outdated project lookups after navigation', async () => {
     const pending = new PromiseDelegate<ReturnType<typeof fileModel>>();
     h.get.mockImplementationOnce(() => pending.promise);
     h.model.refreshed.emit();
+    // Let the first lookup start before navigating away from it.
+    await Promise.resolve();
     h.model.path = 'elsewhere';
-    h.model.pathChanged.emit();
+    h.model.refreshed.emit();
     await flush();
     pending.resolve(fileModel('', { path: 'project/astra.yaml' }));
     await flush();

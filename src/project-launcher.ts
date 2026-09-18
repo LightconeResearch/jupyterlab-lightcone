@@ -15,18 +15,19 @@ export function configureProjectLauncher(
   let previous = '';
   let generation = 0;
   let disposed = false;
+  let scheduled = false;
   let lastDirectory: string | undefined;
-  let project: IProjectRoot | undefined;
-  let known = false;
+  // undefined until a lookup settles; null when the folder is outside a project.
+  let project: IProjectRoot | null | undefined;
   const clear = () => {
     entries.forEach(entry => entry.dispose());
     entries = [];
     previous = '';
-    known = false;
+    project = undefined;
   };
   // Registry changes only redraw the cached context; they never query Contents.
   const render = () => {
-    if (!known || disposed) return;
+    if (project === undefined || disposed) return;
     const commands = project
       ? [CommandIDs.discuss, CommandIDs.openInventory, CommandIDs.openMySTRA]
       : [CommandIDs.createProject, CommandIDs.openExistingProject];
@@ -63,8 +64,7 @@ export function configureProjectLauncher(
         directory
       );
       if (disposed || request !== generation) return;
-      project = result;
-      known = true;
+      project = result ?? null;
       render();
     } catch (error) {
       if (disposed || request !== generation) return;
@@ -72,13 +72,21 @@ export function configureProjectLauncher(
       clear();
     }
   };
+  // One navigation emits `refreshed` several times in a tick; look up once.
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      if (!disposed) void refresh();
+    });
+  };
+  // Every path change is followed by `refreshed`, which also covers polling.
   const bind = () => {
-    browser?.model.refreshed.disconnect(refresh);
-    browser?.model.pathChanged.disconnect(refresh);
+    browser?.model.refreshed.disconnect(schedule);
     browser = factory.tracker.currentWidget;
-    browser?.model.refreshed.connect(refresh);
-    browser?.model.pathChanged.connect(refresh);
-    void refresh();
+    browser?.model.refreshed.connect(schedule);
+    schedule();
   };
   factory.tracker.currentChanged.connect(bind);
   app.commands.commandChanged.connect(render);
@@ -86,8 +94,7 @@ export function configureProjectLauncher(
     disposed = true;
     factory.tracker.currentChanged.disconnect(bind);
     app.commands.commandChanged.disconnect(render);
-    browser?.model.refreshed.disconnect(refresh);
-    browser?.model.pathChanged.disconnect(refresh);
+    browser?.model.refreshed.disconnect(schedule);
     entries.forEach(entry => entry.dispose());
   });
   bind();

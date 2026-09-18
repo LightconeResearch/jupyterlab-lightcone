@@ -1,4 +1,4 @@
-"""Open or initialize a local Lightcone project through its existing CLI."""
+"""Locate local Lightcone projects and drive them through the installed CLI."""
 
 import asyncio
 import json
@@ -12,11 +12,28 @@ from packaging.version import InvalidVersion, Version
 from tornado.web import HTTPError
 
 
+def inside_root(root: Path, candidate: Path, message: str) -> Path:
+    """Resolve symlinks first, then refuse anything outside `root`."""
+    root = root.resolve()
+    resolved = (root / candidate).resolve()
+    if not resolved.is_relative_to(root):
+        raise HTTPError(403, message)
+    return resolved
+
+
+def project_root(root: Path, path: str) -> Path:
+    """Resolve only a local ASTRA entrypoint within the contents root."""
+    if not path or path.startswith("/") or "\\" in path or ":" in path:
+        raise HTTPError(400, "A local astra.yaml path is required")
+    if ".." in path.split("/") or Path(path).name != "astra.yaml":
+        raise HTTPError(400, "A local astra.yaml path is required")
+    return inside_root(root, Path(path), "Project is outside the contents root").parent
+
+
 def project_path(root: Path, value: str) -> Path:
     """Resolve an entered directory within the server's filesystem boundary."""
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise HTTPError(400, "Enter a project folder.")
-    root = root.resolve()
     try:
         candidate = Path(value.strip()).expanduser()
     except RuntimeError as error:
@@ -25,14 +42,11 @@ def project_path(root: Path, value: str) -> Path:
         raise HTTPError(400, "Project setup supports the local Jupyter drive only.")
     if ".." in candidate.parts:
         raise HTTPError(400, "Parent-directory traversal is not supported.")
-    candidate = (root / candidate).resolve()
-    if not candidate.is_relative_to(root):
-        raise HTTPError(400, "Choose a folder inside this Jupyter server's root directory.")
+    candidate = inside_root(root, candidate, "Choose a folder inside this Jupyter server's root directory.")
     if candidate.exists() and not candidate.is_dir():
         raise HTTPError(400, "The project path is a file. Choose a folder.")
     # A spec symlink must not let a project escape the server root either.
-    if not (candidate / "astra.yaml").resolve().is_relative_to(root):
-        raise HTTPError(400, "The project specification points outside the server root.")
+    inside_root(root, candidate / "astra.yaml", "The project specification points outside the server root.")
     return candidate
 
 
@@ -51,17 +65,39 @@ def describe_project(root: Path, project: Path) -> dict:
     }
 
 
-async def run_cli(*args: str, timeout: float = 180) -> str:
-    """Run a fixed CLI invocation without a shell; bound time and returned logs."""
+def _tail(stream, limit: int = 32768) -> str:
+    """Decode the end of a captured stream; install logs can be very long."""
+    stream.seek(0, os.SEEK_END)
+    stream.seek(max(0, stream.tell() - limit))
+    return stream.read().decode("utf-8", errors="replace")
+
+
+async def run_cli(
+    *args: str,
+    operation: str,
+    timeout_message: str,
+    timeout: float = 180,
+    cwd: Path | None = None,
+    failure_status: int = 400,
+) -> str:
+    """Run a fixed CLI invocation without a shell; bound its time and error logs.
+
+    Every Lightcone endpoint reaches the CLI through here. The caller words its
+    own failures: `operation` completes "Lightcone could not ...", and
+    `timeout_message` is shown when the time limit is reached.
+    """
     executable = shutil.which("lc")
     if not executable:
-        raise HTTPError(503, "Lightcone CLI is unavailable in the Jupyter server environment. Install a supported lightcone-cli release before creating a project.")
+        raise HTTPError(503, "Lightcone CLI is not installed in the Jupyter server environment. Install a supported lightcone-cli release.")
     # A file avoids accumulating unbounded dependency-install output in memory.
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-        process = await asyncio.create_subprocess_exec(
-            executable, *args, stdout=output, stderr=errors,
-            start_new_session=True,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                executable, *args, stdout=output, stderr=errors, cwd=cwd,
+                start_new_session=True,
+            )
+        except OSError as error:
+            raise HTTPError(503, "Lightcone CLI could not be started.") from error
         try:
             await asyncio.wait_for(process.wait(), timeout=timeout)
         except (asyncio.TimeoutError, asyncio.CancelledError) as error:
@@ -73,34 +109,35 @@ async def run_cli(*args: str, timeout: float = 180) -> str:
                 await process.wait()
             if isinstance(error, asyncio.CancelledError):
                 raise
-            message = (
-                "Lightcone version check timed out."
-                if args == ("--version",)
-                else "Project initialization timed out. Some files may have been created; retrying lc init is safe."
-            )
-            raise HTTPError(504, message) from error
-        output.seek(0, os.SEEK_END)
-        output.seek(max(0, output.tell() - 32768))
-        text = output.read().decode("utf-8", errors="replace")
-        errors.seek(0, os.SEEK_END)
-        errors.seek(max(0, errors.tell() - 32768))
-        error_text = errors.read().decode("utf-8", errors="replace")
-    if process.returncode:
-        operation = "read the CLI version" if args == ("--version",) else "initialize this folder"
-        raise HTTPError(400, "Lightcone could not %s:\n%s\n%s", operation, text, error_text)
-    return text
+            raise HTTPError(504, timeout_message) from error
+        if process.returncode:
+            raise HTTPError(failure_status, "Lightcone could not %s:\n%s\n%s", operation, _tail(output), _tail(errors))
+        # A report is parsed whole; only failure logs are trimmed.
+        output.seek(0)
+        return output.read().decode("utf-8", errors="replace")
 
 
 async def initialize_project(root: Path, project: Path) -> dict:
     """Delegate scaffolding to lc; never invent a project layout here."""
-    version_text = await run_cli("--version", timeout=10)
+    version_text = await run_cli(
+        "--version",
+        operation="read the CLI version",
+        timeout_message="Lightcone version check timed out.",
+        timeout=10,
+    )
     try:
         version = Version(version_text.strip().rsplit(" ", 1)[-1])
     except InvalidVersion as error:
         raise HTTPError(503, "Could not identify the Lightcone CLI version.") from error
     if version < Version("0.5.0rc2"):
         raise HTTPError(503, "This setup flow needs lightcone-cli 0.5.0rc2 or newer. Upgrade the CLI used by the Jupyter server.")
-    result = await run_cli("init", str(project), "--json")
+    result = await run_cli(
+        "init",
+        str(project),
+        "--json",
+        operation="initialize this folder",
+        timeout_message="Project initialization timed out. Some files may have been created; retrying lc init is safe.",
+    )
     try:
         report = json.loads(result)
     except json.JSONDecodeError as error:

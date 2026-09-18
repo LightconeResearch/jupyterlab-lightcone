@@ -6,7 +6,6 @@ import {
 } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import { type IFileBrowserFactory } from '@jupyterlab/filebrowser';
-import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
@@ -22,7 +21,7 @@ import { projectDirectory } from './project-data';
 import { startMySTRA } from './api';
 import { MySTRAViewer } from './mystra-viewer';
 import { browseProjectFolder } from './project-browser';
-import { findProjectRoot, projectEntrypoint } from './project-root';
+import { findModel, findProjectRoot, type IProjectRoot } from './project-root';
 import { ProjectSetup } from './project-setup';
 
 export namespace CommandIDs {
@@ -42,6 +41,33 @@ export namespace CommandIDs {
   export const refresh = 'jupyterlab_lightcone:refresh';
 }
 
+/** Where a command looks for its project: a known spec, or a folder to search from. */
+export type ProjectTarget = { entrypoint: string } | { directory: string };
+
+/**
+ * Resolve the project a command acts on. Where there is none, offer setup in
+ * that folder instead and return undefined, so no caller creates stray files.
+ */
+export async function requireProject(
+  app: JupyterFrontEnd,
+  target: ProjectTarget
+): Promise<IProjectRoot | undefined> {
+  const contents = app.serviceManager.contents;
+  let path: string;
+  if ('entrypoint' in target) {
+    path = projectDirectory(target.entrypoint);
+    if (await findModel(contents, target.entrypoint)) {
+      return { path, entrypoint: target.entrypoint };
+    }
+  } else {
+    path = contents.normalize(target.directory);
+    const root = await findProjectRoot(contents, path);
+    if (root) return root;
+  }
+  await app.commands.execute(CommandIDs.createProject, { path });
+  return undefined;
+}
+
 interface ICommandOptions {
   app: JupyterFrontEnd;
   documents: IDocumentManager;
@@ -57,35 +83,31 @@ export function registerCommands(options: ICommandOptions): void {
     'jupyterlab_lightcone'
   );
 
-  const projectPath = async (
-    args: ReadonlyPartialJSONObject
-  ): Promise<string> => {
+  const browserPath = () => browser?.tracker.currentWidget?.model.path ?? '';
+  const cwdOf = (args: ReadonlyPartialJSONObject) =>
+    typeof args.cwd === 'string' ? args.cwd : browserPath();
+
+  const projectTarget = (args: ReadonlyPartialJSONObject): ProjectTarget => {
     if (typeof args.path === 'string') {
-      return contents.normalize(args.path);
+      return { entrypoint: contents.normalize(args.path) };
     }
     if (typeof args.cwd === 'string') {
-      return projectEntrypoint(contents, args.cwd);
+      return { directory: args.cwd };
     }
     const current = app.shell.currentWidget;
     if (current instanceof InventoryDocument) {
-      return current.context.path;
+      return { entrypoint: current.context.path };
     }
     const context = current ? documents.contextForWidget(current) : undefined;
     if (context) {
-      const directory = projectDirectory(context.path);
-      return projectEntrypoint(contents, directory);
+      return { directory: projectDirectory(context.path) };
     }
-    const fileBrowser = browser?.tracker.currentWidget;
-    if (fileBrowser) {
-      const selected = [...fileBrowser.selectedItems()].filter(
-        item => item.name === 'astra.yaml'
-      );
-      if (selected.length === 1) {
-        return selected[0].path;
-      }
-      return projectEntrypoint(contents, fileBrowser.model.path);
-    }
-    return projectEntrypoint(contents, '');
+    const selected = [
+      ...(browser?.tracker.currentWidget?.selectedItems() ?? [])
+    ].filter(item => item.name === 'astra.yaml');
+    return selected.length === 1
+      ? { entrypoint: selected[0].path }
+      : { directory: browserPath() };
   };
 
   const openFolder = async (path: string): Promise<unknown> => {
@@ -111,15 +133,12 @@ export function registerCommands(options: ICommandOptions): void {
       try {
         const path = await browseProjectFolder(
           documents,
-          typeof args.cwd === 'string'
-            ? args.cwd
-            : (browser?.tracker.currentWidget?.model.path ?? ''),
+          cwdOf(args),
           options.translator
         );
         if (path === undefined) return;
-        const root = await findProjectRoot(contents, path);
+        const root = await requireProject(app, { directory: path });
         if (root) return await openFolder(root.path);
-        return await app.commands.execute(CommandIDs.createProject, { path });
       } catch (error) {
         await showErrorMessage(
           trans.__('Could not open project'),
@@ -134,11 +153,7 @@ export function registerCommands(options: ICommandOptions): void {
       mode,
       settings: contents.serverSettings,
       browse: () =>
-        browseProjectFolder(
-          documents,
-          browser?.tracker.currentWidget?.model.path ?? '',
-          options.translator
-        ),
+        browseProjectFolder(documents, browserPath(), options.translator),
       open: async project => {
         await openFolder(project.path);
         setup.dispose();
@@ -168,12 +183,7 @@ export function registerCommands(options: ICommandOptions): void {
       showSetup(
         typeof args.path === 'string'
           ? args.path
-          : contents.resolvePath(
-              typeof args.cwd === 'string'
-                ? args.cwd
-                : (browser?.tracker.currentWidget?.model.path ?? ''),
-              'my-project'
-            ),
+          : contents.resolvePath(cwdOf(args), 'my-project'),
         'create'
       )
   });
@@ -185,10 +195,7 @@ export function registerCommands(options: ICommandOptions): void {
     },
     execute: async args => {
       try {
-        const directory =
-          typeof args.cwd === 'string'
-            ? args.cwd
-            : (browser?.tracker.currentWidget?.model.path ?? '');
+        const directory = cwdOf(args);
         const project = await findProjectRoot(contents, directory);
         return showSetup(project?.path ?? directory, 'finish');
       } catch (error) {
@@ -309,23 +316,13 @@ export function registerCommands(options: ICommandOptions): void {
     },
     execute: async args => {
       try {
-        const path = await projectPath(args);
-        // Check existence before creating a document context (which may create new files).
-        try {
-          await contents.get(path, { content: false });
-        } catch (error) {
-          if (
-            error instanceof ServerConnection.ResponseError &&
-            error.response.status === 404
-          ) {
-            await app.commands.execute(CommandIDs.createProject, {
-              path: projectDirectory(path)
-            });
-            return undefined;
-          }
-          throw error;
-        }
-        const widget = documents.openOrReveal(path, INVENTORY_FACTORY);
+        // Resolve first: a document context would create the missing file.
+        const root = await requireProject(app, projectTarget(args));
+        if (!root) return undefined;
+        const widget = documents.openOrReveal(
+          root.entrypoint,
+          INVENTORY_FACTORY
+        );
         if (!(widget instanceof InventoryDocument)) {
           throw new Error(
             trans.__('The Lightcone Lab document viewer is unavailable.')

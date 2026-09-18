@@ -54,7 +54,12 @@ async def test_old_cli_is_rejected_before_initialization(tmp_path, monkeypatch):
     monkeypatch.setattr(projects, "run_cli", run)
     with pytest.raises(HTTPError, match="0.5.0rc2"):
         await projects.initialize_project(tmp_path, tmp_path / "new")
-    run.assert_awaited_once_with("--version", timeout=10)
+    run.assert_awaited_once_with(
+        "--version",
+        operation="read the CLI version",
+        timeout_message="Lightcone version check timed out.",
+        timeout=10,
+    )
     assert not (tmp_path / "new").exists()
 
 
@@ -152,18 +157,32 @@ async def test_finish_existing_project_runs_initializer(jp_fetch, jp_root_dir, m
 async def test_sync_contents_calls_run_off_the_event_loop():
     import threading
     main_thread = threading.get_ident()
-    assert await project_routes._contents_call(threading.get_ident) != main_thread
+    assert await project_routes.contents_call(threading.get_ident) != main_thread
 
     async def async_method():
         return threading.get_ident()
 
-    assert await project_routes._contents_call(async_method) == main_thread
+    assert await project_routes.contents_call(async_method) == main_thread
+
+
+CLI_WORDING = {"operation": "run the test command", "timeout_message": "The test command timed out."}
 
 
 async def test_cli_missing_is_actionable(monkeypatch):
     monkeypatch.setattr(projects.shutil, "which", lambda _: None)
     with pytest.raises(HTTPError) as error:
-        await projects.run_cli("--version")
+        await projects.run_cli("--version", **CLI_WORDING)
+    assert error.value.status_code == 503
+    assert "not installed" in str(error.value)
+
+
+async def test_cli_runs_in_the_requested_directory_with_the_caller_failure_status(tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setattr(projects.shutil, "which", lambda _: sys.executable)
+    script = "import os; print(os.getcwd())"
+    assert (await projects.run_cli("-c", script, cwd=tmp_path, **CLI_WORDING)).strip() == str(tmp_path.resolve())
+    with pytest.raises(HTTPError) as error:
+        await projects.run_cli("-c", "raise SystemExit(1)", failure_status=503, **CLI_WORDING)
     assert error.value.status_code == 503
 
 
@@ -171,7 +190,7 @@ async def test_cli_failure_preserves_literal_percent_output(monkeypatch):
     import sys
     monkeypatch.setattr(projects.shutil, "which", lambda _: sys.executable)
     with pytest.raises(HTTPError) as error:
-        await projects.run_cli("-c", "import sys; print('50% complete'); sys.exit(1)")
+        await projects.run_cli("-c", "import sys; print('50% complete'); sys.exit(1)", **CLI_WORDING)
     assert error.value.status_code == 400
     assert "50% complete" in str(error.value)
 
@@ -180,5 +199,5 @@ async def test_cli_timeout_terminates_process(monkeypatch):
     import sys
     monkeypatch.setattr(projects.shutil, "which", lambda _: sys.executable)
     with pytest.raises(HTTPError) as error:
-        await projects.run_cli("-c", "import time; time.sleep(60)", timeout=0.1)
+        await projects.run_cli("-c", "import time; time.sleep(60)", timeout=0.1, **CLI_WORDING)
     assert error.value.status_code == 504

@@ -38,39 +38,38 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
     setProject(undefined);
     setError('');
   };
-  const submit = async () => {
-    if (busy || !path.trim()) return;
+  // An existing project opens directly unless the user asked to finish setup.
+  const canOpen = !!project?.hasSpec && mode === 'create';
+  const guarded = async (task: () => Promise<void>) => {
     setBusy(true);
-    setError('');
     try {
+      await task();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submit = () => {
+    if (busy || !path.trim()) return;
+    setError('');
+    return guarded(async () => {
       if (!project) {
         setProject(await inspectProjectFolder(options.settings, path));
-      } else if (project.hasSpec && mode === 'create') {
+      } else if (canOpen) {
         await options.open(project);
       } else {
-        const info = await initializeProjectFolder(
-          options.settings,
-          project.path || '.'
+        await options.open(
+          await initializeProjectFolder(options.settings, project.path)
         );
-        await options.open(info);
       }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
-  const browse = async () => {
-    setBusy(true);
-    try {
+  const browse = () =>
+    guarded(async () => {
       const selected = await options.browse();
       if (selected !== undefined) edit(selected || '.');
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
   return (
     <form
       onSubmit={event => {
@@ -126,7 +125,7 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
             <strong>{project.directory}</strong>
           </p>
           <p>
-            {project.hasSpec && mode === 'create'
+            {canOpen
               ? 'Open the project launcher, or finish setup if a previous attempt was interrupted.'
               : 'Set up the analysis specification, Python environment, Git setup, and report starter. Existing files are preserved.'}
           </p>
@@ -142,15 +141,15 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
           ? project
             ? 'Setting up project…'
             : 'Opening…'
-          : project
-            ? mode === 'finish'
-              ? 'Finish setup here'
-              : project.hasSpec
-                ? 'Open project'
-                : 'Create project here'
-            : 'Continue'}
+          : !project
+            ? 'Continue'
+            : canOpen
+              ? 'Open project'
+              : mode === 'finish'
+                ? 'Finish setup here'
+                : 'Create project here'}
       </button>
-      {project?.hasSpec && mode === 'create' ? (
+      {canOpen ? (
         <button
           type="button"
           className="jp-mod-styled"

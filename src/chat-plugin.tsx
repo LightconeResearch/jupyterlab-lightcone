@@ -11,8 +11,7 @@ import type {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
-import { CommandIDs } from './commands';
-import { ServerConnection } from '@jupyterlab/services';
+import { CommandIDs, requireProject } from './commands';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import {
   chatContexts,
@@ -22,7 +21,6 @@ import {
 } from './chat-context';
 import { acquireProjectDataService } from './project-data-service';
 import { parseElementReference } from './element-reference';
-import { projectEntrypoint } from './project-root';
 import { projectDirectory } from './project-data';
 import { InventoryDocument } from './document-widget';
 
@@ -169,39 +167,27 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
       execute: async args => {
         try {
           const current = app.shell.currentWidget;
-          const entrypoint =
+          // Match the inventory shortcut's guidance before creating any chat file.
+          const root = await requireProject(
+            app,
             typeof args.entrypoint === 'string'
-              ? args.entrypoint
+              ? { entrypoint: args.entrypoint }
               : typeof args.cwd === 'string'
-                ? await projectEntrypoint(app.serviceManager.contents, args.cwd)
+                ? { directory: args.cwd }
                 : current instanceof InventoryDocument
-                  ? current.context.path
-                  : await projectEntrypoint(
-                      app.serviceManager.contents,
-                      browser?.tracker.currentWidget?.model.path ?? ''
-                    );
+                  ? { entrypoint: current.context.path }
+                  : {
+                      directory:
+                        browser?.tracker.currentWidget?.model.path ?? ''
+                    }
+          );
+          if (!root) return null;
+          const entrypoint = root.entrypoint;
           const reference = parseElementReference({
             ...args,
             entrypoint,
             target: typeof args.target === 'string' ? args.target : ''
           });
-          // Match the inventory shortcut's guidance before creating any chat file.
-          try {
-            await app.serviceManager.contents.get(reference.entrypoint, {
-              content: false
-            });
-          } catch (error) {
-            if (
-              error instanceof ServerConnection.ResponseError &&
-              error.response.status === 404
-            ) {
-              await app.commands.execute(CommandIDs.createProject, {
-                path: projectDirectory(reference.entrypoint)
-              });
-              return null;
-            }
-            throw error;
-          }
           const lease = acquireProjectDataService(
             app.serviceManager.contents,
             entrypoint,

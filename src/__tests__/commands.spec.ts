@@ -10,7 +10,7 @@ import { Widget } from '@lumino/widgets';
 import { browseProjectFolder } from '../project-browser';
 import { inspectProjectFolder } from '../api';
 import { ProjectSetup } from '../project-setup';
-import { CommandIDs, registerCommands } from '../commands';
+import { CommandIDs, registerCommands, requireProject } from '../commands';
 import { InventoryDocument } from '../document-widget';
 import { fileModel } from './project-fixtures';
 
@@ -304,6 +304,31 @@ describe('project opening commands', () => {
         'main'
       );
       host.shell.add.mock.calls[0][0].dispose();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  it('offers setup on the Contents drive where no enclosing project exists', async () => {
+    const host = commandHost();
+    host.get.mockRejectedValue(
+      new ServerConnection.ResponseError(new Response('', { status: 404 }))
+    );
+    const app = {
+      commands: host.commands,
+      serviceManager: { contents: host.contents }
+    } as unknown as JupyterFrontEnd;
+    try {
+      expect(
+        await requireProject(app, { directory: 'archive:data' })
+      ).toBeUndefined();
+      expect(host.get.mock.calls.map(([path]) => path)).toEqual([
+        'archive:data/astra.yaml',
+        'archive:astra.yaml'
+      ]);
+      const setup = host.shell.add.mock.calls[0][0];
+      expect(setup.content.options.path).toBe('archive:data');
+      setup.dispose();
     } finally {
       host.dispose();
     }
