@@ -38,10 +38,12 @@ folder, or use **Browse…** to select an existing directory. Create defaults to
 new `my-project` subfolder, which you can rename. Paths are relative to
 the Jupyter server's root; absolute paths inside that root are also accepted.
 Existing projects open directly. For a folder without `astra.yaml`, **Create
-project here** runs `lc init` in the exact folder shown. Inspecting or cancelling
-the form creates nothing. Initialization requires a local filesystem server,
-`lightcone-cli >= 0.5.0rc2` and its prerequisites in the server environment;
-failures are displayed in the form and can be retried. After closing the form or
+project here** initializes the exact folder shown, as `lc init` would. Inspecting
+or cancelling the form creates nothing. The extension installs `lightcone-cli` as
+a dependency and calls its engine directly, so no `lc` command has to be on the
+server's `PATH`. Initialization requires a local filesystem server, and the
+engine's own tools, `uv` and `git`, on the server's `PATH`; failures are
+displayed in the form and can be retried. After closing the form or
 reloading JupyterLab, run **Finish project setup** from the command palette to
 resume setup, including when `astra.yaml` already exists. The Create form also
 offers **Finish setup…** after inspecting an existing project. Both routes show
@@ -74,13 +76,12 @@ tab, using the file's default viewer. Opening an artifact again reveals its
 existing tab. Paths, universe selection, validation, and artifact cache tokens
 come from `@astra-spec/sdk`.
 
-Inventory results show a small marker when `lc status` reports them as
+Inventory results show a small marker when the Lightcone engine reports them as
 **Behind** (still valid, but the environment moved since) or **Stale**
 (definition or input changed, hand-edited, or never materialized). Hover over it
-to see the state and the reason reported by the installed `lightcone-cli`
-(`lc status --json`); the states and reasons are the CLI's own. Current results
-show no extra marker. Status checks run every 15 seconds while the page is
-visible and after local file changes. CLI failures clear markers and show one
+to see the state and the reason; both are the engine's own, the ones `lc status`
+prints. Current results show no extra marker. Status checks run every 15 seconds while the page is
+visible and after local file changes. Engine failures clear markers and show one
 message in the headbar; status returns automatically after recovery. The
 integration currently covers local root-analysis outputs.
 

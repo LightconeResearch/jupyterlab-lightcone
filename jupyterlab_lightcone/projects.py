@@ -1,14 +1,11 @@
-"""Locate local Lightcone projects and drive them through the installed CLI."""
+"""Locate local Lightcone projects and set them up with the Lightcone engine."""
 
 import asyncio
-import json
 import os
 from pathlib import Path
-import shutil
-import signal
-import tempfile
+import sysconfig
 
-from packaging.version import InvalidVersion, Version
+from lightcone.engine.project import ProjectError, converge
 from tornado.web import HTTPError
 
 
@@ -65,89 +62,28 @@ def describe_project(root: Path, project: Path) -> dict:
     }
 
 
-def _tail(stream, limit: int = 32768) -> str:
-    """Decode the end of a captured stream; install logs can be very long."""
-    stream.seek(0, os.SEEK_END)
-    stream.seek(max(0, stream.tell() - limit))
-    return stream.read().decode("utf-8", errors="replace")
+def expose_engine_tools() -> None:
+    """Let the engine find the git-annex installed beside it.
 
-
-async def run_cli(
-    *args: str,
-    operation: str,
-    timeout_message: str,
-    timeout: float = 180,
-    cwd: Path | None = None,
-    failure_status: int = 400,
-) -> str:
-    """Run a fixed CLI invocation without a shell; bound its time and error logs.
-
-    Every Lightcone endpoint reaches the CLI through here. The caller words its
-    own failures: `operation` completes "Lightcone could not ...", and
-    `timeout_message` is shown when the time limit is reached.
+    The engine looks its tools up on PATH, which lacks this environment's
+    scripts when the server was started without activating it. Appending
+    keeps any tool the user already has ahead of the bundled one.
     """
-    executable = shutil.which("lc")
-    if not executable:
-        raise HTTPError(503, "Lightcone CLI is not installed in the Jupyter server environment. Install a supported lightcone-cli release.")
-    # A file avoids accumulating unbounded dependency-install output in memory.
-    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-        try:
-            process = await asyncio.create_subprocess_exec(
-                executable, *args, stdout=output, stderr=errors, cwd=cwd,
-                start_new_session=True,
-            )
-        except OSError as error:
-            raise HTTPError(503, "Lightcone CLI could not be started.") from error
-        try:
-            await asyncio.wait_for(process.wait(), timeout=timeout)
-        except (asyncio.TimeoutError, asyncio.CancelledError) as error:
-            if process.returncode is None:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                await process.wait()
-            if isinstance(error, asyncio.CancelledError):
-                raise
-            raise HTTPError(504, timeout_message) from error
-        if process.returncode:
-            raise HTTPError(failure_status, "Lightcone could not %s:\n%s\n%s", operation, _tail(output), _tail(errors))
-        # A report is parsed whole; only failure logs are trimmed.
-        output.seek(0)
-        return output.read().decode("utf-8", errors="replace")
+    scripts = sysconfig.get_path("scripts")
+    paths = os.environ.get("PATH", "").split(os.pathsep)
+    if scripts not in paths:
+        os.environ["PATH"] = os.pathsep.join([*paths, scripts])
 
 
 async def initialize_project(root: Path, project: Path) -> dict:
-    """Delegate scaffolding to lc; never invent a project layout here."""
-    version_text = await run_cli(
-        "--version",
-        operation="read the CLI version",
-        timeout_message="Lightcone version check timed out.",
-        timeout=10,
-    )
+    """Delegate scaffolding to the engine; never invent a project layout here."""
     try:
-        version = Version(version_text.strip().rsplit(" ", 1)[-1])
-    except InvalidVersion as error:
-        raise HTTPError(503, "Could not identify the Lightcone CLI version.") from error
-    if version < Version("0.5.0rc2"):
-        raise HTTPError(503, "This setup flow needs lightcone-cli 0.5.0rc2 or newer. Upgrade the CLI used by the Jupyter server.")
-    result = await run_cli(
-        "init",
-        str(project),
-        "--json",
-        operation="initialize this folder",
-        timeout_message="Project initialization timed out. Some files may have been created; retrying lc init is safe.",
-    )
-    try:
-        report = json.loads(result)
-    except json.JSONDecodeError as error:
-        raise HTTPError(502, "Lightcone returned an unreadable initialization report. Check the project before retrying.") from error
-    if not isinstance(report, dict) or not isinstance(report.get("blocked"), list):
-        raise HTTPError(502, "Lightcone returned an invalid initialization report.")
-    # `converged` describes the state BEFORE init: it is false after a successful
-    # creation. A zero exit status and no blocked items indicate successful setup.
-    if report["blocked"]:
-        raise HTTPError(400, "Project setup needs attention: %s", report["blocked"])
+        # Convergence installs the environment, so it runs off the event loop.
+        report = await asyncio.to_thread(converge, project)
+    except ProjectError as error:
+        raise HTTPError(400, "Lightcone could not initialize this folder:\n%s", str(error)) from error
+    if report.blocked:
+        raise HTTPError(400, "Project setup needs attention: %s", "; ".join(report.blocked))
     info = describe_project(root, project)
     if not info["hasSpec"]:
         raise HTTPError(502, "Lightcone finished without creating astra.yaml.")

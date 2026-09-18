@@ -96,7 +96,7 @@ class ProjectsHandler(ProjectAPIHandler):
     @web.authenticated
     @authorized(action="write", resource="contents")
     async def post(self):
-        """Initialize the explicitly selected folder using a fixed CLI command."""
+        """Initialize the explicitly selected folder with the Lightcone engine."""
         for action, resource in (("read", "contents"), ("execute", "lightcone")):
             if not await ensure_async(self.authorizer.is_authorized(self, self.current_user, action, resource)):
                 raise web.HTTPError(403, "Project initialization is not authorized.")

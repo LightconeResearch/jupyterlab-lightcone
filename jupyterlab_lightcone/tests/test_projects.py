@@ -1,8 +1,9 @@
-"""Project selection stays read-only; only explicit creation invokes the CLI."""
+"""Project selection stays read-only; only explicit creation invokes the engine."""
 
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+from lightcone.engine.project import ConvergenceReport, ProjectError
 import pytest
 from tornado.web import HTTPError
 
@@ -49,35 +50,42 @@ def test_rejects_symlink_escape_and_file_paths(tmp_path):
         projects.project_path(root, ".")
 
 
-async def test_old_cli_is_rejected_before_initialization(tmp_path, monkeypatch):
-    run = AsyncMock(return_value="lc, version 0.4.2\n")
-    monkeypatch.setattr(projects, "run_cli", run)
-    with pytest.raises(HTTPError, match="0.5.0rc2"):
-        await projects.initialize_project(tmp_path, tmp_path / "new")
-    run.assert_awaited_once_with(
-        "--version",
-        operation="read the CLI version",
-        timeout_message="Lightcone version check timed out.",
-        timeout=10,
-    )
-    assert not (tmp_path / "new").exists()
-
-
-async def test_delegates_to_cli_with_exact_selected_path(tmp_path, monkeypatch):
+async def test_delegates_to_the_engine_with_exact_selected_path(tmp_path, monkeypatch):
     target = tmp_path / "project with spaces"
 
-    async def run(*args, **kwargs):
-        if args == ("--version",):
-            return "lc, version 0.5.0rc2"
-        assert args == ("init", str(target), "--json")
+    def converge(directory):
+        assert directory == target
         target.mkdir()
         (target / "astra.yaml").write_text("name: test")
-        return '{"converged":false,"created":["astra.yaml"],"blocked":[]}'
+        return ConvergenceReport(created=["astra.yaml"])
 
-    monkeypatch.setattr(projects, "run_cli", run)
+    monkeypatch.setattr(projects, "converge", converge)
     info = await projects.initialize_project(tmp_path, target)
     assert info["path"] == "project with spaces"
     assert info["hasSpec"] is True
+
+
+@pytest.mark.parametrize(
+    "outcome,expected",
+    [
+        (ProjectError("uv is 50% installed"), "50% installed"),
+        (ConvergenceReport(blocked=[".venv", "git"]), ".venv; git"),
+    ],
+)
+async def test_engine_refusals_reach_the_user_verbatim(tmp_path, monkeypatch, outcome, expected):
+    monkeypatch.setattr(projects, "converge", Mock(side_effect=[outcome]))
+    with pytest.raises(HTTPError) as error:
+        await projects.initialize_project(tmp_path, tmp_path / "new")
+    assert error.value.status_code == 400
+    assert expected in str(error.value)
+
+
+def test_engine_tools_are_found_without_an_activated_environment(monkeypatch):
+    scripts = projects.sysconfig.get_path("scripts")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    projects.expose_engine_tools()
+    projects.expose_engine_tools()
+    assert projects.os.environ["PATH"] == f"/usr/bin{projects.os.pathsep}{scripts}"
 
 
 async def test_inspection_creates_nothing(jp_fetch, jp_root_dir, monkeypatch):
@@ -163,41 +171,3 @@ async def test_sync_contents_calls_run_off_the_event_loop():
         return threading.get_ident()
 
     assert await project_routes.contents_call(async_method) == main_thread
-
-
-CLI_WORDING = {"operation": "run the test command", "timeout_message": "The test command timed out."}
-
-
-async def test_cli_missing_is_actionable(monkeypatch):
-    monkeypatch.setattr(projects.shutil, "which", lambda _: None)
-    with pytest.raises(HTTPError) as error:
-        await projects.run_cli("--version", **CLI_WORDING)
-    assert error.value.status_code == 503
-    assert "not installed" in str(error.value)
-
-
-async def test_cli_runs_in_the_requested_directory_with_the_caller_failure_status(tmp_path, monkeypatch):
-    import sys
-    monkeypatch.setattr(projects.shutil, "which", lambda _: sys.executable)
-    script = "import os; print(os.getcwd())"
-    assert (await projects.run_cli("-c", script, cwd=tmp_path, **CLI_WORDING)).strip() == str(tmp_path.resolve())
-    with pytest.raises(HTTPError) as error:
-        await projects.run_cli("-c", "raise SystemExit(1)", failure_status=503, **CLI_WORDING)
-    assert error.value.status_code == 503
-
-
-async def test_cli_failure_preserves_literal_percent_output(monkeypatch):
-    import sys
-    monkeypatch.setattr(projects.shutil, "which", lambda _: sys.executable)
-    with pytest.raises(HTTPError) as error:
-        await projects.run_cli("-c", "import sys; print('50% complete'); sys.exit(1)", **CLI_WORDING)
-    assert error.value.status_code == 400
-    assert "50% complete" in str(error.value)
-
-
-async def test_cli_timeout_terminates_process(monkeypatch):
-    import sys
-    monkeypatch.setattr(projects.shutil, "which", lambda _: sys.executable)
-    with pytest.raises(HTTPError) as error:
-        await projects.run_cli("-c", "import time; time.sleep(60)", timeout=0.1, **CLI_WORDING)
-    assert error.value.status_code == 504
