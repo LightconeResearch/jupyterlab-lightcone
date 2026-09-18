@@ -364,17 +364,10 @@ test('adapts figure and decision details to narrow panels and the dark theme', a
       );
     })
     .toBe(true);
-  await page.getByRole('button', { name: 'View figure full screen' }).click();
-  const fullscreen = page.getByRole('dialog', {
-    name: 'Full-screen figure: figure',
-    exact: true
-  });
-  await expect(fullscreen).toBeVisible();
-  await expect
-    .poll(async () => fullscreen.boundingBox())
-    .toEqual({ x: 0, y: 0, width: 850, height: 800 });
-  await page.keyboard.press('Escape');
-  await expect(fullscreen).toHaveCount(0);
+  const zoomOut = page.getByRole('button', { name: 'Zoom figure out' });
+  await expect(zoomOut).toBeDisabled();
+  await page.getByRole('button', { name: 'Zoom figure in' }).click();
+  await expect(zoomOut).toBeEnabled();
   await expect(
     page.getByRole('button', { name: 'Pin tab', exact: true })
   ).toBeEnabled();

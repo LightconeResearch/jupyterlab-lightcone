@@ -1,3 +1,5 @@
+import type { ResolvedOutput } from '@astra-spec/sdk';
+import type { CommandRegistry } from '@lumino/commands';
 import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import { listIcon } from '@jupyterlab/ui-components';
@@ -6,6 +8,7 @@ import { SurfaceHeader } from '@astra-spec/ui/primitives';
 import { Inventory } from '@astra-spec/ui/views';
 import type { DetailEntry } from '@astra-spec/ui/lib';
 import React, { useId } from 'react';
+import { flushSync } from 'react-dom';
 import { useProjectRenderers } from './project-renderers';
 import type { ILoadedProjectData } from './project-data';
 import type { IProjectDataState } from './project-data-service';
@@ -14,6 +17,11 @@ import {
   detailEntryForOpenReference,
   type InventoryOpenReference
 } from './open-reference';
+import {
+  useMaterializationStatus,
+  outputMaterializationStatus
+} from './materialization-status';
+import { JupyterOutputProvenance } from './output-provenance';
 import { ProjectTopbar } from './project-topbar';
 import { LightconeThemeBinding } from './theme-adapter';
 
@@ -94,12 +102,14 @@ function readyState(
 }
 
 function ReadyInventoryView({
+  commands,
   contents,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
+  commands: CommandRegistry;
   contents: Contents.IManager;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
@@ -107,19 +117,38 @@ function ReadyInventoryView({
   state: Extract<InventoryPanelState, { status: 'ready' }>;
 }): React.ReactElement {
   const inventoryId = useId().replace(/:/g, '');
+  const materialization = useMaterializationStatus(
+    contents,
+    state.entrypoint,
+    state.data.document
+  );
+  const getOutputStatus = (output: ResolvedOutput) =>
+    outputMaterializationStatus(materialization.statuses, state.data, output);
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
     state.data,
-    onFetchPaper
+    onFetchPaper,
+    commands,
+    // Let the dialog restore focus before Jupyter activates the file tab.
+    () => flushSync(() => onDetailChange([])),
+    getOutputStatus
   );
   const activeAnalysis = state.data.index.analysisByPath.get(
     state.analysisPath
   );
+  const reportIsIncomplete =
+    materialization.statuses !== undefined &&
+    activeAnalysis?.outputs.some(output => !getOutputStatus(output));
+  const statusError =
+    materialization.error ??
+    (reportIsIncomplete
+      ? 'Lightcone did not report statuses for this analysis.'
+      : undefined);
 
   return (
     <main className="jp-jupyterlab-lightcone-inventory-page">
-      <ProjectTopbar projectName={state.data.document.analysis.name} />
+      <ProjectTopbar statusError={statusError} />
       {state.staleMessage ? (
         <div className="jp-jupyterlab-lightcone-refresh-warning" role="status">
           Showing the last valid project data: {state.staleMessage}
@@ -136,32 +165,25 @@ function ReadyInventoryView({
           eyebrow="ASTRA inventory"
           title={analysisTitle(activeAnalysis ?? state.data.document.analysis)}
           titleAs="h1"
-          actions={
-            <label className="jp-jupyterlab-lightcone-analysis-selector">
-              <span>Analysis</span>
-              <select
-                value={state.analysisPath}
-                onChange={event => onSelectAnalysis(event.target.value)}
-              >
-                {[...state.data.index.analysisByPath.values()].map(analysis => (
-                  <option
-                    key={analysis.canonicalPath}
-                    value={analysis.canonicalPath}
-                  >
-                    {analysis.canonicalPath === '$'
-                      ? analysisTitle(analysis)
-                      : `${analysis.canonicalPath}: ${analysisTitle(analysis)}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          }
         />
         <Inventory
           className="jp-jupyterlab-lightcone-inventory-content"
           {...renderers}
+          getOutputStatus={getOutputStatus}
+          renderProvenance={output => (
+            <JupyterOutputProvenance
+              key={`${state.entrypoint}:${state.data.document.universe.universeId}:${output.canonicalPath}`}
+              contents={contents}
+              entrypoint={state.entrypoint}
+              universe={state.data.document.universe.universeId}
+              index={state.data.index}
+              output={output}
+              status={getOutputStatus(output)}
+            />
+          )}
           idPrefix={`${inventoryId}-`}
           analysisPath={state.analysisPath}
+          onSelectAnalysis={onSelectAnalysis}
           detail={state.detail}
           onDetailChange={onDetailChange}
         />
@@ -171,12 +193,14 @@ function ReadyInventoryView({
 }
 
 function InventoryPanelView({
+  commands,
   contents,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
+  commands: CommandRegistry;
   contents: Contents.IManager;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
@@ -207,6 +231,7 @@ function InventoryPanelView({
   }
   return (
     <ReadyInventoryView
+      commands={commands}
       contents={contents}
       state={state}
       onDetailChange={onDetailChange}
@@ -219,7 +244,8 @@ function InventoryPanelView({
 export class AstraInventoryPanel extends ReactWidget {
   constructor(
     private readonly contents: Contents.IManager,
-    themeManager: IThemeManager
+    themeManager: IThemeManager,
+    private readonly commands: CommandRegistry
   ) {
     super();
     this.title.label = 'ASTRA Inventory';
@@ -308,6 +334,7 @@ export class AstraInventoryPanel extends ReactWidget {
   protected render(): React.ReactElement {
     return (
       <InventoryPanelView
+        commands={this.commands}
         contents={this.contents}
         state={this._state}
         onDetailChange={detail => {

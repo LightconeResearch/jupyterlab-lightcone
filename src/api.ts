@@ -1,5 +1,9 @@
-import { normalizeDoi } from '@astra-spec/sdk';
-import type { InventoryPaperMetadata } from '@astra-spec/ui/model';
+import { normalizeDoi, type ResolvedOutput } from '@astra-spec/sdk';
+import type {
+  InventoryPaperMetadata,
+  OutputRun,
+  OutputStatus
+} from '@astra-spec/ui/model';
 import { ServerConnection } from '@jupyterlab/services';
 import { apiUrl, requestAPI } from './request';
 
@@ -86,7 +90,8 @@ interface IPaperMetadata {
   authors?: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** Narrow an untrusted server payload to a plain object before reading fields. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -200,6 +205,91 @@ export async function fetchPaper(
   } catch (error) {
     throw paperError(error);
   }
+}
+
+/** Keep the UI contract independent of Lightcone's on-disk field names. */
+export function parseRunRecord(payload: unknown): OutputRun | null {
+  const invalid = () => new Error('Unsupported run record.');
+  if (!isRecord(payload)) throw invalid();
+  if (payload.record === null) return null;
+  const record = payload.record;
+  if (!isRecord(record) || record.schema_version !== 1) throw invalid();
+  const string = (key: string): string => {
+    const value = record[key];
+    if (typeof value !== 'string') throw invalid();
+    return value;
+  };
+  const versions = (key: string): Record<string, string> => {
+    const value = record[key];
+    if (
+      !isRecord(value) ||
+      Object.values(value).some(item => typeof item !== 'string')
+    )
+      throw invalid();
+    return value as Record<string, string>;
+  };
+  return {
+    finishedAt: string('finished_at'),
+    gitRevision: string('git_sha'),
+    recipe: string('recipe'),
+    environment: string('env_version'),
+    cliVersion: string('lc_version'),
+    inputVersions: versions('input_versions')
+  };
+}
+
+/**
+ * Reads in flight, so the provenance panel and code link share one. Keying by
+ * the output snapshot and its status keeps a read issued before a refresh or
+ * a status change from answering for the run that followed it.
+ */
+const pendingRunRecords = new WeakMap<
+  ResolvedOutput,
+  Map<string, Promise<OutputRun | null>>
+>();
+
+/**
+ * Read one output's run record for the selected universe; `null` when none
+ * was recorded. Lightcone records runs only for local root-analysis outputs,
+ * so callers keep other outputs out.
+ */
+export function fetchRunRecord(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  universe: string,
+  output: ResolvedOutput,
+  status?: OutputStatus
+): Promise<OutputRun | null> {
+  let pending = pendingRunRecords.get(output);
+  if (!pending) {
+    pending = new Map();
+    pendingRunRecords.set(output, pending);
+  }
+  const reads = pending;
+  const key = JSON.stringify([
+    entrypoint,
+    universe,
+    status?.state,
+    status?.detail
+  ]);
+  let read = reads.get(key);
+  if (!read) {
+    const query = new URLSearchParams({
+      path: entrypoint,
+      universe,
+      output: output.id
+    });
+    read = requestAPI(`api/provenance?${query}`, settings)
+      .then(parseRunRecord)
+      .catch(error => {
+        throw error instanceof RequestError
+          ? error
+          : new RequestError('Provenance', error);
+      })
+      .finally(() => reads.delete(key));
+    reads.set(key, read);
+  }
+  return read;
 }
 
 /** Status of an owner-scoped, managed MySTRA project. */

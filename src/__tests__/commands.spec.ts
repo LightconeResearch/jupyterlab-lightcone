@@ -61,7 +61,8 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
     const widget = new InventoryDocument(
       { path, ready: Promise.resolve() } as DocumentRegistry.Context,
       contents,
-      themes
+      themes,
+      commands
     );
     created.push(widget);
     return widget;
@@ -261,7 +262,8 @@ describe('project opening commands', () => {
     const widget = new InventoryDocument(
       context as DocumentRegistry.Context,
       host.contents,
-      host.themes
+      host.themes,
+      host.commands
     );
     host.openOrReveal.mockImplementation(() => {
       opened.resolve();

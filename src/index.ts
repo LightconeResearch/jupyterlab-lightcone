@@ -14,6 +14,7 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
 import { chatPlugin } from './chat-plugin';
+import { projectNotificationsPlugin } from './project-notifications';
 import { astraMimePlugin } from './astra-mime';
 import { registerElementCommands } from './element-commands';
 import { configureProjectLauncher } from './project-launcher';
@@ -70,7 +71,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     const factory = new InventoryDocumentFactory(
       app.serviceManager.contents,
-      themes
+      themes,
+      app.commands
     );
     factory.widgetCreated.connect((_sender, widget) => {
       widget.title.icon = astraIcon;
@@ -131,4 +133,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export default [plugin, astraMimePlugin, chatPlugin];
+export default [
+  plugin,
+  astraMimePlugin,
+  chatPlugin,
+  projectNotificationsPlugin
+];
