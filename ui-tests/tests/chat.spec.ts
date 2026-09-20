@@ -436,10 +436,15 @@ prior_insights:
   expect(missing).toContain('not cited');
 });
 
-test('Lightcone Agent appears first with a gold chat icon and explains a missing ASTRA project without creating a chat', async ({
+test('Lightcone Agent appears first with a gold chat icon inside an ASTRA project', async ({
   page,
   tmpPath
 }) => {
+  await page.contents.uploadContent(
+    'version: "0.0.14"\nname: Launcher project\n',
+    'text',
+    `${tmpPath}/astra.yaml`
+  );
   await page.filebrowser.openDirectory(tmpPath);
   await page.evaluate(async cwd => {
     await window.jupyterapp.commands.execute('launcher:create', { cwd });
@@ -451,12 +456,13 @@ test('Lightcone Agent appears first with a gold chat icon and explains a missing
   await expect(
     shortcut.locator('[data-icon="jupyter-chat::chat"]')
   ).toBeVisible();
+  const category = `Lightcone Lab · ${tmpPath}`;
   await expect(
     page.locator('.jp-Launcher-sectionTitle:visible').first()
-  ).toHaveText('Lightcone Lab');
+  ).toHaveText(category);
   const section = page
     .locator('.jp-Launcher-section:visible')
-    .filter({ hasText: 'Lightcone Lab' });
+    .filter({ hasText: category });
   await expect(section.getByRole('button').first()).toHaveAccessibleName(
     'Lightcone Agent'
   );
@@ -470,7 +476,7 @@ test('Lightcone Agent appears first with a gold chat icon and explains a missing
   await page.theme.setLightTheme();
   const sectionIcon = page
     .locator('.jp-Launcher-sectionHeader:visible')
-    .filter({ hasText: 'Lightcone Lab' })
+    .filter({ hasText: category })
     .locator('.jp-jupyterlab-lightcone-AssistantIcon');
   await expect(sectionIcon).toBeVisible();
   await expect(sectionIcon).toHaveCSS('background-image', /url\(.+\)/);
@@ -478,6 +484,25 @@ test('Lightcone Agent appears first with a gold chat icon and explains a missing
   await page.screenshot({
     path: test.info().outputPath('lightcone-launcher.png')
   });
+});
+
+test('Lightcone Agent offers project setup outside an ASTRA project without creating a chat', async ({
+  page,
+  tmpPath
+}) => {
+  await page.filebrowser.openDirectory(tmpPath);
+  await page.evaluate(async cwd => {
+    await window.jupyterapp.commands.execute('launcher:create', { cwd });
+  }, tmpPath);
+  const section = page
+    .locator('.jp-Launcher-section:visible')
+    .filter({ hasText: 'Lightcone Lab' });
+  await expect(
+    section.getByRole('button', { name: 'Create project', exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Lightcone Agent', exact: true })
+  ).toHaveCount(0);
   const writes: string[] = [];
   page.on('request', request => {
     if (
@@ -486,12 +511,12 @@ test('Lightcone Agent appears first with a gold chat icon and explains a missing
     )
       writes.push(request.url());
   });
-  await shortcut.click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('No ASTRA project found');
-  await expect(dialog).toContainText(`${tmpPath}/astra.yaml`);
-  await expect(dialog).toContainText('Open a folder containing astra.yaml');
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(async cwd => {
+    await window.jupyterapp.commands.execute('jupyterlab_lightcone:discuss', {
+      cwd
+    });
+  }, tmpPath);
+  await expect(page.locator('#lightcone-project-folder')).toHaveValue(tmpPath);
   await expect(page.locator('.jp-chat-input-container')).toHaveCount(0);
   expect(writes).toEqual([]);
 });

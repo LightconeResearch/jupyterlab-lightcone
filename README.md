@@ -24,6 +24,41 @@ End users do not need Node.js or sibling source checkouts.
 
 ## Use
 
+Outside a project, the Lightcone Lab launcher shows **＋ Create project** and
+**Open project**. Inside a project or its subfolders, it shows the agent,
+inventory, and report. The launcher heading identifies the project root.
+Project detection uses the nearest enclosing `astra.yaml` on the current Jupyter
+Contents drive and is independent of file-browser filters. A nested project
+uses its own root.
+Browse labels folders containing `astra.yaml` as **ASTRA project**; this indicates
+presence, not validation of the specification.
+
+Choose **Create project** in the launcher (or command palette), enter a project
+folder, or use **Browse…** to select an existing directory. Create defaults to a
+new `my-project` subfolder, which you can rename. Paths are relative to
+the Jupyter server's root; absolute paths inside that root are also accepted.
+Existing projects open directly. For a folder without `astra.yaml`, **Create
+project here** initializes the exact folder shown, as `lc init` would. Inspecting
+or cancelling the form creates nothing. The extension installs `lightcone-cli` as
+a dependency and calls its engine directly, so no `lc` command has to be on the
+server's `PATH`. Initialization requires a local filesystem server, and the
+engine's own tools, `uv` and `git`, on the server's `PATH`; failures are
+displayed in the form and can be retried. After closing the form or
+reloading JupyterLab, run **Finish project setup** from the command palette to
+resume setup, including when `astra.yaml` already exists. The Create form also
+offers **Finish setup…** after inspecting an existing project. Both routes show
+the exact destination before running initialization; file presence alone does
+not imply setup completed. Each setup action opens a fresh form so an older
+draft cannot override a newly selected destination.
+
+After opening or creating a project, the file browser navigates there and the
+project launcher opens. Choose the agent, inventory, or viewer from the launcher.
+Choosing Lightcone Agent creates its chat file inside the project, which is also
+the working directory used by Jupyter AI's ACP client. Select a configured persona
+in Jupyter AI to start messaging; opening the chat does not send a message.
+Inventory and Lightcone Agent commands invoked in a folder without `astra.yaml`
+offer the same setup form.
+
 Open `astra.yaml` in the file browser, or select **Open With → Lightcone Lab**.
 The **Lightcone Lab** launcher category and command palette also offer
 **ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
@@ -41,13 +76,12 @@ tab, using the file's default viewer. Opening an artifact again reveals its
 existing tab. Paths, universe selection, validation, and artifact cache tokens
 come from `@astra-spec/sdk`.
 
-Inventory results show a small marker when `lc status` reports them as
+Inventory results show a small marker when the Lightcone engine reports them as
 **Behind** (still valid, but the environment moved since) or **Stale**
 (definition or input changed, hand-edited, or never materialized). Hover over it
-to see the state and the reason reported by the installed `lightcone-cli`
-(`lc status --json`); the states and reasons are the CLI's own. Current results
-show no extra marker. Status checks run every 15 seconds while the page is
-visible and after local file changes. CLI failures clear markers and show one
+to see the state and the reason; both are the engine's own, the ones `lc status`
+prints. Current results show no extra marker. Status checks run every 15 seconds while the page is
+visible and after local file changes. Engine failures clear markers and show one
 message in the headbar; status returns automatically after recovery. The
 integration currently covers local root-analysis outputs.
 
@@ -177,8 +211,7 @@ Jupyter AI as usual. With an inventory open (or its folder selected), run
 **Lightcone Agent** from the command palette or the **Lightcone Lab**
 launcher section at the top of the launcher page. The gold chat shortcut opens
 Jupyter Chat in the left sidebar and uses the
-launcher’s current folder. Outside an ASTRA project it shows guidance for opening
-a folder containing `astra.yaml`. The composer opens empty. Write your own message; when you send it, a short
+launcher’s current folder. Outside an ASTRA project it opens the folder-selection and project-creation form. The composer opens empty. Write your own message; when you send it, a short
 ASTRA context block is appended with the project and bound universe (or project
 defaults), so the agent receives the same context shown by the project chip.
 Each discussion keeps its project and universe fixed; start a new one to

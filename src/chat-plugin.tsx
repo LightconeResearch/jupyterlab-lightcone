@@ -11,10 +11,7 @@ import type {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
-import { ILauncher } from '@jupyterlab/launcher';
-import { PathExt } from '@jupyterlab/coreutils';
-import { CommandIDs } from './commands';
-import { ServerConnection } from '@jupyterlab/services';
+import { CommandIDs, requireProject } from './commands';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import {
   chatContexts,
@@ -24,6 +21,7 @@ import {
 } from './chat-context';
 import { acquireProjectDataService } from './project-data-service';
 import { parseElementReference } from './element-reference';
+import { projectDirectory } from './project-data';
 import { InventoryDocument } from './document-widget';
 
 /** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
@@ -35,7 +33,6 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     IChatTracker,
     ICommandPalette,
     IFileBrowserFactory,
-    ILauncher,
     ITranslator,
     IChatCommandRegistry
   ],
@@ -44,7 +41,6 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     tracker: IChatTracker | null,
     palette: ICommandPalette | null,
     browser: IFileBrowserFactory | null,
-    launcher: ILauncher | null,
     translator: ITranslator | null,
     chatCommands: IChatCommandRegistry | null
   ) => {
@@ -134,7 +130,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
               }}
             >
               {context
-                ? `✦ ${PathExt.dirname(context.entrypoint) || 'ASTRA'} · ${context.universeId ?? 'defaults'}`
+                ? `✦ ${projectDirectory(context.entrypoint) || 'ASTRA'} · ${context.universeId ?? 'defaults'}`
                 : (error ?? trans.__('Lightcone Agent'))}
             </button>
           );
@@ -171,43 +167,27 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
       execute: async args => {
         try {
           const current = app.shell.currentWidget;
-          const entrypoint =
+          // Match the inventory shortcut's guidance before creating any chat file.
+          const root = await requireProject(
+            app,
             typeof args.entrypoint === 'string'
-              ? args.entrypoint
+              ? { entrypoint: args.entrypoint }
               : typeof args.cwd === 'string'
-                ? PathExt.join(args.cwd, 'astra.yaml')
+                ? { directory: args.cwd }
                 : current instanceof InventoryDocument
-                  ? current.context.path
-                  : PathExt.join(
-                      browser?.tracker.currentWidget?.model.path ?? '',
-                      'astra.yaml'
-                    );
+                  ? { entrypoint: current.context.path }
+                  : {
+                      directory:
+                        browser?.tracker.currentWidget?.model.path ?? ''
+                    }
+          );
+          if (!root) return null;
+          const entrypoint = root.entrypoint;
           const reference = parseElementReference({
             ...args,
             entrypoint,
             target: typeof args.target === 'string' ? args.target : ''
           });
-          // Match the inventory shortcut's guidance before creating any chat file.
-          try {
-            await app.serviceManager.contents.get(reference.entrypoint, {
-              content: false
-            });
-          } catch (error) {
-            if (
-              error instanceof ServerConnection.ResponseError &&
-              error.response.status === 404
-            ) {
-              await showErrorMessage(
-                trans.__('No ASTRA project found'),
-                trans.__(
-                  'No ASTRA project file was found at "%1". Open a folder containing astra.yaml in the file browser, then choose Lightcone Agent.',
-                  reference.entrypoint
-                )
-              );
-              return null;
-            }
-            throw error;
-          }
           const lease = acquireProjectDataService(
             app.serviceManager.contents,
             entrypoint,
@@ -245,7 +225,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             const filepath: unknown = panel
               ? panel.model.name
               : await app.commands.execute('jupyterlab-chat:create', {
-                  path: PathExt.dirname(reference.entrypoint),
+                  path: projectDirectory(reference.entrypoint),
                   inSidePanel: true
                 });
             if (typeof filepath !== 'string' || !filepath)
@@ -285,12 +265,6 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     palette?.addItem({
       command: CommandIDs.discuss,
       category: 'Lightcone Lab'
-    });
-    launcher?.add({
-      command: CommandIDs.discuss,
-      category: 'Lightcone Lab',
-      categoryRank: -10,
-      rank: 0
     });
   }
 };

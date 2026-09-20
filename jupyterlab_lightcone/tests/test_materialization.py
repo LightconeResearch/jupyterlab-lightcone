@@ -1,53 +1,44 @@
-"""Status pass-through, a fixed read-only CLI command, and the authenticated endpoint."""
+"""Status pass-through from the Lightcone engine, and the authenticated endpoint."""
 import json
-from types import SimpleNamespace
 from unittest.mock import Mock
 
+from lightcone.engine.materialize import OutputStatus, StatusReport
 import pytest
 from tornado.web import HTTPError
 
-from jupyterlab_lightcone import materialization
+from jupyterlab_lightcone import materialization, projects
 
 ENDPOINT = ('jupyterlab_lightcone', 'api', 'materialization')
 
 
-def test_status_command_and_states(tmp_path, monkeypatch):
+def test_status_passes_the_engines_states_through(tmp_path, monkeypatch):
     rows = [
-        dict(output='baseline/a', status='current', why=''),
-        dict(output='baseline/b', status='behind', why='earlier environment'),
-        dict(output='baseline/c', status='stale', why='input changed'),
-        dict(output='baseline/d', status='stale', why='no manifest'),
+        ('baseline/a', 'current', ''),
+        ('baseline/b', 'behind', 'earlier environment'),
+        ('baseline/c', 'stale', 'input changed'),
     ]
-    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps({'outputs': rows})))
-    monkeypatch.setattr(materialization.shutil, 'which', lambda name: '/tools/lc')
-    monkeypatch.setattr(materialization.subprocess, 'run', run)
+    outputs = [OutputStatus(output, state, why, git_sha='', data_version='') for output, state, why in rows]
+    engine = Mock(return_value=StatusReport(outputs=outputs))
+    monkeypatch.setattr(materialization, 'current_project', lambda directory: directory)
+    monkeypatch.setattr(materialization, 'status', engine)
     report = materialization.read_status(tmp_path)['outputs']
-    assert [item['state'] for item in report.values()] == ['current', 'behind', 'stale', 'stale']
+    assert [item['state'] for item in report.values()] == ['current', 'behind', 'stale']
     assert report['baseline/b']['detail'] == 'earlier environment'
-    assert run.call_args.args == (['/tools/lc', 'status', '--json'],)
-    assert run.call_args.kwargs['cwd'] == tmp_path
-    assert run.call_args.kwargs['timeout'] == 30
-    assert not run.call_args.kwargs.get('shell')
+    engine.assert_called_once_with(tmp_path)
 
 
-def test_cli_unavailable(tmp_path, monkeypatch):
-    monkeypatch.setattr(materialization.shutil, 'which', lambda name: None)
-    with pytest.raises(HTTPError, match='not installed'):
+def test_a_folder_the_engine_cannot_read_is_unavailable(tmp_path):
+    with pytest.raises(HTTPError) as raised:
         materialization.read_status(tmp_path)
-
-
-@pytest.mark.parametrize('stdout', ['null', '{}', '{"outputs": {}}', '{"outputs": [{"status": "new-state"}]}'])
-def test_invalid_report_is_not_an_empty_success(tmp_path, monkeypatch, stdout):
-    monkeypatch.setattr(materialization.shutil, 'which', lambda name: '/tools/lc')
-    monkeypatch.setattr(materialization.subprocess, 'run', lambda *a, **kw: SimpleNamespace(returncode=0, stdout=stdout))
-    with pytest.raises(HTTPError, match='unsupported'):
-        materialization.read_status(tmp_path)
+    assert raised.value.status_code == 503
+    # jupyter_server replies with log_message as it stands, never formatted.
+    assert not raised.value.args
 
 
 @pytest.mark.parametrize('path', ['../astra.yaml', '/astra.yaml', 'drive:astra.yaml', 'other.yaml'])
 def test_rejects_nonlocal_project_paths(tmp_path, path):
     with pytest.raises(HTTPError):
-        materialization.project_root(tmp_path, path)
+        projects.project_root(tmp_path, path)
 
 
 def test_rejects_outside_symlink(tmp_path):
@@ -55,7 +46,7 @@ def test_rejects_outside_symlink(tmp_path):
     root.mkdir()
     (root / 'outside').symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(HTTPError):
-        materialization.project_root(root, 'outside/astra.yaml')
+        projects.project_root(root, 'outside/astra.yaml')
 
 
 async def test_status_endpoint(jp_fetch, jp_serverapp, monkeypatch):
@@ -81,15 +72,3 @@ async def test_requires_read_authorization(jp_fetch, jp_serverapp, monkeypatch):
     response = await jp_fetch(*ENDPOINT, params={'path': 'astra.yaml'}, raise_error=False)
     assert response.code == 403
     assert authorize.call_args.args[2:] == ('read', 'contents')
-
-
-@pytest.mark.parametrize('failure', ['timeout', 'exit'])
-def test_cli_failures_are_unavailable(tmp_path, monkeypatch, failure):
-    monkeypatch.setattr(materialization.shutil, 'which', lambda name: '/tools/lc')
-    run = Mock(return_value=SimpleNamespace(returncode=1, stdout=''))
-    if failure == 'timeout':
-        run.side_effect = materialization.subprocess.TimeoutExpired('lc', 30)
-    monkeypatch.setattr(materialization.subprocess, 'run', run)
-    with pytest.raises(HTTPError) as raised:
-        materialization.read_status(tmp_path)
-    assert raised.value.status_code == (504 if failure == 'timeout' else 503)

@@ -33,7 +33,10 @@ outputs:
         contentType: 'application/json',
         body: JSON.stringify(
           unavailable
-            ? { message: 'Lightcone CLI is not installed on this server' }
+            ? {
+                message:
+                  "Lightcone could not read this project's status:\nuv is required (the environment substrate)."
+              }
             : {
                 outputs: {
                   'default/plot': {
@@ -141,7 +144,7 @@ outputs:
     });
   }, `${tmpPath}/script.py`);
   await expect(error).toBeVisible();
-  await expect(error).toHaveAttribute('title', /not installed/);
+  await expect(error).toHaveAttribute('title', /uv is required/);
   await expect(page.locator('.astra-output-status')).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: 'Open figure: plot', exact: true })

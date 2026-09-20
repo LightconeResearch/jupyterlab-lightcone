@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 
 from jupyter_server.auth import authorized
-from jupyter_server.utils import ensure_async, url_path_join
+from jupyter_server.utils import url_path_join
 from tornado import web
 
-from .materialization import ProjectAPIHandler
+from .project_routes import ProjectAPIHandler, contents_call
+from .projects import inside_root
 
 MAX_RECORD_BYTES = 1_048_576
 _STRING_FIELDS = ("finished_at", "git_sha", "recipe", "env_version", "lc_version")
@@ -22,14 +23,11 @@ def record_path(project: Path, universe: str, output: str) -> Path:
     ID may. This endpoint never accepts an arbitrary hidden-file path.
     """
     if not output or any(c in output for c in "./\\\x00"):
-        raise web.HTTPError(400, reason="Invalid output identity")
+        raise web.HTTPError(400, "Invalid output identity")
     if not universe or universe.startswith(".") or any(c in universe for c in "/\\\x00"):
-        raise web.HTTPError(400, reason="Invalid output identity")
-    project = project.resolve()
-    path = (project / "results" / universe / f".{output}.manifest.json").resolve()
-    if not path.is_relative_to(project):
-        raise web.HTTPError(403, reason="Run record is outside the project")
-    return path
+        raise web.HTTPError(400, "Invalid output identity")
+    record = Path("results", universe, f".{output}.manifest.json")
+    return inside_root(project, record, "Run record is outside the project")
 
 
 def read_record(path: Path, universe: str, output: str) -> dict:
@@ -40,7 +38,7 @@ def read_record(path: Path, universe: str, output: str) -> dict:
     except FileNotFoundError:
         return {"record": None}
     except OSError as error:
-        raise web.HTTPError(503, reason="Run record could not be read") from error
+        raise web.HTTPError(503, "Run record could not be read") from error
     try:
         if len(data) > MAX_RECORD_BYTES:
             raise ValueError("Oversized record")
@@ -58,14 +56,14 @@ def read_record(path: Path, universe: str, output: str) -> dict:
             if not isinstance(values, dict) or any(not isinstance(value, str) for value in values.values()):
                 raise ValueError("Unsupported versions")
     except (ValueError, UnicodeError) as error:
-        raise web.HTTPError(502, reason="Run record has an unsupported format") from error
+        raise web.HTTPError(502, "Run record has an unsupported format") from error
     return {"record": record}
 
 
 class OutputProvenanceHandler(ProjectAPIHandler):
     """Authorize project access before reading its specifically named sidecar."""
 
-    unavailable_reason = "Run records require local files"
+    unavailable_message = "Run records require local files"
 
     @web.authenticated
     @authorized
@@ -78,9 +76,7 @@ class OutputProvenanceHandler(ProjectAPIHandler):
         # be visible/readable through the normal contents manager.
         if manifest.parent.exists():
             parent = manifest.parent.relative_to(self.contents_root).as_posix()
-            await ensure_async(
-                self.contents_manager.get(parent, content=False, type="directory")
-            )
+            await contents_call(self.contents_manager.get, parent, content=False, type="directory")
         self.finish(await asyncio.to_thread(read_record, manifest, universe, output))
 
 

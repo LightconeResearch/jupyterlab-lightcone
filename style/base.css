@@ -2,7 +2,8 @@
 @layer astra.tokens, astra.base, astra.components, astra.views, lightcone;
 
 /* Match the ASTRA mark without recoloring Jupyter Chat's shared icon. */
-.jp-jupyterlab-lightcone-AssistantIcon .jp-icon3 {
+.jp-jupyterlab-lightcone-AssistantIcon .jp-icon3,
+.jp-jupyterlab-lightcone-ProjectActionIcon .jp-icon3 {
   fill: var(--lc-palette-antique-gold, #a67c3c);
 }
 
@@ -163,12 +164,14 @@
 
   /* JupyterLab shares the first command icon between a section and its cards. */
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon,
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon {
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon,
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-ProjectActionIcon {
     background: url('./lightcone-logo.svg') center / contain no-repeat;
   }
 
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg,
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon > svg {
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon > svg,
+  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-ProjectActionIcon > svg {
     visibility: hidden;
   }
 
@@ -478,6 +481,94 @@
 .jp-jupyterlab-lightcone-MySTRA > .jp-IFrame {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* Project setup uses the host's theme and native controls. */
+.jp-jupyterlab-lightcone-ProjectSetup {
+  overflow: auto;
+  background: var(--jp-layout-color0);
+  color: var(--jp-ui-font-color1);
+  padding: 48px 32px;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup form {
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup h1 {
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup h2 {
+  font-size: 16px;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup p {
+  line-height: 1.6;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup label {
+  display: block;
+  margin-top: 28px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-path {
+  display: flex;
+  gap: 8px;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-path input {
+  flex: 1;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-hint {
+  color: var(--jp-ui-font-color2);
+  font-size: 12px;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-confirm {
+  margin: 24px 0;
+  padding: 16px;
+  background: var(--jp-layout-color1);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--jp-error-color1);
+}
+
+.jp-jupyterlab-lightcone-ProjectBrowser {
+  width: 620px;
+  height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.jp-jupyterlab-lightcone-ProjectBrowser > .jp-FileBrowser {
+  flex: 1;
+  min-height: 0;
+}
+
+.jp-jupyterlab-lightcone-ProjectBrowser > [role='status'] {
+  padding-bottom: 12px;
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-ProjectBadge {
+  margin: auto 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+  white-space: nowrap;
 }
 
 @layer lightcone {

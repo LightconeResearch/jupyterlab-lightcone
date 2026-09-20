@@ -14,6 +14,8 @@ jupyterlab_lightcone/_version.py
 # Integration tests
 ui-tests/test-results/
 ui-tests/playwright-report/
+# Snapshots and console logs from the Playwright MCP browser
+.playwright-mcp/
 
 # Created by https://www.gitignore.io/api/python
 # Edit at https://www.gitignore.io/?templates=python
