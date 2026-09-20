@@ -30,11 +30,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      # The native installer can report success without creating this directory.
-      # https://github.com/anthropics/claude-code-action/issues/1290
-      - name: Prepare Claude Code install directory
-        run: mkdir -p "$HOME/.local/bin"
-
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -52,3 +47,4 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
           # claude_args: '--allowed-tools Bash(gh pr *)'
+
