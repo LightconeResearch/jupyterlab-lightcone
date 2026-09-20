@@ -41,13 +41,27 @@ class LightconeApp(ExtensionApp):
         self._root_agents_in_projects()
 
     def _root_agents_in_projects(self):
-        """Start Jupyter AI agents at their project root; a no-op without Jupyter AI."""
+        """Start Jupyter AI agents at their project root; a no-op without Jupyter AI.
+
+        Optional and best-effort: no Jupyter AI incompatibility may stop the
+        inventory, viewer and paper routes from loading.
+        """
         try:
             from .agent_workspace import select_project_persona_manager
+
+            selected = select_project_persona_manager(self.serverapp)
         except ImportError:
             return
-        if select_project_persona_manager(self.serverapp):
-            self.log.info("Jupyter AI agents start in the ASTRA project that owns their chat.")
+        except Exception:
+            self.log.warning(
+                "Could not root Jupyter AI agents in their ASTRA project.", exc_info=True
+            )
+            return
+        self.log.info(
+            "Jupyter AI agents start in the ASTRA project that owns their chat."
+            if selected
+            else "Jupyter AI uses a configured persona manager; agent folders are unchanged."
+        )
 
     def initialize_handlers(self):
         """Preserve existing paper routes and add lazy MySTRA sessions."""

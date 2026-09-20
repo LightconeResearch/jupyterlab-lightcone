@@ -219,10 +219,12 @@ the root of the ASTRA project that owns the chat file: the nearest folder at or
 above the chat containing `astra.yaml`. Chats can therefore live beside
 `astra.yaml` or in a subfolder such as `chats/`, and `lc`, `astra` and relative
 paths work without naming the project. A chat outside any project keeps Jupyter
-AI's default, its own folder. Deployments that set
-`PersonaManagerExtension.persona_manager_class` themselves keep their class;
-subclass `jupyterlab_lightcone.agent_workspace.PersonaManager` to retain this
-behavior.
+AI's default, its own folder. A deployment that configures a different
+`PersonaManagerExtension.persona_manager_class` keeps its own class and opts out
+of this; subclass `jupyterlab_lightcone.agent_workspace.PersonaManager` to keep
+the behavior. Jupyter AI also looks for `.jupyter` (MCP settings, local personas)
+from this directory upward, so one stored below the project root, beside a chat
+in `chats/` for example, is no longer found.
 
 Ask the agent to show an ASTRA element in chat, for example:
 
@@ -232,8 +234,8 @@ The agent calls `lightcone_preview_element`, which inserts a rich MIME card into
 its conversation. Cards display the existing ASTRA previews directly, including
 supported figures and tables. Click a card to open it in a tab; links and controls
 inside the card keep their own actions. They persist in saved
-chats and resolve the current project data in the project's automatically
-selected universe.
+chats and resolve the current project data in the universe each card recorded
+when it was created.
 The text fallback remains readable without Lightcone installed. These cards work
 with both the stock Markdown renderer and `jupyterlab-myst` enabled.
 

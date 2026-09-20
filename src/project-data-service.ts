@@ -158,7 +158,7 @@ export class ProjectDataService implements IObservableDisposable {
         resolution.bundle.document.universe.source !== 'none'
       ) {
         throw new Error(
-          'Universe files were added. Start a new discussion to choose a universe.'
+          'This reference is pinned to project defaults, but the project now has universe files. Open the element from the inventory.'
         );
       }
       const changed = resolution.snapshot !== this._projectSnapshot;

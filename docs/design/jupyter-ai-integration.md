@@ -123,7 +123,8 @@ SDK canonical keys would instead remove existing reference syntax support.
 
 A chat belongs to the ASTRA project that owns its file: the nearest folder at or
 above the chat containing `astra.yaml`, never above the Contents root. The
-frontend (`findProjectRoot`) and the server (`projects.owning_project`) apply the
+frontend (`findProjectRoot`) and the server (`projects.owning_project`, through
+`projects.chat_project` for both the working directory and the tools) apply the
 same rule, so chats may live beside `astra.yaml` or in a subfolder such as
 `chats/`. Nothing is added to messages, stored in metadata, or bound per
 conversation; moving a chat to another project changes its project.
@@ -138,8 +139,17 @@ but the manager class is a public trait,
 overrides `get_chat_dir()` to return the owning project, falling back to the
 chat's folder outside any project. This covers every persona built on the base
 ACP client, not only ones we ship. `.jupyter` and workspace discovery also start
-from this directory; they walk upward, so only a `.jupyter` placed inside the
-chat subfolder itself would be skipped.
+from this directory and walk upward, so for a chat inside a project any
+`.jupyter` below that project's root, in the chat's own folder or between it and
+the root, is no longer found: its MCP servers and local personas silently stop
+applying. Chats the launcher creates sit at the project root and are unaffected.
+With no `.jupyter` or `.git` above it, Jupyter AI's workspace directory, where it
+saves and relativises attachments, is likewise the project root.
+
+The walk keeps paths logical rather than resolving symlinks, matching what the
+Contents API serves the browser, so a project symlinked out of the server root
+(a common JupyterHub home) is owned here exactly as it is in the UI. The routes
+that must not be escaped keep using `inside_root`, which still resolves.
 
 `jupyter_server_config.d` is read only for enabling extensions, so the trait
 cannot ship as static config. `LightconeApp` sets it on the live

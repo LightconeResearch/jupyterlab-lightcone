@@ -30,19 +30,42 @@ def project_root(root: Path, path: str) -> Path:
 def owning_project(root: Path, directory: Path) -> Path | None:
     """Find the nearest ASTRA project at or above `directory`, never leaving `root`.
 
-    Mirrors the frontend's `findProjectRoot`, so a chat kept in a project
-    subfolder such as `chats/` still belongs to that project.
+    The server-side counterpart of the frontend's `findProjectRoot`, so a chat
+    kept in a project subfolder such as `chats/` still belongs to that project.
+
+    Paths stay logical, exactly as the Contents API presents them, so a project
+    reached through a symlink out of the server root (a common JupyterHub home)
+    resolves the same way here as in the browser. `inside_root` still resolves
+    for the routes that must not be escaped; this walk only reads directories
+    Jupyter already serves. A non-file `astra.yaml` is skipped rather than an
+    error, unlike the frontend: an agent session must still get a directory.
     """
-    root = root.resolve()
-    current = (root / directory).resolve()
-    if not current.is_relative_to(root):
+    if ".." in directory.parts:
         return None
+    current = root / directory
     while True:
         if (current / "astra.yaml").is_file():
             return current
-        if current == root:
+        if current == root or root not in current.parents:
             return None
         current = current.parent
+
+
+def project_entrypoint(root: Path, project: Path) -> str:
+    """The Jupyter Contents path of a project's specification."""
+    relative = project.relative_to(root).as_posix()
+    return "astra.yaml" if relative == "." else f"{relative}/astra.yaml"
+
+
+def chat_project(manager) -> Path | None:
+    """The project owning a Jupyter AI persona manager's chat file.
+
+    The one rule behind both the agent's working directory and the project its
+    presentation tools address; only upstream's manager API is used, so it holds
+    for any manager class.
+    """
+    chat = Path(manager.get_chat_path(relative=True))
+    return owning_project(Path(manager.root_dir), chat.parent)
 
 
 def project_path(root: Path, value: str) -> Path:
@@ -75,7 +98,7 @@ def describe_project(root: Path, project: Path) -> dict:
     return {
         "path": path,
         "directory": str(project),
-        "entrypoint": f"{path}/astra.yaml" if path else "astra.yaml",
+        "entrypoint": project_entrypoint(root.resolve(), project),
         "hasSpec": spec.is_file(),
     }
 

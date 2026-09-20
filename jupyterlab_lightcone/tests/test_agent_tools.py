@@ -9,13 +9,28 @@ from jupyterlab_lightcone.agent_tools import lightcone_open_element
 
 
 @pytest.fixture
-def bridge(monkeypatch, tmp_path):
-    """Supply only the optional imports, so these tests also run without AI.
-
-    The calling chat lives in a subfolder of its project, not beside astra.yaml.
-    """
-    import sys
+def manager(monkeypatch, tmp_path):
+    """The calling chat lives in a subfolder of its project, not beside astra.yaml."""
     from jupyter_server.serverapp import ServerApp
+
+    (tmp_path / "project" / "chats").mkdir(parents=True)
+    (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
+    (tmp_path / "loose").mkdir()
+    manager = SimpleNamespace(
+        root_dir=str(tmp_path), chat_path="project/chats/talk.chat", personas={}
+    )
+    manager.get_chat_path = lambda relative=False: manager.chat_path
+    settings = {"jupyter-ai": {"persona-managers": {"origin-chat": manager}}}
+    monkeypatch.setattr(
+        ServerApp, "instance", lambda: SimpleNamespace(web_app=SimpleNamespace(settings=settings))
+    )
+    return manager
+
+
+@pytest.fixture
+def bridge(monkeypatch, manager):
+    """Supply only the optional imports, so these tests also run without AI."""
+    import sys
 
     toolkit = ModuleType("jupyterlab_commands_toolkit.tools")
     toolkit.target_client_id = ContextVar("test_client", default=None)
@@ -26,19 +41,6 @@ def bridge(monkeypatch, tmp_path):
     dependencies.get_http_headers = lambda: {"x-jupyter-chat-id": "origin-chat"}
     monkeypatch.setitem(sys.modules, "jupyterlab_commands_toolkit.tools", toolkit)
     monkeypatch.setitem(sys.modules, "fastmcp.server.dependencies", dependencies)
-    (tmp_path / "project" / "chats").mkdir(parents=True)
-    (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
-    (tmp_path / "loose").mkdir()
-    toolkit.manager = SimpleNamespace(
-        root_dir=str(tmp_path),
-        chat_path="project/chats/talk.chat",
-        personas={},
-    )
-    toolkit.manager.get_chat_path = lambda relative=False: toolkit.manager.chat_path
-    settings = {"jupyter-ai": {"persona-managers": {"origin-chat": toolkit.manager}}}
-    monkeypatch.setattr(
-        ServerApp, "instance", lambda: SimpleNamespace(web_app=SimpleNamespace(settings=settings))
-    )
     return toolkit
 
 
@@ -63,8 +65,8 @@ async def test_project_comes_from_the_calling_chat_not_the_agent(bridge):
 
 
 @pytest.mark.parametrize("chat_path", ["loose/talk.chat", "talk.chat"])
-async def test_chat_outside_any_project_is_rejected(bridge, chat_path):
-    bridge.manager.chat_path = chat_path
+async def test_chat_outside_any_project_is_rejected(bridge, manager, chat_path):
+    manager.chat_path = chat_path
     token = bridge.target_client_id.set("origin-browser")
     try:
         result = await lightcone_open_element("decisions.method")
@@ -88,7 +90,7 @@ async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
 
 
 @pytest.fixture
-def persona(bridge, monkeypatch):
+def persona(bridge, manager, monkeypatch):
     """Model the persisted chat contract without installing optional AI packages."""
     import sys
     from dataclasses import asdict, dataclass
@@ -128,7 +130,7 @@ def persona(bridge, monkeypatch):
             add_message=Mock(side_effect=add_message),
         ),
     )
-    bridge.manager.personas["agent"] = agent
+    manager.personas["agent"] = agent
     bridge.execute_command.return_value = {"success": True, "result": {
         "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline", "label": "Figure"
     }}

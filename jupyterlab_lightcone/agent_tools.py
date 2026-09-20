@@ -24,16 +24,13 @@ def _origin_entrypoint() -> str | None:
     """Contents path of the astra.yaml that owns the calling chat's folder."""
     from pathlib import Path
 
-    from .projects import owning_project
+    from .projects import chat_project, project_entrypoint
 
     manager = _origin_manager()
-    if manager is None:
-        return None
-    root = Path(manager.root_dir).resolve()
-    project = owning_project(root, Path(manager.get_chat_path(relative=True)).parent)
+    project = chat_project(manager) if manager else None
     if project is None:
         return None
-    return (project.relative_to(root) / "astra.yaml").as_posix()
+    return project_entrypoint(Path(manager.root_dir), project)
 
 
 async def _command(name: str, args: dict) -> dict:

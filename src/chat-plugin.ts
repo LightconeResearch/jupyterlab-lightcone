@@ -61,36 +61,57 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
                     }
           );
           if (!root) return null;
-          const reference = parseElementReference({
-            ...args,
+          const { entrypoint, target } = parseElementReference({
             entrypoint: root.entrypoint,
             target: typeof args.target === 'string' ? args.target : ''
           });
           // The server roots the agent in whichever project owns the chat file,
           // so a record shortcut may reuse any open chat stored in this project.
           let panel: IChatPanel | undefined;
-          if (reference.target || reference.doi) {
-            const open: IChatPanel[] = [];
-            tracker.forEach(item => {
-              if (!item.isDisposed && item.area === 'sidebar') open.push(item);
-            });
-            for (const item of open) {
-              const owner = await findProjectRoot(
-                app.serviceManager.contents,
-                projectDirectory(item.model.name)
-              );
-              if (owner?.entrypoint === reference.entrypoint) {
-                panel = item;
-                break;
+          if (target) {
+            // Only chats under the project folder can belong to it; a nested
+            // project may still own them, so confirm those candidates. An
+            // unreadable chat elsewhere must not fail the whole command.
+            const contents = app.serviceManager.contents;
+            const drive = contents.driveName(root.entrypoint);
+            const underProject = (chat: string) => {
+              let directory: string;
+              try {
+                directory = projectDirectory(chat);
+              } catch {
+                return undefined;
               }
-            }
+              return contents.driveName(directory) === drive &&
+                (!root.path ||
+                  directory === root.path ||
+                  directory.startsWith(`${root.path}/`))
+                ? directory
+                : undefined;
+            };
+            const candidates: IChatPanel[] = [];
+            const directories: string[] = [];
+            tracker.forEach(item => {
+              if (item.isDisposed || item.area !== 'sidebar') return;
+              const directory = underProject(item.model.name);
+              if (directory === undefined) return;
+              candidates.push(item);
+              directories.push(directory);
+            });
+            const owners = await Promise.all(
+              directories.map(directory =>
+                findProjectRoot(contents, directory).catch(() => undefined)
+              )
+            );
+            panel = candidates.find(
+              (_item, index) => owners[index]?.entrypoint === entrypoint
+            );
           }
           const reused = !!panel;
           const draft = panel?.model.input.value ?? '';
           const filepath: unknown = panel
             ? panel.model.name
             : await app.commands.execute('jupyterlab-chat:create', {
-                path: projectDirectory(reference.entrypoint),
+                path: root.path,
                 inSidePanel: true
               });
           if (typeof filepath !== 'string' || !filepath)
@@ -108,11 +129,11 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
             throw new Error(
               'The chat did not open. Check that Jupyter AI is enabled.'
             );
-          const id = await panel.model.ready;
-          if (reference.target || reference.doi)
-            panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${reference.doi ? `DOI ${reference.doi}` : reference.target}.`;
+          await panel.model.ready;
+          if (target)
+            panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${target}.`;
           panel.model.input.focus();
-          return { entrypoint: reference.entrypoint, chatId: id, reused };
+          return { entrypoint, reused };
         } catch (reason) {
           await showErrorMessage(
             trans.__('Could not open Lightcone Agent'),
