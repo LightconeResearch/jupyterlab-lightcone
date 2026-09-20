@@ -19,12 +19,11 @@ class LightconePersona(BasePersona):
         )
 
     async def process_message(self, message: Message) -> None:
-        # Inspect the body an ACP persona forwards, not Lightcone's metadata.
+        # Report what an ACP persona would forward: the body and the session folder.
         if message.body.startswith("Compare the options."):
-            self.send_message("Agent received: " + message.body)
+            session = os.path.relpath(self.get_chat_dir(), self.parent.root_dir)
+            self.send_message(f"Agent received: [{message.body}] in [{session}]")
             return
-        if "Use project defaults (no universe override)" not in message.body:
-            raise RuntimeError("The submitted prompt omitted project defaults")
         server = next(s for s in self.get_mcp_settings().mcp_servers if isinstance(s, McpServerHttp))
         headers = {header.name: header.value for header in server.headers}
         async with (
@@ -36,13 +35,12 @@ class LightconePersona(BasePersona):
             lightcone_tools = {tool.name for tool in available.tools if tool.name.startswith("lightcone_")}
             if lightcone_tools != {"lightcone_preview_element", "lightcone_open_element"}:
                 raise RuntimeError(f"Unexpected Lightcone tools: {lightcone_tools}")
-            entrypoint = message.metadata["lightcone"]["entrypoint"]
-            result = await session.call_tool("lightcone_open_element", {"entrypoint": entrypoint, "target": "decisions.method"})
+            result = await session.call_tool("lightcone_open_element", {"target": "decisions.method"})
             if result.isError or not result.structuredContent.get("success"):
                 raise RuntimeError(str(result))
 
             for target in ["decisions.method", "outputs.figure", "outputs.figure"]:
-                preview = await session.call_tool("lightcone_preview_element", {"entrypoint": entrypoint, "target": target})
+                preview = await session.call_tool("lightcone_preview_element", {"target": target})
                 if preview.isError or not preview.structuredContent.get("success"):
                     raise RuntimeError(str(preview))
 

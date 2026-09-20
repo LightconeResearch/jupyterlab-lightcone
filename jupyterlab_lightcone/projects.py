@@ -27,6 +27,24 @@ def project_root(root: Path, path: str) -> Path:
     return inside_root(root, Path(path), "Project is outside the contents root").parent
 
 
+def owning_project(root: Path, directory: Path) -> Path | None:
+    """Find the nearest ASTRA project at or above `directory`, never leaving `root`.
+
+    Mirrors the frontend's `findProjectRoot`, so a chat kept in a project
+    subfolder such as `chats/` still belongs to that project.
+    """
+    root = root.resolve()
+    current = (root / directory).resolve()
+    if not current.is_relative_to(root):
+        return None
+    while True:
+        if (current / "astra.yaml").is_file():
+            return current
+        if current == root:
+            return None
+        current = current.parent
+
+
 def project_path(root: Path, value: str) -> Path:
     """Resolve an entered directory within the server's filesystem boundary."""
     if not isinstance(value, str) or not value.strip() or "\x00" in value:

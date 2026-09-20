@@ -211,12 +211,18 @@ Jupyter AI as usual. With an inventory open (or its folder selected), run
 **Lightcone Agent** from the command palette or the **Lightcone Lab**
 launcher section at the top of the launcher page. The gold chat shortcut opens
 Jupyter Chat in the left sidebar and uses the
-launcher’s current folder. Outside an ASTRA project it opens the folder-selection and project-creation form. The composer opens empty. Write your own message; when you send it, a short
-ASTRA context block is appended with the project and bound universe (or project
-defaults), so the agent receives the same context shown by the project chip.
-Each discussion keeps its project and universe fixed; start a new one to
-change them. The project chip shows that binding, including after reopening a
-saved `.chat` file.
+launcher’s current folder. Outside an ASTRA project it opens the folder-selection and project-creation form. The composer opens empty, and your
+message is sent to the agent exactly as written: Lightcone adds no context text.
+
+Instead, the agent starts in the right place. Its session's working directory is
+the root of the ASTRA project that owns the chat file: the nearest folder at or
+above the chat containing `astra.yaml`. Chats can therefore live beside
+`astra.yaml` or in a subfolder such as `chats/`, and `lc`, `astra` and relative
+paths work without naming the project. A chat outside any project keeps Jupyter
+AI's default, its own folder. Deployments that set
+`PersonaManagerExtension.persona_manager_class` themselves keep their class;
+subclass `jupyterlab_lightcone.agent_workspace.PersonaManager` to retain this
+behavior.
 
 Ask the agent to show an ASTRA element in chat, for example:
 
@@ -226,17 +232,22 @@ The agent calls `lightcone_preview_element`, which inserts a rich MIME card into
 its conversation. Cards display the existing ASTRA previews directly, including
 supported figures and tables. Click a card to open it in a tab; links and controls
 inside the card keep their own actions. They persist in saved
-chats and resolve the current project data in the conversation's fixed universe.
+chats and resolve the current project data in the project's automatically
+selected universe.
 The text fallback remains readable without Lightcone installed. These cards work
 with both the stock Markdown renderer and `jupyterlab-myst` enabled.
 
 The agent reads `astra.yaml` and referenced project files directly using its
 existing file tools. The built-in Jupyter MCP server adds two presentation tools:
 
-- `lightcone_preview_element`: display a card in chat (the default presentation).
-- `lightcone_open_element`: open or reuse a native ASTRA tab.
+- `lightcone_preview_element(target)`: display a card in chat (the default presentation).
+- `lightcone_open_element(target)`: open or reuse a native ASTRA tab.
 
-Tools require a connected originating browser and a bound Lightcone discussion.
+`target` is an element path such as `decisions.covariance_source`. The project is
+the one that owns the calling chat, the same rule that roots the agent's shell,
+so the agent never passes a project path. Multiple universes are not yet
+selectable from chat. Tools require a connected originating browser and a chat
+stored inside an ASTRA project.
 Cards are attributed to the calling agent; repeated previews of the same target
 in one prompt reuse the card.
 Existing agent terminal tools, `lc`, and research skills remain available through

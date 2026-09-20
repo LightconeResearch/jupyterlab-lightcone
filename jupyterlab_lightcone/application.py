@@ -38,6 +38,16 @@ class LightconeApp(ExtensionApp):
     def initialize_settings(self):
         """Prepare the environment the in-process Lightcone engine relies on."""
         expose_engine_tools()
+        self._root_agents_in_projects()
+
+    def _root_agents_in_projects(self):
+        """Start Jupyter AI agents at their project root; a no-op without Jupyter AI."""
+        try:
+            from .agent_workspace import select_project_persona_manager
+        except ImportError:
+            return
+        if select_project_persona_manager(self.serverapp):
+            self.log.info("Jupyter AI agents start in the ASTRA project that owns their chat.")
 
     def initialize_handlers(self):
         """Preserve existing paper routes and add lazy MySTRA sessions."""

@@ -253,7 +253,7 @@ prior_insights:
   await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
   ).toContainText('outputs.figure');
-  // The binding survives a full browser reload and reopening the persisted chat.
+  // Cards survive a full browser reload and reopening the persisted chat.
   await page.reload({ waitForIsReady: false });
   await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
   await page.evaluate(async filepath => {
@@ -264,13 +264,10 @@ prior_insights:
   }, `${tmpPath}/untitled.chat`);
   await expect(cards).toHaveCount(2);
   await expect(figure.locator('img')).toBeVisible();
-  await expect(
-    page.locator('.jp-jupyterlab-lightcone-chat-context')
-  ).toContainText('defaults');
   expect(errors).toEqual([]);
 });
 
-test('empty chats send their bound universe with the user message and preserve reused drafts', async ({
+test('a chat in a project subfolder sends the message unchanged and roots the agent in the project', async ({
   page,
   tmpPath
 }) => {
@@ -285,74 +282,75 @@ test('empty chats send their bound universe with the user message and preserve r
   );
   await page.contents.uploadContent(
     `version: "0.0.14"
-name: Multiple universes
+name: Chats folder
 inputs: []
-outputs: []
+outputs:
+  - id: figure
+    type: figure
+    format: svg
 decisions:
   method:
     label: Which estimator?
     options:
       robust:
         label: Robust estimator
-      fast:
-        label: Fast estimator
     default: robust
+    rationale: Stable under perturbations.
 `,
     'text',
     entrypoint
   );
-  for (const [id, option] of [
-    ['baseline', 'robust'],
-    ['alternate', 'fast']
-  ])
-    await page.contents.uploadContent(
-      `id: ${id}\ndecisions:\n  method: ${option}\n`,
-      'text',
-      `${tmpPath}/universes/${id}.yaml`
+  await page.contents.createDirectory(`${tmpPath}/chats`);
+  const filepath = await page.evaluate(async directory => {
+    const created = await window.jupyterapp.commands.execute(
+      'jupyterlab-chat:create',
+      { path: directory, inSidePanel: true }
     );
+    await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
+      filepath: created,
+      inSidePanel: true
+    });
+    return created;
+  }, `${tmpPath}/chats`);
+  expect(filepath).toContain(`${tmpPath}/chats/`);
   const composer = page
     .locator('.jp-chat-input-container')
     .getByRole('combobox');
-  const chatIds = new Set<string>();
-  for (const universeId of ['baseline', 'alternate']) {
-    const context = await page.evaluate(
-      async args =>
-        window.jupyterapp.commands.execute(
-          'jupyterlab_lightcone:discuss',
-          args
-        ),
-      { entrypoint, universeId }
-    );
-    expect(context.universeId).toBe(universeId);
-    chatIds.add(context.chatId);
-    await expect(composer).toHaveText('');
-    await composer.fill('Compare the options.');
-    const reused = await page.evaluate(
-      async args =>
-        window.jupyterapp.commands.execute(
-          'jupyterlab_lightcone:discuss',
-          args
-        ),
-      { entrypoint, universeId, target: 'decisions.method' }
-    );
-    expect(reused.reused).toBe(true);
-    await expect(composer).toContainText('Compare the options.');
-    await expect(composer).toContainText(
-      'Discuss ASTRA element decisions.method.'
-    );
-    await expect(composer).not.toContainText('ASTRA context:');
-    await page.locator('.jp-chat-send-button').click();
-    const received = page
+  await composer.fill('Compare the options.');
+  // A record shortcut reuses the project's open chat, wherever it is stored.
+  const reused = await page.evaluate(
+    async args =>
+      window.jupyterapp.commands.execute('jupyterlab_lightcone:discuss', args),
+    { entrypoint, target: 'decisions.method' }
+  );
+  expect(reused.reused).toBe(true);
+  await expect(composer).toContainText('Compare the options.');
+  await expect(composer).toContainText(
+    'Discuss ASTRA element decisions.method.'
+  );
+  await page.locator('.jp-chat-send-button').click();
+  const received = page
+    .locator('.jp-chat-rendered-message')
+    .filter({ hasText: 'Agent received:' });
+  // Nothing is appended for the agent, and its session starts at the project root.
+  await expect(received).toContainText(
+    'Discuss ASTRA element decisions.method.] in [',
+    { timeout: 30000 }
+  );
+  await expect(received).toContainText(`in [${tmpPath}]`);
+  await expect(
+    page
       .locator('.jp-chat-rendered-message')
-      .filter({ hasText: 'Agent received:' });
-    await expect(received).toContainText(
-      new RegExp(`Use the bound universe ["“]${universeId}["”]`),
-      { timeout: 30000 }
-    );
-    await expect(received).toContainText(entrypoint);
-    await expect(composer).toHaveText('');
-  }
-  expect(chatIds.size).toBe(2);
+      .filter({ hasText: 'ASTRA context' })
+  ).toHaveCount(0);
+  await expect(composer).toHaveText('');
+  // The one-argument tools find the project from the chat's location.
+  await composer.fill('Show the decision.');
+  await page.locator('.jp-chat-send-button').click();
+  await expect(page.locator('.jp-jupyterlab-lightcone-element')).toContainText(
+    'Stable under perturbations.',
+    { timeout: 45000 }
+  );
 });
 
 test('opens only cited papers as native tabs without downloading them', async ({
