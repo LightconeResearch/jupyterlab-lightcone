@@ -354,5 +354,5 @@ The ASTRA appearance follows the publication reference through the shared brand
 adapter. Font assets, type sizes and kind marks come from the shared packages;
 this extension owns layout, theme synchronization and the `astra-isolate` scope.
 
-The shared rendering contract uses published `@astra-spec/ui` 0.0.5 and
+The shared rendering contract uses published `@astra-spec/ui` 0.0.7 and
 `@lightcone-research/brand` 0.0.3, installed from npm.
