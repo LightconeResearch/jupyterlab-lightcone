@@ -121,6 +121,42 @@ Inventory**, and by polling while the browser is visible. Multiple views of the
 same project share that work. A transient invalid edit preserves the last valid
 view and displays a notice until the project recovers.
 
+### Lightcone Lab Tour
+
+The first time JupyterLab opens with the extension, a notification offers the
+**Lightcone Lab Tour**; **Start now** runs it and **Don't show me again**
+declines it. jupyterlab-tour remembers either answer per user, in the server's
+config directory, so the offer is made once. The tour is always available from
+**Help › Lightcone Lab Tour** and from the command palette under
+**Lightcone Lab**.
+
+The tour walks through the launcher section for the current state: **Create
+project** and **Open project** outside a project, and **Lightcone Agent**,
+**ASTRA Inventory** and **MySTRA Viewer** inside one. Then it explains how
+Lightcone Agent reaches a coding agent through Jupyter AI and the Agent Client
+Protocol (ACP), and checks this server for the adapters of Claude Code, Codex
+and OpenCode. Jupyter AI leaves out an agent whose adapter is missing without
+saying so in the chat, so the check names each adapter, whether it is on the
+server's `PATH`, and the command to install it where JupyterLab runs:
+
+| Agent       | Install                                                | Sign in               |
+| ----------- | ------------------------------------------------------ | --------------------- |
+| Claude Code | `npm install -g @agentclientprotocol/claude-agent-acp` | `claude`              |
+| Codex       | `npm install -g @agentclientprotocol/codex-acp`        | `codex login`         |
+| OpenCode    | `npm install -g opencode-ai`                           | `opencode auth login` |
+
+Node.js 22 or later with npm is needed first; in a conda environment, run
+`conda install nodejs` in that environment so the adapters land on the server's
+`PATH`. After installing an adapter, restart the Jupyter server or send
+`/refresh-personas` in a chat, then pick the agent in the persona menu beside
+the chat composer. The check reads `GET jupyterlab_lightcone/api/agents`, which
+looks adapters up and installs nothing.
+
+Deployments that do not want JupyterLab's own Welcome and Notebook tours can
+disable the `jupyterlab-tour:default-tours` plugin; the Lightcone Lab Tour is
+unaffected. Without jupyterlab-tour, the extension registers no tour and
+everything else works as before.
+
 ### Project updates
 
 While a project is open in an inventory, record, or chat view, a small JupyterLab
@@ -204,8 +240,11 @@ support continuous scrolling, zoom, and navigation to cited passages.
 
 ### Jupyter AI: rich references and agent navigation
 
-Jupyter AI 3.2 (Jupyter Chat 0.25) is installed with the extension. Configure an agent through
-Jupyter AI as usual. With an inventory open (or its folder selected), run
+Jupyter AI 3.2 (Jupyter Chat 0.25) is installed with the extension, together
+with [jupyterlab-tour](https://github.com/jupyterlab-contrib/jupyterlab-tour).
+Configure an agent through Jupyter AI as usual, or follow the
+[Lightcone Lab Tour](#lightcone-lab-tour), which checks this server for agent
+adapters and shows what to install. With an inventory open (or its folder selected), run
 **Lightcone Agent** from the command palette or the **Lightcone Lab**
 launcher section at the top of the launcher page. The gold chat shortcut opens
 Jupyter Chat in the left sidebar and uses the

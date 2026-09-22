@@ -11,7 +11,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from astra.papers.cache import PaperCache
+from jupyter_server.services.config.manager import ConfigManager
 from jupyterlab.galata import configure_jupyter_server
+from traitlets import default
 
 configure_jupyter_server(c)
 
@@ -45,8 +47,31 @@ atexit.register(test_config.cleanup)
 labconfig = Path(test_config.name, "labconfig")
 labconfig.mkdir()
 (labconfig / "page_config.json").write_text(json.dumps({
-    "disabledExtensions": {"jupyterlab-myst": os.environ.get("LIGHTCONE_TEST_MYST") != "1"}
+    "disabledExtensions": {
+        "jupyterlab-myst": os.environ.get("LIGHTCONE_TEST_MYST") != "1",
+        # Only the Lightcone Lab tour is under test; JupyterLab's own tours would add toasts.
+        "jupyterlab-tour:default-tours": True,
+    }
 }))
 os.environ["JUPYTER_CONFIG_PATH"] = os.pathsep.join(filter(None, [
     test_config.name, os.environ.get("JUPYTER_CONFIG_PATH")
 ]))
+
+
+class TestConfigManager(ConfigManager):
+    """Keep frontend state, such as which tours were taken, out of the developer's config.
+
+    Every run then starts with the tour unseen, and taking it in a test never
+    marks it seen for the developer's own JupyterLab.
+    """
+
+    @default("read_config_path")
+    def _default_read_config_path(self):
+        return [os.path.join(test_config.name, self.config_dir_name)]
+
+    @default("write_config_dir")
+    def _default_write_config_dir(self):
+        return os.path.join(test_config.name, self.config_dir_name)
+
+
+c.ServerApp.config_manager_class = TestConfigManager

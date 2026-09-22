@@ -84,6 +84,54 @@ export async function projectFolders(
   }
 }
 
+export interface IAgentAdapter {
+  id: string;
+  name: string;
+  persona: string;
+  executable: string;
+  install: string;
+  login: string;
+  docs: string;
+  installed: boolean;
+  offered: boolean;
+}
+
+export interface IAgentReadiness {
+  npm: boolean;
+  agents: IAgentAdapter[];
+}
+
+/** Look up, without installing anything, which ACP agent adapters the server can run. */
+export async function fetchAgentReadiness(
+  settings: ServerConnection.ISettings
+): Promise<IAgentReadiness> {
+  try {
+    const data = await requestAPI('api/agents', settings);
+    if (
+      !isRecord(data) ||
+      typeof data.npm !== 'boolean' ||
+      !Array.isArray(data.agents) ||
+      !data.agents.every(isAgentAdapter)
+    ) {
+      throw new Error('The server returned an invalid agent report.');
+    }
+    return { npm: data.npm, agents: data.agents };
+  } catch (error) {
+    throw new RequestError('Agent check', error);
+  }
+}
+
+function isAgentAdapter(value: unknown): value is IAgentAdapter {
+  return (
+    isRecord(value) &&
+    ['id', 'name', 'persona', 'executable', 'install', 'login', 'docs'].every(
+      key => typeof value[key] === 'string'
+    ) &&
+    typeof value.installed === 'boolean' &&
+    typeof value.offered === 'boolean'
+  );
+}
+
 /**
  * Tell the server which project the workbench is in, or null outside every
  * project. Chats stored outside a project join it when they are first used.

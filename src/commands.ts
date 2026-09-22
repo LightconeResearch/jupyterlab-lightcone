@@ -39,6 +39,7 @@ export namespace CommandIDs {
   export const discuss = 'jupyterlab_lightcone:discuss';
   export const openInventory = 'jupyterlab_lightcone:open-inventory';
   export const refresh = 'jupyterlab_lightcone:refresh';
+  export const tour = 'jupyterlab_lightcone:tour';
 }
 
 /** Where a command looks for its project: a known spec, or a folder to search from. */

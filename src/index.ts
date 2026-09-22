@@ -17,6 +17,7 @@ import { chatPlugin } from './chat-plugin';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
 import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
+import { tourPlugin } from './tour';
 import { astraMimePlugin } from './astra-mime';
 import { registerElementCommands } from './element-commands';
 import { configureProjectLauncher } from './project-launcher';
@@ -143,5 +144,6 @@ export default [
   plugin,
   astraMimePlugin,
   chatPlugin,
-  projectNotificationsPlugin
+  projectNotificationsPlugin,
+  tourPlugin
 ];

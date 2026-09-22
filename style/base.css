@@ -632,3 +632,75 @@
     text-underline-offset: 3px;
   }
 }
+
+/* The tour's agent check renders inside jupyterlab-tour's tooltip, which
+   follows the JupyterLab theme, so it uses the same tokens as the shell. */
+.jp-jupyterlab-lightcone-TourAgents {
+  text-align: left;
+}
+
+.jp-jupyterlab-lightcone-TourAgents ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.jp-jupyterlab-lightcone-TourAgents li {
+  margin: 6px 0;
+}
+
+.jp-jupyterlab-lightcone-TourAgents-state {
+  margin-left: 6px;
+  font-size: 0.85em;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.jp-jupyterlab-lightcone-TourAgents-ready
+  .jp-jupyterlab-lightcone-TourAgents-state {
+  color: var(--jp-success-color1);
+}
+
+.jp-jupyterlab-lightcone-TourAgents-missing
+  .jp-jupyterlab-lightcone-TourAgents-state {
+  color: var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-TourAgents-install {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.jp-jupyterlab-lightcone-TourAgents code {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--jp-layout-color2);
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  user-select: all;
+}
+
+.jp-jupyterlab-lightcone-TourAgents button {
+  padding: 2px 8px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 3px;
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-TourAgents button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jp-jupyterlab-lightcone-TourAgents button:hover:not(:disabled) {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-TourAgents-error {
+  color: var(--jp-error-color1);
+}

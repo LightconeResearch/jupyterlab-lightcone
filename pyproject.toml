@@ -28,7 +28,9 @@ dependencies = [
     # The engine is called in-process and promises no stable API: raise the
     # cap only once the suite passes against the new minor release.
     "lightcone-cli>=0.5.0rc2,<0.6",
-    "jupyter-ai>=3.2.0,<3.3"
+    "jupyter-ai>=3.2.0,<3.3",
+    # Provides the Lightcone Lab tour; the extension talks to it through its commands only.
+    "jupyterlab-tour>=4.0.1,<5",
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 

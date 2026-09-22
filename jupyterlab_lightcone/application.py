@@ -3,6 +3,7 @@
 from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
+from .agent_routes import setup_agent_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
 from .mystra import MySTRAManager
@@ -68,6 +69,7 @@ class LightconeApp(ExtensionApp):
         app = self.serverapp.web_app
         setup_route_handlers(app)
         setup_project_handlers(app)
+        setup_agent_handlers(app)
         setup_materialization_handlers(app)
         setup_provenance_handlers(app)
         self.manager = MySTRAManager(

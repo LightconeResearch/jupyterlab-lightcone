@@ -1,5 +1,10 @@
 import { ServerConnection } from '@jupyterlab/services';
-import { collectPaperMetadata, fetchPaper, paperPdfUrl } from '../api';
+import {
+  collectPaperMetadata,
+  fetchAgentReadiness,
+  fetchPaper,
+  paperPdfUrl
+} from '../api';
 
 const settings = ServerConnection.makeSettings({
   baseUrl: 'https://example.org/user/researcher/'
@@ -97,5 +102,34 @@ it('does not render server HTML in user-facing errors', async () => {
     );
   await expect(fetchPaper('10.1234/paper', settings)).rejects.toThrow(
     'Paper request failed (502):'
+  );
+});
+
+it('reads the agent report from the extension API and rejects a malformed one', async () => {
+  const request = jest.spyOn(ServerConnection, 'makeRequest');
+  const claude = {
+    id: 'claude',
+    name: 'Claude Code',
+    persona: 'claude-acp',
+    executable: 'claude-agent-acp',
+    install: 'npm install -g @agentclientprotocol/claude-agent-acp',
+    login: 'claude',
+    docs: 'https://github.com/agentclientprotocol/claude-agent-acp',
+    installed: false,
+    offered: true
+  };
+  request.mockResolvedValueOnce(
+    new Response(JSON.stringify({ npm: true, agents: [claude] }))
+  );
+  const report = await fetchAgentReadiness(settings);
+  expect(new URL(request.mock.calls[0][0]).pathname).toBe(
+    '/user/researcher/jupyterlab_lightcone/api/agents'
+  );
+  expect(report).toEqual({ npm: true, agents: [claude] });
+  request.mockResolvedValueOnce(
+    new Response(JSON.stringify({ npm: 'yes', agents: [] }))
+  );
+  await expect(fetchAgentReadiness(settings)).rejects.toThrow(
+    'Agent check request failed: The server returned an invalid agent report.'
   );
 });
