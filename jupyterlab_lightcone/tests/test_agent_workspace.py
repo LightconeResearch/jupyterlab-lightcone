@@ -1,4 +1,4 @@
-"""Agents start in the project that owns their chat, wherever the chat is stored."""
+"""Agents start in the project their chat belongs to, wherever the chat is stored."""
 import logging
 from pathlib import Path
 import sys
@@ -11,6 +11,8 @@ import pytest
 def root(tmp_path):
     (tmp_path / "project" / "chats").mkdir(parents=True)
     (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "astra.yaml").write_text("name: other\n")
     (tmp_path / "loose").mkdir()
     return tmp_path
 
@@ -21,20 +23,99 @@ def _server(*apps):
     ))
 
 
+class Chat:
+    """The parts of a Jupyter Chat document the manager reads and writes."""
+
+    def __init__(self, path, metadata=None):
+        self.path = path
+        self.metadata = dict(metadata or {})
+
+    def get_path(self):
+        return self.path
+
+    def get_metadata(self):
+        return dict(self.metadata)
+
+    def set_metadata(self, name, value):
+        self.metadata[name] = value
+
+
+def _manager(root, chat, current=None):
+    """A manager on a server whose browser reported `current`, without loading personas."""
+    extension = pytest.importorskip("jupyter_ai_persona_manager.extension")
+    from jupyterlab_lightcone.agent_workspace import PersonaManager
+    from jupyterlab_lightcone.projects import CURRENT_PROJECT
+
+    parent = extension.PersonaManagerExtension()
+    parent.serverapp = SimpleNamespace(web_app=SimpleNamespace(settings={CURRENT_PROJECT: current}))
+    # Skip the constructor, which loads personas and needs a running server.
+    manager = PersonaManager.__new__(PersonaManager)
+    manager.parent = parent
+    manager.root_dir = str(root)
+    manager.chat = chat if isinstance(chat, Chat) else Chat(chat)
+    manager.log = logging.getLogger("test")
+    return manager
+
+
+def _report(manager, current):
+    from jupyterlab_lightcone.projects import CURRENT_PROJECT
+
+    manager.parent.serverapp.web_app.settings[CURRENT_PROJECT] = current
+
+
 @pytest.mark.parametrize("chat, expected", [
     ("project/chats/talk.chat", "project"),
     ("project/talk.chat", "project"),
     ("loose/talk.chat", "loose"),
 ])
 def test_sessions_start_at_the_project_root_or_stay_in_a_loose_chat_folder(root, chat, expected):
+    manager = _manager(root, chat)
+    assert Path(manager.get_chat_dir()) == root / expected
+    assert manager.chat.metadata == {}
+
+
+def test_a_chat_stored_in_a_project_ignores_the_current_project(root):
+    manager = _manager(root, "project/chats/talk.chat", current="other/astra.yaml")
+    assert Path(manager.get_chat_dir()) == root / "project"
+    assert manager.chat.metadata == {}
+
+
+@pytest.mark.parametrize("chat", ["talk.chat", "loose/talk.chat"])
+def test_a_chat_outside_every_project_joins_the_current_one_and_keeps_it(root, chat):
+    """However it was created, the chat starts in the project the user is in."""
+    from jupyterlab_lightcone.projects import CHAT_PROJECT
+
+    manager = _manager(root, chat, current="project/astra.yaml")
+    assert Path(manager.get_chat_dir()) == root / "project"
+    assert manager.chat.metadata == {CHAT_PROJECT: "project/astra.yaml"}
+    # Moving on to another project, or leaving every project, keeps the conversation's.
+    for current in ("other/astra.yaml", None):
+        _report(manager, current)
+        assert Path(manager.get_chat_dir()) == root / "project"
+    assert manager.chat.metadata == {CHAT_PROJECT: "project/astra.yaml"}
+
+
+def test_a_recorded_project_that_is_gone_is_replaced_by_the_current_one(root):
+    from jupyterlab_lightcone.projects import CHAT_PROJECT
+
+    chat = Chat("talk.chat", {CHAT_PROJECT: "removed/astra.yaml"})
+    manager = _manager(root, chat)
+    assert Path(manager.get_chat_dir()) == root
+    assert chat.metadata == {CHAT_PROJECT: "removed/astra.yaml"}
+    _report(manager, "other/astra.yaml")
+    assert Path(manager.get_chat_dir()) == root / "other"
+    assert chat.metadata == {CHAT_PROJECT: "other/astra.yaml"}
+
+
+def test_a_manager_outside_a_running_server_uses_only_the_chat(root):
+    """No parent application means no reported project, not an error."""
     pytest.importorskip("jupyter_ai_persona_manager")
     from jupyterlab_lightcone.agent_workspace import PersonaManager
 
-    # Skip the constructor, which loads personas and needs a running server.
     manager = PersonaManager.__new__(PersonaManager)
     manager.root_dir = str(root)
-    manager.chat = SimpleNamespace(get_path=lambda: chat)
-    assert Path(manager.get_chat_dir()) == root / expected
+    manager.chat = Chat("talk.chat")
+    assert Path(manager.get_chat_dir()) == root
 
 
 def test_the_project_manager_is_selected_and_existing_manager_config_still_applies():
@@ -68,18 +149,13 @@ def test_a_deployment_list_setting_is_applied_once(root):
 
 def test_an_unreadable_parent_still_yields_a_working_directory(root, monkeypatch):
     """Upstream's version cannot fail; a chat must not lose its personas."""
-    pytest.importorskip("jupyter_ai_persona_manager")
     from jupyterlab_lightcone import projects
-    from jupyterlab_lightcone.agent_workspace import PersonaManager
 
     def denied(*args, **kwargs):
         raise PermissionError("astra.yaml is not readable")
 
     monkeypatch.setattr(projects.Path, "is_file", denied)
-    manager = PersonaManager.__new__(PersonaManager)
-    manager.root_dir = str(root)
-    manager.chat = SimpleNamespace(get_path=lambda: "project/chats/talk.chat")
-    manager.log = logging.getLogger("test")
+    manager = _manager(root, "project/chats/talk.chat", current="project/astra.yaml")
     assert Path(manager.get_chat_dir()) == root / "project" / "chats"
 
 

@@ -84,6 +84,28 @@ export async function projectFolders(
   }
 }
 
+/**
+ * Tell the server which project the workbench is in, or null outside every
+ * project. Chats stored outside a project join it when they are first used.
+ */
+export async function reportCurrentProject(
+  settings: ServerConnection.ISettings,
+  entrypoint: string | null
+): Promise<void> {
+  try {
+    const data = await requestAPI('api/current-project', settings, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entrypoint })
+    });
+    if (!isRecord(data) || !('entrypoint' in data)) {
+      throw new Error('The server returned an invalid current project.');
+    }
+  } catch (error) {
+    throw new RequestError('Current project', error);
+  }
+}
+
 interface IPaperMetadata {
   doi: string;
   title?: string;

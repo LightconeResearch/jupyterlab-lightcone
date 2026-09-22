@@ -353,6 +353,96 @@ decisions:
   );
 });
 
+test('a chat created outside every project joins the current project and keeps it', async ({
+  page,
+  tmpPath
+}) => {
+  await page.contents.uploadContent(
+    fs.readFileSync(
+      path.resolve(__dirname, '../fixtures/personas/lightcone_persona.py'),
+      'utf8'
+    ),
+    'text',
+    `${tmpPath}/.jupyter/personas/lightcone_persona.py`
+  );
+  await page.contents.uploadContent(
+    `version: "0.0.14"
+name: Current project
+inputs: []
+outputs: []
+decisions:
+  method:
+    label: Which estimator?
+    options:
+      robust:
+        label: Robust estimator
+    default: robust
+    rationale: Stable under perturbations.
+`,
+    'text',
+    `${tmpPath}/astra.yaml`
+  );
+  // Entering the project folder makes it current, and the server is told.
+  const reported = page.waitForResponse(
+    response =>
+      response.url().includes('/jupyterlab_lightcone/api/current-project') &&
+      response.request().method() === 'PUT' &&
+      (response.request().postData() ?? '').includes(`${tmpPath}/astra.yaml`)
+  );
+  await page.filebrowser.openDirectory(tmpPath);
+  const status = page.locator('.jp-jupyterlab-lightcone-ProjectStatus');
+  await expect(status).toHaveText(
+    `Lightcone · ${path.posix.basename(tmpPath)}`
+  );
+  expect((await reported).ok()).toBe(true);
+  // Jupyter Chat's own sidebar action stores the chat at the server root.
+  const filepath: string = await page.evaluate(async () => {
+    const created = await window.jupyterapp.commands.execute(
+      'jupyterlab-chat:create',
+      { inSidePanel: true }
+    );
+    await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
+      filepath: created,
+      inSidePanel: true
+    });
+    return created;
+  });
+  try {
+    expect(filepath).not.toContain(tmpPath);
+    const composer = page
+      .locator('.jp-chat-input-container')
+      .getByRole('combobox');
+    const received = page
+      .locator('.jp-chat-rendered-message')
+      .filter({ hasText: 'Agent received:' });
+    // The project's own persona loads, and the session starts at the project root.
+    await composer.fill('Compare the options.');
+    await page.locator('.jp-chat-send-button').click();
+    await expect(received).toContainText(`in [${tmpPath}]`, {
+      timeout: 30000
+    });
+    await composer.fill('Show the decision.');
+    await page.locator('.jp-chat-send-button').click();
+    await expect(
+      page.locator('.jp-jupyterlab-lightcone-element')
+    ).toContainText('Stable under perturbations.', { timeout: 45000 });
+    // Leaving the project hides it from the status bar, but the chat keeps it.
+    await page.evaluate(async () => {
+      await window.jupyterapp.commands.execute('filebrowser:go-to-path', {
+        path: '/',
+        dontShowBrowser: true
+      });
+    });
+    await expect(status).toBeHidden();
+    await composer.fill('Compare the options.');
+    await page.locator('.jp-chat-send-button').click();
+    await expect(received).toHaveCount(2, { timeout: 30000 });
+    await expect(received.last()).toContainText(`in [${tmpPath}]`);
+  } finally {
+    await page.contents.deleteFile(filepath);
+  }
+});
+
 test('opens only cited papers as native tabs without downloading them', async ({
   page,
   tmpPath

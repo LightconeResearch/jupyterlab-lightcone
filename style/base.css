@@ -12,6 +12,20 @@
   overflow: visible;
 }
 
+/* The current project, in JupyterLab's own status bar chrome. */
+.jp-jupyterlab-lightcone-ProjectStatus {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jp-jupyterlab-lightcone-ProjectStatus-logo {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 14px;
+  background: url('./lightcone-logo.svg') center / contain no-repeat;
+}
+
 @layer lightcone {
   .jp-jupyterlab-lightcone-InventoryPanel {
     position: relative;

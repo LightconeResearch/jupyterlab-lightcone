@@ -137,6 +137,26 @@ async def test_engine_refusals_reach_the_user_verbatim(tmp_path, monkeypatch, ou
     assert not error.value.args
 
 
+@pytest.mark.parametrize("entrypoint, expected", [
+    ("project/astra.yaml", "project"),
+    ("project/./astra.yaml", "project"),
+    ("project/sub/astra.yaml", "project/sub"),
+    ("loose/astra.yaml", None),
+    ("project/chats/astra.yaml", None),
+    ("project/other.yaml", None),
+    ("../project/astra.yaml", None),
+    ("/project/astra.yaml", None),
+    ("drive:project/astra.yaml", None),
+    ("project\\astra.yaml", None),
+    ("", None),
+    (None, None),
+    (["project/astra.yaml"], None),
+])
+def test_a_reported_or_recorded_entrypoint_must_name_a_local_specification(tree, entrypoint, expected):
+    found = projects.spec_project(tree, entrypoint)
+    assert found == (tree / expected if expected else None)
+
+
 def test_engine_tools_are_found_without_an_activated_environment(monkeypatch):
     scripts = projects.sysconfig.get_path("scripts")
     monkeypatch.setenv("PATH", "/usr/bin")
@@ -250,3 +270,42 @@ async def test_sync_contents_calls_run_off_the_event_loop():
         return threading.get_ident()
 
     assert await project_routes.contents_call(async_method) == main_thread
+
+
+CURRENT = ("jupyterlab_lightcone", "api", "current-project")
+
+
+async def test_the_browser_reports_and_clears_the_current_project(jp_fetch, jp_root_dir, jp_serverapp):
+    (jp_root_dir / "project").mkdir()
+    (jp_root_dir / "project" / "astra.yaml").write_text("name: example")
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "project/./astra.yaml"}))
+    assert json.loads(response.body) == {"entrypoint": "project/astra.yaml"}
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] == "project/astra.yaml"
+    await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": None}))
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] is None
+
+
+@pytest.mark.parametrize("body, status", [
+    ({"entrypoint": "missing/astra.yaml"}, 400),
+    ({"entrypoint": "../outside/astra.yaml"}, 400),
+    ({"entrypoint": "plain/notes.yaml"}, 400),
+    ({"entrypoint": ".hidden/astra.yaml"}, 404),
+    ({}, 400),
+    (["project/astra.yaml"], 400),
+])
+async def test_only_an_accessible_specification_becomes_current(jp_fetch, jp_root_dir, jp_serverapp, body, status):
+    for name in ("plain", ".hidden"):
+        (jp_root_dir / name).mkdir()
+    (jp_root_dir / "plain" / "notes.yaml").write_text("name: example")
+    (jp_root_dir / ".hidden" / "astra.yaml").write_text("name: private")
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps(body), raise_error=False)
+    assert response.code == status
+    assert projects.CURRENT_PROJECT not in jp_serverapp.web_app.settings
+
+
+async def test_changing_the_current_project_requires_write_permission(jp_fetch, jp_root_dir, jp_serverapp, monkeypatch):
+    (jp_root_dir / "astra.yaml").write_text("name: example")
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda handler, user, action, resource: action != "write")
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "astra.yaml"}), raise_error=False)
+    assert response.code == 403
+    assert projects.CURRENT_PROJECT not in jp_serverapp.web_app.settings

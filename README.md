@@ -24,12 +24,16 @@ End users do not need Node.js or sibling source checkouts.
 
 ## Use
 
+The **current project** is the one holding the file browser's folder: the
+nearest enclosing `astra.yaml` on the current Jupyter Contents drive,
+independent of file-browser filters. A nested project uses its own root. While
+there is one, the status bar shows **Lightcone · _project_**; click it to open
+the project's inventory. Browsing outside every project clears it. New Jupyter
+AI chats join the current project (see below).
+
 Outside a project, the Lightcone Lab launcher shows **＋ Create project** and
 **Open project**. Inside a project or its subfolders, it shows the agent,
 inventory, and report. The launcher heading identifies the project root.
-Project detection uses the nearest enclosing `astra.yaml` on the current Jupyter
-Contents drive and is independent of file-browser filters. A nested project
-uses its own root.
 Browse labels folders containing `astra.yaml` as **ASTRA project**; this indicates
 presence, not validation of the specification.
 
@@ -214,17 +218,35 @@ Jupyter Chat in the left sidebar and uses the
 launcher’s current folder. Outside an ASTRA project it opens the folder-selection and project-creation form. The composer opens empty, and your
 message is sent to the agent exactly as written: Lightcone adds no context text.
 
-Instead, the agent starts in the right place. Its session's working directory is
-the root of the ASTRA project that owns the chat file: the nearest folder at or
-above the chat containing `astra.yaml`. Chats can therefore live beside
-`astra.yaml` or in a subfolder such as `chats/`, and `lc`, `astra` and relative
-paths work without naming the project. A chat outside any project keeps Jupyter
-AI's default, its own folder. A deployment that configures a different
+Instead, the agent starts in the right place: its session's working directory is
+the root of the chat's ASTRA project, so `lc`, `astra` and relative paths work
+without naming the project. Every Jupyter AI chat has a project, however it was
+opened (the Jupyter Chat sidebar's **+**, the launcher's **Chat** card,
+**File › New**, or an existing `.chat` file):
+
+1. A chat stored inside a project belongs to it: the nearest folder at or above
+   the chat containing `astra.yaml`. Chats can live beside `astra.yaml` or in a
+   subfolder such as `chats/`.
+2. Any other chat joins the [current project](#use) when it is first opened,
+   and the `.chat` file records it (`lightcone_project` in its metadata). It
+   keeps that project when you browse to another one; open a new chat there.
+   If the recorded project is removed, the chat joins the current one again.
+3. A chat opened while no project is current keeps Jupyter AI's default, its
+   own folder, until it joins one.
+
+Jupyter AI starts the agent session as soon as the chat opens, so the browser
+reports the current project to the server as it changes, and again when its
+window regains focus; with several windows, the one used last decides. A chat
+that joins a project after its session started (rule 3) keeps its first folder
+until the session is recreated, although the tools already address the project.
+
+A deployment that configures a different
 `PersonaManagerExtension.persona_manager_class` keeps its own class and opts out
-of this; subclass `jupyterlab_lightcone.agent_workspace.PersonaManager` to keep
-the behavior. Jupyter AI also looks for `.jupyter` (MCP settings, local personas)
-from this directory upward, so one stored below the project root, beside a chat
-in `chats/` for example, is no longer found.
+of the working directory, though not of the tools' rule; subclass
+`jupyterlab_lightcone.agent_workspace.PersonaManager` to keep the behavior.
+Jupyter AI also looks for `.jupyter` (MCP settings, local personas) from the
+project root upward, so one stored below it, beside a chat in `chats/` for
+example, is no longer found.
 
 Ask the agent to show an ASTRA element in chat, for example:
 
@@ -246,10 +268,9 @@ existing file tools. The built-in Jupyter MCP server adds two presentation tools
 - `lightcone_open_element(target)`: open or reuse a native ASTRA tab.
 
 `target` is an element path such as `decisions.covariance_source`. The project is
-the one that owns the calling chat, the same rule that roots the agent's shell,
-so the agent never passes a project path. Multiple universes are not yet
-selectable from chat. Tools require a connected originating browser and a chat
-stored inside an ASTRA project.
+the calling chat's, by the same rule that roots the agent's shell, so the agent
+never passes a project path. Multiple universes are not yet selectable from
+chat. Tools require a connected originating browser and a chat with a project.
 Cards are attributed to the calling agent; repeated previews of the same target
 in one prompt reuse the card.
 Existing agent terminal tools, `lc`, and research skills remain available through

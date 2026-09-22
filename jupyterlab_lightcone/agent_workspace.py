@@ -1,4 +1,4 @@
-"""Root Jupyter AI agents in the ASTRA project that owns their chat.
+"""Root Jupyter AI agents in the ASTRA project their chat belongs to.
 
 Jupyter AI starts each agent session in the chat file's own folder. It exposes
 its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
@@ -7,7 +7,7 @@ its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
 
 from jupyter_ai_persona_manager import PersonaManager as JupyterAIPersonaManager
 
-from .projects import chat_project
+from .projects import CURRENT_PROJECT, chat_project
 
 
 class PersonaManager(JupyterAIPersonaManager):
@@ -31,13 +31,16 @@ class PersonaManager(JupyterAIPersonaManager):
         return list(seen)
 
     def get_chat_dir(self) -> str:
-        """Return the owning ASTRA project, or the chat's folder outside one.
+        """Return the chat's ASTRA project, or the chat's folder without one.
 
         ACP personas pass this directory as the session's working directory,
-        so `lc`, `astra` and relative paths resolve against the project.
+        so `lc`, `astra` and relative paths resolve against the project. Jupyter
+        AI creates that session as soon as a persona is selected, before any
+        message, so a chat stored outside every project takes the project the
+        browser last reported as current.
         """
         try:
-            project = chat_project(self)
+            project = chat_project(self, self._reported_project())
         except OSError:
             # Upstream's version cannot fail, and it is called while a persona
             # manager is built: an unreadable parent must not leave a chat with
@@ -45,6 +48,11 @@ class PersonaManager(JupyterAIPersonaManager):
             self.log.warning("Could not locate the ASTRA project for this chat.", exc_info=True)
             project = None
         return str(project) if project else super().get_chat_dir()
+
+    def _reported_project(self) -> str | None:
+        """The workbench's current project entrypoint, as the browser last reported it."""
+        web_app = getattr(getattr(self.parent, "serverapp", None), "web_app", None)
+        return web_app.settings.get(CURRENT_PROJECT) if web_app is not None else None
 
 
 def select_project_persona_manager(serverapp) -> bool:

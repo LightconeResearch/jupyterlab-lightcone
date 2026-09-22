@@ -7,6 +7,7 @@ import { PromiseDelegate } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../commands';
+import { CurrentProject } from '../current-project';
 import { configureProjectLauncher } from '../project-launcher';
 import { fileModel } from './project-fixtures';
 
@@ -43,6 +44,10 @@ function host() {
     currentChanged: new Signal<object, void>({})
   };
   const shell = new Widget();
+  const current = new CurrentProject(
+    contents,
+    tracker as unknown as IFileBrowserFactory['tracker']
+  );
   const visible = new Map<string, ILauncher.IItemOptions>();
   const launcher = {
     add: (item: ILauncher.IItemOptions) => {
@@ -57,7 +62,7 @@ function host() {
       serviceManager: { contents }
     } as unknown as JupyterFrontEnd,
     launcher as unknown as ILauncher,
-    { tracker } as unknown as IFileBrowserFactory
+    current
   );
   return {
     commands,
@@ -67,6 +72,7 @@ function host() {
     get,
     dispose: () => {
       shell.dispose();
+      current.dispose();
       contents.dispose();
     }
   };

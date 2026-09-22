@@ -1,4 +1,4 @@
-"""The shared project handler base, project selection and explicit initialization."""
+"""The shared project handler base, project selection, the current project and explicit initialization."""
 
 import asyncio
 import inspect
@@ -10,7 +10,15 @@ from jupyter_server.services.contents.filemanager import FileContentsManager
 from jupyter_server.utils import ensure_async, url_path_join
 from tornado import web
 
-from .projects import describe_project, initialize_project, project_path, project_root
+from .projects import (
+    CURRENT_PROJECT,
+    describe_project,
+    initialize_project,
+    project_entrypoint,
+    project_path,
+    project_root,
+    spec_project,
+)
 
 
 async def contents_call(method, *args, **kwargs):
@@ -116,7 +124,40 @@ class ProjectsHandler(ProjectAPIHandler):
             self.initializing.discard(project)
 
 
+class CurrentProjectHandler(ProjectAPIHandler):
+    """The workbench's current project, which chats stored outside a project join.
+
+    The browser reports it whenever it changes; Jupyter AI starts an agent
+    session as soon as a chat opens, so the server must already know it then.
+    The last report wins, so with several windows the one used last decides.
+    """
+
+    unavailable_message = "Agent projects require a local filesystem ContentsManager."
+
+    @web.authenticated
+    @authorized(action="write", resource="contents")
+    async def put(self):
+        """Replace the current project; null means the browser is outside every project."""
+        body = self.get_json_body()
+        if not isinstance(body, dict) or "entrypoint" not in body:
+            raise web.HTTPError(400, "An entrypoint, or null, is required.")
+        entrypoint = body["entrypoint"]
+        if entrypoint is not None:
+            root = self.contents_root
+            project = await asyncio.to_thread(spec_project, root, entrypoint)
+            if project is None:
+                raise web.HTTPError(400, "The current project must be a local astra.yaml file.")
+            # Apply the contents manager's read and hidden-file rules too.
+            await contents_call(self.contents_manager.get, entrypoint, content=False, type="file")
+            entrypoint = project_entrypoint(root, project)
+        self.settings[CURRENT_PROJECT] = entrypoint
+        self.finish({"entrypoint": entrypoint})
+
+
 def setup_project_handlers(web_app):
     """Register under the server base URL, including JupyterHub prefixes."""
-    route = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "projects")
-    web_app.add_handlers(".*$", [(route, ProjectsHandler, {"initializing": set()})])
+    api = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api")
+    web_app.add_handlers(".*$", [
+        (url_path_join(api, "projects"), ProjectsHandler, {"initializing": set()}),
+        (url_path_join(api, "current-project"), CurrentProjectHandler),
+    ])

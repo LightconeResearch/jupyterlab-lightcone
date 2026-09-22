@@ -2,11 +2,18 @@
 
 import asyncio
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sysconfig
 
 from lightcone.engine.project import ProjectError, converge
 from tornado.web import HTTPError
+
+
+CURRENT_PROJECT = "jupyterlab_lightcone.current_project"
+"""The web application setting holding the entrypoint the browser reported as current."""
+
+CHAT_PROJECT = "lightcone_project"
+"""The chat metadata entry recording the project a chat was first used with."""
 
 
 def inside_root(root: Path, candidate: Path, message: str) -> Path:
@@ -57,15 +64,51 @@ def project_entrypoint(root: Path, project: Path) -> str:
     return "astra.yaml" if relative == "." else f"{relative}/astra.yaml"
 
 
-def chat_project(manager) -> Path | None:
-    """The project owning a Jupyter AI persona manager's chat file.
+def spec_project(root: Path, entrypoint) -> Path | None:
+    """The project whose `astra.yaml` has this Contents path, if it is a file.
+
+    Validates the entrypoints the browser reports and chats record: relative,
+    on the local drive, without parent traversal, and still present. Paths
+    stay logical, as in `owning_project`.
+    """
+    if (
+        not isinstance(entrypoint, str)
+        or entrypoint.startswith("/")
+        or any(character in entrypoint for character in "\\:\x00")
+    ):
+        return None
+    path = PurePosixPath(entrypoint)
+    if ".." in path.parts or path.name != "astra.yaml":
+        return None
+    spec = root / path
+    return spec.parent if spec.is_file() else None
+
+
+def chat_project(manager, current: str | None = None) -> Path | None:
+    """The project a Jupyter AI persona manager's chat belongs to.
 
     The one rule behind both the agent's working directory and the project its
-    presentation tools address; only upstream's manager API is used, so it holds
-    for any manager class.
+    presentation tools address, in order:
+
+    1. the project storing the chat file, so chats may live in `chats/`;
+    2. the project recorded in the chat when it was first used;
+    3. `current`, the workbench's current project, which is then recorded so
+       the conversation keeps its project when the user moves to another.
+
+    A recorded project that no longer exists is replaced the same way. Only
+    upstream's manager and chat APIs are used, so it holds for any manager class.
     """
+    root = Path(manager.root_dir)
     chat = Path(manager.get_chat_path(relative=True))
-    return owning_project(Path(manager.root_dir), chat.parent)
+    project = owning_project(root, chat.parent)
+    if project is not None:
+        return project
+    project = spec_project(root, manager.chat.get_metadata().get(CHAT_PROJECT))
+    if project is None:
+        project = spec_project(root, current)
+        if project is not None:
+            manager.chat.set_metadata(CHAT_PROJECT, project_entrypoint(root, project))
+    return project
 
 
 def project_path(root: Path, value: str) -> Path:

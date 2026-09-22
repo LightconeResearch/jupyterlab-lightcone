@@ -2,17 +2,17 @@
 
 The open AI-assisted research workbench
 
-Status: implementation updated on 20 September 2026. No upstream or sibling-package changes.
+Status: implementation updated on 22 September 2026. No upstream or sibling-package changes.
 
 ## Decisions
 
-| Decision                  | Implementation                                                                              | Tradeoff                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Default chat presentation | Persisted `application/vnd.lightcone.astra+json` messages rendered by JupyterLab RenderMime | Separate cards in the conversation, rather than inline hover links         |
-| Inline references         | Deferred; remove the Markdown DOM adapter                                                   | No parser or DOM coupling to stock Markdown or `jupyterlab-myst`           |
-| Project context           | The project that owns the chat file; agent sessions start at its root                       | No context text or binding; universes are not selectable from chat yet     |
-| Element tabs              | Existing ASTRA UI detail components in native widgets                                       | Unsupported targets use their owner/inventory or a clear unavailable state |
-| Agent access              | Two presentation tools through the existing Jupyter MCP server                              | Requires the originating browser and a chat stored inside a project        |
+| Decision                  | Implementation                                                                                         | Tradeoff                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Default chat presentation | Persisted `application/vnd.lightcone.astra+json` messages rendered by JupyterLab RenderMime            | Separate cards in the conversation, rather than inline hover links         |
+| Inline references         | Deferred; remove the Markdown DOM adapter                                                              | No parser or DOM coupling to stock Markdown or `jupyterlab-myst`           |
+| Project context           | The chat's project: where it is stored, else the current project it joined; sessions start at its root | No context text; universes are not selectable from chat yet                |
+| Element tabs              | Existing ASTRA UI detail components in native widgets                                                  | Unsupported targets use their owner/inventory or a clear unavailable state |
+| Agent access              | Two presentation tools through the existing Jupyter MCP server                                         | Requires the originating browser and a chat with a project                 |
 
 ## User experience
 
@@ -28,8 +28,9 @@ conversation in the project's folder in the left Jupyter Chat sidebar with an
 empty composer. Outside an ASTRA project, it shows the same missing-project
 guidance as the inventory shortcut. Messages reach the agent exactly as written:
 there is no context block, message metadata, or project chip. The agent's session
-starts at the project root instead. Existing Jupyter AI model/persona selection
-continues to work normally.
+starts at the project root instead. Chats opened any other way, including Jupyter
+Chat's own sidebar and launcher actions, join the current project that the status
+bar shows. Existing Jupyter AI model/persona selection continues to work normally.
 
 Cards persist in `.chat` files but display current project data, not a historical
 snapshot. Each identifies its project, target and universe. Missing results stay
@@ -62,7 +63,7 @@ renders `text/markdown`.
 The ACP client's ordinary response stream is text; merely returning MIME JSON
 from a tool does not insert a rich chat message. The preview tool therefore:
 
-1. Derives the project from the calling chat's location, then runs the internal
+1. Derives the project from the calling chat, then runs the internal
    resolve-preview command in the originating browser, resolving the target and
    universe through the SDK.
 2. Looks up the calling persona using the same chat/persona headers and server
@@ -121,13 +122,46 @@ SDK canonical keys would instead remove existing reference syntax support.
 
 ## Project context without modifying Jupyter AI
 
-A chat belongs to the ASTRA project that owns its file: the nearest folder at or
-above the chat containing `astra.yaml`, never above the Contents root. The
-frontend (`findProjectRoot`) and the server (`projects.owning_project`, through
-`projects.chat_project` for both the working directory and the tools) apply the
-same rule, so chats may live beside `astra.yaml` or in a subfolder such as
-`chats/`. Nothing is added to messages, stored in metadata, or bound per
-conversation; moving a chat to another project changes its project.
+**The current project.** The workbench has one current project: the one holding
+the file browser's folder, found by `findProjectRoot` (the nearest `astra.yaml`
+at or above it, never above the Contents drive root). `CurrentProject`
+(`src/current-project.ts`, token `ICurrentProject`) is the only place that
+computes it. The launcher renders from it, a status bar item names it, and the
+browser reports it to `PUT /jupyterlab_lightcone/api/current-project` whenever
+it changes and whenever its window regains focus. The server keeps the last
+report in memory (`projects.CURRENT_PROJECT` in the web application settings),
+so with several windows the one used last decides. Browsing outside every
+project reports null; a failed lookup also reports null rather than keep a
+stale project. Palette commands still target an explicit argument or the
+focused inventory or document before falling back to the file browser folder.
+
+**The chat's project.** Jupyter Chat stores chats where its own entry point
+chooses: the sidebar's **+** uses its `defaultDirectory` (the server root by
+default), and the launcher and **File › New** use the file browser folder. A
+chat may therefore sit outside every project. `projects.chat_project` decides a
+chat's project, for both the working directory and the tools, in order:
+
+1. The project storing the chat file: the nearest folder at or above it
+   containing `astra.yaml` (`projects.owning_project`). Location always wins,
+   so moving a chat into a project changes its project.
+2. The project recorded in the chat document's metadata (`lightcone_project`,
+   the Contents path of its `astra.yaml`), if that specification still exists.
+3. The current project, which is then recorded, so the conversation, its
+   agent's working directory and its tools keep that project when the user
+   moves on. A missing recorded project is replaced the same way.
+
+Otherwise the chat has no project: its agent keeps Jupyter AI's default folder
+and the tools answer `NO_PROJECT`. Nothing is added to messages. The record is
+server-side chat metadata, like Jupyter AI's own `acp_session_ids`, so it needs
+no client write access to the document and persists in the `.chat` file.
+
+The current project must reach the server before the chat opens: Jupyter AI's
+frontend emits `persona_selected` as soon as the chat input mounts, and that
+creates the ACP session. The server keeps the last report across page reloads;
+only a chat restored in the first moments after a server restart, before the
+browser has reported, can miss it. Such a chat, or one opened while no project
+is current, joins a project later through its tools, but its live session
+keeps its first folder until it is recreated.
 
 **Agent working directory.** Jupyter AI's ACP client passes
 `persona.get_chat_dir()` as the `cwd` of `session/new` and `session/load`, and
@@ -136,15 +170,17 @@ agents run their shell there regardless of where their process was spawned
 both follow the session `cwd`). Upstream offers no setting for this directory,
 but the manager class is a public trait,
 `PersonaManagerExtension.persona_manager_class`. `agent_workspace.PersonaManager`
-overrides `get_chat_dir()` to return the owning project, falling back to the
-chat's folder outside any project. This covers every persona built on the base
-ACP client, not only ones we ship. `.jupyter` and workspace discovery also start
+overrides `get_chat_dir()` to return the chat's project, falling back to the
+chat's folder without one. This covers every persona built on the base ACP
+client, not only ones we ship. `.jupyter` and workspace discovery also start
 from this directory and walk upward, so for a chat inside a project any
 `.jupyter` below that project's root, in the chat's own folder or between it and
 the root, is no longer found: its MCP servers and local personas silently stop
-applying. Chats the launcher creates sit at the project root and are unaffected.
-With no `.jupyter` or `.git` above it, Jupyter AI's workspace directory, where it
-saves and relativises attachments, is likewise the project root.
+applying. Conversely, a chat stored at the server root that joins a project
+finds that project's `.jupyter`. Chats the launcher creates sit at the project
+root and are unaffected. With no `.jupyter` or `.git` above it, Jupyter AI's
+workspace directory, where it saves and relativises attachments, is likewise
+the project root.
 
 The walk keeps paths logical rather than resolving symlinks, matching what the
 Contents API serves the browser, so a project symlinked out of the server root
@@ -174,8 +210,8 @@ Presentation tools take only the element:
 ```
 
 The server derives the entrypoint from the calling chat (`X-Jupyter-Chat-Id` →
-persona manager → chat path → owning project) and passes it to the browser
-command. The agent cannot address another project, so no mismatch checks remain.
+persona manager → `chat_project`) and passes it to the browser command. The
+agent cannot address another project, so no mismatch checks remain.
 
 Paths are rooted at the ASTRA entrypoint and normalized through MySTRA's grammar
 and the SDK index, never resolved by display label. Agent calls use the SDK's
@@ -261,8 +297,8 @@ Python imports are lazy so inventory, native tabs and the MIME renderer work
 without Jupyter AI. Tools use the existing `jupyter_server_mcp.tools` entrypoint.
 Reject missing browser routing before invoking the command bridge, whose default
 would broadcast. Never let the model choose a browser ID or a project. Chat IDs
-come from MCP request headers, and the project from that chat's location; a chat
-outside any project is rejected. Timeouts are
+come from MCP request headers, and the project from that chat; a chat without a
+project is rejected. Timeouts are
 unconfirmed, and retries reuse tabs/cards. Shared-chat clients can naturally see
 persisted cards; opening a tab affects only the initiating browser.
 
@@ -291,7 +327,11 @@ Automated checks cover MIME validation, origin routing, agent attribution,
 repeat-call deduplication, figure and decision cards, tab reuse, persisted-chat
 reload, and DOM detach/reconnect cleanup. A browser test keeps a chat in
 `chats/` and checks that the message arrives unchanged, the session directory is
-the project root under a real Jupyter AI server, and the one-argument tools work. Browser CI exercises both stock Markdown
+the project root under a real Jupyter AI server, and the one-argument tools work.
+Another creates a chat at the server root with Jupyter Chat's own command while
+the file browser is in a project, and checks that the project's local persona
+loads, the session and tools use the project, and the chat keeps it after the
+file browser leaves. Browser CI exercises both stock Markdown
 and enabled `jupyterlab-myst`. Existing inventory, project/universe, paper and tab
 tests remain in place. Build and packaging checks retain optional AI dependencies.
 

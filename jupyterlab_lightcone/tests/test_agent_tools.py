@@ -9,21 +9,36 @@ from jupyterlab_lightcone.agent_tools import lightcone_open_element
 
 
 @pytest.fixture
-def manager(monkeypatch, tmp_path):
-    """The calling chat lives in a subfolder of its project, not beside astra.yaml."""
+def settings(monkeypatch):
+    """The running server's settings, where the browser reports its current project."""
     from jupyter_server.serverapp import ServerApp
 
-    (tmp_path / "project" / "chats").mkdir(parents=True)
-    (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
-    (tmp_path / "loose").mkdir()
-    manager = SimpleNamespace(
-        root_dir=str(tmp_path), chat_path="project/chats/talk.chat", personas={}
-    )
-    manager.get_chat_path = lambda relative=False: manager.chat_path
-    settings = {"jupyter-ai": {"persona-managers": {"origin-chat": manager}}}
+    settings = {"jupyter-ai": {"persona-managers": {}}}
     monkeypatch.setattr(
         ServerApp, "instance", lambda: SimpleNamespace(web_app=SimpleNamespace(settings=settings))
     )
+    return settings
+
+
+@pytest.fixture
+def manager(settings, tmp_path):
+    """The calling chat lives in a subfolder of its project, not beside astra.yaml."""
+    (tmp_path / "project" / "chats").mkdir(parents=True)
+    (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
+    (tmp_path / "loose").mkdir()
+    metadata = {}
+    manager = SimpleNamespace(
+        root_dir=str(tmp_path),
+        chat_path="project/chats/talk.chat",
+        personas={},
+        chat=SimpleNamespace(
+            metadata=metadata,
+            get_metadata=lambda: dict(metadata),
+            set_metadata=metadata.__setitem__,
+        ),
+    )
+    manager.get_chat_path = lambda relative=False: manager.chat_path
+    settings["jupyter-ai"]["persona-managers"]["origin-chat"] = manager
     return manager
 
 
@@ -65,7 +80,27 @@ async def test_project_comes_from_the_calling_chat_not_the_agent(bridge):
 
 
 @pytest.mark.parametrize("chat_path", ["loose/talk.chat", "talk.chat"])
-async def test_chat_outside_any_project_is_rejected(bridge, manager, chat_path):
+async def test_a_chat_outside_every_project_addresses_the_current_one(bridge, manager, settings, chat_path):
+    """A chat opened from Jupyter Chat's own sidebar or launcher still has a project."""
+    from jupyterlab_lightcone.projects import CHAT_PROJECT, CURRENT_PROJECT
+
+    manager.chat_path = chat_path
+    settings[CURRENT_PROJECT] = "project/astra.yaml"
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        await lightcone_open_element("decisions.method")
+    finally:
+        bridge.target_client_id.reset(token)
+    bridge.execute_command.assert_awaited_once_with(
+        "jupyterlab_lightcone:open-element",
+        {"target": "decisions.method", "entrypoint": "project/astra.yaml"},
+    )
+    # The same record the agent's working directory is chosen from.
+    assert manager.chat.metadata == {CHAT_PROJECT: "project/astra.yaml"}
+
+
+@pytest.mark.parametrize("chat_path", ["loose/talk.chat", "talk.chat"])
+async def test_chat_without_any_project_is_rejected(bridge, manager, chat_path):
     manager.chat_path = chat_path
     token = bridge.target_client_id.set("origin-browser")
     try:

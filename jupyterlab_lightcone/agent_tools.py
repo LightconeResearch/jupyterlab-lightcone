@@ -9,25 +9,31 @@ TOOLS = [
 ]
 
 
+def _settings() -> dict:
+    """The running server's web application settings."""
+    from jupyter_server.serverapp import ServerApp
+
+    return ServerApp.instance().web_app.settings
+
+
 def _origin_manager():
     """Find the calling chat's persona manager from Jupyter AI's MCP headers."""
     from fastmcp.server.dependencies import get_http_headers
-    from jupyter_server.serverapp import ServerApp
 
-    managers = ServerApp.instance().web_app.settings.get("jupyter-ai", {}).get(
-        "persona-managers", {}
-    )
+    managers = _settings().get("jupyter-ai", {}).get("persona-managers", {})
     return managers.get(get_http_headers().get("x-jupyter-chat-id"))
 
 
 def _origin_entrypoint() -> str | None:
-    """Contents path of the astra.yaml that owns the calling chat's folder."""
+    """Contents path of the astra.yaml of the project the calling chat belongs to."""
     from pathlib import Path
 
-    from .projects import chat_project, project_entrypoint
+    from .projects import CURRENT_PROJECT, chat_project, project_entrypoint
 
     manager = _origin_manager()
-    project = chat_project(manager) if manager else None
+    if manager is None:
+        return None
+    project = chat_project(manager, _settings().get(CURRENT_PROJECT))
     if project is None:
         return None
     return project_entrypoint(Path(manager.root_dir), project)
@@ -50,8 +56,9 @@ async def _command(name: str, args: dict) -> dict:
         return {
             "success": False,
             "error": (
-                "NO_PROJECT: This chat is not stored inside an ASTRA project "
-                "(no astra.yaml at or above its folder)."
+                "NO_PROJECT: This chat belongs to no ASTRA project. Ask the "
+                "user to open a project folder in the file browser, then start "
+                "a new chat."
             ),
         }
     result = await execute_command(
