@@ -139,9 +139,13 @@ class CurrentProjectHandler(ProjectAPIHandler):
     async def put(self):
         """Replace the current project; null means the browser is outside every project."""
         body = self.get_json_body()
-        if not isinstance(body, dict) or "entrypoint" not in body:
+        entrypoint = body.get("entrypoint") if isinstance(body, dict) else None
+        if not isinstance(body, dict) or "entrypoint" not in body or not isinstance(entrypoint, str | None):
             raise web.HTTPError(400, "An entrypoint, or null, is required.")
-        entrypoint = body["entrypoint"]
+        # The browser has moved on: until its report is accepted, nothing is
+        # current. A project this server cannot serve must not leave the
+        # previous one for new chats to join.
+        self.settings[CURRENT_PROJECT] = None
         if entrypoint is not None:
             root = self.contents_root
             project = await asyncio.to_thread(spec_project, root, entrypoint)

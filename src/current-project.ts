@@ -138,15 +138,24 @@ export const currentProjectPlugin: JupyterFrontEndPlugin<ICurrentProject> = {
       app.serviceManager.contents,
       browsers?.tracker ?? null
     );
+    // Reports are sent one after another, so the last change also wins on
+    // the server. A failed lookup reports null: no project is safer than a
+    // stale one.
+    let reporting = Promise.resolve();
     const report = () => {
-      reportCurrentProject(
-        app.serviceManager.serverSettings,
-        current.project?.entrypoint ?? null
-      ).catch(error => {
-        console.warn('Could not report the current Lightcone project.', error);
-      });
+      const entrypoint = current.project?.entrypoint ?? null;
+      reporting = reporting.then(() =>
+        reportCurrentProject(
+          app.serviceManager.serverSettings,
+          entrypoint
+        ).catch(error => {
+          console.warn(
+            'Could not report the current Lightcone project.',
+            error
+          );
+        })
+      );
     };
-    // A failed lookup reports null: no project is safer than a stale one.
     current.changed.connect(report);
     const refocus = () => {
       if (current.project !== undefined) report();

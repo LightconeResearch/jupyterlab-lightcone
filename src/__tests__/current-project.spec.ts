@@ -1,6 +1,7 @@
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import type { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ContentsManager, ServerConnection } from '@jupyterlab/services';
+import { PromiseDelegate } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { reportCurrentProject } from '../api';
@@ -150,6 +151,7 @@ describe('currentProjectPlugin', () => {
       await h.navigate('other');
       report.mockClear();
       window.dispatchEvent(new Event('focus'));
+      await flush();
       expect(report).toHaveBeenCalledWith(serverSettings, 'other/astra.yaml');
       expect(current.project?.entrypoint).toBe('other/astra.yaml');
     } finally {
@@ -159,7 +161,42 @@ describe('currentProjectPlugin', () => {
     // Disposing the shell stops focus reports.
     report.mockClear();
     window.dispatchEvent(new Event('focus'));
+    await flush();
     expect(report).not.toHaveBeenCalled();
+  });
+
+  it('sends reports one after another, so the last change wins on the server', async () => {
+    const h = host();
+    const shell = new Widget();
+    const app = {
+      shell,
+      serviceManager: {
+        contents: h.contents,
+        serverSettings: ServerConnection.makeSettings()
+      }
+    } as unknown as JupyterFrontEnd;
+    currentProjectPlugin.activate(app, { tracker: h.tracker });
+    try {
+      await flush();
+      const slow = new PromiseDelegate<void>();
+      report.mockClear();
+      report.mockImplementationOnce(() => slow.promise);
+      await h.navigate('elsewhere');
+      await h.navigate('other');
+      // The second report waits for the slow first one instead of racing it.
+      expect(report.mock.calls.map(([, entrypoint]) => entrypoint)).toEqual([
+        null
+      ]);
+      slow.resolve();
+      await flush();
+      expect(report.mock.calls.map(([, entrypoint]) => entrypoint)).toEqual([
+        null,
+        'other/astra.yaml'
+      ]);
+    } finally {
+      shell.dispose();
+      h.contents.dispose();
+    }
   });
 });
 

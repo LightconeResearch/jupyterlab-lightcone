@@ -126,7 +126,7 @@ async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
 
 @pytest.fixture
 def persona(bridge, manager, monkeypatch):
-    """Model the persisted chat contract without installing optional AI packages."""
+    """Model the persisted chat contract without importing the AI packages."""
     import sys
     from dataclasses import asdict, dataclass
     from unittest.mock import Mock

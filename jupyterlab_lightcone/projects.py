@@ -13,7 +13,7 @@ CURRENT_PROJECT = "jupyterlab_lightcone.current_project"
 """The web application setting holding the entrypoint the browser reported as current."""
 
 CHAT_PROJECT = "lightcone_project"
-"""The chat metadata entry recording the project a chat was first used with."""
+"""The chat metadata entry recording the project a chat joined when first opened."""
 
 
 def inside_root(root: Path, candidate: Path, message: str) -> Path:
@@ -91,9 +91,11 @@ def chat_project(manager, current: str | None = None) -> Path | None:
     presentation tools address, in order:
 
     1. the project storing the chat file, so chats may live in `chats/`;
-    2. the project recorded in the chat when it was first used;
+    2. the project recorded in the chat when it was first opened;
     3. `current`, the workbench's current project, which is then recorded so
        the conversation keeps its project when the user moves to another.
+       Jupyter AI asks for the directory while it opens the chat, before any
+       message, so this happens on first opening, not first use.
 
     A recorded project that no longer exists is replaced the same way. Only
     upstream's manager and chat APIs are used, so it holds for any manager class.

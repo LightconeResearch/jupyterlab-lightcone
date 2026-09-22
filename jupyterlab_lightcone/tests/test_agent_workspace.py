@@ -4,7 +4,11 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 
+from jupyter_ai_persona_manager import PersonaManager as Upstream, extension
 import pytest
+
+from jupyterlab_lightcone.agent_workspace import PersonaManager, select_project_persona_manager
+from jupyterlab_lightcone.projects import CHAT_PROJECT, CURRENT_PROJECT
 
 
 @pytest.fixture
@@ -42,10 +46,6 @@ class Chat:
 
 def _manager(root, chat, current=None):
     """A manager on a server whose browser reported `current`, without loading personas."""
-    extension = pytest.importorskip("jupyter_ai_persona_manager.extension")
-    from jupyterlab_lightcone.agent_workspace import PersonaManager
-    from jupyterlab_lightcone.projects import CURRENT_PROJECT
-
     parent = extension.PersonaManagerExtension()
     parent.serverapp = SimpleNamespace(web_app=SimpleNamespace(settings={CURRENT_PROJECT: current}))
     # Skip the constructor, which loads personas and needs a running server.
@@ -58,8 +58,6 @@ def _manager(root, chat, current=None):
 
 
 def _report(manager, current):
-    from jupyterlab_lightcone.projects import CURRENT_PROJECT
-
     manager.parent.serverapp.web_app.settings[CURRENT_PROJECT] = current
 
 
@@ -83,8 +81,6 @@ def test_a_chat_stored_in_a_project_ignores_the_current_project(root):
 @pytest.mark.parametrize("chat", ["talk.chat", "loose/talk.chat"])
 def test_a_chat_outside_every_project_joins_the_current_one_and_keeps_it(root, chat):
     """However it was created, the chat starts in the project the user is in."""
-    from jupyterlab_lightcone.projects import CHAT_PROJECT
-
     manager = _manager(root, chat, current="project/astra.yaml")
     assert Path(manager.get_chat_dir()) == root / "project"
     assert manager.chat.metadata == {CHAT_PROJECT: "project/astra.yaml"}
@@ -96,8 +92,6 @@ def test_a_chat_outside_every_project_joins_the_current_one_and_keeps_it(root, c
 
 
 def test_a_recorded_project_that_is_gone_is_replaced_by_the_current_one(root):
-    from jupyterlab_lightcone.projects import CHAT_PROJECT
-
     chat = Chat("talk.chat", {CHAT_PROJECT: "removed/astra.yaml"})
     manager = _manager(root, chat)
     assert Path(manager.get_chat_dir()) == root
@@ -109,9 +103,6 @@ def test_a_recorded_project_that_is_gone_is_replaced_by_the_current_one(root):
 
 def test_a_manager_outside_a_running_server_uses_only_the_chat(root):
     """No parent application means no reported project, not an error."""
-    pytest.importorskip("jupyter_ai_persona_manager")
-    from jupyterlab_lightcone.agent_workspace import PersonaManager
-
     manager = PersonaManager.__new__(PersonaManager)
     manager.root_dir = str(root)
     manager.chat = Chat("talk.chat")
@@ -119,9 +110,7 @@ def test_a_manager_outside_a_running_server_uses_only_the_chat(root):
 
 
 def test_the_project_manager_is_selected_and_existing_manager_config_still_applies():
-    extension = pytest.importorskip("jupyter_ai_persona_manager.extension")
     from traitlets.config import Config
-    from jupyterlab_lightcone.agent_workspace import PersonaManager, select_project_persona_manager
 
     app = extension.PersonaManagerExtension(
         config=Config({"PersonaManager": {"default_persona_id": "deployment-choice"}})
@@ -133,9 +122,7 @@ def test_the_project_manager_is_selected_and_existing_manager_config_still_appli
 
 def test_a_deployment_list_setting_is_applied_once(root):
     """The subclass shares the base class's config section name."""
-    pytest.importorskip("jupyter_ai_persona_manager")
     from traitlets.config import Config
-    from jupyterlab_lightcone.agent_workspace import PersonaManager
 
     config = Config()
     config.PersonaManager.builtin_mcp_servers.append(
@@ -160,10 +147,6 @@ def test_an_unreadable_parent_still_yields_a_working_directory(root, monkeypatch
 
 
 def test_a_deployment_configured_manager_is_left_alone():
-    extension = pytest.importorskip("jupyter_ai_persona_manager.extension")
-    from jupyter_ai_persona_manager import PersonaManager as Upstream
-    from jupyterlab_lightcone.agent_workspace import select_project_persona_manager
-
     class Custom(Upstream):
         pass
 
@@ -173,9 +156,6 @@ def test_a_deployment_configured_manager_is_left_alone():
 
 
 def test_a_server_without_the_persona_manager_extension_is_left_alone():
-    pytest.importorskip("jupyter_ai_persona_manager")
-    from jupyterlab_lightcone.agent_workspace import select_project_persona_manager
-
     server = SimpleNamespace(extension_manager=SimpleNamespace(extension_apps={}))
     assert select_project_persona_manager(server) is False
 

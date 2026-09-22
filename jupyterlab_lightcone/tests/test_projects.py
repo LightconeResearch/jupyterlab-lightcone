@@ -285,22 +285,32 @@ async def test_the_browser_reports_and_clears_the_current_project(jp_fetch, jp_r
     assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] is None
 
 
-@pytest.mark.parametrize("body, status", [
-    ({"entrypoint": "missing/astra.yaml"}, 400),
-    ({"entrypoint": "../outside/astra.yaml"}, 400),
-    ({"entrypoint": "plain/notes.yaml"}, 400),
-    ({"entrypoint": ".hidden/astra.yaml"}, 404),
-    ({}, 400),
-    (["project/astra.yaml"], 400),
+@pytest.mark.parametrize("entrypoint, status", [
+    ("missing/astra.yaml", 400),
+    ("../outside/astra.yaml", 400),
+    ("plain/notes.yaml", 400),
+    (".hidden/astra.yaml", 404),
 ])
-async def test_only_an_accessible_specification_becomes_current(jp_fetch, jp_root_dir, jp_serverapp, body, status):
-    for name in ("plain", ".hidden"):
+async def test_a_project_the_server_cannot_serve_leaves_nothing_current(jp_fetch, jp_root_dir, jp_serverapp, entrypoint, status):
+    """The browser moved on; new chats must not join the project it left."""
+    for name in ("project", "plain", ".hidden"):
         (jp_root_dir / name).mkdir()
+    (jp_root_dir / "project" / "astra.yaml").write_text("name: example")
     (jp_root_dir / "plain" / "notes.yaml").write_text("name: example")
     (jp_root_dir / ".hidden" / "astra.yaml").write_text("name: private")
-    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps(body), raise_error=False)
+    await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "project/astra.yaml"}))
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": entrypoint}), raise_error=False)
     assert response.code == status
-    assert projects.CURRENT_PROJECT not in jp_serverapp.web_app.settings
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] is None
+
+
+@pytest.mark.parametrize("body", [{}, ["project/astra.yaml"], {"entrypoint": 1}])
+async def test_a_malformed_report_changes_nothing(jp_fetch, jp_root_dir, jp_serverapp, body):
+    (jp_root_dir / "astra.yaml").write_text("name: example")
+    await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "astra.yaml"}))
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps(body), raise_error=False)
+    assert response.code == 400
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] == "astra.yaml"
 
 
 async def test_changing_the_current_project_requires_write_permission(jp_fetch, jp_root_dir, jp_serverapp, monkeypatch):

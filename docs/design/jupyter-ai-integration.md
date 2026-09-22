@@ -177,7 +177,8 @@ from this directory and walk upward, so for a chat inside a project any
 `.jupyter` below that project's root, in the chat's own folder or between it and
 the root, is no longer found: its MCP servers and local personas silently stop
 applying. Conversely, a chat stored at the server root that joins a project
-finds that project's `.jupyter`. Chats the launcher creates sit at the project
+finds that project's `.jupyter` and no longer its own folder's, so MCP
+settings kept beside loose chats stop applying to them. Chats the launcher creates sit at the project
 root and are unaffected. With no `.jupyter` or `.git` above it, Jupyter AI's
 workspace directory, where it saves and relativises attachments, is likewise
 the project root.
@@ -293,8 +294,9 @@ validated reference and label, without exposing a separate read/context API.
 | `lightcone_preview_element(target)` | Publish an agent-attributed MIME preview in the calling chat |
 | `lightcone_open_element(target)`    | Open/focus a native record tab                               |
 
-Python imports are lazy so inventory, native tabs and the MIME renderer work
-without Jupyter AI. Tools use the existing `jupyter_server_mcp.tools` entrypoint.
+Jupyter AI is a dependency of the extension. Its Python imports stay lazy so
+the inventory, native tabs and the MIME renderer still load if a deployment
+removes it. Tools use the existing `jupyter_server_mcp.tools` entrypoint.
 Reject missing browser routing before invoking the command bridge, whose default
 would broadcast. Never let the model choose a browser ID or a project. Chat IDs
 come from MCP request headers, and the project from that chat; a chat without a
@@ -333,7 +335,7 @@ the file browser is in a project, and checks that the project's local persona
 loads, the session and tools use the project, and the chat keeps it after the
 file browser leaves. Browser CI exercises both stock Markdown
 and enabled `jupyterlab-myst`. Existing inventory, project/universe, paper and tab
-tests remain in place. Build and packaging checks retain optional AI dependencies.
+tests remain in place.
 
 The deterministic persona uses the real MCP transport without invoking an external
 model. Real ACP adapter smoke tests, RTC providers and non-root base URLs remain

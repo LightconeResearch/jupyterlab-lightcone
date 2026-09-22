@@ -4,7 +4,7 @@ The open AI-assisted research workbench
 
 **Lightcone Lab** brings a research workbench into JupyterLab, connecting
 methods, evidence, and computation. The extension currently provides an ASTRA
-analysis inventory, materialized outputs, cited papers, and optional Jupyter AI integration. ASTRA is the
+analysis inventory, materialized outputs, cited papers, and Jupyter AI integration. ASTRA is the
 analysis format; `astra.yaml` and its SDK contracts retain their names.
 
 ## Requirements
@@ -204,13 +204,7 @@ support continuous scrolling, zoom, and navigation to cited passages.
 
 ### Jupyter AI: rich references and agent navigation
 
-Install the optional integration and restart JupyterLab:
-
-```bash
-pip install "jupyterlab-lightcone[ai]"
-```
-
-This supports Jupyter AI 3.2 / Jupyter Chat 0.25. Configure an agent through
+Jupyter AI 3.2 (Jupyter Chat 0.25) is installed with the extension. Configure an agent through
 Jupyter AI as usual. With an inventory open (or its folder selected), run
 **Lightcone Agent** from the command palette or the **Lightcone Lab**
 launcher section at the top of the launcher page. The gold chat shortcut opens
@@ -246,7 +240,9 @@ of the working directory, though not of the tools' rule; subclass
 `jupyterlab_lightcone.agent_workspace.PersonaManager` to keep the behavior.
 Jupyter AI also looks for `.jupyter` (MCP settings, local personas) from the
 project root upward, so one stored below it, beside a chat in `chats/` for
-example, is no longer found.
+example, is no longer found. Likewise, once a chat stored elsewhere joins a
+project, a `.jupyter` in the chat's own folder no longer applies; the
+project's does.
 
 Ask the agent to show an ASTRA element in chat, for example:
 

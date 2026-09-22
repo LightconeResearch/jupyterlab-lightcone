@@ -76,14 +76,16 @@ export const projectStatusPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:project-status',
   description: 'Show the current ASTRA project in the status bar.',
   autoStart: true,
-  requires: [ICurrentProject, IStatusBar],
-  optional: [ITranslator],
+  requires: [ICurrentProject],
+  optional: [IStatusBar, ITranslator],
   activate: (
     app: JupyterFrontEnd,
     current: ICurrentProject,
-    statusBar: IStatusBar,
+    statusBar: IStatusBar | null,
     translator: ITranslator | null
   ) => {
+    // A front end without a status bar simply shows nothing.
+    if (!statusBar) return;
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const item = new ProjectStatus(
       current,

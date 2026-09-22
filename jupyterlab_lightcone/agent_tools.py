@@ -1,6 +1,6 @@
 """MCP tools for the originating JupyterLab browser.
 
-Imports are lazy so the inventory works without the optional AI dependencies.
+Imports are lazy so the inventory works even where Jupyter AI was removed.
 """
 
 TOOLS = [
