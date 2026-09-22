@@ -1,6 +1,6 @@
 """MCP tools for the originating JupyterLab browser.
 
-Imports are lazy so the inventory works without the optional AI dependencies.
+Imports are lazy so the inventory works even where Jupyter AI was removed.
 """
 
 TOOLS = [
@@ -9,9 +9,38 @@ TOOLS = [
 ]
 
 
+def _settings() -> dict:
+    """The running server's web application settings."""
+    from jupyter_server.serverapp import ServerApp
+
+    return ServerApp.instance().web_app.settings
+
+
+def _origin_manager():
+    """Find the calling chat's persona manager from Jupyter AI's MCP headers."""
+    from fastmcp.server.dependencies import get_http_headers
+
+    managers = _settings().get("jupyter-ai", {}).get("persona-managers", {})
+    return managers.get(get_http_headers().get("x-jupyter-chat-id"))
+
+
+def _origin_entrypoint() -> str | None:
+    """Contents path of the astra.yaml of the project the calling chat belongs to."""
+    from pathlib import Path
+
+    from .projects import CURRENT_PROJECT, chat_project, project_entrypoint
+
+    manager = _origin_manager()
+    if manager is None:
+        return None
+    project = chat_project(manager, _settings().get(CURRENT_PROJECT))
+    if project is None:
+        return None
+    return project_entrypoint(Path(manager.root_dir), project)
+
+
 async def _command(name: str, args: dict) -> dict:
     """Require upstream's per-call browser routing; never broadcast."""
-    from fastmcp.server.dependencies import get_http_headers
     from jupyterlab_commands_toolkit.tools import execute_command, target_client_id
 
     if not target_client_id.get():
@@ -22,10 +51,18 @@ async def _command(name: str, args: dict) -> dict:
                 "in the browser first."
             ),
         }
-    headers = get_http_headers()
+    entrypoint = _origin_entrypoint()
+    if entrypoint is None:
+        return {
+            "success": False,
+            "error": (
+                "NO_PROJECT: This chat belongs to no ASTRA project. Ask the "
+                "user to open a project folder in the file browser, then start "
+                "a new chat."
+            ),
+        }
     result = await execute_command(
-        f"jupyterlab_lightcone:{name}",
-        {**args, "chatId": headers.get("x-jupyter-chat-id", "")},
+        f"jupyterlab_lightcone:{name}", {**args, "entrypoint": entrypoint}
     )
     if not result.get("success") and "timed out" in str(result.get("error", "")).lower():
         return {
@@ -36,32 +73,18 @@ async def _command(name: str, args: dict) -> dict:
     return result
 
 
-async def lightcone_open_element(
-    entrypoint: str,
-    target: str = "",
-    universe_id: str | None = None,
-    doi: str | None = None,
-) -> dict:
+async def lightcone_open_element(target: str) -> dict:
     """Open an ASTRA element as a tab in the browser that sent this prompt.
 
-    entrypoint is a Jupyter Contents path to astra.yaml. target is a rooted
-    MySTRA path, e.g. decisions.covariance_source or clustering.outputs.xi.
-    For a cited paper, pass doi and leave target empty. Read astra.yaml directly
-    to find real targets. Opens reuse the unpinned ASTRA preview
-    in this project and universe. User-pinned tabs are retained; opening an
+    target is an element path rooted at the astra.yaml of the project you are
+    working in, e.g. decisions.covariance_source or clustering.outputs.xi.
+    Read astra.yaml directly to find real targets. Opens reuse the unpinned
+    ASTRA preview in this project. User-pinned tabs are retained; opening an
     already visible record focuses its tab. Pinning is controlled by the user.
     This does not execute recipes or download missing papers. A timeout is
     unconfirmed: the tab may have opened, and retrying is safe.
     """
-    return await _command(
-        "open-element",
-        {
-            "entrypoint": entrypoint,
-            "target": target,
-            "universeId": universe_id,
-            **({"doi": doi} if doi else {}),
-        },
-    )
+    return await _command("open-element", {"target": target})
 
 
 def _origin_persona():
@@ -72,14 +95,10 @@ def _origin_persona():
     persona's chat model instead.
     """
     from fastmcp.server.dependencies import get_http_headers
-    from jupyter_server.serverapp import ServerApp
     from jupyterlab_commands_toolkit.tools import target_client_id
 
     headers = get_http_headers()
-    managers = ServerApp.instance().web_app.settings.get("jupyter-ai", {}).get(
-        "persona-managers", {}
-    )
-    manager = managers.get(headers.get("x-jupyter-chat-id"))
+    manager = _origin_manager()
     persona = (
         manager.personas.get(headers.get("x-jupyterai-persona-id"))
         if manager else None
@@ -96,19 +115,19 @@ def _origin_persona():
     return persona
 
 
-async def lightcone_preview_element(entrypoint: str, target: str) -> dict:
+async def lightcone_preview_element(target: str) -> dict:
     """Display an ASTRA preview card directly in the originating chat.
 
     This is the default way to show figures, decisions, inputs, findings,
     prior insights or analyses. Read astra.yaml directly to find real targets.
-    target is rooted at astra.yaml, e.g.
-    outputs.fit or clustering.decisions.method. The chat's universe is used.
+    target is an element path rooted at the astra.yaml of the project you are
+    working in, e.g. outputs.fit or clustering.decisions.method.
     Clicking the card opens its tab; use lightcone_open_element when a
     separate tab is explicitly wanted. Do not emit JSON or MySTRA roles in
     prose to create cards. No recipes execute and no papers are downloaded.
     Repeated previews of the same target in one prompt reuse the card.
     """
-    result = await _command("resolve-preview", {"entrypoint": entrypoint, "target": target})
+    result = await _command("resolve-preview", {"target": target})
     if not result.get("success"):
         return result
     element = result.get("result")

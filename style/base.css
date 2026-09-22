@@ -12,6 +12,20 @@
   overflow: visible;
 }
 
+/* The current project, in JupyterLab's own status bar chrome. */
+.jp-jupyterlab-lightcone-ProjectStatus {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.jp-jupyterlab-lightcone-ProjectStatus-logo {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 14px;
+  background: url('./lightcone-logo.svg') center / contain no-repeat;
+}
+
 @layer lightcone {
   .jp-jupyterlab-lightcone-InventoryPanel {
     position: relative;
@@ -395,16 +409,6 @@
       > small {
       grid-column: 2;
     }
-  }
-
-  .jp-jupyterlab-lightcone-chat-context {
-    border: 0;
-    border-radius: 3px;
-    padding: 2px 4px;
-    background: var(--jp-layout-color2);
-    color: var(--jp-ui-font-color1);
-    font: inherit;
-    cursor: pointer;
   }
 
   lightcone-astra-card {

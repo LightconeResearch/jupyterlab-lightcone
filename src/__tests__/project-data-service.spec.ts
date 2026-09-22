@@ -275,7 +275,9 @@ it('isolates pinned universes and refuses to silently change defaults or a delet
     entries['universes/baseline.yaml'] = fileModel('id: baseline\n');
     entries['universes/alternate.yaml'] = fileModel('id: alternate\n');
     await defaults.service.refresh();
-    expect(defaults.service.state.error).toContain('Universe files were added');
+    expect(defaults.service.state.error).toContain(
+      'pinned to project defaults'
+    );
     expect(defaults.service.state.data?.document.universe.source).toBe('none');
     const baseline = acquireProjectDataService(
       contents,

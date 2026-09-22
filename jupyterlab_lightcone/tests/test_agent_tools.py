@@ -1,6 +1,6 @@
 """The optional tool bridge must never fall back to broadcasting commands."""
 from contextvars import ContextVar
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,7 +9,41 @@ from jupyterlab_lightcone.agent_tools import lightcone_open_element
 
 
 @pytest.fixture
-def bridge(monkeypatch):
+def settings(monkeypatch):
+    """The running server's settings, where the browser reports its current project."""
+    from jupyter_server.serverapp import ServerApp
+
+    settings = {"jupyter-ai": {"persona-managers": {}}}
+    monkeypatch.setattr(
+        ServerApp, "instance", lambda: SimpleNamespace(web_app=SimpleNamespace(settings=settings))
+    )
+    return settings
+
+
+@pytest.fixture
+def manager(settings, tmp_path):
+    """The calling chat lives in a subfolder of its project, not beside astra.yaml."""
+    (tmp_path / "project" / "chats").mkdir(parents=True)
+    (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
+    (tmp_path / "loose").mkdir()
+    metadata = {}
+    manager = SimpleNamespace(
+        root_dir=str(tmp_path),
+        chat_path="project/chats/talk.chat",
+        personas={},
+        chat=SimpleNamespace(
+            metadata=metadata,
+            get_metadata=lambda: dict(metadata),
+            set_metadata=metadata.__setitem__,
+        ),
+    )
+    manager.get_chat_path = lambda relative=False: manager.chat_path
+    settings["jupyter-ai"]["persona-managers"]["origin-chat"] = manager
+    return manager
+
+
+@pytest.fixture
+def bridge(monkeypatch, manager):
     """Supply only the optional imports, so these tests also run without AI."""
     import sys
 
@@ -26,28 +60,56 @@ def bridge(monkeypatch):
 
 
 async def test_missing_browser_never_broadcasts(bridge):
-    result = await lightcone_open_element("astra.yaml", "outputs.plot")
+    result = await lightcone_open_element("outputs.plot")
     assert result["success"] is False
     assert "NO_ACTIVE_CLIENT" in result["error"]
     bridge.execute_command.assert_not_called()
 
 
-async def test_uses_middleware_routing_and_origin_chat(bridge):
+async def test_project_comes_from_the_calling_chat_not_the_agent(bridge):
     token = bridge.target_client_id.set("origin-browser")
     try:
-        result = await lightcone_open_element("project/astra.yaml", "decisions.method")
+        result = await lightcone_open_element("decisions.method")
     finally:
         bridge.target_client_id.reset(token)
     assert result["success"] is True
     bridge.execute_command.assert_awaited_once_with(
         "jupyterlab_lightcone:open-element",
-        {
-            "entrypoint": "project/astra.yaml",
-            "target": "decisions.method",
-            "universeId": None,
-            "chatId": "origin-chat",
-        },
+        {"target": "decisions.method", "entrypoint": "project/astra.yaml"},
     )
+
+
+@pytest.mark.parametrize("chat_path", ["loose/talk.chat", "talk.chat"])
+async def test_a_chat_outside_every_project_addresses_the_current_one(bridge, manager, settings, chat_path):
+    """A chat opened from Jupyter Chat's own sidebar or launcher still has a project."""
+    from jupyterlab_lightcone.projects import CHAT_PROJECT, CURRENT_PROJECT
+
+    manager.chat_path = chat_path
+    settings[CURRENT_PROJECT] = "project/astra.yaml"
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        await lightcone_open_element("decisions.method")
+    finally:
+        bridge.target_client_id.reset(token)
+    bridge.execute_command.assert_awaited_once_with(
+        "jupyterlab_lightcone:open-element",
+        {"target": "decisions.method", "entrypoint": "project/astra.yaml"},
+    )
+    # The same record the agent's working directory is chosen from.
+    assert manager.chat.metadata == {CHAT_PROJECT: "project/astra.yaml"}
+
+
+@pytest.mark.parametrize("chat_path", ["loose/talk.chat", "talk.chat"])
+async def test_chat_without_any_project_is_rejected(bridge, manager, chat_path):
+    manager.chat_path = chat_path
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        result = await lightcone_open_element("decisions.method")
+    finally:
+        bridge.target_client_id.reset(token)
+    assert result["success"] is False
+    assert "NO_PROJECT" in result["error"]
+    bridge.execute_command.assert_not_called()
 
 
 async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
@@ -56,39 +118,18 @@ async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
     }
     token = bridge.target_client_id.set("origin-browser")
     try:
-        result = await lightcone_open_element("astra.yaml", "outputs.plot")
+        result = await lightcone_open_element("outputs.plot")
     finally:
         bridge.target_client_id.reset(token)
     assert result["status"] == "unconfirmed"
 
 
-async def test_paper_and_universe_arguments_use_the_browser_contract(bridge):
-    token = bridge.target_client_id.set("origin-browser")
-    try:
-        result = await lightcone_open_element(
-            "project/astra.yaml", universe_id="baseline", doi="10.1234/example"
-        )
-    finally:
-        bridge.target_client_id.reset(token)
-    assert result["success"] is True
-    bridge.execute_command.assert_awaited_once_with(
-        "jupyterlab_lightcone:open-element",
-        {
-            "entrypoint": "project/astra.yaml", "target": "",
-            "universeId": "baseline", "doi": "10.1234/example",
-            "chatId": "origin-chat",
-        },
-    )
-
-
 @pytest.fixture
-def persona(bridge, monkeypatch):
-    """Model the persisted chat contract without installing optional AI packages."""
+def persona(bridge, manager, monkeypatch):
+    """Model the persisted chat contract without importing the AI packages."""
     import sys
     from dataclasses import asdict, dataclass
-    from types import SimpleNamespace
     from unittest.mock import Mock
-    from jupyter_server.serverapp import ServerApp
 
     @dataclass
     class MimeModel:
@@ -124,8 +165,7 @@ def persona(bridge, monkeypatch):
             add_message=Mock(side_effect=add_message),
         ),
     )
-    settings = {"jupyter-ai": {"persona-managers": {"origin-chat": SimpleNamespace(personas={"agent": agent})}}}
-    monkeypatch.setattr(ServerApp, "instance", lambda: SimpleNamespace(web_app=SimpleNamespace(settings=settings)))
+    manager.personas["agent"] = agent
     bridge.execute_command.return_value = {"success": True, "result": {
         "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline", "label": "Figure"
     }}
@@ -137,8 +177,8 @@ async def test_preview_is_a_persisted_persona_mime_message_and_retries_reuse_it(
 
     token = bridge.target_client_id.set("origin-browser")
     try:
-        first = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
-        second = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+        first = await lightcone_preview_element("outputs.figure")
+        second = await lightcone_preview_element("outputs.figure")
     finally:
         bridge.target_client_id.reset(token)
     assert first == {"success": True, "message_id": "card", "reused": False}
@@ -157,7 +197,7 @@ async def test_preview_requires_the_originating_persona_and_browser(bridge, pers
 
     token = bridge.target_client_id.set("another-browser")
     try:
-        result = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+        result = await lightcone_preview_element("outputs.figure")
     finally:
         bridge.target_client_id.reset(token)
     assert result["success"] is False
@@ -165,16 +205,16 @@ async def test_preview_requires_the_originating_persona_and_browser(bridge, pers
     persona.chat.add_message.assert_not_called()
 
 
-async def test_preview_does_not_publish_when_context_validation_fails(bridge, persona):
+async def test_preview_does_not_publish_when_the_browser_rejects_the_target(bridge, persona):
     from jupyterlab_lightcone.agent_tools import lightcone_preview_element
 
-    bridge.execute_command.return_value = {"success": False, "error": "PROJECT_MISMATCH"}
+    bridge.execute_command.return_value = {"success": False, "error": "Unknown ASTRA target"}
     token = bridge.target_client_id.set("origin-browser")
     try:
-        result = await lightcone_preview_element("other/astra.yaml", "outputs.figure")
+        result = await lightcone_preview_element("outputs.missing")
     finally:
         bridge.target_client_id.reset(token)
-    assert result["error"] == "PROJECT_MISMATCH"
+    assert result["error"] == "Unknown ASTRA target"
     persona.chat.add_message.assert_not_called()
 
 
@@ -190,7 +230,7 @@ async def test_malformed_preview_response_does_not_publish(bridge, persona, elem
     bridge.execute_command.return_value = {"success": True, "result": element}
     token = bridge.target_client_id.set("origin-browser")
     try:
-        result = await lightcone_preview_element("project/astra.yaml", "outputs.figure")
+        result = await lightcone_preview_element("outputs.figure")
     finally:
         bridge.target_client_id.reset(token)
     assert result["success"] is False

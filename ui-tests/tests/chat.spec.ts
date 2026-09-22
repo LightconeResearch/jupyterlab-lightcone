@@ -253,7 +253,7 @@ prior_insights:
   await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
   ).toContainText('outputs.figure');
-  // The binding survives a full browser reload and reopening the persisted chat.
+  // Cards survive a full browser reload and reopening the persisted chat.
   await page.reload({ waitForIsReady: false });
   await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
   await page.evaluate(async filepath => {
@@ -264,13 +264,10 @@ prior_insights:
   }, `${tmpPath}/untitled.chat`);
   await expect(cards).toHaveCount(2);
   await expect(figure.locator('img')).toBeVisible();
-  await expect(
-    page.locator('.jp-jupyterlab-lightcone-chat-context')
-  ).toContainText('defaults');
   expect(errors).toEqual([]);
 });
 
-test('empty chats send their bound universe with the user message and preserve reused drafts', async ({
+test('a chat in a project subfolder sends the message unchanged and roots the agent in the project', async ({
   page,
   tmpPath
 }) => {
@@ -285,7 +282,92 @@ test('empty chats send their bound universe with the user message and preserve r
   );
   await page.contents.uploadContent(
     `version: "0.0.14"
-name: Multiple universes
+name: Chats folder
+inputs: []
+outputs:
+  - id: figure
+    type: figure
+    format: svg
+decisions:
+  method:
+    label: Which estimator?
+    options:
+      robust:
+        label: Robust estimator
+    default: robust
+    rationale: Stable under perturbations.
+`,
+    'text',
+    entrypoint
+  );
+  await page.contents.createDirectory(`${tmpPath}/chats`);
+  const filepath = await page.evaluate(async directory => {
+    const created = await window.jupyterapp.commands.execute(
+      'jupyterlab-chat:create',
+      { path: directory, inSidePanel: true }
+    );
+    await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
+      filepath: created,
+      inSidePanel: true
+    });
+    return created;
+  }, `${tmpPath}/chats`);
+  expect(filepath).toContain(`${tmpPath}/chats/`);
+  const composer = page
+    .locator('.jp-chat-input-container')
+    .getByRole('combobox');
+  await composer.fill('Compare the options.');
+  // A record shortcut reuses the project's open chat, wherever it is stored.
+  const reused = await page.evaluate(
+    async args =>
+      window.jupyterapp.commands.execute('jupyterlab_lightcone:discuss', args),
+    { entrypoint, target: 'decisions.method' }
+  );
+  expect(reused.reused).toBe(true);
+  await expect(composer).toContainText('Compare the options.');
+  await expect(composer).toContainText(
+    'Discuss ASTRA element decisions.method.'
+  );
+  await page.locator('.jp-chat-send-button').click();
+  const received = page
+    .locator('.jp-chat-rendered-message')
+    .filter({ hasText: 'Agent received:' });
+  // Nothing is appended for the agent, and its session starts at the project root.
+  await expect(received).toContainText(
+    'Discuss ASTRA element decisions.method.] in [',
+    { timeout: 30000 }
+  );
+  await expect(received).toContainText(`in [${tmpPath}]`);
+  await expect(
+    page
+      .locator('.jp-chat-rendered-message')
+      .filter({ hasText: 'ASTRA context' })
+  ).toHaveCount(0);
+  await expect(composer).toHaveText('');
+  // The one-argument tools find the project from the chat's location.
+  await composer.fill('Show the decision.');
+  await page.locator('.jp-chat-send-button').click();
+  await expect(page.locator('.jp-jupyterlab-lightcone-element')).toContainText(
+    'Stable under perturbations.',
+    { timeout: 45000 }
+  );
+});
+
+test('a chat created outside every project joins the current project and keeps it', async ({
+  page,
+  tmpPath
+}) => {
+  await page.contents.uploadContent(
+    fs.readFileSync(
+      path.resolve(__dirname, '../fixtures/personas/lightcone_persona.py'),
+      'utf8'
+    ),
+    'text',
+    `${tmpPath}/.jupyter/personas/lightcone_persona.py`
+  );
+  await page.contents.uploadContent(
+    `version: "0.0.14"
+name: Current project
 inputs: []
 outputs: []
 decisions:
@@ -294,65 +376,71 @@ decisions:
     options:
       robust:
         label: Robust estimator
-      fast:
-        label: Fast estimator
     default: robust
+    rationale: Stable under perturbations.
 `,
     'text',
-    entrypoint
+    `${tmpPath}/astra.yaml`
   );
-  for (const [id, option] of [
-    ['baseline', 'robust'],
-    ['alternate', 'fast']
-  ])
-    await page.contents.uploadContent(
-      `id: ${id}\ndecisions:\n  method: ${option}\n`,
-      'text',
-      `${tmpPath}/universes/${id}.yaml`
+  // Entering the project folder makes it current, and the server is told.
+  const reported = page.waitForResponse(
+    response =>
+      response.url().includes('/jupyterlab_lightcone/api/current-project') &&
+      response.request().method() === 'PUT' &&
+      (response.request().postData() ?? '').includes(`${tmpPath}/astra.yaml`)
+  );
+  await page.filebrowser.openDirectory(tmpPath);
+  const status = page.locator('.jp-jupyterlab-lightcone-ProjectStatus');
+  await expect(status).toHaveText(
+    `Lightcone · ${path.posix.basename(tmpPath)}`
+  );
+  expect((await reported).ok()).toBe(true);
+  // Jupyter Chat's own sidebar action stores the chat at the server root.
+  const filepath: string = await page.evaluate(async () => {
+    const created = await window.jupyterapp.commands.execute(
+      'jupyterlab-chat:create',
+      { inSidePanel: true }
     );
-  const composer = page
-    .locator('.jp-chat-input-container')
-    .getByRole('combobox');
-  const chatIds = new Set<string>();
-  for (const universeId of ['baseline', 'alternate']) {
-    const context = await page.evaluate(
-      async args =>
-        window.jupyterapp.commands.execute(
-          'jupyterlab_lightcone:discuss',
-          args
-        ),
-      { entrypoint, universeId }
-    );
-    expect(context.universeId).toBe(universeId);
-    chatIds.add(context.chatId);
-    await expect(composer).toHaveText('');
-    await composer.fill('Compare the options.');
-    const reused = await page.evaluate(
-      async args =>
-        window.jupyterapp.commands.execute(
-          'jupyterlab_lightcone:discuss',
-          args
-        ),
-      { entrypoint, universeId, target: 'decisions.method' }
-    );
-    expect(reused.reused).toBe(true);
-    await expect(composer).toContainText('Compare the options.');
-    await expect(composer).toContainText(
-      'Discuss ASTRA element decisions.method.'
-    );
-    await expect(composer).not.toContainText('ASTRA context:');
-    await page.locator('.jp-chat-send-button').click();
+    await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
+      filepath: created,
+      inSidePanel: true
+    });
+    return created;
+  });
+  try {
+    expect(filepath).not.toContain(tmpPath);
+    const composer = page
+      .locator('.jp-chat-input-container')
+      .getByRole('combobox');
     const received = page
       .locator('.jp-chat-rendered-message')
       .filter({ hasText: 'Agent received:' });
-    await expect(received).toContainText(
-      new RegExp(`Use the bound universe ["“]${universeId}["”]`),
-      { timeout: 30000 }
-    );
-    await expect(received).toContainText(entrypoint);
-    await expect(composer).toHaveText('');
+    // The project's own persona loads, and the session starts at the project root.
+    await composer.fill('Compare the options.');
+    await page.locator('.jp-chat-send-button').click();
+    await expect(received).toContainText(`in [${tmpPath}]`, {
+      timeout: 30000
+    });
+    await composer.fill('Show the decision.');
+    await page.locator('.jp-chat-send-button').click();
+    await expect(
+      page.locator('.jp-jupyterlab-lightcone-element')
+    ).toContainText('Stable under perturbations.', { timeout: 45000 });
+    // Leaving the project hides it from the status bar, but the chat keeps it.
+    await page.evaluate(async () => {
+      await window.jupyterapp.commands.execute('filebrowser:go-to-path', {
+        path: '/',
+        dontShowBrowser: true
+      });
+    });
+    await expect(status).toBeHidden();
+    await composer.fill('Compare the options.');
+    await page.locator('.jp-chat-send-button').click();
+    await expect(received).toHaveCount(2, { timeout: 30000 });
+    await expect(received.last()).toContainText(`in [${tmpPath}]`);
+  } finally {
+    await page.contents.deleteFile(filepath);
   }
-  expect(chatIds.size).toBe(2);
 });
 
 test('opens only cited papers as native tabs without downloading them', async ({

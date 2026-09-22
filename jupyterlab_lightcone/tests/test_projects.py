@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 from lightcone.engine.project import ConvergenceReport, ProjectError
@@ -17,6 +18,56 @@ ENDPOINT = ("jupyterlab_lightcone", "api", "projects")
 @pytest.fixture
 def jp_base_url():
     return "/user/researcher/"
+
+
+@pytest.fixture
+def tree(tmp_path):
+    """A project holding a chats folder and a nested project, beside a loose folder."""
+    (tmp_path / "project" / "chats" / "deep").mkdir(parents=True)
+    (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
+    (tmp_path / "project" / "sub").mkdir()
+    (tmp_path / "project" / "sub" / "astra.yaml").write_text("name: nested\n")
+    (tmp_path / "loose").mkdir()
+    return tmp_path
+
+
+@pytest.mark.parametrize("directory, expected", [
+    ("project", "project"),
+    ("project/chats", "project"),
+    ("project/chats/deep", "project"),
+    ("project/sub", "project/sub"),
+    ("loose", None),
+    ("", None),
+    ("..", None),
+])
+def test_owning_project_is_the_nearest_ancestor_inside_the_root(tree, directory, expected):
+    found = projects.owning_project(tree, Path(directory))
+    assert found == (tree / expected if expected else None)
+
+
+def test_a_specification_above_the_server_root_is_never_used(tree):
+    assert projects.owning_project(tree / "project" / "chats", Path("deep")) is None
+
+
+def test_a_non_file_specification_is_skipped_not_an_error(tree):
+    (tree / "loose" / "astra.yaml").mkdir()
+    assert projects.owning_project(tree, Path("loose")) is None
+
+
+def test_a_project_symlinked_out_of_the_root_is_owned_as_the_browser_sees_it(tmp_path):
+    """Contents serves the logical path, so the walk must not resolve it away."""
+    home, scratch = tmp_path / "home", tmp_path / "scratch"
+    (scratch / "proj" / "chats").mkdir(parents=True)
+    (scratch / "proj" / "astra.yaml").write_text("name: linked\n")
+    home.mkdir()
+    (home / "proj").symlink_to(scratch / "proj")
+    assert projects.owning_project(home, Path("proj/chats")) == home / "proj"
+    assert projects.project_entrypoint(home, home / "proj") == "proj/astra.yaml"
+
+
+def test_the_entrypoint_is_the_contents_path_of_the_specification(tmp_path):
+    assert projects.project_entrypoint(tmp_path, tmp_path) == "astra.yaml"
+    assert projects.project_entrypoint(tmp_path, tmp_path / "a" / "b") == "a/b/astra.yaml"
 
 
 def test_resolves_new_and_existing_folders_without_writing(tmp_path):
@@ -84,6 +135,26 @@ async def test_engine_refusals_reach_the_user_verbatim(tmp_path, monkeypatch, ou
     assert expected in str(error.value)
     # jupyter_server replies with log_message as it stands, never formatted.
     assert not error.value.args
+
+
+@pytest.mark.parametrize("entrypoint, expected", [
+    ("project/astra.yaml", "project"),
+    ("project/./astra.yaml", "project"),
+    ("project/sub/astra.yaml", "project/sub"),
+    ("loose/astra.yaml", None),
+    ("project/chats/astra.yaml", None),
+    ("project/other.yaml", None),
+    ("../project/astra.yaml", None),
+    ("/project/astra.yaml", None),
+    ("drive:project/astra.yaml", None),
+    ("project\\astra.yaml", None),
+    ("", None),
+    (None, None),
+    (["project/astra.yaml"], None),
+])
+def test_a_reported_or_recorded_entrypoint_must_name_a_local_specification(tree, entrypoint, expected):
+    found = projects.spec_project(tree, entrypoint)
+    assert found == (tree / expected if expected else None)
 
 
 def test_engine_tools_are_found_without_an_activated_environment(monkeypatch):
@@ -199,3 +270,52 @@ async def test_sync_contents_calls_run_off_the_event_loop():
         return threading.get_ident()
 
     assert await project_routes.contents_call(async_method) == main_thread
+
+
+CURRENT = ("jupyterlab_lightcone", "api", "current-project")
+
+
+async def test_the_browser_reports_and_clears_the_current_project(jp_fetch, jp_root_dir, jp_serverapp):
+    (jp_root_dir / "project").mkdir()
+    (jp_root_dir / "project" / "astra.yaml").write_text("name: example")
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "project/./astra.yaml"}))
+    assert json.loads(response.body) == {"entrypoint": "project/astra.yaml"}
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] == "project/astra.yaml"
+    await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": None}))
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] is None
+
+
+@pytest.mark.parametrize("entrypoint, status", [
+    ("missing/astra.yaml", 400),
+    ("../outside/astra.yaml", 400),
+    ("plain/notes.yaml", 400),
+    (".hidden/astra.yaml", 404),
+])
+async def test_a_project_the_server_cannot_serve_leaves_nothing_current(jp_fetch, jp_root_dir, jp_serverapp, entrypoint, status):
+    """The browser moved on; new chats must not join the project it left."""
+    for name in ("project", "plain", ".hidden"):
+        (jp_root_dir / name).mkdir()
+    (jp_root_dir / "project" / "astra.yaml").write_text("name: example")
+    (jp_root_dir / "plain" / "notes.yaml").write_text("name: example")
+    (jp_root_dir / ".hidden" / "astra.yaml").write_text("name: private")
+    await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "project/astra.yaml"}))
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": entrypoint}), raise_error=False)
+    assert response.code == status
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] is None
+
+
+@pytest.mark.parametrize("body", [{}, ["project/astra.yaml"], {"entrypoint": 1}])
+async def test_a_malformed_report_changes_nothing(jp_fetch, jp_root_dir, jp_serverapp, body):
+    (jp_root_dir / "astra.yaml").write_text("name: example")
+    await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "astra.yaml"}))
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps(body), raise_error=False)
+    assert response.code == 400
+    assert jp_serverapp.web_app.settings[projects.CURRENT_PROJECT] == "astra.yaml"
+
+
+async def test_changing_the_current_project_requires_write_permission(jp_fetch, jp_root_dir, jp_serverapp, monkeypatch):
+    (jp_root_dir / "astra.yaml").write_text("name: example")
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda handler, user, action, resource: action != "write")
+    response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "astra.yaml"}), raise_error=False)
+    assert response.code == 403
+    assert projects.CURRENT_PROJECT not in jp_serverapp.web_app.settings

@@ -14,6 +14,8 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
 import { chatPlugin } from './chat-plugin';
+import { currentProjectPlugin, ICurrentProject } from './current-project';
+import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
 import { astraMimePlugin } from './astra-mime';
 import { registerElementCommands } from './element-commands';
@@ -43,7 +45,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     IFileBrowserFactory,
     ILayoutRestorer,
     ITranslator,
-    ILabShell
+    ILabShell,
+    ICurrentProject
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -54,7 +57,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
     browser: IFileBrowserFactory | null,
     restorer: ILayoutRestorer | null,
     translator: ITranslator | null,
-    shell: ILabShell | null
+    shell: ILabShell | null,
+    current: ICurrentProject | null
   ) => {
     const inventories = new WidgetTracker<InventoryDocument>({
       namespace: 'lightcone-inventory'
@@ -107,8 +111,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
       command: CommandIDs.openExistingProject,
       category: CATEGORY
     });
-    if (launcher && browser) {
-      configureProjectLauncher(app, launcher, browser);
+    if (launcher && current) {
+      configureProjectLauncher(app, launcher, current);
     }
     if (restorer) {
       void restorer.restore(inventories, {
@@ -134,6 +138,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
 };
 
 export default [
+  currentProjectPlugin,
+  projectStatusPlugin,
   plugin,
   astraMimePlugin,
   chatPlugin,
