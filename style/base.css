@@ -1,15 +1,9 @@
 /* Shared UI isolation comes from @astra-spec/ui/isolate.css. Host chrome stays in its own layer. */
 @layer astra.tokens, astra.base, astra.components, astra.views, lightcone;
 
-/* Match the ASTRA mark without recoloring Jupyter Chat's shared icon. */
-.jp-jupyterlab-lightcone-AssistantIcon .jp-icon3,
+/* Match the ASTRA mark in project actions. */
 .jp-jupyterlab-lightcone-ProjectActionIcon .jp-icon3 {
   fill: var(--lc-palette-antique-gold, #a67c3c);
-}
-
-/* Chat's rich-output scroller clips transforms and shadows at the card edge. */
-.jp-chat-rendered-message.jp-OutputArea:has(> lightcone-astra-card) {
-  overflow: visible;
 }
 
 @layer lightcone {
@@ -164,13 +158,11 @@
 
   /* JupyterLab shares the first command icon between a section and its cards. */
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon,
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon,
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-ProjectActionIcon {
     background: url('./lightcone-logo.svg') center / contain no-repeat;
   }
 
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-InventoryIcon > svg,
-  .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-AssistantIcon > svg,
   .jp-Launcher-sectionHeader .jp-jupyterlab-lightcone-ProjectActionIcon > svg {
     visibility: hidden;
   }
@@ -394,64 +386,6 @@
       li
       > small {
       grid-column: 2;
-    }
-  }
-
-  .jp-jupyterlab-lightcone-chat-context {
-    border: 0;
-    border-radius: 3px;
-    padding: 2px 4px;
-    background: var(--jp-layout-color2);
-    color: var(--jp-ui-font-color1);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  lightcone-astra-card {
-    display: block;
-    padding-block: 6px;
-  }
-
-  .jp-jupyterlab-lightcone-card {
-    border: 1px solid var(--jp-border-color2);
-    border-radius: 6px;
-    max-width: 640px;
-    transition:
-      transform 150ms ease,
-      box-shadow 150ms ease;
-  }
-
-  .jp-jupyterlab-lightcone-card > p {
-    margin: 12px;
-  }
-
-  .jp-jupyterlab-lightcone-card-preview {
-    padding: 12px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-
-  .jp-jupyterlab-lightcone-card:has(
-      .jp-jupyterlab-lightcone-card-preview
-    ):hover {
-    transform: translateY(-2px);
-    box-shadow: var(--astra-shadow-raised);
-  }
-
-  .jp-jupyterlab-lightcone-card-preview:focus-visible {
-    outline: 2px solid var(--jp-brand-color1);
-    outline-offset: 2px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .jp-jupyterlab-lightcone-card {
-      transition: none;
-    }
-
-    .jp-jupyterlab-lightcone-card:has(
-        .jp-jupyterlab-lightcone-card-preview
-      ):hover {
-      transform: none;
     }
   }
 }

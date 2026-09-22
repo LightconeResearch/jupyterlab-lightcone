@@ -50,7 +50,7 @@ interface IWatchedProject {
   notification?: string;
 }
 
-/** One application-owned observer, shared across inventory, cards, and chat views. */
+/** One application-owned observer, shared across inventory and record views. */
 export class ProjectNotifications {
   constructor(
     private readonly contents: Contents.IManager,

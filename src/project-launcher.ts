@@ -29,7 +29,7 @@ export function configureProjectLauncher(
   const render = () => {
     if (project === undefined || disposed) return;
     const commands = project
-      ? [CommandIDs.discuss, CommandIDs.openInventory, CommandIDs.openMySTRA]
+      ? [CommandIDs.openInventory, CommandIDs.openMySTRA]
       : [CommandIDs.createProject, CommandIDs.openExistingProject];
     const available = commands.filter(command =>
       app.commands.hasCommand(command)

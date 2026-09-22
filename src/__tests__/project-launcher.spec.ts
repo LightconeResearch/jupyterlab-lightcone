@@ -18,8 +18,7 @@ function host() {
   for (const command of [
     CommandIDs.createProject,
     CommandIDs.openExistingProject,
-    CommandIDs.openInventory,
-    CommandIDs.openMySTRA
+    CommandIDs.openInventory
   ]) {
     commands.addCommand(command, { execute: () => undefined });
   }
@@ -72,27 +71,23 @@ function host() {
   };
 }
 
-it('ignores filters, retains project root in subfolders, and updates late chat registration', async () => {
+it('ignores filters, retains project root in subfolders, and updates late command registration', async () => {
   const h = host();
   try {
     await flush();
-    expect([...h.visible.keys()]).toEqual([
-      CommandIDs.openInventory,
-      CommandIDs.openMySTRA
-    ]);
+    expect([...h.visible.keys()]).toEqual([CommandIDs.openInventory]);
     h.model.path = 'project/data';
     h.model.refreshed.emit();
     await flush();
     expect(h.visible.get(CommandIDs.openInventory)?.args).toEqual({});
-    expect(h.visible.get(CommandIDs.openMySTRA)?.args).toEqual({});
     expect(h.visible.get(CommandIDs.openInventory)?.category).toBe(
       'Lightcone Lab · project'
     );
     h.get.mockClear();
     h.commands.notifyCommandChanged();
-    h.commands.addCommand(CommandIDs.discuss, { execute: () => undefined });
+    h.commands.addCommand(CommandIDs.openMySTRA, { execute: () => undefined });
     await flush();
-    expect(h.visible.get(CommandIDs.discuss)?.args).toEqual({});
+    expect(h.visible.get(CommandIDs.openMySTRA)?.args).toEqual({});
     expect(h.get).not.toHaveBeenCalled();
     h.specs.clear();
     h.model.refreshed.emit();

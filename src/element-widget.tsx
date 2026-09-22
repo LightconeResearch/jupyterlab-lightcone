@@ -48,7 +48,7 @@ import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
 import { astraIcon } from './icons';
 
-/** Share project resolution with every tab and visible chat card. */
+/** Share project resolution with every open tab. */
 export function useProject(
   contents: Contents.IManager,
   context: IProjectContext

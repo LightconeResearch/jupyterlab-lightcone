@@ -74,7 +74,7 @@ class ProjectsHandler(ProjectAPIHandler):
     @web.authenticated
     @authorized(action="read", resource="contents")
     async def get(self):
-        """Inspect without creating directories, specs, or chat files."""
+        """Inspect without creating directories or specs."""
         _, info = await self.resolve(self.get_argument("path", "."))
         if self.get_argument("children", "false") == "true":
             listing = await contents_call(self.contents_manager.get, info["path"], content=True, type="directory")

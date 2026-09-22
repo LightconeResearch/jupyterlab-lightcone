@@ -126,7 +126,7 @@ jobs:
     - name: Install the extension
       run: |
         set -eux
-        python -m pip install "jupyterlab>=4.5.10,<5" "jupyter-ai>=3.2.0,<3.3" jupyterlab_lightcone*.whl
+        python -m pip install "jupyterlab>=4.5.10,<5" jupyterlab_lightcone*.whl
         if [ "$LIGHTCONE_TEST_MYST" = "1" ]; then
           python -m pip install "jupyterlab-myst>=2.7.0,<2.8"
         fi

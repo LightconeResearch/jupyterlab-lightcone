@@ -14,7 +14,7 @@ export const mystIcon = new LabIcon({
   svgstr: mystLogoSvg
 });
 
-/** Project actions use the same accent as inventory and agent icons. */
+/** Project actions use the same accent as inventory icons. */
 export const createProjectIcon = addIcon.bindprops({
   className: 'jp-jupyterlab-lightcone-ProjectActionIcon'
 });

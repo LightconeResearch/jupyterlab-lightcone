@@ -59,7 +59,6 @@
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
         "@astra-spec/ui": "0.0.6",
-        "@jupyter/chat": "~0.25.0",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
         "@jupyterlab/coreutils": "^6.5.10",
@@ -134,13 +133,7 @@
             }
         },
         "extension": true,
-        "outputDir": "jupyterlab_lightcone/labextension",
-        "sharedPackages": {
-            "@jupyter/chat": {
-                "bundled": true,
-                "singleton": true
-            }
-        }
+        "outputDir": "jupyterlab_lightcone/labextension"
     },
     "prettier": {
         "singleQuote": true,

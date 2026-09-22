@@ -17,12 +17,11 @@ import {
   type IElementReference
 } from './element-reference';
 import { acquireProjectDataService } from './project-data-service';
-import { contextualArguments } from './chat-context';
 import { UUID, type ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { ElementTabs } from './element-tabs';
 import { canonicalRecordPath, parseAstraPath } from './vendor/mystra-path';
 
-/** Expose record views and validate references before publishing chat previews. */
+/** Expose record views as commands that open and restore ASTRA tabs. */
 export function registerElementCommands(
   app: JupyterFrontEnd,
   themes: IThemeManager,
@@ -107,18 +106,12 @@ export function registerElementCommands(
       pinned: widget.content.isPinned
     };
   };
-  for (const command of [
-    CommandIDs.openElement,
-    CommandIDs.resolvePreview,
-    CommandIDs.restoreElement
-  ]) {
+  for (const command of [CommandIDs.openElement, CommandIDs.restoreElement]) {
     app.commands.addCommand(command, {
       label:
         command === CommandIDs.openElement
           ? 'Open ASTRA element'
-          : command === CommandIDs.restoreElement
-            ? 'Restore ASTRA tab'
-            : 'Resolve ASTRA preview',
+          : 'Restore ASTRA tab',
       describedBy: {
         args: {
           type: 'object',
@@ -133,7 +126,7 @@ export function registerElementCommands(
       },
       execute: args => {
         const execute = async () => {
-          const reference = parseElementReference(contextualArguments(args));
+          const reference = parseElementReference(args);
           if (command === CommandIDs.restoreElement) {
             const target = reference.doi
               ? `doi:${reference.doi}`
@@ -165,14 +158,6 @@ export function registerElementCommands(
                   ? null
                   : data.document.universe.universeId
             };
-            if (command === CommandIDs.resolvePreview) {
-              return {
-                ...pinned,
-                label: resolved.record
-                  ? recordTitle(resolved.record)
-                  : (resolved.paper?.title ?? resolved.analysis.name)
-              };
-            }
             if (!resolved.record && !resolved.paper) {
               const inventoryLease = acquireProjectDataService(
                 app.serviceManager.contents,
@@ -210,9 +195,7 @@ export function registerElementCommands(
             lease.release();
           }
         };
-        return command === CommandIDs.resolvePreview
-          ? execute()
-          : enqueue(execute);
+        return enqueue(execute);
       }
     });
   }

@@ -29,14 +29,6 @@ PaperCache(Path(paper_cache.name)).add_from_file(
     authors=["Test Author"],
 )
 
-# Deterministic optional AI integration; never start the developer's real ACP agents.
-c.ContentsManager.allow_hidden = True
-c.FileContentsManager.allow_hidden = True
-c.PersonaManager.default_persona_id = "jupyter-ai-personas::lightcone_persona::LightconePersona"
-c.MCPExtensionApp.mcp_port = int(os.environ.get("LIGHTCONE_TEST_MCP_PORT", "3019"))
-os.environ["JUPYTER_AI_ACP_CLIENT_E2E_TESTING_ONLY"] = "1"
-os.environ["LIGHTCONE_TEST_AVATAR"] = str(Path(__file__).parent.parent / "style" / "astra-logo.svg")
-
 # Use LabConfig's boolean map, not the deprecated application-settings list.
 # Prepending a temporary config also overrides local extension preferences
 # without changing the developer's settings.

@@ -31,11 +31,7 @@ dependencies = [
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
-[project.entry-points."jupyter_server_mcp.tools"]
-lightcone = "jupyterlab_lightcone.agent_tools:TOOLS"
-
 [project.optional-dependencies]
-ai = ["jupyter-ai>=3.2.0,<3.3"]
 dev = [
     "jupyterlab>=4.5.10,<5",
     "jupyter-builder>=1.2.0",
