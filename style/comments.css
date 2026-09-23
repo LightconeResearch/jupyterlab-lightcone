@@ -1,0 +1,358 @@
+/* Comments: pins, badges, the floating button, the popover, the tray and cards. */
+
+/* A widget carrying a comment layer becomes the layer's containing block. */
+.jp-jupyterlab-lightcone-CommentHost {
+  position: relative;
+}
+
+.jp-jupyterlab-lightcone-CommentHost img.jp-jupyterlab-lightcone-Commentable,
+.jp-jupyterlab-lightcone-CommentHost
+  figure.astra-artifact:has(> img.jp-jupyterlab-lightcone-Commentable) {
+  cursor: crosshair;
+}
+
+.jp-jupyterlab-lightcone-CommentLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.jp-jupyterlab-lightcone-CommentFrame {
+  position: absolute;
+  pointer-events: none;
+}
+
+.jp-jupyterlab-lightcone-CommentFrame[hidden] {
+  display: none;
+}
+
+.jp-jupyterlab-lightcone-CommentPin,
+.jp-jupyterlab-lightcone-CommentBadge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-brand-color1);
+  color: var(--jp-ui-inverse-font-color1);
+  font: 600 var(--jp-ui-font-size1) / 1 var(--jp-ui-font-family);
+  line-height: 20px;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: var(--jp-elevation-z2);
+}
+
+.jp-jupyterlab-lightcone-CommentPin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  touch-action: none;
+  user-select: none;
+}
+
+.jp-jupyterlab-lightcone-CommentPin:hover,
+.jp-jupyterlab-lightcone-CommentBadge:hover {
+  background: var(--jp-brand-color0);
+  border-color: var(--jp-brand-color0);
+}
+
+.jp-jupyterlab-lightcone-CommentPin:focus-visible,
+.jp-jupyterlab-lightcone-CommentBadge:focus-visible {
+  outline: 2px solid var(--jp-brand-color2);
+  outline-offset: 1px;
+}
+
+.jp-jupyterlab-lightcone-CommentDraft {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px dashed var(--jp-brand-color1);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: color-mix(in srgb, var(--jp-brand-color1) 20%, transparent);
+  pointer-events: none;
+}
+
+/* Badges in rendered text float beside the first line of the quote. */
+.jp-jupyterlab-lightcone-CommentLayer .jp-jupyterlab-lightcone-CommentBadge {
+  position: absolute;
+  transform: translateX(calc(-100% - 4px));
+  min-width: 20px;
+  height: 20px;
+}
+
+.jp-jupyterlab-lightcone-CommentHighlight {
+  position: absolute;
+  background: color-mix(in srgb, var(--jp-warn-color1) 28%, transparent);
+  border-bottom: 2px solid var(--jp-warn-color1);
+  pointer-events: none;
+}
+
+/* Badges inside CodeMirror sit inline before the quote. */
+.cm-editor .jp-jupyterlab-lightcone-CommentBadge {
+  vertical-align: text-bottom;
+  margin-right: 4px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 16px;
+  font-size: var(--jp-ui-font-size0);
+}
+
+.cm-editor .jp-jupyterlab-lightcone-CommentMark {
+  background: color-mix(in srgb, var(--jp-warn-color1) 28%, transparent);
+  border-bottom: 2px solid var(--jp-warn-color1);
+}
+
+@keyframes jp-jupyterlab-lightcone-comment-flash {
+  0%,
+  100% {
+    box-shadow: var(--jp-elevation-z2);
+  }
+
+  25%,
+  75% {
+    box-shadow: 0 0 0 6px
+      color-mix(in srgb, var(--jp-warn-color1) 55%, transparent);
+  }
+}
+
+.jp-jupyterlab-lightcone-CommentFlash {
+  animation: jp-jupyterlab-lightcone-comment-flash 1.5s ease-in-out;
+}
+
+/* The floating Comment button: in a CodeMirror tooltip or fixed on the page. */
+.jp-jupyterlab-lightcone-CommentButton {
+  appearance: none;
+  padding: 3px 10px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-layout-color0);
+  color: var(--jp-ui-font-color1);
+  font: var(--jp-ui-font-size1) var(--jp-ui-font-family);
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: var(--jp-elevation-z4);
+}
+
+.jp-jupyterlab-lightcone-CommentButton:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-CommentButton:focus-visible {
+  outline: 2px solid var(--jp-brand-color2);
+  outline-offset: 1px;
+}
+
+.jp-jupyterlab-lightcone-CommentButton[data-floating] {
+  position: fixed;
+  z-index: 1010;
+}
+
+.jp-jupyterlab-lightcone-CommentButton[hidden] {
+  display: none;
+}
+
+.cm-tooltip:has(> .jp-jupyterlab-lightcone-CommentButton) {
+  border: 0;
+  background: transparent;
+}
+
+/* The popover. */
+.jp-jupyterlab-lightcone-CommentPopover {
+  position: fixed;
+  z-index: 1020;
+  width: 320px;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-layout-color0);
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  box-shadow: var(--jp-elevation-z8);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  padding: 6px 8px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-input-active-background, var(--jp-layout-color0));
+  color: var(--jp-ui-font-color0);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-input:focus {
+  outline: none;
+  border-color: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-counter {
+  align-self: flex-end;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-text {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-error {
+  margin: 0;
+  color: var(--jp-error-color1);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* The pending tray above a session's input. */
+.jp-jupyterlab-lightcone-CommentTrayHost:empty {
+  display: none;
+}
+
+.jp-jupyterlab-lightcone-CommentTray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 32px 2px;
+}
+
+.jp-jupyterlab-lightcone-CommentChip {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-CommentChip button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-CommentChip button:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-CommentChip-open {
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-text {
+  overflow: hidden;
+  max-width: 220px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-label {
+  color: var(--jp-brand-color1);
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-icon svg,
+.jp-jupyterlab-lightcone-CommentChip-action svg,
+.jp-jupyterlab-lightcone-CommentCard-icon svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-action {
+  border-left: 1px solid var(--jp-border-color2);
+}
+
+/* Cards on a sent message. */
+.jp-jupyterlab-lightcone-CommentCards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.jp-jupyterlab-lightcone-CommentCard {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--jp-border-color2);
+  border-left: 3px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  font: var(--jp-ui-font-size1) var(--jp-ui-font-family);
+  text-align: left;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-CommentCard:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-CommentCard-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-CommentCard-label {
+  color: var(--jp-brand-color1);
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-CommentCard-target {
+  font-family: var(--jp-code-font-family);
+  color: var(--jp-ui-font-color1);
+}
+
+.jp-jupyterlab-lightcone-CommentCard-where {
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+  font-style: italic;
+}
+
+.jp-jupyterlab-lightcone-CommentCard-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

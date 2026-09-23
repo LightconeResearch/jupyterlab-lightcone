@@ -1,0 +1,567 @@
+/* Home reads JupyterLab theme variables only, plus optional --lc-* extras the
+ * Lightcone themes define. Under any other theme it looks like that Lab. */
+
+.jp-jupyterlab-lightcone-Home {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--jp-layout-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-launcher {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.jp-jupyterlab-lightcone-Home-stockBar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-jupyterlab-lightcone-HomeView {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  container: lightcone-home / inline-size;
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-jupyterlab-lightcone-Home-page {
+  box-sizing: border-box;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 0 32px 56px;
+}
+
+.jp-jupyterlab-lightcone-Home-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0;
+  margin-bottom: 36px;
+  border-bottom: 1px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Home-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.jp-jupyterlab-lightcone-Home-mark svg {
+  width: 18px;
+  height: 22px;
+}
+
+.jp-jupyterlab-lightcone-Home-brand {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--jp-ui-font-color2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-tools {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color2);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-tools:hover,
+.jp-jupyterlab-lightcone-Home-tools:focus-visible {
+  border-color: var(--jp-border-color2);
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color0);
+}
+
+.jp-jupyterlab-lightcone-Home-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 48px;
+  align-items: start;
+}
+
+.jp-jupyterlab-lightcone-Home-research {
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-eyebrow,
+.jp-jupyterlab-lightcone-Home-kickerLabel {
+  margin: 0 0 10px;
+  color: var(--lc-eyebrow, var(--jp-ui-font-color2));
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.jp-jupyterlab-lightcone-Home-title {
+  margin: 0 0 14px;
+  color: var(--jp-ui-font-color0);
+  font-family: var(--lc-font-heading, var(--jp-content-font-family));
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-description {
+  max-width: 64ch;
+  margin: 0 0 22px;
+  font-family: var(--jp-content-font-family);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.jp-jupyterlab-lightcone-Home-message,
+.jp-jupyterlab-lightcone-Home-warning {
+  margin: 0 0 16px;
+  color: var(--jp-ui-font-color2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-warning {
+  padding-left: 10px;
+  border-left: 3px solid var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-report,
+.jp-jupyterlab-lightcone-Home-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  color: var(--lc-accent-contrast, #fff);
+  background: var(--jp-brand-color1);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-report:hover {
+  background: var(--jp-brand-color0);
+}
+
+.jp-jupyterlab-lightcone-Home-reportIcon {
+  display: inline-flex;
+}
+
+.jp-jupyterlab-lightcone-Home-reportIcon svg {
+  width: 16px;
+  height: 16px;
+  filter: brightness(0) invert(1);
+}
+
+.jp-jupyterlab-lightcone-Home-section {
+  margin-top: 40px;
+}
+
+.jp-jupyterlab-lightcone-Home-kicker {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Home-kicker .jp-jupyterlab-lightcone-Home-kickerLabel {
+  margin: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-kickerNote,
+.jp-jupyterlab-lightcone-Home-freshness {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-freshnessDot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--jp-ui-font-color3);
+}
+
+.jp-jupyterlab-lightcone-Home-freshness[data-state='current']
+  .jp-jupyterlab-lightcone-Home-freshnessDot {
+  background: var(--jp-success-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-freshness[data-state='attention']
+  .jp-jupyterlab-lightcone-Home-freshnessDot {
+  background: var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-link {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  color: var(--jp-brand-color1);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.jp-jupyterlab-lightcone-Home-plates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 18px;
+}
+
+.jp-jupyterlab-lightcone-Home-plate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview {
+  display: flex;
+  box-sizing: border-box;
+  aspect-ratio: 4 / 3;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  background: var(--lc-paper, var(--jp-layout-color0));
+  transition: box-shadow 150ms ease;
+}
+
+.jp-jupyterlab-lightcone-Home-plate:hover
+  .jp-jupyterlab-lightcone-Home-platePreview {
+  border-color: var(--jp-border-color1);
+  box-shadow: var(--jp-elevation-z2);
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview > .astra-artifact {
+  width: 100%;
+  max-height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview > figure.astra-artifact {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.jp-jupyterlab-lightcone-Home-plateCaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-plateName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-plateKind {
+  flex: 0 0 auto;
+  color: var(--jp-ui-font-color3);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jp-jupyterlab-lightcone-Home-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+}
+
+.jp-jupyterlab-lightcone-Home-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  color: var(--jp-ui-font-color2);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-count strong {
+  color: var(--jp-ui-font-color0);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-Home-countGlyph {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--jp-ui-font-color3);
+}
+
+.jp-jupyterlab-lightcone-Home-count[data-kind='decision']
+  .jp-jupyterlab-lightcone-Home-countGlyph {
+  border-radius: 1px;
+  background: var(--lc-kind-decision, var(--jp-warn-color1));
+  transform: rotate(45deg);
+}
+
+.jp-jupyterlab-lightcone-Home-count[data-kind='input']
+  .jp-jupyterlab-lightcone-Home-countGlyph {
+  border-radius: 1px;
+  background: var(--lc-kind-input, var(--jp-brand-color1));
+}
+
+.jp-jupyterlab-lightcone-Home-count[data-kind='finding']
+  .jp-jupyterlab-lightcone-Home-countGlyph {
+  background: var(--lc-kind-finding, var(--jp-success-color1));
+}
+
+.jp-jupyterlab-lightcone-Home-count[data-kind='paper']
+  .jp-jupyterlab-lightcone-Home-countGlyph {
+  border-radius: 0;
+  background: var(--lc-kind-paper, var(--jp-accent-color1));
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.jp-jupyterlab-lightcone-Home-desk {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  background: var(--lc-paper, var(--jp-layout-color0));
+}
+
+.jp-jupyterlab-lightcone-Home-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jp-jupyterlab-lightcone-Home-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88px;
+  padding: 10px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color0);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.jp-jupyterlab-lightcone-Home-textarea:focus {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-jupyterlab-lightcone-Home-composerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.jp-jupyterlab-lightcone-Home-agent {
+  max-width: 60%;
+  padding: 4px 8px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color0);
+  font: inherit;
+}
+
+.jp-jupyterlab-lightcone-Home-start {
+  padding: 6px 16px;
+}
+
+.jp-jupyterlab-lightcone-Home-start:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.jp-jupyterlab-lightcone-Home-start:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
+.jp-jupyterlab-lightcone-Home-start:hover:enabled {
+  background: var(--jp-brand-color0);
+}
+
+.jp-jupyterlab-lightcone-Home-composerError {
+  margin: 0;
+  color: var(--jp-error-color1);
+  font-size: var(--jp-ui-font-size0);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-sessions {
+  margin-top: 26px;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionList > li + li {
+  border-top: 1px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Home-session {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: baseline;
+  width: 100%;
+  padding: 10px 0;
+  gap: 3px 10px;
+  border: 0;
+  color: var(--jp-ui-font-color1);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionDot {
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--jp-ui-font-color3);
+  border-radius: 50%;
+  align-self: center;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionDot[data-activity='working'] {
+  border-color: var(--jp-brand-color1);
+  background: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-sessionDot[data-activity='attention'] {
+  border-color: var(--jp-warn-color1);
+  background: var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-sessionTitle,
+.jp-jupyterlab-lightcone-Home-sessionMeta {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionMeta {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-Home-report:focus-visible,
+.jp-jupyterlab-lightcone-Home-plate:focus-visible,
+.jp-jupyterlab-lightcone-Home-count:focus-visible,
+.jp-jupyterlab-lightcone-Home-session:focus-visible,
+.jp-jupyterlab-lightcone-Home-link:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
+/* The Tools menu: category headings and kernel icons from their spec URL. */
+.jp-jupyterlab-lightcone-HomeTools
+  .lm-Menu-item.jp-jupyterlab-lightcone-HomeTools-category {
+  opacity: 1;
+}
+
+.jp-jupyterlab-lightcone-HomeTools
+  .lm-Menu-item.jp-jupyterlab-lightcone-HomeTools-category
+  > .lm-Menu-itemLabel {
+  color: var(--jp-ui-font-color2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.jp-jupyterlab-lightcone-HomeTools
+  .lm-Menu-item.jp-jupyterlab-lightcone-HomeTools-category
+  > .lm-Menu-itemIcon {
+  visibility: hidden;
+}
+
+.jp-jupyterlab-lightcone-HomeTools-kernelIcon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+/* A Home tab beside a session or a result is half a screen wide: stack the
+ * desk under the research column by the tab's own width, not the viewport's. */
+@container lightcone-home (width < 900px) {
+  .jp-jupyterlab-lightcone-Home-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .jp-jupyterlab-lightcone-Home-page {
+    padding-inline: 20px;
+  }
+}

@@ -1,0 +1,26 @@
+/* The body of a session without messages: the project's name and an invitation. */
+.jp-jupyterlab-lightcone-SessionPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 160px;
+  height: 100%;
+  padding: 24px 16px;
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-ui-font-family);
+  text-align: center;
+}
+
+.jp-jupyterlab-lightcone-SessionPlaceholder-project {
+  color: var(--jp-ui-font-color1);
+  font-family: var(--lc-font-heading, var(--jp-content-font-family));
+  font-size: var(--jp-ui-font-size3);
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-SessionPlaceholder-prompt {
+  font-size: var(--jp-ui-font-size2);
+}

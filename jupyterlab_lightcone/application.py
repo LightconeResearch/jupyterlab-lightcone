@@ -3,13 +3,18 @@
 from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
+from .comments import setup_comment_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
 from .mystra import MySTRAManager
 from .mystra_routes import setup_mystra_handlers
 from .routes import setup_route_handlers
+from .runs import close_jobs, setup_job_events, setup_runs_handlers
 from .project_routes import setup_project_handlers
 from .projects import expose_engine_tools
+from .sessions import setup_session_handlers
+from .setup_routes import setup_setup_handlers
+from .versions import setup_versions_handlers
 
 
 class LightconeApp(ExtensionApp):
@@ -64,12 +69,18 @@ class LightconeApp(ExtensionApp):
         )
 
     def initialize_handlers(self):
-        """Preserve existing paper routes and add lazy MySTRA sessions."""
+        """Register every workbench route and add lazy MySTRA sessions."""
         app = self.serverapp.web_app
         setup_route_handlers(app)
         setup_project_handlers(app)
         setup_materialization_handlers(app)
         setup_provenance_handlers(app)
+        setup_session_handlers(app)
+        setup_versions_handlers(app)
+        setup_job_events(self.serverapp)
+        setup_runs_handlers(app)
+        setup_comment_handlers(app)
+        setup_setup_handlers(app, myst_command=list(self.mystra_command))
         self.manager = MySTRAManager(
             getattr(
                 self.serverapp.contents_manager, "root_dir", self.serverapp.root_dir
@@ -83,6 +94,7 @@ class LightconeApp(ExtensionApp):
         setup_mystra_handlers(app, self.manager)
 
     async def stop_extension(self):
-        """Stop all CLI processes before Jupyter exits."""
+        """Stop all CLI and materialization processes before Jupyter exits."""
+        await close_jobs(self.serverapp.web_app)
         if hasattr(self, "manager"):
             await self.manager.close()

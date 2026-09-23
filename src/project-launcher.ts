@@ -2,8 +2,16 @@ import type { JupyterFrontEnd } from '@jupyterlab/application';
 import type { ILauncher } from '@jupyterlab/launcher';
 import { CommandIDs } from './commands';
 import type { ICurrentProject } from './current-project';
+import { HomeCommandIDs } from './home/home-commands';
 
-/** Keep launcher actions aligned with the current project. */
+/**
+ * Keep launcher cards aligned with the current project.
+ *
+ * Outside a project the stock launcher shows one **New Lightcone project**
+ * card; opening an existing project stays in the command palette. Inside a
+ * project the launcher tab shows Home instead of cards, so the three project
+ * cards are only visible when a tab shows the full launcher.
+ */
 export function configureProjectLauncher(
   app: JupyterFrontEnd,
   launcher: ILauncher,
@@ -28,7 +36,9 @@ export function configureProjectLauncher(
     }
     const commands = project
       ? [CommandIDs.discuss, CommandIDs.openInventory, CommandIDs.openMySTRA]
-      : [CommandIDs.createProject, CommandIDs.openExistingProject];
+      : app.commands.hasCommand(HomeCommandIDs.newProject)
+        ? [HomeCommandIDs.newProject]
+        : [CommandIDs.createProject];
     const available = commands.filter(command =>
       app.commands.hasCommand(command)
     );

@@ -1,0 +1,258 @@
+import type { ResolvedOutput } from '@astra-spec/sdk';
+import type { OutputRun } from '@astra-spec/ui/model';
+import type { ISessionInfo } from '../../sessions/sessions-api';
+import {
+  delimiterFor,
+  formatBytes,
+  formatNumber,
+  isImageFormat,
+  metricDeltas,
+  outputFormat,
+  relativeTime,
+  runView,
+  sandboxLine,
+  SESSION_WINDOW_AFTER_MS,
+  sessionsActiveAround,
+  stepVersion,
+  tableShape,
+  tableShapeDiff,
+  versionPosition
+} from '../version-model';
+import type { IOutputVersion } from '../versions-api';
+
+function version(
+  commit: string,
+  time: string,
+  extra: Partial<IOutputVersion> = {}
+): IOutputVersion {
+  return {
+    commit,
+    short: commit.slice(0, 7),
+    time,
+    subject: `[DATALAD RUNCMD] fit [baseline]`,
+    key: null,
+    size: null,
+    present: true,
+    run: null,
+    manifest: null,
+    ...extra
+  };
+}
+
+const versions = [
+  version('c'.repeat(40), '2026-09-20T10:00:00Z'),
+  version('b'.repeat(40), '2026-09-18T10:00:00Z'),
+  version('a'.repeat(40), '2026-09-15T10:00:00Z')
+];
+
+describe('version stepper', () => {
+  it('positions a commit in a newest-first history and steps through it', () => {
+    expect(versionPosition(versions, undefined)).toEqual({
+      index: 0,
+      ordinal: 3,
+      total: 3
+    });
+    expect(versionPosition(versions, 'a'.repeat(7))).toEqual({
+      index: 2,
+      ordinal: 1,
+      total: 3
+    });
+    expect(versionPosition(versions, 'z'.repeat(7))).toBeUndefined();
+    expect(versionPosition([], undefined)).toBeUndefined();
+    expect(stepVersion(versions, undefined, -1)).toBe('b'.repeat(40));
+    expect(stepVersion(versions, undefined, +1)).toBeUndefined();
+    expect(stepVersion(versions, 'b'.repeat(40), +1)).toBe('c'.repeat(40));
+    expect(stepVersion(versions, 'a'.repeat(40), -1)).toBeUndefined();
+    expect(stepVersion(versions, 'a'.repeat(40), 2)).toBe('c'.repeat(40));
+    expect(stepVersion(versions, 'z'.repeat(40), -1)).toBeUndefined();
+    expect(stepVersion(versions, undefined, 0)).toBeUndefined();
+  });
+
+  it('formats relative times and sizes', () => {
+    const now = Date.parse('2026-09-22T12:00:00Z');
+    expect(relativeTime('2026-09-22T11:59:50Z', now)).toBe('just now');
+    expect(relativeTime('2026-09-22T11:55:00Z', now)).toBe('5 minutes ago');
+    expect(relativeTime('2026-09-22T09:00:00Z', now)).toBe('3 hours ago');
+    expect(relativeTime('2026-09-20T12:00:00Z', now)).toBe('2 days ago');
+    expect(relativeTime('2026-08-22T12:00:00Z', now)).toBe('1 month ago');
+    expect(relativeTime('2026-09-22T13:00:00Z', now)).toBe('in 1 hour');
+    expect(relativeTime('not a date', now)).toBe('not a date');
+    expect(formatBytes(null)).toBe('unknown size');
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(208_410)).toBe('208 kB');
+    expect(formatBytes(1_234_567)).toBe('1.2 MB');
+  });
+
+  it('classifies artifact formats', () => {
+    const output = (format?: string) =>
+      ({ format }) as unknown as Pick<ResolvedOutput, 'format'>;
+    expect(outputFormat(output('.PNG'))).toBe('png');
+    expect(outputFormat(output(undefined))).toBe('');
+    expect(isImageFormat('svg')).toBe(true);
+    expect(isImageFormat('csv')).toBe(false);
+    expect(delimiterFor('tsv')).toBe('\t');
+    expect(delimiterFor('json')).toBeUndefined();
+  });
+});
+
+describe('metric deltas', () => {
+  it('compares numeric leaves of scalars and nested documents', () => {
+    expect(metricDeltas(1, 1.5)).toEqual([
+      { key: 'value', older: 1, newer: 1.5, delta: 0.5 }
+    ]);
+    expect(
+      metricDeltas(
+        { value: 0.3, uncertainty: 0.05, unit: 'mag', nested: { a: 1 } },
+        { value: 0.31, uncertainty: 0.05, nested: { a: 2, b: 3 }, list: [4] }
+      )
+    ).toEqual([
+      { key: 'value', older: 0.3, newer: 0.31, delta: expect.closeTo(0.01) },
+      { key: 'uncertainty', older: 0.05, newer: 0.05, delta: 0 },
+      { key: 'nested.a', older: 1, newer: 2, delta: 1 },
+      { key: 'nested.b', older: undefined, newer: 3, delta: undefined },
+      { key: 'list.0', older: undefined, newer: 4, delta: undefined }
+    ]);
+    expect(metricDeltas({ value: '12.5' }, { value: 'text' })).toEqual([
+      { key: 'value', older: 12.5, newer: undefined, delta: undefined }
+    ]);
+    expect(metricDeltas(null, 'abc')).toEqual([]);
+  });
+
+  it('formats numbers for reading', () => {
+    expect(formatNumber(undefined)).toBe('—');
+    expect(formatNumber(42)).toBe('42');
+    expect(formatNumber(0.123456789)).toBe('0.123457');
+    expect(formatNumber(1.5e-7)).toBe('1.500e-7');
+  });
+});
+
+describe('table shapes', () => {
+  it('counts rows and columns, honoring quotes and cut-off samples', () => {
+    const csv = 'name,"value, raw",note\na,1,x\nb,2,"y, z"\n';
+    expect(tableShape(csv, ',')).toEqual({
+      headers: ['name', 'value, raw', 'note'],
+      rows: 2,
+      truncated: false
+    });
+    // A sample cut in the middle of a record loses that record.
+    expect(tableShape('a,b\n1,2\n3,', ',', true).rows).toBe(1);
+    expect(tableShape('', ',')).toEqual({
+      headers: [],
+      rows: 0,
+      truncated: false
+    });
+  });
+
+  it('reports added, removed and reordered columns and the row delta', () => {
+    const older = tableShape('a,b,c\n1,2,3\n', ',');
+    const newer = tableShape('a,c,d\n1,3,4\n5,6,7\n', ',');
+    const diff = tableShapeDiff(older, newer);
+    expect(diff.addedColumns).toEqual(['d']);
+    expect(diff.removedColumns).toEqual(['b']);
+    expect(diff.reordered).toBe(false);
+    expect(diff.rowDelta).toBe(1);
+    expect(
+      tableShapeDiff(older, tableShape('c,b,a\n1,2,3\n', ',')).reordered
+    ).toBe(true);
+  });
+});
+
+describe('run view', () => {
+  const record: OutputRun = {
+    finishedAt: '2026-09-15T10:00:00Z',
+    gitRevision: 'abc123',
+    recipe: 'python fit.py',
+    environment: 'sha256:env',
+    cliVersion: '0.5',
+    inputVersions: { catalog: 'sha256:input' }
+  };
+
+  it('prefers a committed version and its manifest over the current sidecar', () => {
+    const committed = version('c'.repeat(40), '2026-09-20T10:00:00Z', {
+      run: {
+        cmd: 'uv run fit.py',
+        exit: 0,
+        inputs: ['data/x.csv'],
+        outputs: ['results/baseline/fit.json']
+      },
+      manifest: {
+        finished_at: '2026-09-20T09:59:00Z',
+        started_at: '2026-09-20T09:58:00Z',
+        git_sha: 'def456',
+        lc_version: '0.6',
+        env_version: 'sha256:newenv',
+        uv_version: '0.8.1',
+        image: { tag: 'ghcr.io/x:1' },
+        hermeticity: { backend: 'landlock', network: false },
+        input_versions: { catalog: 'sha256:input2', other: 7 },
+        decisions: { method: 'robust' }
+      }
+    });
+    const view = runView(record, committed)!;
+    expect(view).toMatchObject({
+      source: 'version',
+      short: 'ccccccc',
+      time: '2026-09-20T09:59:00Z',
+      started: '2026-09-20T09:58:00Z',
+      command: 'uv run fit.py',
+      exit: 0,
+      gitRevision: 'def456',
+      engineVersion: '0.6',
+      environmentVersion: 'sha256:newenv',
+      uvVersion: '0.8.1',
+      image: 'ghcr.io/x:1',
+      sandbox: 'backend: landlock · network: false',
+      inputVersions: { catalog: 'sha256:input2' },
+      decisions: { method: 'robust' },
+      inputs: ['data/x.csv']
+    });
+  });
+
+  it('falls back to the sidecar, and to nothing when neither exists', () => {
+    expect(runView(record, undefined)).toMatchObject({
+      source: 'record',
+      time: record.finishedAt,
+      command: record.recipe,
+      gitRevision: 'abc123',
+      engineVersion: '0.5',
+      environmentVersion: 'sha256:env',
+      inputVersions: { catalog: 'sha256:input' },
+      exit: undefined
+    });
+    expect(runView(null, undefined)).toBeUndefined();
+    expect(sandboxLine({ hermeticity: 'seatbelt' })).toBe('seatbelt');
+    expect(sandboxLine({})).toBeUndefined();
+  });
+});
+
+describe('sessions around a run', () => {
+  const session = (path: string, modified: string): ISessionInfo => ({
+    path,
+    title: path,
+    modified,
+    messages: 1,
+    lastAgent: null,
+    activity: 'idle'
+  });
+
+  it('keeps sessions modified from shortly before to hours after the run, closest first', () => {
+    const run = '2026-09-20T10:00:00Z';
+    const sessions = [
+      session('old', '2026-09-19T10:00:00Z'),
+      session('after', '2026-09-20T11:30:00Z'),
+      session('right-after', '2026-09-20T10:02:00Z'),
+      session('just-before', '2026-09-20T09:57:00Z'),
+      session(
+        'too-late',
+        new Date(Date.parse(run) + SESSION_WINDOW_AFTER_MS + 1).toISOString()
+      ),
+      session('broken', 'no date')
+    ];
+    expect(sessionsActiveAround(sessions, run).map(item => item.path)).toEqual([
+      'right-after',
+      'just-before',
+      'after'
+    ]);
+    expect(sessionsActiveAround(sessions, 'no date')).toEqual([]);
+  });
+});

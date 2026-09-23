@@ -1,0 +1,36 @@
+"$id": https://events.lightcone.dev/jupyterlab_lightcone/job/v1
+version: "1"
+title: Lightcone materialization job
+personal-data: false
+description: |
+  Progress of an `lc materialize` job that this Jupyter server started for a
+  Lightcone project: one event when the job starts, one for every line the
+  engine prints, and one when the job finishes.
+
+  Events are not replayed. A client that connects while a job is running
+  reads the job through the runs API first, then follows these events.
+type: object
+required:
+  - id
+  - project
+  - state
+  - line
+properties:
+  id:
+    type: string
+    description: The job identifier, as the runs API reports it.
+  project:
+    type: string
+    description: The Jupyter Contents path of the project directory.
+  state:
+    enum:
+      - running
+      - succeeded
+      - failed
+      - cancelled
+    description: The job's state when the event was emitted.
+  line:
+    type:
+      - string
+      - "null"
+    description: One line the engine printed, or null when the job starts or finishes.

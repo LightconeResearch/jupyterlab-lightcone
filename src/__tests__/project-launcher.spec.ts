@@ -8,6 +8,7 @@ import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../commands';
 import { CurrentProject } from '../current-project';
+import { HomeCommandIDs } from '../home/home-commands';
 import { configureProjectLauncher } from '../project-launcher';
 import { fileModel } from './project-fixtures';
 
@@ -19,6 +20,7 @@ function host() {
   for (const command of [
     CommandIDs.createProject,
     CommandIDs.openExistingProject,
+    HomeCommandIDs.newProject,
     CommandIDs.openInventory,
     CommandIDs.openMySTRA
   ]) {
@@ -103,10 +105,10 @@ it('ignores filters, retains project root in subfolders, and updates late chat r
     h.specs.clear();
     h.model.refreshed.emit();
     await flush();
-    expect([...h.visible.keys()]).toEqual([
-      CommandIDs.createProject,
-      CommandIDs.openExistingProject
-    ]);
+    expect([...h.visible.keys()]).toEqual([HomeCommandIDs.newProject]);
+    expect(h.visible.get(HomeCommandIDs.newProject)?.category).toBe(
+      'Lightcone Lab'
+    );
   } finally {
     h.dispose();
   }
@@ -127,10 +129,7 @@ it('ignores outdated project lookups after navigation', async () => {
     await flush();
     pending.resolve(fileModel('', { path: 'project/astra.yaml' }));
     await flush();
-    expect([...h.visible.keys()]).toEqual([
-      CommandIDs.createProject,
-      CommandIDs.openExistingProject
-    ]);
+    expect([...h.visible.keys()]).toEqual([HomeCommandIDs.newProject]);
   } finally {
     h.dispose();
   }

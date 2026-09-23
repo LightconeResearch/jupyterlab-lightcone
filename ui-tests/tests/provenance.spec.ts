@@ -1,6 +1,6 @@
 import { expect, test } from '@jupyterlab/galata';
 
-test('shows a compact provenance summary and opens run details in a popup', async ({
+test('shows the recorded run in provenance tabs and refreshes it after a new run', async ({
   page,
   tmpPath
 }) => {
@@ -64,40 +64,36 @@ outputs:
   await page
     .getByRole('button', { name: 'Open figure: plot', exact: true })
     .click();
-  const dialog = page.locator('.astra-dialog[data-kind="output"]');
+  const dialog = page.locator('dialog[open].astra-dialog[data-kind="output"]');
   await expect(
     dialog.getByText('python current.py', { exact: true })
   ).toBeVisible();
+  // The provenance tabs follow the recipe, and open on the run itself.
+  const provenance = dialog.locator('.jp-jupyterlab-lightcone-Provenance');
   expect(
-    await dialog
-      .locator('[data-slot="output-provenance"]')
-      .evaluate(node => node.previousElementSibling?.textContent)
+    await provenance.evaluate(node => node.previousElementSibling?.textContent)
   ).toContain('python current.py');
-  await expect(dialog.getByText('Stale', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('abcdef01', { exact: true })).toBeVisible();
   await expect(
-    dialog.getByText('python original.py', { exact: true })
-  ).toBeHidden();
-  const detailsLink = dialog.getByRole('button', {
-    name: 'Details',
-    exact: true
-  });
-  await detailsLink.click();
-  const popup = page.getByRole('dialog', { name: 'Run details', exact: true });
+    provenance.getByRole('tab', { name: 'Run', exact: true })
+  ).toHaveAttribute('aria-selected', 'true');
+  const panel = provenance.getByRole('tabpanel');
+  await expect(panel).toContainText('stale');
+  await expect(panel).toContainText('the recipe changed');
   await expect(
-    popup.getByText('python original.py', { exact: true })
+    panel.getByText('python original.py', { exact: true })
   ).toBeVisible();
-  await expect(popup.getByText('sha256:input', { exact: true })).toBeVisible();
-  await expect(popup.getByText('sha256:env', { exact: true })).toBeVisible();
-  await popup.press('Escape');
-  await expect(popup).toHaveCount(0);
-  await expect(dialog).toBeVisible();
-  await expect(detailsLink).toBeFocused();
-  await detailsLink.click();
-  await popup
-    .getByRole('button', { name: 'Close run details', exact: true })
+  await expect(
+    panel.getByText('abcdef0123456789', { exact: true })
+  ).toBeVisible();
+  await provenance.getByRole('tab', { name: 'Inputs', exact: true }).click();
+  await expect(panel.getByText('catalog', { exact: true })).toBeVisible();
+  await expect(panel.getByText('sha256:input', { exact: true })).toBeVisible();
+  await provenance
+    .getByRole('tab', { name: 'Environment', exact: true })
     .click();
-  await expect(dialog).toBeVisible();
+  await expect(panel.getByText('sha256:env', { exact: true })).toBeVisible();
+  await expect(panel.getByText('0.5', { exact: true })).toBeVisible();
+  await provenance.getByRole('tab', { name: 'Run', exact: true }).click();
   // A newly recorded run must refresh even when the CLI state stays stale.
   record.git_sha = 'fedcba9876543210';
   await page.evaluate(async path => {
@@ -109,7 +105,9 @@ outputs:
       content: `${file.content}\ndescription: Updated project metadata\n`
     });
   }, entrypoint);
-  await expect(dialog.getByText('fedcba98', { exact: true })).toBeVisible();
+  await expect(
+    panel.getByText('fedcba9876543210', { exact: true })
+  ).toBeVisible();
   await dialog
     .getByRole('button', { name: 'Close output details', exact: true })
     .click();
@@ -117,9 +115,8 @@ outputs:
     .getByRole('button', { name: 'Open metric: missing', exact: true })
     .click();
   await expect(
-    dialog.getByText('No recorded run yet.', { exact: true })
+    dialog.getByText('No run has been recorded for this output.', {
+      exact: true
+    })
   ).toBeVisible();
-  await expect(
-    dialog.getByRole('button', { name: 'Details', exact: true })
-  ).toHaveCount(0);
 });

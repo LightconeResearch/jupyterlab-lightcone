@@ -1,0 +1,15 @@
+{
+  "title": "Lightcone search",
+  "description": "Keyboard shortcut for the Lightcone search modal over sessions, ASTRA records, project files and commands.",
+  "jupyter.lab.setting-icon-label": "Lightcone",
+  "jupyter.lab.shortcuts": [
+    {
+      "command": "jupyterlab_lightcone:search",
+      "keys": ["Accel K"],
+      "selector": "body"
+    }
+  ],
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

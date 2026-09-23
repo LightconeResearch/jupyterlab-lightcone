@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type {
   JupyterFrontEnd,
@@ -9,16 +9,22 @@ import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { Widget } from '@lumino/widgets';
 import { RecordPreview } from '@astra-spec/ui/components';
+import type { ResolvedOutput } from '@astra-spec/sdk';
 import { resolveElement } from './element-reference';
 import { useProject } from './element-widget';
+import { isRootAnalysisOutput } from './materialization-status';
+import type { ILoadedProjectData } from './project-data';
 import { useProjectRenderers } from './project-renderers';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
 import {
   ASTRA_MIME_TYPE,
   parseAstraCard,
-  type IAstraCard
+  type IAstraCard,
+  type IAstraCardVersion
 } from './astra-mime-data';
+import { listVersionsCached } from './versions/version-cache';
+import type { IOutputVersion } from './versions/versions-api';
 
 interface ICardProps {
   app: JupyterFrontEnd;
@@ -49,6 +55,91 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
         </p>
       )}
     </div>
+  );
+}
+
+/** How a card's recorded version relates to the output's history. */
+export type CardVersionState = 'unknown' | 'latest' | 'superseded' | 'missing';
+
+/** Compare a card's commit with the newest-first history of its output. */
+export function cardVersionState(
+  version: IAstraCardVersion,
+  versions: readonly IOutputVersion[] | undefined
+): CardVersionState {
+  if (!versions) return 'unknown';
+  const matches = (candidate: IOutputVersion) =>
+    candidate.commit === version.commit ||
+    candidate.commit.startsWith(version.commit);
+  if (!versions.length || !versions.some(matches)) return 'missing';
+  return matches(versions[0]) ? 'latest' : 'superseded';
+}
+
+const CARD_VERSION_TEXT: Record<CardVersionState, string> = {
+  unknown: '',
+  latest: 'latest',
+  superseded: 'newer available',
+  missing: 'not in the current history'
+};
+
+function CardVersionChip({
+  app,
+  reference,
+  version,
+  data,
+  output,
+  onOpen
+}: {
+  app: JupyterFrontEnd;
+  reference: IAstraCard;
+  version: IAstraCardVersion;
+  data: ILoadedProjectData;
+  output: ResolvedOutput;
+  onOpen: () => void;
+}): React.ReactElement {
+  const contents = app.serviceManager.contents;
+  const comparable =
+    isRootAnalysisOutput(data.index, output) &&
+    !contents.driveName(reference.entrypoint);
+  const universe = data.document.universe.universeId;
+  const [versions, setVersions] = useState<readonly IOutputVersion[]>();
+  useEffect(() => {
+    if (!comparable) return;
+    let active = true;
+    listVersionsCached(
+      contents.serverSettings,
+      reference.entrypoint,
+      universe,
+      output.id
+    ).then(
+      listing => {
+        if (active) setVersions(listing.versions);
+      },
+      () => {
+        if (active) setVersions(undefined);
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [comparable, contents, reference.entrypoint, universe, output.id]);
+  const state = cardVersionState(version, versions);
+  const detail = CARD_VERSION_TEXT[state];
+  return (
+    <button
+      type="button"
+      className="jp-jupyterlab-lightcone-card-version"
+      data-state={state}
+      title={`Open ${output.label ?? output.id} as it was at ${version.commit}`}
+      onClick={onOpen}
+    >
+      <span>Version {version.commit.slice(0, 7)}</span>
+      {detail && (
+        <>
+          <span aria-hidden="true"> · </span>
+          <span>{detail}</span>
+        </>
+      )}
+    </button>
   );
 }
 
@@ -85,59 +176,84 @@ function CardBody({
       <p role="status">This ASTRA element is unavailable: {String(reason)}</p>
     );
   }
+  const { outputVersion, ...pinnedReference } = reference;
   const navigate = (target: string, pinned = false) => {
     void app.commands
-      .execute(CommandIDs.openElement, { ...reference, target, pinned })
+      .execute(CommandIDs.openElement, {
+        ...pinnedReference,
+        target,
+        pinned,
+        // A card shows what the agent showed; its version travels with it.
+        ...(outputVersion && target === reference.target
+          ? { versionCommit: outputVersion.commit }
+          : {})
+      })
       .catch(reason =>
         showErrorMessage('Could not open ASTRA element', reason)
       );
   };
+  const versioned =
+    outputVersion && resolved.record?.kind === 'output'
+      ? { version: outputVersion, output: resolved.record }
+      : undefined;
   return (
-    <RecordPreview
-      className="jp-jupyterlab-lightcone-card-preview"
-      role="link"
-      tabIndex={0}
-      aria-label={`Open ${resolved.record?.label || reference.target || 'analysis'} in a tab`}
-      onClick={event => {
-        if (
-          isCardContentEvent(event) &&
-          !event.currentTarget.ownerDocument.getSelection()?.toString()
-        )
-          navigate(reference.target);
-      }}
-      onDoubleClick={event => {
-        if (isCardContentEvent(event)) navigate(reference.target, true);
-      }}
-      onKeyDown={event => {
-        if (
-          event.target === event.currentTarget &&
-          (event.key === 'Enter' || event.key === ' ')
-        ) {
-          event.preventDefault();
-          navigate(reference.target);
+    <>
+      <RecordPreview
+        className="jp-jupyterlab-lightcone-card-preview"
+        role="link"
+        tabIndex={0}
+        aria-label={`Open ${resolved.record?.label || reference.target || 'analysis'} in a tab`}
+        onClick={event => {
+          if (
+            isCardContentEvent(event) &&
+            !event.currentTarget.ownerDocument.getSelection()?.toString()
+          )
+            navigate(reference.target);
+        }}
+        onDoubleClick={event => {
+          if (isCardContentEvent(event)) navigate(reference.target, true);
+        }}
+        onKeyDown={event => {
+          if (
+            event.target === event.currentTarget &&
+            (event.key === 'Enter' || event.key === ' ')
+          ) {
+            event.preventDefault();
+            navigate(reference.target);
+          }
+        }}
+        entry={
+          resolved.record
+            ? {
+                kind: 'record',
+                record: resolved.record,
+                analysis: resolved.analysis
+              }
+            : { kind: 'analysis', analysis: resolved.analysis }
         }
-      }}
-      entry={
-        resolved.record
-          ? {
-              kind: 'record',
-              record: resolved.record,
-              analysis: resolved.analysis
-            }
-          : { kind: 'analysis', analysis: resolved.analysis }
-      }
-      document={data.document}
-      index={data.index}
-      renderArtifact={renderers.renderArtifact}
-      onOpenRecord={record => navigate(record.canonicalPath)}
-      onOpenAnalysis={() =>
-        navigate(
-          resolved.analysis.canonicalPath === '$'
-            ? ''
-            : resolved.analysis.canonicalPath
-        )
-      }
-    />
+        document={data.document}
+        index={data.index}
+        renderArtifact={renderers.renderArtifact}
+        onOpenRecord={record => navigate(record.canonicalPath)}
+        onOpenAnalysis={() =>
+          navigate(
+            resolved.analysis.canonicalPath === '$'
+              ? ''
+              : resolved.analysis.canonicalPath
+          )
+        }
+      />
+      {versioned && (
+        <CardVersionChip
+          app={app}
+          reference={reference}
+          version={versioned.version}
+          data={data}
+          output={versioned.output}
+          onOpen={() => navigate(reference.target)}
+        />
+      )}
+    </>
   );
 }
 

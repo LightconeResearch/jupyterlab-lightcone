@@ -45,7 +45,13 @@ atexit.register(test_config.cleanup)
 labconfig = Path(test_config.name, "labconfig")
 labconfig.mkdir()
 (labconfig / "page_config.json").write_text(json.dumps({
-    "disabledExtensions": {"jupyterlab-myst": os.environ.get("LIGHTCONE_TEST_MYST") != "1"}
+    "disabledExtensions": {
+        "jupyterlab-myst": os.environ.get("LIGHTCONE_TEST_MYST") != "1",
+        # A user-level install without its server extension polls a missing
+        # endpoint and shows an error dialog that Galata's readiness wait
+        # never gets past.
+        "ipyparallel-labextension": True,
+    }
 }))
 os.environ["JUPYTER_CONFIG_PATH"] = os.pathsep.join(filter(None, [
     test_config.name, os.environ.get("JUPYTER_CONFIG_PATH")

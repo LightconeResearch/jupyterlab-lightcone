@@ -2,3 +2,12 @@
 @import url('@astra-spec/ui/styles.css');
 @import url('@astra-spec/ui/isolate.css');
 @import url('./base.css');
+@import url('./versions.css');
+@import url('./home.css');
+@import url('./sidebar.css');
+@import url('./sessions.css');
+@import url('./comments.css');
+@import url('./runs.css');
+@import url('./search.css');
+@import url('./customize.css');
+@import url('./chat-links.css');

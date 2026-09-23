@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   showErrorMessage,
   ReactWidget,
@@ -6,6 +6,7 @@ import {
 } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import type { CommandRegistry } from '@lumino/commands';
+import { Signal, type ISignal } from '@lumino/signaling';
 import {
   PaperDetail,
   PaperDialogActions,
@@ -33,7 +34,7 @@ import {
   primaryLiteratureEvidence,
   isInsight
 } from '@astra-spec/ui/model';
-import type { ResolvedRecord } from '@astra-spec/sdk';
+import type { ResolvedOutput, ResolvedRecord } from '@astra-spec/sdk';
 import {
   acquireProjectDataService,
   type IProjectDataState
@@ -43,10 +44,36 @@ import {
   type IElementReference,
   type IProjectContext
 } from './element-reference';
+import type { ILoadedProjectData } from './project-data';
 import { useProjectRenderers } from './project-renderers';
+import {
+  outputMaterializationStatus,
+  useMaterializationStatus
+} from './materialization-status';
+import { JupyterOutputProvenance } from './output-provenance';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
 import { astraIcon } from './icons';
+import {
+  canGoBack,
+  canGoForward,
+  currentEntry,
+  ElementHistoryCommandIDs,
+  EMPTY_HISTORY,
+  goToHistory,
+  historyCaption,
+  historyTrail,
+  pushHistory,
+  rememberScroll,
+  stepHistory,
+  type IElementHistory
+} from './versions/element-history';
+import { restoreScrollOffset } from './versions/scroll-restore';
+import {
+  useOutputVersioning,
+  VersionedArtifact,
+  VersionRail
+} from './versions/versioned-output';
 
 /** Share project resolution with every tab and visible chat card. */
 export function useProject(
@@ -85,6 +112,21 @@ export function useProject(
   return { ...state, fetchPaper };
 }
 
+/**
+ * The controls ASTRA UI renders to open another record. A middle click on
+ * one of them opens that record beside this tab instead of navigating it.
+ */
+const RECORD_TRIGGERS = [
+  '.astra-relation-list__trigger',
+  '.astra-insight-trigger',
+  '.astra-paper-insight__open',
+  '.astra-paper-decisions__open',
+  '.astra-insight-detail__open-source',
+  '[data-slot="output-card"]',
+  '[data-slot="output-entry"]',
+  '[data-slot="record-list"] .astra-record-list__body > button'
+].join(', ');
+
 interface IDetailProps {
   widget: ElementWidget;
   contents: Contents.IManager;
@@ -97,8 +139,31 @@ function Detail({
   commands
 }: IDetailProps): React.ReactElement {
   const state = useProject(contents, widget.reference);
+  // A modifier or middle click on a record link asks for a new tab; the
+  // flag lives only for the duration of that click's dispatch.
+  const newTab = useRef(false);
   return (
-    <main className="jp-jupyterlab-lightcone-element">
+    <main
+      className="jp-jupyterlab-lightcone-element"
+      onClickCapture={event => {
+        if (event.ctrlKey || event.metaKey) newTab.current = true;
+      }}
+      onClick={() => {
+        newTab.current = false;
+      }}
+      onAuxClickCapture={event => {
+        if (event.button !== 1 || !(event.target instanceof Element)) return;
+        const trigger = event.target.closest<HTMLElement>(RECORD_TRIGGERS);
+        if (!trigger || !event.currentTarget.contains(trigger)) return;
+        event.preventDefault();
+        newTab.current = true;
+        try {
+          trigger.click();
+        } finally {
+          newTab.current = false;
+        }
+      }}
+    >
       {state.error && (
         <p className="jp-jupyterlab-lightcone-refresh-warning" role="status">
           Showing last valid data, if available: {state.error}
@@ -115,6 +180,7 @@ function Detail({
           commands={commands}
           data={state.data}
           fetchPaper={state.fetchPaper}
+          wantsNewTab={() => newTab.current}
         />
       ) : (
         <p className="jp-jupyterlab-lightcone-element-message" role="status">
@@ -125,15 +191,163 @@ function Detail({
   );
 }
 
+/** Back, Forward and the trail of references this tab has shown. */
+function HistoryControls({
+  widget
+}: {
+  widget: ElementWidget;
+}): React.ReactElement {
+  const { crumbs, elided } = historyTrail(widget.history);
+  return (
+    <div
+      className="jp-jupyterlab-lightcone-element-nav"
+      role="group"
+      aria-label="Tab history"
+    >
+      <Button
+        size="small"
+        variant="quiet"
+        aria-label="Back"
+        title="Back (Alt+←)"
+        disabled={!widget.canGoBack}
+        onClick={() => widget.back()}
+      >
+        <span aria-hidden="true">◀</span>
+      </Button>
+      <Button
+        size="small"
+        variant="quiet"
+        aria-label="Forward"
+        title="Forward (Alt+→)"
+        disabled={!widget.canGoForward}
+        onClick={() => widget.forward()}
+      >
+        <span aria-hidden="true">▶</span>
+      </Button>
+      {crumbs.length > 1 && (
+        <nav
+          className="jp-jupyterlab-lightcone-element-trail"
+          aria-label="Records shown in this tab"
+        >
+          {elided > 0 && <span aria-hidden="true">…</span>}
+          {crumbs.map(crumb => (
+            <React.Fragment key={crumb.index}>
+              {(crumb.index > crumbs[0].index || elided > 0) && (
+                <span aria-hidden="true">›</span>
+              )}
+              {crumb.current ? (
+                <span aria-current="page" title={crumb.label}>
+                  {crumb.identifier}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  title={crumb.label}
+                  onClick={() => widget.go(crumb.index)}
+                >
+                  {crumb.identifier}
+                </button>
+              )}
+            </React.Fragment>
+          ))}
+        </nav>
+      )}
+    </div>
+  );
+}
+
+interface IOutputRecordDetailProps {
+  widget: ElementWidget;
+  contents: Contents.IManager;
+  commands: CommandRegistry;
+  data: ILoadedProjectData;
+  record: ResolvedOutput;
+  renderers: ReturnType<typeof useProjectRenderers>;
+  open: (next: ResolvedRecord) => void;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}
+
+/** An output with its materialization status, version history and provenance. */
+function OutputRecordDetail({
+  widget,
+  contents,
+  commands,
+  data,
+  record,
+  renderers,
+  open,
+  expanded,
+  onExpandedChange
+}: IOutputRecordDetailProps): React.ReactElement {
+  const entrypoint = widget.reference.entrypoint;
+  const materialization = useMaterializationStatus(
+    contents,
+    entrypoint,
+    data.document
+  );
+  const status = outputMaterializationStatus(
+    materialization.statuses,
+    data,
+    record
+  );
+  const versioning = useOutputVersioning(
+    contents,
+    entrypoint,
+    data,
+    record,
+    status,
+    widget.requestedVersion
+  );
+  const universe = data.document.universe.universeId;
+  return (
+    <OutputDetail
+      record={record}
+      relations={outputRelations(data.index, record)}
+      renderArtifact={(output, options) => (
+        <VersionedArtifact
+          versioning={versioning}
+          output={output}
+          compact={options.compact}
+          current={renderers.renderArtifact?.(output, options) ?? null}
+        />
+      )}
+      renderCodeLink={renderers.renderCodeLink}
+      renderProvenance={output => (
+        <>
+          <VersionRail versioning={versioning} output={output} />
+          <JupyterOutputProvenance
+            key={`${entrypoint}:${universe}:${output.canonicalPath}`}
+            contents={contents}
+            entrypoint={entrypoint}
+            universe={universe}
+            index={data.index}
+            output={output}
+            status={status}
+            version={versioning.shown}
+            onOpenRecord={open}
+            commands={commands}
+          />
+        </>
+      )}
+      onOpenRecord={open}
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
+    />
+  );
+}
+
 function DetailBody({
   widget,
   contents,
   commands,
   data,
-  fetchPaper
+  fetchPaper,
+  wantsNewTab
 }: IDetailProps & {
   data: NonNullable<IProjectDataState['data']>;
   fetchPaper: (doi: string) => void;
+  wantsNewTab: () => boolean;
 }): React.ReactElement {
   const reference = widget.reference;
   const renderers = useProjectRenderers(
@@ -144,6 +358,13 @@ function DetailBody({
     commands
   );
   const [expanded, setExpanded] = useState(false);
+  // The body remounts for every record shown; one the tab comes back to
+  // resumes where it was scrolled when the tab left it.
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = content.current;
+    return element ? widget.restoreScroll(element) : undefined;
+  }, [widget]);
   let resolved: ReturnType<typeof resolveReference> | undefined;
   try {
     resolved = resolveReference(data, reference);
@@ -154,7 +375,7 @@ function DetailBody({
   const paper = resolved?.paper;
   const label = record ? recordTitle(record) : paper?.title;
   useEffect(() => {
-    if (label) widget.title.label = label;
+    if (label) widget.setLabel(label);
   }, [widget, label]);
   const open = (next: ResolvedRecord) => {
     void commands
@@ -163,7 +384,8 @@ function DetailBody({
         doi: undefined,
         focusInsightPath: undefined,
         target: next.canonicalPath,
-        sourceWidgetId: widget.tabId
+        sourceWidgetId: widget.tabId,
+        newTab: wantsNewTab()
       })
       .catch(reason =>
         showErrorMessage('Could not open ASTRA element', reason)
@@ -191,12 +413,14 @@ function DetailBody({
     switch (record.kind) {
       case 'output':
         body = (
-          <OutputDetail
+          <OutputRecordDetail
+            widget={widget}
+            contents={contents}
+            commands={commands}
+            data={data}
             record={record}
-            relations={outputRelations(data.index, record)}
-            renderArtifact={renderers.renderArtifact}
-            renderCodeLink={renderers.renderCodeLink}
-            onOpenRecord={open}
+            renderers={renderers}
+            open={open}
             expanded={expanded}
             onExpandedChange={setExpanded}
           />
@@ -253,7 +477,8 @@ function DetailBody({
                         target: '',
                         doi,
                         focusInsightPath: record.canonicalPath,
-                        sourceWidgetId: widget.tabId
+                        sourceWidgetId: widget.tabId,
+                        newTab: wantsNewTab()
                       })
                       .catch(reason =>
                         showErrorMessage('Could not open cited paper', reason)
@@ -284,9 +509,15 @@ function DetailBody({
   const reader =
     kind === 'paper' ||
     (record?.kind === 'output' && ['figure', 'table'].includes(record.type));
+  const run = (command: string, subject: string) => {
+    void commands
+      .execute(command, { widgetId: widget.tabId })
+      .catch(reason => showErrorMessage(subject, reason));
+  };
   return (
     <>
       <div className="jp-jupyterlab-lightcone-element-toolbar">
+        <HistoryControls widget={widget} />
         <div
           className="jp-jupyterlab-lightcone-element-context"
           title={reference.entrypoint}
@@ -299,30 +530,42 @@ function DetailBody({
             Universe: {reference.universeId ?? 'defaults'}
           </span>
         </div>
-        <Button
-          size="small"
-          aria-pressed={widget.isPinned}
-          onClick={() => {
-            void commands
-              .execute(
+        <div className="jp-jupyterlab-lightcone-element-actions">
+          <Button
+            size="small"
+            variant="quiet"
+            title="Open this record in a new tab beside this one"
+            onClick={() =>
+              run(
+                ElementHistoryCommandIDs.openInNewTab,
+                'Could not open a new ASTRA tab'
+              )
+            }
+          >
+            Open in new tab
+          </Button>
+          <Button
+            size="small"
+            aria-pressed={widget.isPinned}
+            onClick={() =>
+              run(
                 widget.isPinned
                   ? CommandIDs.unpinElement
                   : CommandIDs.pinElement,
-                { widgetId: widget.tabId }
+                'Could not change ASTRA tab pin state'
               )
-              .catch(reason =>
-                showErrorMessage('Could not change ASTRA tab pin state', reason)
-              );
-          }}
-        >
-          <span
-            className="jp-jupyterlab-lightcone-pin-icon"
-            aria-hidden="true"
-          />
-          {widget.isPinned ? 'Unpin tab' : 'Pin tab'}
-        </Button>
+            }
+          >
+            <span
+              className="jp-jupyterlab-lightcone-pin-icon"
+              aria-hidden="true"
+            />
+            {widget.isPinned ? 'Unpin tab' : 'Pin tab'}
+          </Button>
+        </div>
       </div>
       <div
+        ref={content}
         className="jp-jupyterlab-lightcone-element-content"
         data-reader={reader}
         data-kind={kind}
@@ -351,7 +594,16 @@ function DetailBody({
   );
 }
 
-/** Native ASTRA view with replaceable content and an explicit user-owned pin. */
+/** What `display` may say beyond the reference itself. */
+export interface IDisplayOptions {
+  /** Show this committed version of an output first. */
+  versionCommit?: string;
+}
+
+/**
+ * Native ASTRA view with replaceable content, an explicit user-owned pin and
+ * a history of the references it has shown.
+ */
 export class ElementWidget extends ReactWidget {
   constructor(
     public reference: IElementReference,
@@ -377,6 +629,29 @@ export class ElementWidget extends ReactWidget {
     return this._isPinned;
   }
 
+  /** The references this tab has shown, and which one it shows now. */
+  get history(): IElementHistory {
+    return this._history;
+  }
+
+  /** Emitted after the tab moves to another reference. */
+  get historyChanged(): ISignal<this, void> {
+    return this._historyChanged;
+  }
+
+  get canGoBack(): boolean {
+    return canGoBack(this._history);
+  }
+
+  get canGoForward(): boolean {
+    return canGoForward(this._history);
+  }
+
+  /** The output version the current entry asked to show first, if any. */
+  get requestedVersion(): string | undefined {
+    return currentEntry(this._history)?.versionCommit;
+  }
+
   /** Update retention without changing the displayed record or its live data. */
   setPinned(pinned: boolean): void {
     this._isPinned = pinned;
@@ -384,15 +659,59 @@ export class ElementWidget extends ReactWidget {
     this.update();
   }
 
-  /** Replace an unpinned preview, or navigate within the same retained owner. */
-  display(reference: IElementReference, identity: string, label: string): void {
-    if (this.isPinned && identity !== this.identity)
-      throw new Error('Cannot replace a pinned ASTRA tab.');
-    this.reference = reference;
-    this.identity = identity;
+  /**
+   * Show a reference, pushing it onto this tab's history. A pinned tab
+   * navigates too: the pin protects it from being reused by opens made
+   * elsewhere, not from links followed inside it.
+   */
+  display(
+    reference: IElementReference,
+    identity: string,
+    label: string,
+    options: IDisplayOptions = {}
+  ): void {
+    this._history = pushHistory(this._leave(), {
+      reference,
+      identity,
+      label,
+      ...(options.versionCommit ? { versionCommit: options.versionCommit } : {})
+    });
+    this._show();
+  }
+
+  /**
+   * Scroll a freshly rendered body to where this entry was left, following
+   * the body as it grows. Returns a function that stops following it.
+   */
+  restoreScroll(element: HTMLElement): () => void {
+    return restoreScrollOffset(
+      element,
+      currentEntry(this._history)?.scrollTop ?? 0
+    );
+  }
+
+  /** Rename the current entry once the record's title is known. */
+  setLabel(label: string): void {
+    const entry = currentEntry(this._history);
+    if (!entry || entry.label === label) return;
+    const entries = this._history.entries.slice();
+    entries[this._history.index] = { ...entry, label };
+    this._history = { entries, index: this._history.index };
     this.title.label = label;
-    this.title.caption = `${reference.entrypoint} · ${reference.universeId ?? 'defaults'} · ${reference.doi ?? reference.target}`;
-    this.update();
+    this._syncCaption();
+  }
+
+  back(): boolean {
+    return this._navigate(history => stepHistory(history, -1));
+  }
+
+  forward(): boolean {
+    return this._navigate(history => stepHistory(history, +1));
+  }
+
+  /** Jump to an entry of the trail. */
+  go(index: number): boolean {
+    return this._navigate(history => goToHistory(history, index));
   }
 
   render(): React.ReactElement {
@@ -404,7 +723,49 @@ export class ElementWidget extends ReactWidget {
   dispose(): void {
     if (this.isDisposed) return;
     this._theme.dispose();
+    Signal.clearData(this);
     super.dispose();
+  }
+
+  private _navigate(
+    move: (history: IElementHistory) => IElementHistory | undefined
+  ): boolean {
+    const next = move(this._leave());
+    if (!next) return false;
+    this._history = next;
+    this._show();
+    return true;
+  }
+
+  /** The history with the current entry's scroll offset, as the tab leaves it. */
+  private _leave(): IElementHistory {
+    const scroller = this.node.querySelector<HTMLElement>(
+      '.jp-jupyterlab-lightcone-element-content'
+    );
+    return rememberScroll(this._history, scroller?.scrollTop ?? 0);
+  }
+
+  private _show(): void {
+    const entry = currentEntry(this._history);
+    if (!entry) return;
+    this.reference = entry.reference;
+    this.identity = entry.identity;
+    this.title.label = entry.label;
+    this._syncCaption();
+    this.update();
+    this._historyChanged.emit();
+    this.commands.notifyCommandChanged(ElementHistoryCommandIDs.back);
+    this.commands.notifyCommandChanged(ElementHistoryCommandIDs.forward);
+  }
+
+  private _syncCaption(): void {
+    const reference = this.reference;
+    const where = `${reference.entrypoint} · ${reference.universeId ?? 'defaults'}`;
+    const trail = historyCaption(this._history);
+    this.title.caption =
+      this._history.entries.length > 1
+        ? `${trail}\n${where}`
+        : `${where} · ${trail}`;
   }
 
   private _syncPin(): void {
@@ -423,5 +784,7 @@ export class ElementWidget extends ReactWidget {
     );
     this.title.className = classes.join(' ');
   }
+  private _history: IElementHistory = EMPTY_HISTORY;
+  private readonly _historyChanged = new Signal<this, void>(this);
   private _theme: LightconeThemeBinding;
 }

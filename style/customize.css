@@ -1,0 +1,181 @@
+/* The Lightcone settings page reads JupyterLab theme variables only, plus the
+   optional Lightcone ones with JupyterLab fallbacks, so it looks native under
+   any theme. */
+
+.jp-jupyterlab-lightcone-Customize {
+  overflow: auto;
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-jupyterlab-lightcone-Customize-page {
+  box-sizing: border-box;
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+.jp-jupyterlab-lightcone-Customize-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.jp-jupyterlab-lightcone-Customize-eyebrow {
+  margin: 0 0 4px;
+  color: var(--lc-eyebrow, var(--jp-ui-font-color2));
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.jp-jupyterlab-lightcone-Customize h1 {
+  margin: 0;
+  font-family: var(--lc-font-heading, var(--jp-ui-font-family));
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.jp-jupyterlab-lightcone-Customize-project {
+  margin: 4px 0 0;
+  color: var(--jp-ui-font-color2);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Customize-status {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Customize-overview {
+  margin: 0 0 16px;
+}
+
+.jp-jupyterlab-lightcone-Customize-error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: var(--jp-border-width) solid var(--jp-error-color1);
+  border-radius: var(--jp-border-radius);
+  background: var(--jp-layout-color0);
+  color: var(--jp-error-color1);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Customize-section {
+  margin-bottom: 16px;
+  padding: 16px 20px;
+  border: var(--jp-border-width) solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  background: var(--jp-layout-color0);
+}
+
+.jp-jupyterlab-lightcone-Customize-section h2 {
+  margin: 0;
+  font-size: var(--jp-ui-font-size2);
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-Customize-summary {
+  margin: 4px 0 12px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-Customize-rows {
+  margin: 0;
+}
+
+.jp-jupyterlab-lightcone-Customize-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+  gap: 4px 16px;
+  padding: 8px 0;
+  border-top: var(--jp-border-width) solid var(--jp-border-color3);
+}
+
+.jp-jupyterlab-lightcone-Customize-row:first-child {
+  border-top: 0;
+}
+
+.jp-jupyterlab-lightcone-Customize-row dt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* A dot echoes the row's text; the text carries the meaning on its own. */
+.jp-jupyterlab-lightcone-Customize-row dt::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--jp-ui-font-color3);
+}
+
+.jp-jupyterlab-lightcone-Customize-row[data-state='ok'] dt::before {
+  background: var(--jp-success-color1);
+}
+
+.jp-jupyterlab-lightcone-Customize-row[data-state='warn'] dt::before {
+  background: var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Customize-row[data-state='missing'] dt::before {
+  background: var(--jp-error-color1);
+}
+
+.jp-jupyterlab-lightcone-Customize-row dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+  margin: 0;
+}
+
+.jp-jupyterlab-lightcone-Customize-value {
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Customize-detail {
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Customize-empty {
+  margin: 0;
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-Customize-row select.jp-mod-styled {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 220px;
+  font-size: var(--jp-ui-font-size1);
+}
+
+@media (width < 560px) {
+  .jp-jupyterlab-lightcone-Customize-header {
+    flex-direction: column;
+  }
+
+  .jp-jupyterlab-lightcone-Customize-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

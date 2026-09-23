@@ -1,0 +1,786 @@
+import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
+import { MainAreaWidget, Notification } from '@jupyterlab/apputils';
+import { PathExt } from '@jupyterlab/coreutils';
+import type { IDocumentManager } from '@jupyterlab/docmanager';
+import type { DocumentRegistry } from '@jupyterlab/docregistry';
+import type { Contents, ServerConnection } from '@jupyterlab/services';
+import type { EditorView } from '@codemirror/view';
+import type { IDisposable } from '@lumino/disposable';
+import { Widget } from '@lumino/widgets';
+import { isRecord } from '../api';
+import { CommandIDs } from '../commands';
+import { ElementWidget } from '../element-widget';
+import { acquireProjectDataService } from '../project-data-service';
+import { findProjectRoot } from '../project-root';
+import { listVersions } from '../versions/versions-api';
+import type { IComment, ICommentAnchor, ICommentTarget } from './comments-api';
+import { directoryOf } from './chat-projects';
+import {
+  NULL_VERSION,
+  elementTarget,
+  emptyAnchor,
+  paperDoi,
+  pointAnchor,
+  sameTarget
+} from './comment-model';
+import { CommentPopover } from './comment-popover';
+import type { CommentService } from './comment-service';
+import {
+  revealEditorComment,
+  setEditorComments,
+  type IEditorCommentHandlers
+} from './editor-comments';
+import { ImageCommentLayer } from './image-layer';
+import {
+  SelectionCommentButton,
+  type ISelectionCapture
+} from './selection-button';
+import { TextCommentLayer } from './text-layer';
+
+/** A main-area record tab. */
+function isElementTab(widget: Widget): widget is MainAreaWidget<ElementWidget> {
+  return (
+    widget instanceof MainAreaWidget && widget.content instanceof ElementWidget
+  );
+}
+
+/**
+ * A CodeMirror view, recognized by shape: the file editor's `editor.editor`
+ * may come from a second copy of the package, which `instanceof` would miss.
+ */
+function isEditorView(value: unknown): value is EditorView {
+  return (
+    isRecord(value) &&
+    isRecord(value.state) &&
+    typeof value.dispatch === 'function' &&
+    value.dom instanceof HTMLElement
+  );
+}
+
+/** The selector of rendered views whose text can be commented. */
+const TEXT_HOST_SELECTOR =
+  '.jp-jupyterlab-lightcone-ElementWidget, .jp-MarkdownViewer';
+
+/** The newest committed version of an output record, or nulls. */
+export async function recordVersion(
+  contents: Contents.IManager,
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  record: string,
+  universeId: string | null | undefined
+): Promise<ICommentTarget['version']> {
+  const lease = acquireProjectDataService(contents, entrypoint, universeId);
+  try {
+    const data = await lease.service.get();
+    const resolved = data.index.recordByPath.get(record);
+    if (!resolved || resolved.kind !== 'output') {
+      return NULL_VERSION;
+    }
+    const listing = await listVersions(
+      settings,
+      entrypoint,
+      data.document.universe.universeId,
+      resolved.id
+    );
+    const newest = listing.versions[0];
+    return newest
+      ? {
+          commit: newest.commit,
+          key: newest.key,
+          hash: null,
+          label: newest.short
+        }
+      : NULL_VERSION;
+  } catch (error) {
+    console.warn('Could not pin the comment to an output version.', error);
+    return NULL_VERSION;
+  } finally {
+    lease.release();
+  }
+}
+
+/** A widget whose content can carry comments. */
+abstract class CommentHost implements IDisposable {
+  constructor(
+    readonly widget: Widget,
+    protected hosts: CommentHosts
+  ) {}
+
+  /** The node whose text the selection button offers to comment. */
+  abstract get node(): HTMLElement;
+  /** The project the comments belong to; null outside every project. */
+  abstract get entrypoint(): string | null;
+  /** What a new comment on this host points at, without a version. */
+  abstract target(): ICommentTarget | null;
+  /** The version a new comment is pinned to. */
+  abstract version(): Promise<ICommentTarget['version']>;
+
+  image: ImageCommentLayer | null = null;
+  text: TextCommentLayer | null = null;
+  view: EditorView | null = null;
+
+  get isDisposed(): boolean {
+    return this._isDisposed;
+  }
+
+  /** The pending comments of this host's target. */
+  comments(): readonly IComment[] {
+    const target = this.target();
+    const entrypoint = this.entrypoint;
+    if (!target || !entrypoint) {
+      return [];
+    }
+    return this.hosts.service
+      .pending(entrypoint)
+      .filter(comment => sameTarget(comment.target, target));
+  }
+
+  /** Push the current pending comments into every layer. */
+  refresh(): void {
+    if (this._isDisposed) {
+      return;
+    }
+    const comments = this.comments();
+    this.image?.setComments(comments);
+    this.text?.setComments(comments);
+    this.view?.dispatch({ effects: setEditorComments.of(comments) });
+  }
+
+  /** Scroll to a comment's pin or badge and flash it. */
+  flash(id: string): void {
+    this.image?.flash(id);
+    this.text?.flash(id);
+    if (this.view) {
+      revealEditorComment(this.view, id);
+    }
+  }
+
+  dispose(): void {
+    if (this._isDisposed) {
+      return;
+    }
+    this._isDisposed = true;
+    this.image?.dispose();
+    this.text?.dispose();
+    this.image = null;
+    this.text = null;
+    this.view = null;
+  }
+
+  private _isDisposed = false;
+}
+
+/** A record tab: pins on its figure, badges in its text and PDF pages. */
+class ElementHost extends CommentHost {
+  constructor(tab: MainAreaWidget<ElementWidget>, hosts: CommentHosts) {
+    super(tab, hosts);
+    this.element = tab.content;
+    const node = this.element.node;
+    this.image = new ImageCommentLayer({
+      host: node,
+      selectImages: () =>
+        Array.from(
+          node.querySelectorAll<HTMLImageElement>(
+            '.astra-output-detail__artifact img'
+          )
+        ),
+      onPoint: (image, x, y, event) =>
+        hosts.startPointComment(this, image, x, y, event),
+      onPinClick: (comment, element) =>
+        hosts.showComment(this, comment, element),
+      onPinMoved: (comment, x, y) => hosts.moveComment(this, comment, x, y)
+    });
+    this.text = new TextCommentLayer({
+      host: node,
+      onBadgeClick: (comment, element) =>
+        hosts.showComment(this, comment, element)
+    });
+    this.element.title.changed.connect(this._changed, this);
+  }
+
+  get node(): HTMLElement {
+    return this.element.node;
+  }
+
+  get entrypoint(): string {
+    return this.element.reference.entrypoint;
+  }
+
+  target(): ICommentTarget | null {
+    return elementTarget(this.element);
+  }
+
+  async version(): Promise<ICommentTarget['version']> {
+    const target = this.target();
+    if (!target?.record || paperDoi(target.record)) {
+      return NULL_VERSION;
+    }
+    return recordVersion(
+      this.hosts.contents,
+      this.hosts.settings,
+      target.path,
+      target.record,
+      this.element.reference.universeId
+    );
+  }
+
+  dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this.element.title.changed.disconnect(this._changed, this);
+    super.dispose();
+  }
+
+  private _changed(): void {
+    this.refresh();
+  }
+
+  private element: ElementWidget;
+}
+
+/** How a document widget carries comments. */
+export type FileHostKind = 'image' | 'text' | 'editor';
+
+/** A document: an image, a Markdown preview or a text editor. */
+class FileHost extends CommentHost {
+  constructor(
+    widget: Widget,
+    private context: DocumentRegistry.Context,
+    hosts: CommentHosts,
+    kind: FileHostKind,
+    view: EditorView | null
+  ) {
+    super(widget, hosts);
+    this._node =
+      widget instanceof MainAreaWidget ? widget.content.node : widget.node;
+    if (kind === 'image') {
+      this.image = new ImageCommentLayer({
+        host: this._node,
+        selectImages: () => Array.from(this._node.querySelectorAll('img')),
+        onPoint: (image, x, y, event) =>
+          hosts.startPointComment(this, image, x, y, event),
+        onPinClick: (comment, element) =>
+          hosts.showComment(this, comment, element),
+        onPinMoved: (comment, x, y) => hosts.moveComment(this, comment, x, y)
+      });
+    } else if (kind === 'text') {
+      this.text = new TextCommentLayer({
+        host: this._node,
+        onBadgeClick: (comment, element) =>
+          hosts.showComment(this, comment, element)
+      });
+    }
+    this.view = view;
+    context.pathChanged.connect(this._pathChanged, this);
+    void this.resolve();
+  }
+
+  get node(): HTMLElement {
+    return this._node;
+  }
+
+  get entrypoint(): string | null {
+    return this._entrypoint;
+  }
+
+  /** The document's path, for matching editors to hosts. */
+  get path(): string {
+    return this.context.path;
+  }
+
+  target(): ICommentTarget {
+    return {
+      kind: 'file',
+      path: this.context.path,
+      record: null,
+      universe: null,
+      message: null,
+      version: NULL_VERSION
+    };
+  }
+
+  async version(): Promise<ICommentTarget['version']> {
+    return { ...NULL_VERSION, hash: this.context.contentsModel?.hash ?? null };
+  }
+
+  dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this.context.pathChanged.disconnect(this._pathChanged, this);
+    super.dispose();
+  }
+
+  private async resolve(): Promise<void> {
+    const path = this.context.path;
+    let entrypoint: string | null = null;
+    try {
+      const root = await findProjectRoot(
+        this.hosts.contents,
+        directoryOf(path)
+      );
+      entrypoint = root?.entrypoint ?? null;
+    } catch (error) {
+      console.warn('Could not find the project owning a document.', error);
+    }
+    if (this.isDisposed || this.context.path !== path) {
+      return;
+    }
+    this._entrypoint = entrypoint;
+    this.refresh();
+  }
+
+  private _pathChanged(): void {
+    this._entrypoint = null;
+    void this.resolve();
+  }
+
+  private _node: HTMLElement;
+  private _entrypoint: string | null = null;
+}
+
+export interface ICommentHostsOptions {
+  app: JupyterFrontEnd;
+  shell: ILabShell | null;
+  documents: IDocumentManager | null;
+  service: CommentService;
+  popover: CommentPopover;
+}
+
+/** Frames to wait for a new editor to be attached before giving up. */
+const ADOPT_ATTEMPTS = 30;
+
+/**
+ * Where comments are made and shown: record tabs, image documents, Markdown
+ * previews and file editors in the main area. It attaches a layer to each,
+ * feeds them the pending comments of their project, and opens the popover.
+ */
+export class CommentHosts implements IDisposable {
+  constructor(private options: ICommentHostsOptions) {
+    const { app, shell, service } = options;
+    this.selection = new SelectionCommentButton<CommentHost>({
+      resolve: node => this.resolveSelection(node),
+      onComment: capture => this.startTextComment(capture)
+    });
+    service.changed.connect(this._serviceChanged, this);
+    shell?.layoutModified.connect(this.scan, this);
+    app.shell.currentChanged?.connect(this.scan, this);
+    void app.restored.then(() => this.scan());
+    const register = (factory: string, kind: FileHostKind) => {
+      this._extensions.push(
+        app.docRegistry.addWidgetExtension(factory, {
+          createNew: (widget, context) => {
+            if (this._isDisposed) {
+              return;
+            }
+            const view = kind === 'editor' ? this.editorViewOf(widget) : null;
+            this.attachFile(widget, context, kind, view);
+          }
+        })
+      );
+    };
+    register('Image', 'image');
+    register('Markdown Preview', 'text');
+    register('Editor', 'editor');
+  }
+
+  /** The Contents manager, for project lookups. */
+  get contents(): Contents.IManager {
+    return this.options.app.serviceManager.contents;
+  }
+
+  /** The server settings, for the versions API. */
+  get settings(): ServerConnection.ISettings {
+    return this.options.app.serviceManager.serverSettings;
+  }
+
+  get service(): CommentService {
+    return this.options.service;
+  }
+
+  get isDisposed(): boolean {
+    return this._isDisposed;
+  }
+
+  /** What the CodeMirror extension calls. */
+  readonly editorHandlers: IEditorCommentHandlers = {
+    onComment: (view, anchor) => this.startEditorComment(view, anchor),
+    onBadge: (view, comment, element) => {
+      const host = this.hostForView(view);
+      if (host) {
+        this.showComment(host, comment, element);
+      }
+    },
+    onViewCreated: view => this.adoptView(view),
+    onViewDestroyed: view => {
+      const host = this.hostForView(view);
+      if (host) {
+        host.view = null;
+      }
+    }
+  };
+
+  /** Attach a host to every record tab the shell shows. */
+  scan = (): void => {
+    if (this._isDisposed) {
+      return;
+    }
+    for (const widget of this.options.app.shell.widgets('main')) {
+      if (isElementTab(widget) && !this._hosts.has(widget)) {
+        this.register(widget, new ElementHost(widget, this));
+      }
+    }
+  };
+
+  /** Open a comment's target where it belongs and flash its pin. */
+  async openTarget(comment: IComment): Promise<void> {
+    const { app } = this.options;
+    const { target } = comment;
+    let host: CommentHost | undefined;
+    if (target.kind === 'record') {
+      const doi = paperDoi(target.record);
+      const result: unknown = await app.commands.execute(
+        CommandIDs.openElement,
+        {
+          entrypoint: target.path,
+          target: doi ? '' : (target.record ?? ''),
+          ...(doi ? { doi } : {}),
+          universeId: target.universe
+        }
+      );
+      this.scan();
+      const widgetId =
+        isRecord(result) && typeof result.widgetId === 'string'
+          ? result.widgetId
+          : undefined;
+      host = widgetId ? this.hostById(widgetId) : undefined;
+    } else {
+      const opened: unknown = await app.commands.execute('docmanager:open', {
+        path: target.path,
+        ...(target.kind === 'message' ? { factory: 'Chat' } : {})
+      });
+      if (opened instanceof Widget) {
+        app.shell.activateById(opened.id);
+        host = this._hosts.get(opened);
+      }
+    }
+    host?.flash(comment.id);
+  }
+
+  /** Edit a comment's text from a chip. */
+  editComment(
+    entrypoint: string,
+    comment: IComment,
+    element: HTMLElement
+  ): void {
+    const rect = element.getBoundingClientRect();
+    this.options.popover.open({
+      x: rect.left,
+      y: rect.bottom + 6,
+      mode: 'compose',
+      text: comment.text,
+      onSave: async text => {
+        await this.service.update(entrypoint, comment.id, { text });
+      }
+    });
+  }
+
+  /** Show a saved comment near its pin, with Edit and Delete. */
+  showComment(
+    host: CommentHost,
+    comment: IComment,
+    element: HTMLElement
+  ): void {
+    const entrypoint = host.entrypoint;
+    if (!entrypoint) {
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    this.options.popover.open({
+      x: rect.left,
+      y: rect.bottom + 6,
+      mode: 'view',
+      text: comment.text,
+      onSave: async text => {
+        await this.service.update(entrypoint, comment.id, { text });
+      },
+      onDelete: async () => {
+        await this.service.remove(entrypoint, comment.id);
+      }
+    });
+  }
+
+  /** Save a dragged pin's new place. */
+  moveComment(
+    host: CommentHost,
+    comment: IComment,
+    x: number,
+    y: number
+  ): void {
+    const entrypoint = host.entrypoint;
+    if (!entrypoint) {
+      return;
+    }
+    void this.service
+      .update(entrypoint, comment.id, {
+        anchor: { ...comment.anchor, x, y }
+      })
+      .catch(error => {
+        console.warn('Could not move the comment.', error);
+        host.refresh();
+      });
+  }
+
+  /** A click on an image: drop a draft marker and open the popover. */
+  startPointComment(
+    host: CommentHost,
+    image: HTMLImageElement,
+    x: number,
+    y: number,
+    event: MouseEvent
+  ): void {
+    const entrypoint = host.entrypoint;
+    const target = host.target();
+    if (!entrypoint || !target) {
+      this.noProject();
+      return;
+    }
+    host.image?.setDraft(image, x, y);
+    this.options.popover.open({
+      x: event.clientX + 12,
+      y: event.clientY + 12,
+      mode: 'compose',
+      onSave: async text => {
+        const version = await host.version();
+        await this.service.add(entrypoint, {
+          text,
+          target: { ...target, version },
+          anchor: pointAnchor(x, y)
+        });
+        host.image?.setDraft(null);
+      },
+      onCancel: () => host.image?.setDraft(null)
+    });
+  }
+
+  dispose(): void {
+    if (this._isDisposed) {
+      return;
+    }
+    this._isDisposed = true;
+    const { app, shell, service } = this.options;
+    service.changed.disconnect(this._serviceChanged, this);
+    shell?.layoutModified.disconnect(this.scan, this);
+    app.shell.currentChanged?.disconnect(this.scan, this);
+    this.selection.dispose();
+    for (const extension of this._extensions) {
+      extension.dispose();
+    }
+    this._extensions.length = 0;
+    for (const host of this._hosts.values()) {
+      host.dispose();
+    }
+    this._hosts.clear();
+  }
+
+  private attachFile(
+    widget: Widget,
+    context: DocumentRegistry.Context,
+    kind: FileHostKind,
+    view: EditorView | null
+  ): FileHost | undefined {
+    const existing = this._hosts.get(widget);
+    if (existing) {
+      if (view && existing instanceof FileHost && !existing.view) {
+        existing.view = view;
+        existing.refresh();
+      }
+      return existing instanceof FileHost ? existing : undefined;
+    }
+    const host = new FileHost(widget, context, this, kind, view);
+    this.register(widget, host);
+    return host;
+  }
+
+  private register(widget: Widget, host: CommentHost): void {
+    this._hosts.set(widget, host);
+    widget.disposed.connect(() => {
+      host.dispose();
+      this._hosts.delete(widget);
+    });
+    host.refresh();
+  }
+
+  /** The CodeMirror view of a document widget whose content is an editor. */
+  private editorViewOf(widget: Widget): EditorView | null {
+    if (!(widget instanceof MainAreaWidget)) {
+      return null;
+    }
+    const content: unknown = widget.content;
+    if (!isRecord(content)) {
+      return null;
+    }
+    const editor: unknown = content.editor;
+    if (!isRecord(editor)) {
+      return null;
+    }
+    return isEditorView(editor.editor) ? editor.editor : null;
+  }
+
+  /**
+   * Match a new editor view to its document. Views are created before they
+   * are attached, so wait a few frames for the DOM to settle.
+   */
+  private adoptView(view: EditorView, attempt = 0): void {
+    if (this._isDisposed || this.hostForView(view)) {
+      return;
+    }
+    const widget = this.mainWidgetContaining(view.dom);
+    if (widget) {
+      const host = this._hosts.get(widget);
+      if (host) {
+        if (!host.view) {
+          host.view = view;
+          host.refresh();
+        }
+        return;
+      }
+      const context = this.options.documents?.contextForWidget(widget);
+      if (context) {
+        this.attachFile(widget, context, 'editor', view);
+      }
+      return;
+    }
+    if (attempt < ADOPT_ATTEMPTS) {
+      window.requestAnimationFrame(() => this.adoptView(view, attempt + 1));
+    }
+  }
+
+  private mainWidgetContaining(node: Node): Widget | undefined {
+    for (const widget of this.options.app.shell.widgets('main')) {
+      if (widget.node.contains(node)) {
+        return widget;
+      }
+    }
+    return undefined;
+  }
+
+  private hostForView(view: EditorView): CommentHost | undefined {
+    for (const host of this._hosts.values()) {
+      if (host.view === view) {
+        return host;
+      }
+    }
+    return undefined;
+  }
+
+  private hostById(id: string): CommentHost | undefined {
+    for (const [widget, host] of this._hosts) {
+      if (widget.id === id) {
+        return host;
+      }
+    }
+    return undefined;
+  }
+
+  private resolveSelection(
+    node: Node
+  ): { host: CommentHost; root: HTMLElement } | null {
+    const element = node instanceof Element ? node : node.parentElement;
+    const container = element?.closest<HTMLElement>(TEXT_HOST_SELECTOR);
+    if (!container || element?.closest('.cm-editor')) {
+      return null;
+    }
+    this.scan();
+    for (const host of this._hosts.values()) {
+      if (host.node === container && host.text && host.entrypoint) {
+        return { host, root: host.node };
+      }
+    }
+    return null;
+  }
+
+  private startTextComment(capture: ISelectionCapture<CommentHost>): void {
+    const { host } = capture;
+    const entrypoint = host.entrypoint;
+    const target = host.target();
+    if (!entrypoint || !target) {
+      this.noProject();
+      return;
+    }
+    const anchor: ICommentAnchor = {
+      ...emptyAnchor(capture.page !== null ? 'pdf' : 'text'),
+      quote: capture.quote,
+      prefix: capture.prefix,
+      page: capture.page
+    };
+    this.options.popover.open({
+      x: capture.x,
+      y: capture.y,
+      mode: 'compose',
+      onSave: async text => {
+        const version = await host.version();
+        await this.service.add(entrypoint, {
+          text,
+          target: { ...target, version },
+          anchor
+        });
+      }
+    });
+  }
+
+  private startEditorComment(view: EditorView, anchor: ICommentAnchor): void {
+    let host = this.hostForView(view);
+    if (!host) {
+      const widget = this.mainWidgetContaining(view.dom);
+      const context =
+        widget && this.options.documents?.contextForWidget(widget);
+      if (widget && context) {
+        host = this.attachFile(widget, context, 'editor', view);
+      }
+    }
+    const entrypoint = host?.entrypoint;
+    const target = host?.target();
+    if (!host || !entrypoint || !target) {
+      this.noProject();
+      return;
+    }
+    const coords = view.coordsAtPos(view.state.selection.main.head);
+    const fallback = view.dom.getBoundingClientRect();
+    this.options.popover.open({
+      x: coords?.left ?? fallback.left + 24,
+      y: (coords?.bottom ?? fallback.top) + 8,
+      mode: 'compose',
+      onSave: async text => {
+        const version = await host.version();
+        await this.service.add(entrypoint, {
+          text,
+          target: { ...target, version },
+          anchor
+        });
+      }
+    });
+  }
+
+  private noProject(): void {
+    Notification.warning(
+      'Comments belong to a Lightcone project; this document is outside every project.',
+      { autoClose: 5000 }
+    );
+  }
+
+  private _serviceChanged(_sender: unknown, entrypoint: string): void {
+    const key = PathExt.normalize(entrypoint);
+    for (const host of this._hosts.values()) {
+      if (host.entrypoint && PathExt.normalize(host.entrypoint) === key) {
+        host.refresh();
+      }
+    }
+  }
+
+  private selection: SelectionCommentButton<CommentHost>;
+  private _hosts = new Map<Widget, CommentHost>();
+  private _extensions: IDisposable[] = [];
+  private _isDisposed = false;
+}

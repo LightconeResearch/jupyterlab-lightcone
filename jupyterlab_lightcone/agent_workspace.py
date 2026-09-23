@@ -3,11 +3,44 @@
 Jupyter AI starts each agent session in the chat file's own folder. It exposes
 its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
 `select_project_persona_manager` sets that trait when Jupyter AI is installed.
+
+The same manager is where a message meets its agent, so it also delivers the
+project's pending comments with the message and records which sessions are
+busy, for the session list.
 """
 
-from jupyter_ai_persona_manager import PersonaManager as JupyterAIPersonaManager
+from dataclasses import replace
+from pathlib import Path
 
-from .projects import CURRENT_PROJECT, chat_project
+from jupyter_ai_persona_manager import PersonaManager as JupyterAIPersonaManager
+from jupyter_ai_persona_manager.persona_manager import _safe_process as process_safely
+
+from .comments import COMMENT_LOCKS, deliver_comments, project_directory, timestamp
+from .projects import CURRENT_PROJECT, chat_project, project_entrypoint
+
+SESSION_ACTIVITY = "lightcone_session_activity"
+"""The web application setting recording, per chat Contents path, whether an agent is busy."""
+
+COMMENTS_METADATA_KEY = "lightcone"
+"""The message metadata entry under which the composer lists the comments it sends."""
+
+
+def session_activity(web_app) -> dict:
+    """Every chat's activity, keyed by the chat's Contents path.
+
+    Each entry is `{"state": "working" | "idle", "persona": <persona id>,
+    "since": <ISO 8601 time>}`; a chat without an entry is idle.
+    """
+    return web_app.settings.setdefault(SESSION_ACTIVITY, {})
+
+
+def comment_ids(metadata) -> list[str]:
+    """The ids of the comments a message carries, or none when it names none."""
+    lightcone = (metadata or {}).get(COMMENTS_METADATA_KEY)
+    ids = lightcone.get("comments") if isinstance(lightcone, dict) else None
+    if not isinstance(ids, list):
+        return []
+    return [identifier for identifier in ids if isinstance(identifier, str)]
 
 
 class PersonaManager(JupyterAIPersonaManager):
@@ -49,10 +82,81 @@ class PersonaManager(JupyterAIPersonaManager):
             project = None
         return str(project) if project else super().get_chat_dir()
 
+    def on_chat_message(self, chat_id: str, message):
+        """Route a message as upstream does, after attaching its pending comments.
+
+        Upstream looks the persona up and schedules its processing; this does
+        the same in one task, so the comment store is read on the event loop's
+        terms and the session's activity brackets the persona's work.
+        """
+        persona_id = (message.metadata or {}).get(self.TO_PERSONA_METADATA_KEY)
+        persona = self.personas.get(persona_id) if persona_id else None
+        self.log.debug("Routing message to persona: %s", persona.name if persona else None)
+        if persona:
+            self.event_loop.create_task(self._route(persona, message))
+
+    async def _route(self, persona, message) -> None:
+        """Deliver the message, with its comments, and track the session's activity."""
+        ids = comment_ids(message.metadata)
+        if ids:
+            message = await self._with_comments(message, ids)
+        activity = self._activity()
+        path = self.get_chat_path(relative=True)
+        self._lightcone_busy = getattr(self, "_lightcone_busy", 0) + 1
+        activity[path] = {"state": "working", "persona": persona.id, "since": timestamp()}
+        try:
+            await process_safely(persona, message)
+        finally:
+            self._lightcone_busy -= 1
+            if self._lightcone_busy == 0:
+                activity[path] = {"state": "idle", "persona": persona.id, "since": timestamp()}
+
+    async def _with_comments(self, message, ids: list[str]):
+        """A copy of the message whose body ends with the pending comments' block.
+
+        The chat file keeps the user's own text: only the copy handed to the
+        persona carries the block. The comments are marked sent with this
+        message; missing or already sent ids are skipped. Any failure leaves
+        the message as it was, so the agent still answers.
+        """
+        try:
+            project = chat_project(self, self._reported_project())
+            if project is None:
+                self.log.warning("Comments were not delivered: this chat belongs to no ASTRA project.")
+                return message
+            block = await deliver_comments(
+                self._comment_locks(),
+                project,
+                project_directory(project_entrypoint(Path(self.root_dir), project)),
+                ids,
+                self.get_chat_path(relative=True),
+                message.id,
+            )
+        except Exception:
+            self.log.warning("Pending comments could not be delivered with this message.", exc_info=True)
+            return message
+        if block is None:
+            return message
+        return replace(message, body=f"{message.body}\n\n{block}")
+
+    def _web_app(self):
+        """The running server's web application, absent outside a server."""
+        return getattr(getattr(self.parent, "serverapp", None), "web_app", None)
+
     def _reported_project(self) -> str | None:
         """The workbench's current project entrypoint, as the browser last reported it."""
-        web_app = getattr(getattr(self.parent, "serverapp", None), "web_app", None)
+        web_app = self._web_app()
         return web_app.settings.get(CURRENT_PROJECT) if web_app is not None else None
+
+    def _activity(self) -> dict:
+        """The server's session activity, or a throwaway map outside a server."""
+        web_app = self._web_app()
+        return session_activity(web_app) if web_app is not None else {}
+
+    def _comment_locks(self) -> dict:
+        """The server's per-project store locks, or fresh ones outside a server."""
+        web_app = self._web_app()
+        return web_app.settings.setdefault(COMMENT_LOCKS, {}) if web_app is not None else {}
 
 
 def select_project_persona_manager(serverapp) -> bool:

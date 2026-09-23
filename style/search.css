@@ -1,0 +1,71 @@
+/* Lightcone search: a modal command palette over sessions, records, files and commands. */
+
+.jp-jupyterlab-lightcone-Search-Modal.jp-ModalCommandPalette {
+  left: 25%;
+  width: 50%;
+}
+
+.jp-jupyterlab-lightcone-Search-Modal .lm-CommandPalette {
+  max-height: 60vh;
+}
+
+.jp-jupyterlab-lightcone-Search .lm-CommandPalette-itemContent {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Search .lm-CommandPalette-itemLabel {
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.jp-jupyterlab-lightcone-Search-caption {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-Search
+  .lm-CommandPalette-item.lm-mod-active
+  .jp-jupyterlab-lightcone-Search-caption {
+  color: var(--jp-ui-inverse-font-color2);
+}
+
+.jp-jupyterlab-lightcone-Search-glyph {
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1;
+  text-align: center;
+  color: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Search-glyph[data-kind='decision'] {
+  color: var(--lc-kind-decision, var(--jp-warn-color1));
+}
+
+.jp-jupyterlab-lightcone-Search-glyph[data-kind='input'] {
+  color: var(--lc-kind-input, var(--jp-accent-color1));
+}
+
+.jp-jupyterlab-lightcone-Search-glyph[data-kind='finding'],
+.jp-jupyterlab-lightcone-Search-glyph[data-kind='prior_insight'] {
+  color: var(--lc-kind-finding, var(--jp-success-color1));
+}
+
+.jp-jupyterlab-lightcone-Search-glyph[data-kind='paper'] {
+  color: var(--lc-kind-paper, var(--jp-ui-font-color2));
+}
+
+.jp-jupyterlab-lightcone-Search
+  .lm-CommandPalette-item.lm-mod-active
+  .jp-jupyterlab-lightcone-Search-glyph {
+  color: var(--jp-ui-inverse-font-color1);
+}

@@ -2984,6 +2984,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@jupyterlab/running@npm:^4.6.3":
+  version: 4.6.3
+  resolution: "@jupyterlab/running@npm:4.6.3"
+  dependencies:
+    "@jupyter/react-components": ^0.16.6
+    "@jupyterlab/apputils": ^4.7.3
+    "@jupyterlab/statedb": ^4.6.3
+    "@jupyterlab/translation": ^4.6.3
+    "@jupyterlab/ui-components": ^4.6.3
+    "@lumino/coreutils": ^2.2.2
+    "@lumino/disposable": ^2.1.5
+    "@lumino/domutils": ^2.0.4
+    "@lumino/messaging": ^2.0.4
+    "@lumino/signaling": ^2.1.5
+    "@lumino/widgets": ^2.8.0
+    react: ^18.2.0
+  checksum: 9b9fd8c9943a54433cee748f619315f21daa6d1af9c5c9307681734f80c0a89f80158ec66e9cbe4bf20df4bb7581d75ebcb83e0a9472674003f47c5af6695231
+  languageName: node
+  linkType: hard
+
 "@jupyterlab/services@npm:^7.5.10, @jupyterlab/services@npm:^7.6.3":
   version: 7.6.3
   resolution: "@jupyterlab/services@npm:7.6.3"
@@ -8352,12 +8372,15 @@ __metadata:
   dependencies:
     "@astra-spec/sdk": ^0.1.2
     "@astra-spec/ui": 0.0.7
+    "@codemirror/state": ^6.7.0
+    "@codemirror/view": ^6.42.0
     "@eslint/js": ^9.0.0
     "@jupyter/builder": ^1.2.0
     "@jupyter/chat": ~0.25.0
     "@jupyter/eslint-plugin": ^1.1.0
     "@jupyterlab/application": ^4.5.10
     "@jupyterlab/apputils": ^4.6.10
+    "@jupyterlab/codemirror": ^4.6.3
     "@jupyterlab/coreutils": ^6.5.10
     "@jupyterlab/docmanager": ^4.5.10
     "@jupyterlab/docregistry": ^4.5.10
@@ -8365,15 +8388,21 @@ __metadata:
     "@jupyterlab/launcher": ^4.5.10
     "@jupyterlab/rendermime": ^4.5.10
     "@jupyterlab/rendermime-interfaces": ^3.13.0
+    "@jupyterlab/running": ^4.6.3
     "@jupyterlab/services": ^7.5.10
+    "@jupyterlab/statedb": ^4.6.3
     "@jupyterlab/statusbar": ^4.5.10
     "@jupyterlab/testutils": ^4.0.0
     "@jupyterlab/translation": ^4.5.10
     "@jupyterlab/ui-components": ^4.5.10
     "@lightcone-research/brand": 0.0.3
+    "@lumino/algorithm": ^2.0.5
+    "@lumino/commands": ^2.3.4
     "@lumino/coreutils": ^2.2.0
+    "@lumino/disposable": ^2.1.6
     "@lumino/polling": ^2.1.6
     "@lumino/signaling": ^2.1.6
+    "@lumino/virtualdom": ^2.0.5
     "@lumino/widgets": ^2.0.0
     "@types/jest": ^29.2.0
     "@types/json-schema": ^7.0.11

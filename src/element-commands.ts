@@ -58,14 +58,27 @@ export function registerElementCommands(
       target,
       reference.universeId
     ]);
-    const destination = tabs.destination(
-      reference,
-      typeof args.sourceWidgetId === 'string' ? args.sourceWidgetId : undefined
-    );
-    let widget = tabs.existing(key);
+    const sourceId =
+      typeof args.sourceWidgetId === 'string' ? args.sourceWidgetId : undefined;
+    const newTab = args.newTab === true && !restoring;
+    const versionCommit =
+      typeof args.versionCommit === 'string' &&
+      /^[0-9a-f]{7,40}$/i.test(args.versionCommit)
+        ? args.versionCommit
+        : undefined;
+    const destination = tabs.destination(reference, sourceId);
+    // A link followed inside a record navigates that tab and extends its
+    // history, pinned or not; every other open looks for the record first,
+    // then for the group's preview.
+    let widget =
+      sourceId && !newTab && !restoring
+        ? tabs.navigable(sourceId, reference)
+        : undefined;
+    if (!widget && !newTab) widget = tabs.existing(key);
     // Restored tabs keep their own stable IDs, even when more than one was a preview.
     const reused = !!widget;
-    if (!widget && !restoring) widget = tabs.preview(reference, destination);
+    if (!widget && !restoring && !newTab)
+      widget = tabs.preview(reference, destination);
     if (!widget) {
       const id =
         restoring &&
@@ -85,12 +98,12 @@ export function registerElementCommands(
         )
       });
       widget.id = id;
-      widget.content.display(reference, key, label);
+      widget.content.display(reference, key, label, { versionCommit });
       tabs.add(widget, destination, restoring);
       await tracker.add(widget);
       widget.disposed.connect(() => tabs.sync());
     } else {
-      widget.content.display(reference, key, label);
+      widget.content.display(reference, key, label, { versionCommit });
       if (args.pinned === true) tabs.pin(widget);
     }
     if (!reused) tabs.remember(widget);
@@ -126,7 +139,20 @@ export function registerElementCommands(
             entrypoint: { type: 'string' },
             target: { type: 'string' },
             doi: { type: 'string' },
-            universeId: { type: ['string', 'null'] }
+            universeId: { type: ['string', 'null'] },
+            pinned: { type: 'boolean' },
+            sourceWidgetId: {
+              type: 'string',
+              description: 'The record tab a link was followed from'
+            },
+            newTab: {
+              type: 'boolean',
+              description: 'Open beside the source tab instead of navigating it'
+            },
+            versionCommit: {
+              type: 'string',
+              description: 'Show this committed output version first'
+            }
           }
         }
       },

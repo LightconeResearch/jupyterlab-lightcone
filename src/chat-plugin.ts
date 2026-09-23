@@ -9,23 +9,85 @@ import { CommandIDs, requireProject } from './commands';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { parseElementReference } from './element-reference';
 import { projectDirectory } from './project-data';
-import { findProjectRoot } from './project-root';
+import { findProjectRoot, type IProjectRoot } from './project-root';
 import { InventoryDocument } from './document-widget';
+import { ISessionService } from './sessions/session-service';
+import { isSessionWidget } from './sessions/session-manager';
+
+/**
+ * The open session of a project, preferring the one the user works in.
+ *
+ * Only chats under the project folder can belong to it; a nested project may
+ * still own them, so those candidates are confirmed. An unreadable chat
+ * elsewhere must not fail the whole command.
+ */
+async function findProjectSession(
+  app: JupyterFrontEnd,
+  tracker: IChatTracker,
+  root: IProjectRoot
+): Promise<IChatPanel | undefined> {
+  const contents = app.serviceManager.contents;
+  const drive = contents.driveName(root.entrypoint);
+  const underProject = (chat: string) => {
+    let directory: string;
+    try {
+      directory = projectDirectory(chat);
+    } catch {
+      return undefined;
+    }
+    return contents.driveName(directory) === drive &&
+      (!root.path ||
+        directory === root.path ||
+        directory.startsWith(`${root.path}/`))
+      ? directory
+      : undefined;
+  };
+  const candidates: IChatPanel[] = [];
+  const directories: string[] = [];
+  const consider = (item: IChatPanel) => {
+    if (item.isDisposed || !isSessionWidget(item)) {
+      return;
+    }
+    const directory = underProject(item.model.name);
+    if (directory === undefined || candidates.includes(item)) {
+      return;
+    }
+    candidates.push(item);
+    directories.push(directory);
+  };
+  const current = app.shell.currentWidget;
+  if (isSessionWidget(current)) {
+    consider(current);
+  }
+  tracker.forEach(consider);
+  const owners = await Promise.all(
+    directories.map(directory =>
+      findProjectRoot(contents, directory).catch(() => undefined)
+    )
+  );
+  return candidates.find(
+    (_item, index) => owners[index]?.entrypoint === root.entrypoint
+  );
+}
 
 /** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
 export const chatPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:chat',
   description: 'ASTRA preview cards and agent navigation in Jupyter AI chats.',
   autoStart: true,
+  requires: [ISessionService],
   optional: [IChatTracker, ICommandPalette, IFileBrowserFactory, ITranslator],
   activate: (
     app: JupyterFrontEnd,
+    sessions: ISessionService,
     tracker: IChatTracker | null,
     palette: ICommandPalette | null,
     browser: IFileBrowserFactory | null,
     translator: ITranslator | null
   ) => {
-    if (!tracker) return;
+    if (!tracker) {
+      return;
+    }
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     app.commands.addCommand(CommandIDs.discuss, {
       label: trans.__('Lightcone Agent'),
@@ -60,80 +122,46 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
                         browser?.tracker.currentWidget?.model.path ?? ''
                     }
           );
-          if (!root) return null;
+          if (!root) {
+            return null;
+          }
           const { entrypoint, target } = parseElementReference({
             entrypoint: root.entrypoint,
             target: typeof args.target === 'string' ? args.target : ''
           });
           // The server roots the agent in whichever project owns the chat file,
-          // so a record shortcut may reuse any open chat stored in this project.
-          let panel: IChatPanel | undefined;
-          if (target) {
-            // Only chats under the project folder can belong to it; a nested
-            // project may still own them, so confirm those candidates. An
-            // unreadable chat elsewhere must not fail the whole command.
-            const contents = app.serviceManager.contents;
-            const drive = contents.driveName(root.entrypoint);
-            const underProject = (chat: string) => {
-              let directory: string;
-              try {
-                directory = projectDirectory(chat);
-              } catch {
-                return undefined;
-              }
-              return contents.driveName(directory) === drive &&
-                (!root.path ||
-                  directory === root.path ||
-                  directory.startsWith(`${root.path}/`))
-                ? directory
-                : undefined;
-            };
-            const candidates: IChatPanel[] = [];
-            const directories: string[] = [];
-            tracker.forEach(item => {
-              if (item.isDisposed || item.area !== 'sidebar') return;
-              const directory = underProject(item.model.name);
-              if (directory === undefined) return;
-              candidates.push(item);
-              directories.push(directory);
+          // so any session open in this project can take the conversation.
+          let panel = await findProjectSession(app, tracker, root);
+          const reused = !!panel;
+          let filepath: string;
+          if (panel) {
+            filepath = panel.model.name;
+            await sessions.openSession(filepath);
+          } else {
+            filepath = await sessions.createAndOpen(entrypoint, {
+              title: target ? `Discuss ${target}` : undefined
             });
-            const owners = await Promise.all(
-              directories.map(directory =>
-                findProjectRoot(contents, directory).catch(() => undefined)
-              )
-            );
-            panel = candidates.find(
-              (_item, index) => owners[index]?.entrypoint === entrypoint
+            const local = app.serviceManager.contents.localPath(filepath);
+            panel = tracker.find(
+              item =>
+                isSessionWidget(item) &&
+                app.serviceManager.contents.localPath(item.model.name) === local
             );
           }
-          const reused = !!panel;
-          const draft = panel?.model.input.value ?? '';
-          const filepath: unknown = panel
-            ? panel.model.name
-            : await app.commands.execute('jupyterlab-chat:create', {
-                path: root.path,
-                inSidePanel: true
-              });
-          if (typeof filepath !== 'string' || !filepath)
-            throw new Error('The chat could not be created.');
-          // A newly opened sidebar chat returns null; locate its tracked panel by path.
-          // The native open command also reveals the sidebar and selects a reused chat.
-          await app.commands.execute('jupyterlab-chat:open', {
-            filepath,
-            inSidePanel: true
-          });
-          panel = tracker.find(
-            item => item.area === 'sidebar' && item.model.name === filepath
-          );
-          if (!panel)
+          if (!panel) {
             throw new Error(
-              'The chat did not open. Check that Jupyter AI is enabled.'
+              trans.__(
+                'The session did not open. Check that Jupyter AI is enabled.'
+              )
             );
+          }
           await panel.model.ready;
-          if (target)
+          const draft = panel.model.input.value;
+          if (target) {
             panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${target}.`;
+          }
           panel.model.input.focus();
-          return { entrypoint, reused };
+          return { entrypoint, reused, path: filepath };
         } catch (reason) {
           await showErrorMessage(
             trans.__('Could not open Lightcone Agent'),

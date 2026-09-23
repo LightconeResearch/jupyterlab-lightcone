@@ -14,7 +14,17 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
 import { chatPlugin } from './chat-plugin';
+import { chatLinksPlugin } from './chat-links';
+import { commentsPlugin } from './comments';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
+import { customizePlugin } from './customize';
+import { homePlugin } from './home';
+import { runsPlugin } from './runs';
+import { searchPlugin } from './search';
+import { sessionPlaceholderPlugin, sessionsPlugin } from './sessions';
+import { sidebarPlugin } from './sidebar';
+import { lightconeDarkThemePlugin, lightconeLightThemePlugin } from './theme';
+import { versionsPlugin } from './versions';
 import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
 import { astraMimePlugin } from './astra-mime';
@@ -142,6 +152,18 @@ export default [
   projectStatusPlugin,
   plugin,
   astraMimePlugin,
+  sessionsPlugin,
+  sessionPlaceholderPlugin,
   chatPlugin,
-  projectNotificationsPlugin
+  chatLinksPlugin,
+  projectNotificationsPlugin,
+  lightconeLightThemePlugin,
+  lightconeDarkThemePlugin,
+  homePlugin,
+  sidebarPlugin,
+  commentsPlugin,
+  versionsPlugin,
+  runsPlugin,
+  searchPlugin,
+  customizePlugin
 ];
