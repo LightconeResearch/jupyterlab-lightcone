@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -126,9 +127,50 @@ def test_history_lists_only_run_commits_newest_first(repo):
         "exit": 0,
         "inputs": [],
         "outputs": ["results/baseline/fit.json"],
+        "invocation": None,
     }
     assert history[1]["time"].startswith("20")
     assert runs.run_history(repo, limit=1) == [history[0]]
+
+
+def test_runs_of_one_invocation_share_the_commit_their_manifests_record(repo):
+    commit(repo, "astra.yaml", "Initial analysis\n")
+    start = git(repo, "rev-parse", "HEAD").strip()
+
+    def materialize(output, sha):
+        manifest = json.dumps({"git_sha": sha, "output_id": output})
+        (repo / "results" / "baseline").mkdir(parents=True, exist_ok=True)
+        (repo / "results" / "baseline" / f".{output}.manifest.json").write_text(manifest)
+        git(repo, "add", f"results/baseline/.{output}.manifest.json")
+        return commit(repo, f"results/baseline/{output}.json", f"[DATALAD RUNCMD] {output} [baseline]\n")
+
+    materialize("fit", start)
+    materialize("plot", start)
+    later = git(repo, "rev-parse", "HEAD").strip()
+    materialize("fit", later)
+    commit(repo, "results/baseline/odd.json", "[DATALAD RUNCMD] odd [baseline]\n")
+    history = runs.run_history(repo)
+    assert [(run["output"], run["invocation"]) for run in history] == [
+        ("odd", None), ("fit", later), ("plot", start), ("fit", start),
+    ]
+
+
+@pytest.mark.parametrize("manifest", ["not json", "[]", '{"git_sha": 7}', '{"git_sha": "not a sha"}'])
+def test_an_unreadable_manifest_names_no_invocation(repo, manifest):
+    (repo / "results" / "baseline").mkdir(parents=True)
+    (repo / "results" / "baseline" / ".fit.manifest.json").write_text(manifest)
+    git(repo, "add", "results/baseline/.fit.manifest.json")
+    commit(repo, "results/baseline/fit.json", "[DATALAD RUNCMD] fit [baseline]\n")
+    assert runs.run_history(repo)[0]["invocation"] is None
+
+
+def test_the_venue_is_this_host_outside_slurm(monkeypatch):
+    for name in ("SLURM_JOB_ID", "SLURM_JOB_NUM_NODES", "SLURM_NNODES"):
+        monkeypatch.delenv(name, raising=False)
+    assert runs.describe_venue() == {"slurm": False, "nodes": None}
+    monkeypatch.setenv("SLURM_JOB_ID", "1")
+    monkeypatch.setenv("SLURM_JOB_NUM_NODES", "2")
+    assert runs.describe_venue() == {"slurm": True, "nodes": 2}
 
 
 def test_history_counts_only_runs_of_the_projects_own_results(repo):
@@ -142,6 +184,27 @@ def test_history_counts_only_runs_of_the_projects_own_results(repo):
     commit(repo, "a/notes.json", message.format("not_a_result"))
     assert [run["commit"] for run in runs.run_history(repo / "a")] == [own]
     assert runs.run_history(repo) == []
+
+
+@pytest.mark.skipif(shutil.which("ssh-keygen") is None, reason="signing a commit needs ssh-keygen")
+def test_signature_checks_never_reach_the_history(tmp_path, repo):
+    # A user who signs commits and sets log.showSignature gets each verdict
+    # printed ahead of the commit hash, unless the history turns checks off.
+    key = tmp_path / "key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True, capture_output=True)
+    signers = tmp_path / "allowed_signers"
+    signers.write_text(f"test@example.org {Path(f'{key}.pub').read_text()}")
+    for name, value in (
+        ("gpg.format", "ssh"),
+        ("user.signingkey", f"{key}.pub"),
+        ("gpg.ssh.allowedSignersFile", str(signers)),
+        ("commit.gpgsign", "true"),
+        ("log.showSignature", "true"),
+    ):
+        git(repo, "config", name, value)
+    sha = commit(repo, "results/baseline/fit.json", "[DATALAD RUNCMD] fit [baseline]\n")
+    assert "Good" in git(repo, "log", "-1", "--format=%H")
+    assert [(run["commit"], run["short"]) for run in runs.run_history(repo)] == [(sha, sha[:7])]
 
 
 def test_history_is_empty_outside_git_and_in_an_empty_repository(tmp_path, monkeypatch):
@@ -546,6 +609,76 @@ async def test_cancelling_terminates_the_process_group(app, jp_fetch, project, e
     # Cancelling again changes nothing.
     again = json.loads((await jp_fetch(*ENDPOINT, job["id"], method="DELETE", params={"path": project})).body)
     assert again == cancelled
+
+
+def test_a_stopped_run_gets_its_committed_results_back(tmp_path):
+    # The project sits in a larger work tree: only its own results count.
+    project = tmp_path / "analysis"
+    git(tmp_path, "init", "-q")
+    for name in ("results/baseline/fit.png", "results/baseline/.fit.manifest.json", "results/baseline/table.csv", "src/fit.py"):
+        (project / name).parent.mkdir(parents=True, exist_ok=True)
+        (project / name).write_text(f"committed {name}")
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "other.csv").write_text("other project")
+    git(tmp_path, "add", ".")
+    git(tmp_path, "commit", "-q", "-m", "results")
+    # Stopped mid-run: one output removed, one half written and staged, a new
+    # file begun; the other project's results and the code are not the run's.
+    (project / "results/baseline/fit.png").unlink()
+    (project / "results/baseline/.fit.manifest.json").unlink()
+    (project / "results/baseline/table.csv").write_text("partial")
+    git(project, "add", "results/baseline/table.csv")
+    (project / "results/baseline/new.png").write_text("partial new output")
+    (tmp_path / "results" / "other.csv").write_text("edited elsewhere")
+    (project / "src/fit.py").write_text("edited")
+
+    restored = runs.restore_stopped_results(project)
+
+    assert sorted(restored) == ["results/baseline/.fit.manifest.json", "results/baseline/fit.png", "results/baseline/table.csv"]
+    assert (project / "results/baseline/fit.png").read_text() == "committed results/baseline/fit.png"
+    assert (project / "results/baseline/table.csv").read_text() == "committed results/baseline/table.csv"
+    status = git(tmp_path, "status", "--porcelain", "--untracked-files=all").splitlines()
+    assert sorted(status) == [" M analysis/src/fit.py", " M results/other.csv", "?? analysis/results/baseline/new.png"]
+    # Nothing left to restore, and nothing to do outside Git or before a commit.
+    assert runs.restore_stopped_results(project) == []
+    outside = tmp_path.parent / f"{tmp_path.name}-plain"
+    outside.mkdir()
+    assert runs.restore_stopped_results(outside) == []
+    git(outside, "init", "-q")
+    assert runs.restore_stopped_results(outside) == []
+
+
+async def test_stopping_a_run_restores_the_results_it_removed(app, jp_fetch, jp_root_dir, project, engine, events):
+    directory = jp_root_dir / "project"
+    output = directory / "results" / "baseline" / "fit.png"
+    output.parent.mkdir(parents=True)
+    output.write_text("version 1")
+    git(directory, "init", "-q")
+    git(directory, "add", ".")
+    git(directory, "commit", "-q", "-m", "first run")
+    # Like the engine: remove the output, then work until stopped.
+    engine(
+        """
+        os.remove("results/baseline/fit.png")
+        sys.stdout.write("rendering\\n")
+        sys.stdout.flush()
+        time.sleep(120)
+        """
+    )
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
+    record = runs.job_registry(app.web_app.settings).jobs[job["id"]]
+    for _ in range(500):
+        if record.lines:
+            break
+        await asyncio.sleep(0.01)
+    assert not output.exists()
+    cancelled = json.loads((await jp_fetch(*ENDPOINT, job["id"], method="DELETE", params={"path": project})).body)
+    assert cancelled["state"] == "cancelled"
+    assert output.read_text() == "version 1"
+    assert git(directory, "status", "--porcelain") == ""
+    assert cancelled["lines"][-1] == "Restored 1 committed result file(s) the stopped run had removed or changed: results/baseline/fit.png"
+    await settled(events, job["id"], "cancelled")
+    assert {"id": job["id"], "project": "project", "state": "cancelled", "line": cancelled["lines"][-1]} in events
 
 
 async def test_a_job_cancelled_while_its_engine_spawns_never_runs(app, jp_fetch, project, engine, monkeypatch, events):

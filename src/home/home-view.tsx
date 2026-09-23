@@ -40,6 +40,7 @@ import {
   type IProjectDataState
 } from '../project-data-service';
 import type { IProjectRoot } from '../project-root';
+import { RematerializeButton } from '../runs/rematerialize-button';
 import { listRuns } from '../runs/runs-api';
 import type { ISessionService } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
@@ -50,7 +51,9 @@ import {
   HOME_RESULT_LIMIT,
   HOME_SESSION_LIMIT,
   countRecords,
+  orderPlates,
   outputKindLabel,
+  platePreview,
   sessionActivity,
   sessionSubtitle,
   summarizeFreshness
@@ -175,6 +178,14 @@ interface IHomeRootProps {
   /** Emitted each time the page becomes visible. */
   shown: ISignal<HomeView, void>;
   options: IHomeViewOptions;
+}
+
+/**
+ * Home's polls stand by while its tab is hidden, and like JupyterLab's own
+ * polls while the browser tab is hidden too.
+ */
+function homeStandby(isVisible: () => boolean): boolean | Poll.Standby {
+  return !isVisible() || 'when-hidden';
 }
 
 /** Whether a command is registered, following commands added or removed later. */
@@ -388,7 +399,7 @@ function useReportAvailable(
     const poll = new Poll({
       name: `jupyterlab_lightcone:home:report:${projectPath}`,
       frequency: { interval: REFRESH_INTERVAL, backoff: false },
-      standby: () => !isVisible(),
+      standby: () => homeStandby(isVisible),
       factory: async () => {
         try {
           const folder = await contents.get(projectPath, { content: true });
@@ -486,7 +497,10 @@ function ResultsSection({
   );
   const latestRun = useLatestRun(contents, entrypoint, data);
   const outputs = useMemo(
-    () => data.document.analysis.outputs.filter(output => output.active),
+    () =>
+      orderPlates(
+        data.document.analysis.outputs.filter(output => output.active)
+      ),
     [data]
   );
   const access = useMemo(
@@ -532,6 +546,12 @@ function ResultsSection({
           ) : null}
           {freshness.text}
         </span>
+        <RematerializeButton
+          commands={commands}
+          entrypoint={entrypoint}
+          statuses={materialization.statuses}
+          className={`${CLASS}-rematerialize`}
+        />
         {outputs.length ? (
           <button
             type="button"
@@ -552,13 +572,14 @@ function ResultsSection({
               title={output.description ?? output.label ?? output.id}
               onClick={() => open(output)}
             >
-              <span
-                className={`${CLASS}-platePreview astra-ui astra-isolate lightcone-brand`}
-              >
+              {/* The preview component comes from ASTRA UI, but its tokens
+                  map to the Lab theme (home.css): Home forces no palette. */}
+              <span className={`${CLASS}-platePreview astra-ui astra-isolate`}>
                 <JupyterArtifactPreview
                   access={access}
                   compact={true}
                   output={output}
+                  adapt={platePreview}
                 />
               </span>
               <span className={`${CLASS}-plateCaption`}>
@@ -865,9 +886,9 @@ function Composer({
             }
           >
             <option value="">{trans.__('Default agent')}</option>
-            {options.map(persona => (
-              <option key={persona.id} value={persona.id}>
-                {persona.name}
+            {options.map(option => (
+              <option key={option.id} value={option.id}>
+                {option.name}
               </option>
             ))}
           </select>
@@ -917,7 +938,7 @@ function useSessions(
     const poll = new Poll({
       name: `jupyterlab_lightcone:home:sessions:${entrypoint}`,
       frequency: { interval: REFRESH_INTERVAL, backoff: false },
-      standby: () => !isVisible(),
+      standby: () => homeStandby(isVisible),
       factory: async () => {
         try {
           const sessions = await service.list(entrypoint);

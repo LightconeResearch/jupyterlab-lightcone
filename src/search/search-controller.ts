@@ -43,6 +43,7 @@ export class SearchController implements IDisposable {
     });
     this.modal.addClass(`${SEARCH_CLASS}-Modal`);
     this.modal.attach();
+    this.palette.inputNode.addEventListener('input', this._onQuery);
     this.palette.selected.connect(this._onSelected, this);
     this._current.changed.connect(this._onProjectChanged, this);
     this._sources.recordsChanged.connect(this._onRecordsChanged, this);
@@ -69,6 +70,8 @@ export class SearchController implements IDisposable {
       return;
     }
     this._isDisposed = true;
+    window.clearTimeout(this._queryTimer);
+    this.palette.inputNode.removeEventListener('input', this._onQuery);
     this._current.changed.disconnect(this._onProjectChanged, this);
     this._sources.dispose();
     this.modal.dispose();
@@ -82,6 +85,7 @@ export class SearchController implements IDisposable {
   private _populate(): Promise<void> {
     const opened = ++this._generation;
     const project = this._current.project;
+    this._settled = project !== undefined;
     if (project !== undefined) {
       const scope = project?.entrypoint ?? null;
       if (scope !== this._scope) {
@@ -104,8 +108,47 @@ export class SearchController implements IDisposable {
         this._load('records', opened, this._sources.listRecords(project))
       );
       loads.push(this._load('files', opened, this._sources.listFiles(project)));
+      loads.push(this._searchMessages());
     }
     return Promise.all(loads).then(() => undefined);
+  }
+
+  /** Search session text once typing pauses; titles are matched as typed. */
+  private readonly _onQuery = (): void => {
+    window.clearTimeout(this._queryTimer);
+    this._queryTimer = window.setTimeout(() => {
+      void this._searchMessages();
+    }, SearchController.MESSAGE_SEARCH_DELAY);
+  };
+
+  /**
+   * Replace the text hits with those of the current query. An answer that
+   * arrives after the query, the project or the opening changed is dropped.
+   */
+  private async _searchMessages(): Promise<void> {
+    const project = this._current.project;
+    const query = this.palette.query;
+    const opened = this._generation;
+    const searched = ++this._querySearch;
+    if (!project || !this._sources.hasSessions) {
+      this.palette.setCandidates('messages', []);
+      return;
+    }
+    try {
+      const hits = await this._sources.searchMessages(project, query);
+      if (
+        searched === this._querySearch &&
+        opened === this._generation &&
+        !this.modal.isHidden
+      ) {
+        this.palette.setCandidates('messages', hits);
+      }
+    } catch (error) {
+      if (searched === this._querySearch && !this.modal.isHidden) {
+        this.palette.setCandidates('messages', []);
+        console.warn('Lightcone search could not search session text.', error);
+      }
+    }
   }
 
   private _placeholder(project: IProjectRoot | null | undefined): string {
@@ -144,8 +187,10 @@ export class SearchController implements IDisposable {
   }
 
   /**
-   * A settled project lookup that moves the scope repopulates an open modal;
-   * one that confirms the shown scope only restores its placeholder.
+   * A settled project lookup repopulates an open modal when it moves the scope
+   * or when the modal opened before the lookup settled (and so still shows the
+   * groups of an earlier opening); one that confirms the loaded scope only
+   * restores its placeholder.
    */
   private _onProjectChanged(): void {
     const project = this._current.project;
@@ -157,7 +202,7 @@ export class SearchController implements IDisposable {
     if (this.modal.isHidden) {
       return;
     }
-    if (scope !== this._scope) {
+    if (scope !== this._scope || !this._settled) {
       void this._populate();
     } else {
       this.palette.placeholder = this._placeholder(project);
@@ -232,10 +277,18 @@ export class SearchController implements IDisposable {
   private _generation = 0;
   /** The entrypoint whose groups the palette holds; null outside a project. */
   private _scope: string | null = null;
+  /** Whether the latest opening was scoped by a settled project lookup. */
+  private _settled = false;
+  private _queryTimer = 0;
+  /** Counts text searches, so only the latest one's answer lands. */
+  private _querySearch = 0;
   private _isDisposed = false;
 }
 
 export namespace SearchController {
+  /** How long typing must pause before session text is searched, in ms. */
+  export const MESSAGE_SEARCH_DELAY = 250;
+
   export interface IOptions {
     app: JupyterFrontEnd;
     current: ICurrentProject;

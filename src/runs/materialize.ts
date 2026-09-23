@@ -15,14 +15,6 @@ export interface IMaterializeOptions {
   openRuns: () => void;
 }
 
-/** A job that ended in a state other than `succeeded`. */
-export class JobFailure extends Error {
-  constructor(readonly job: IJob) {
-    super(jobOutcome(job));
-    this.name = 'JobFailure';
-  }
-}
-
 function toast(message: string): string {
   return message.length > TOAST_LIMIT
     ? `${message.slice(0, TOAST_LIMIT - 1)}…`
@@ -30,7 +22,8 @@ function toast(message: string): string {
 }
 
 /**
- * Start `lc materialize` and follow it with one notification until it ends.
+ * Start `lc materialize` and follow it with one notification until it ends:
+ * a success, the engine's refusal or failure, or a plain note when stopped.
  * Rejects only when the job cannot start, so the caller can say why in place.
  */
 export async function startMaterialization(
@@ -38,41 +31,42 @@ export async function startMaterialization(
 ): Promise<IJob> {
   const { service, entrypoint, targets, refresh, openRuns } = options;
   const job = await service.start(entrypoint, { targets, refresh });
-  // The notification wants a JSON result, so the outcome travels as text.
-  const settled: Promise<string> = service
-    .whenFinished(entrypoint, job.id)
-    .then(finished => {
-      if (finished.state !== 'succeeded') {
-        throw new JobFailure(finished);
-      }
-      return jobOutcome(finished);
-    });
   const actions: Notification.IAction[] = [
     { label: 'Open runs', displayType: 'link', callback: () => openRuns() }
   ];
-  Notification.promise(settled, {
-    pending: {
-      message: toast(`Materializing ${describeTargets(targets)}…`),
-      options: { actions }
+  const id = Notification.emit(
+    toast(`Materializing ${describeTargets(targets)}…`),
+    'in-progress',
+    { autoClose: false, actions }
+  );
+  void service.whenFinished(entrypoint, job.id).then(
+    finished => {
+      // A stop is the user's own doing: it is news, not an error to dismiss.
+      const type: Notification.TypeOptions =
+        finished.state === 'succeeded'
+          ? 'success'
+          : finished.state === 'cancelled'
+            ? 'info'
+            : 'error';
+      Notification.update({
+        id,
+        message: toast(jobOutcome(finished)),
+        type,
+        autoClose: type === 'error' ? false : 8000,
+        actions
+      });
     },
-    success: {
-      message: result =>
-        toast(
-          typeof result === 'string' ? result : 'Materialization finished.'
+    reason => {
+      Notification.update({
+        id,
+        message: toast(
+          reason instanceof Error ? reason.message : String(reason)
         ),
-      options: { actions, autoClose: 8000 }
-    },
-    error: {
-      message: reason =>
-        toast(
-          reason instanceof JobFailure
-            ? jobOutcome(reason.job)
-            : reason instanceof Error
-              ? reason.message
-              : String(reason)
-        ),
-      options: { actions, autoClose: false }
+        type: 'error',
+        autoClose: false,
+        actions
+      });
     }
-  });
+  );
   return job;
 }

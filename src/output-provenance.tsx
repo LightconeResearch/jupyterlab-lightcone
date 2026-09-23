@@ -16,11 +16,18 @@ import { projectDirectory } from './project-data';
 import { listSessions, type ISessionInfo } from './sessions/sessions-api';
 import {
   ProvenanceTabs,
+  recordedRevision,
+  type IProvenanceCode,
   type IProvenanceInput,
+  type IProvenancePackages,
   type IProvenanceSessions
 } from './versions/provenance-tabs';
 import { runView, sessionsActiveAround } from './versions/version-model';
-import type { IOutputVersion } from './versions/versions-api';
+import {
+  fetchLockedPackages,
+  fetchRevisionSource,
+  type IOutputVersion
+} from './versions/versions-api';
 
 /**
  * `SessionsCommandIDs.openSession`, named here rather than imported so that
@@ -108,13 +115,14 @@ export function JupyterOutputProvenance({
     return result.record === null ? null : runView(result.record, undefined);
   }, [result, version]);
 
-  const command = view?.command;
+  // The recipe names the script; the DataLad command only starts the worker.
+  const recipe = view?.recipe;
   const [code, setCode] = useState<ICodeReference>();
   useEffect(() => {
     let active = true;
     setCode(undefined);
     if (!isRootAnalysisOutput(index, output)) return;
-    void resolveOutputCode(contents, entrypoint, index, output, command).then(
+    void resolveOutputCode(contents, entrypoint, index, output, recipe).then(
       reference => {
         if (active) setCode(reference);
       },
@@ -125,7 +133,7 @@ export function JupyterOutputProvenance({
     return () => {
       active = false;
     };
-  }, [contents, entrypoint, index, output, command]);
+  }, [contents, entrypoint, index, output, recipe]);
 
   const inputs = useMemo<IProvenanceInput[]>(() => {
     if (!view) return [];
@@ -176,6 +184,75 @@ export function JupyterOutputProvenance({
     };
   }, [wantSessions, runTime, contents, entrypoint]);
 
+  // The script as the run executed it, beside the file today: read once the
+  // Code tab is shown, from the revision the run recorded.
+  const revision = recordedRevision(view);
+  const scriptPath = code?.relativePath;
+  const [recordedCode, setRecordedCode] = useState<IProvenanceCode>();
+  const [wantCode, setWantCode] = useState(false);
+  useEffect(() => {
+    if (!wantCode || !revision || !scriptPath) return;
+    let active = true;
+    setRecordedCode({ loading: true });
+    const current = contents
+      .get(contents.resolvePath(projectDirectory(entrypoint), scriptPath), {
+        content: true,
+        type: 'file',
+        format: 'text'
+      })
+      .then(
+        model => (typeof model.content === 'string' ? model.content : null),
+        () => null
+      );
+    Promise.all([
+      fetchRevisionSource(
+        contents.serverSettings,
+        entrypoint,
+        revision,
+        scriptPath
+      ),
+      current
+    ]).then(
+      ([source, text]) => {
+        if (active) setRecordedCode({ loading: false, source, current: text });
+      },
+      reason => {
+        if (active)
+          setRecordedCode({
+            loading: false,
+            error: reason instanceof Error ? reason.message : String(reason)
+          });
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [wantCode, revision, scriptPath, contents, entrypoint]);
+
+  // The environment the run was locked to, read once the Environment tab is shown.
+  const [packages, setPackages] = useState<IProvenancePackages>();
+  const [wantPackages, setWantPackages] = useState(false);
+  useEffect(() => {
+    if (!wantPackages || !revision) return;
+    let active = true;
+    setPackages({ loading: true });
+    fetchLockedPackages(contents.serverSettings, entrypoint, revision).then(
+      locked => {
+        if (active) setPackages({ loading: false, locked });
+      },
+      reason => {
+        if (active)
+          setPackages({
+            loading: false,
+            error: reason instanceof Error ? reason.message : String(reason)
+          });
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [wantPackages, revision, contents, entrypoint]);
+
   const openWith = commands
     ? (command: string, args: ReadonlyPartialJSONObject, subject: string) => {
         void commands
@@ -218,6 +295,10 @@ export function JupyterOutputProvenance({
           : undefined
       }
       onShowConversation={() => setWantSessions(true)}
+      recordedCode={recordedCode}
+      onShowCode={() => setWantCode(true)}
+      packages={packages}
+      onShowEnvironment={() => setWantPackages(true)}
     />
   );
 }

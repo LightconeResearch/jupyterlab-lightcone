@@ -2,21 +2,30 @@ import type { IThemeManager } from '@jupyterlab/apputils';
 import { PathExt } from '@jupyterlab/coreutils';
 import type {
   IAgentSetup,
+  IContainerSetup,
+  IEnvironmentSetup,
+  IKernelSetup,
   ISetupReport,
   ISkillSetup,
+  IStorageSetup,
   ITool
 } from './setup-api';
 
 /** How a row reads at a glance; the row's text always says the same thing. */
 export type CustomizeRowState = 'ok' | 'warn' | 'missing' | 'neutral';
 
-/** An action a row offers; the page performs it through JupyterLab commands. */
-export interface ICustomizeAction {
-  kind: 'open-file';
-  label: string;
-  /** Contents path of the file to open. */
-  path: string;
-}
+/** An action a row offers; the page performs it. */
+export type ICustomizeAction =
+  | {
+      kind: 'open-file';
+      label: string;
+      /** Contents path of the file to open. */
+      path: string;
+    }
+  | {
+      kind: 'register-kernel';
+      label: string;
+    };
 
 /** One line of real state on the settings page. */
 export interface ICustomizeRow {
@@ -55,33 +64,78 @@ const HARNESS_LABELS: Record<ISkillSetup['harness'], string> = {
   codex: 'Codex'
 };
 
-function agentRow(agent: IAgentSetup): ICustomizeRow {
+/** One fact about an agent, as the row lists it. */
+export interface IAgentFact {
+  text: string;
+  state: CustomizeRowState;
+}
+
+/**
+ * What the page knows about an agent, each fact on its own: installed (the
+ * ACP client and the adapter), discovered by Jupyter AI, and signed in.
+ */
+export function agentFacts(agent: IAgentSetup): IAgentFact[] {
   const { executable } = agent;
-  if (agent.installed && executable.found) {
-    return {
-      id: agent.id,
-      label: agent.name,
-      value: 'Ready',
-      detail: executable.path ?? executable.name,
-      state: 'ok'
-    };
-  }
-  if (!agent.installed) {
-    return {
-      id: agent.id,
-      label: agent.name,
-      value: 'Jupyter AI ACP client not installed',
-      detail: executable.found
-        ? `${executable.name}: ${executable.path ?? 'found'}`
-        : `${executable.name}: not found`,
-      state: 'missing'
-    };
-  }
+  return [
+    agent.installed
+      ? { text: 'ACP client installed', state: 'ok' }
+      : { text: 'Jupyter AI ACP client not installed', state: 'missing' },
+    executable.found
+      ? { text: `${executable.name} found`, state: 'ok' }
+      : {
+          text: `${executable.name} not found on the server's PATH`,
+          state: 'missing'
+        },
+    agent.discovered === null
+      ? {
+          text: 'not loaded by Jupyter AI yet (open a session)',
+          state: 'neutral'
+        }
+      : agent.discovered
+        ? { text: 'discovered by Jupyter AI', state: 'ok' }
+        : {
+            text: 'not discovered by Jupyter AI (restart the server after installing)',
+            state: 'missing'
+          },
+    agent.authenticated === null
+      ? { text: 'sign-in unknown', state: 'neutral' }
+      : agent.authenticated
+        ? { text: 'signed in', state: 'ok' }
+        : { text: 'no credentials found', state: 'warn' }
+  ];
+}
+
+const STATE_SEVERITY: Record<CustomizeRowState, number> = {
+  ok: 0,
+  neutral: 1,
+  warn: 2,
+  missing: 3
+};
+
+/** The most severe state among some facts. */
+function worst(states: readonly CustomizeRowState[]): CustomizeRowState {
+  return states.reduce<CustomizeRowState>(
+    (current, state) =>
+      STATE_SEVERITY[state] > STATE_SEVERITY[current] ? state : current,
+    'ok'
+  );
+}
+
+function agentRow(agent: IAgentSetup): ICustomizeRow {
+  const facts = agentFacts(agent);
+  const state = worst(facts.map(fact => fact.state));
   return {
     id: agent.id,
     label: agent.name,
-    value: `${executable.name} not found on the server's PATH`,
-    state: 'missing'
+    value:
+      state === 'ok'
+        ? 'Ready'
+        : (facts.find(fact => fact.state === state)?.text ?? 'Ready'),
+    detail: [
+      ...facts.map(fact => fact.text),
+      ...(agent.executable.path ? [agent.executable.path] : [])
+    ].join(' · '),
+    state
   };
 }
 
@@ -165,26 +219,111 @@ function instructionsSection(report: ISetupReport): ICustomizeSection {
   };
 }
 
+function lockRow(environment: IEnvironmentSetup): ICustomizeRow {
+  if (!environment.lock) {
+    return {
+      id: 'lock',
+      label: 'Lock file',
+      value: 'No uv.lock',
+      state: 'warn'
+    };
+  }
+  return {
+    id: 'lock',
+    label: 'Lock file',
+    value:
+      environment.lockCurrent === null
+        ? 'uv.lock present'
+        : environment.lockCurrent
+          ? 'uv.lock matches pyproject.toml'
+          : 'uv.lock is out of date with pyproject.toml',
+    state: environment.lockCurrent === false ? 'warn' : 'ok'
+  };
+}
+
+function venvRow(environment: IEnvironmentSetup): ICustomizeRow {
+  if (environment.mode === 'containerized') {
+    return {
+      id: 'venv',
+      label: 'Virtual environment',
+      value: 'Recipes run in the project’s image, not in .venv',
+      state: 'neutral'
+    };
+  }
+  if (!environment.venv) {
+    return {
+      id: 'venv',
+      label: 'Virtual environment',
+      value: 'No .venv (lc materialize creates it)',
+      state: 'warn'
+    };
+  }
+  return {
+    id: 'venv',
+    label: 'Virtual environment',
+    value:
+      environment.venvCurrent === null
+        ? '.venv present'
+        : environment.venvCurrent
+          ? '.venv matches uv.lock'
+          : '.venv differs from uv.lock (lc materialize syncs it)',
+    state: environment.venvCurrent === false ? 'warn' : 'ok'
+  };
+}
+
+function kernelRow(kernel: IKernelSetup): ICustomizeRow {
+  const register: ICustomizeAction = {
+    kind: 'register-kernel',
+    label: 'Register project kernel'
+  };
+  if (kernel.registered) {
+    return {
+      id: 'kernel',
+      label: 'Notebook kernel',
+      value: 'Registered: notebooks can run in the project environment',
+      detail: kernel.name,
+      state: 'ok'
+    };
+  }
+  if (!kernel.python) {
+    return {
+      id: 'kernel',
+      label: 'Notebook kernel',
+      value: 'No project interpreter the server can run',
+      state: 'neutral'
+    };
+  }
+  if (kernel.ipykernel === false) {
+    return {
+      id: 'kernel',
+      label: 'Notebook kernel',
+      value:
+        'ipykernel is not in the project environment: add it with uv add --dev ipykernel',
+      detail: kernel.python,
+      state: 'warn'
+    };
+  }
+  return {
+    id: 'kernel',
+    label: 'Notebook kernel',
+    value: 'Not registered',
+    detail: kernel.python,
+    state: 'neutral',
+    action: register
+  };
+}
+
 function environmentSection(report: ISetupReport): ICustomizeSection {
-  const environment = report.environment;
+  const { environment, kernel } = report;
   return {
     id: 'environment',
     title: 'Environment',
     summary: 'The Python environment the recipes run in.',
     rows: environment
       ? [
-          {
-            id: 'lock',
-            label: 'Lock file',
-            value: environment.lock ? 'uv.lock present' : 'No uv.lock',
-            state: environment.lock ? 'ok' : 'warn'
-          },
-          {
-            id: 'venv',
-            label: 'Virtual environment',
-            value: environment.venv ? '.venv present' : 'No .venv',
-            state: environment.venv ? 'ok' : 'warn'
-          }
+          lockRow(environment),
+          venvRow(environment),
+          ...(kernel ? [kernelRow(kernel)] : [])
         ]
       : [],
     empty: 'Open a Lightcone project to see its environment.'
@@ -207,13 +346,51 @@ function toolsSection(report: ISetupReport): ICustomizeSection {
   };
 }
 
+const IMAGE_TEXT: Record<NonNullable<IContainerSetup['image']>, string> = {
+  direct: 'not used: recipes run directly on this host',
+  absent: 'image not built yet (lc build)',
+  unfetched: 'image committed but its content is not here',
+  present: 'image present'
+};
+
+function containerRow(box: IContainerSetup): ICustomizeRow {
+  const image =
+    box.image === null ? 'image state unknown' : IMAGE_TEXT[box.image];
+  const needsRuntime = box.image !== null && box.image !== 'direct';
+  return {
+    id: 'container',
+    label: 'Container',
+    value: box.runtime ? `${box.runtime} · ${image}` : `No runtime · ${image}`,
+    state:
+      needsRuntime && (!box.runtime || box.image !== 'present')
+        ? 'warn'
+        : box.runtime || box.image === 'direct'
+          ? 'ok'
+          : 'neutral'
+  };
+}
+
+function venueRow(report: ISetupReport): ICustomizeRow {
+  const { slurm, nodes } = report.venue;
+  return {
+    id: 'venue',
+    label: 'Compute',
+    value: slurm
+      ? nodes
+        ? `SLURM allocation · ${nodes} ${nodes === 1 ? 'node' : 'nodes'}, one worker each`
+        : 'SLURM allocation of unknown size'
+      : 'This server’s host',
+    state: 'neutral'
+  };
+}
+
 function boundarySection(report: ISetupReport): ICustomizeSection {
   const { backend, available } = report.sandbox;
   return {
     id: 'boundary',
     title: 'Execution boundary',
     summary:
-      'The sandbox around lc run and lc materialize. It does not confine an agent’s own shell.',
+      'Where lc run and lc materialize execute recipes, and the sandbox around them. It does not confine an agent’s own shell.',
     rows: [
       {
         id: 'sandbox',
@@ -225,9 +402,27 @@ function boundarySection(report: ISetupReport): ICustomizeSection {
               ? backend
               : `${backend} (not available)`,
         state: backend !== null && available ? 'ok' : 'warn'
-      }
+      },
+      ...(report.container ? [containerRow(report.container)] : []),
+      venueRow(report)
     ],
     empty: 'The sandbox was not checked.'
+  };
+}
+
+function contentRow(
+  content: NonNullable<IStorageSetup['content']>
+): ICustomizeRow {
+  const { files, absent } = content;
+  return {
+    id: 'content',
+    label: 'Result content',
+    value: !files
+      ? 'No annexed results yet'
+      : absent
+        ? `${absent} of ${files} annexed ${files === 1 ? 'result is' : 'results are'} not present here (git annex get)`
+        : `All ${files} annexed ${files === 1 ? 'result is' : 'results are'} present here`,
+    state: absent ? 'warn' : 'ok'
   };
 }
 
@@ -250,7 +445,8 @@ function storageSection(report: ISetupReport): ICustomizeSection {
             label: 'Remotes',
             value: storage.remotes.length ? storage.remotes.join(', ') : 'None',
             state: storage.remotes.length ? 'ok' : 'neutral'
-          }
+          },
+          ...(storage.content ? [contentRow(storage.content)] : [])
         ]
       : [],
     empty: 'Open a Lightcone project to see its storage.'

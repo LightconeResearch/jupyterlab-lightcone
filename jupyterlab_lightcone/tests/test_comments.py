@@ -332,6 +332,19 @@ def test_the_block_omits_what_is_null_and_numbers_beyond_ten_in_parentheses():
     assert block.splitlines()[11].startswith("(11) ")
 
 
+def test_a_note_over_several_lines_stays_under_its_number():
+    note = stored(point(text="The legend covers\nthe high-redshift points.\n\nMove it."))
+    block = comments.format_comment_block([note, stored(selection(path="notes.md"))], "", {})
+    assert block.split("\n") == [
+        "Comments on this project (2):",
+        '① outputs.hubble_diagram — point at 42% across, 31% down: "The legend covers',
+        "   the high-redshift points.",
+        "",
+        '   Move it."',
+        '② notes.md, lines 12–13, quoting "The analysis specification records the…" — "Explain why the magnitude offset is profiled."',
+    ]
+
+
 @pytest.mark.parametrize("path, project_dir, expected", [
     ("project/index.md", "project", "index.md"),
     ("project", "project", "."),
@@ -554,3 +567,60 @@ async def test_writes_require_write_authorization(jp_fetch, served, jp_serverapp
     for method, body in (("PATCH", json.dumps({"text": "x"})), ("DELETE", None)):
         response = await jp_fetch(*ENDPOINT, "any", method=method, body=body, params={"path": "project/astra.yaml"}, raise_error=False)
         assert response.code == 403
+
+
+# --- delivery in the message text --------------------------------------------
+
+
+async def test_send_marks_comments_sent_and_returns_the_block(jp_fetch, served):
+    first = await _create(jp_fetch, point())
+    second = await _create(jp_fetch, selection(path="project/index.md"))
+    body = {"path": "project/astra.yaml", "ids": [first["id"], "missing"], "chat": "project/chats/talk.chat"}
+    response = await jp_fetch(*ENDPOINT, "send", method="POST", body=json.dumps(body))
+    block = _body(response)["block"]
+    assert block.startswith("Comments on this project (1):\n① outputs.hubble_diagram")
+    assert "results/baseline/hubble_diagram.png" in block
+    stored_comments = {comment["id"]: comment for comment in comments.read_store(comments.store_path(served))}
+    assert stored_comments[first["id"]]["status"] == "sent"
+    assert stored_comments[first["id"]]["sentWith"] == {"chat": "project/chats/talk.chat", "message": None}
+    assert stored_comments[second["id"]]["status"] == "pending"
+    again = await jp_fetch(*ENDPOINT, "send", method="POST", body=json.dumps(body))
+    assert _body(again)["block"] is None
+
+
+@pytest.mark.parametrize("body", [
+    {"ids": ["x"], "chat": "c.chat"},
+    {"path": "project/astra.yaml", "ids": [], "chat": "c.chat"},
+    {"path": "project/astra.yaml", "ids": "x", "chat": "c.chat"},
+    {"path": "project/astra.yaml", "ids": [1], "chat": "c.chat"},
+    {"path": "project/astra.yaml", "ids": ["x"]},
+    {"path": "project/astra.yaml", "ids": ["x"], "chat": ""},
+    {"path": "project/astra.yaml", "ids": ["x"] * (comments.MAX_SEND_IDS + 1), "chat": "c.chat"},
+])
+async def test_bad_send_requests_are_rejected(jp_fetch, served, body):
+    response = await jp_fetch(*ENDPOINT, "send", method="POST", body=json.dumps(body), raise_error=False)
+    assert response.code == 400
+
+
+async def test_send_requires_write_authorization(jp_fetch, served, jp_serverapp, monkeypatch):
+    authorize = Mock(side_effect=lambda handler, user, action, resource: action == "read")
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", authorize)
+    body = {"path": "project/astra.yaml", "ids": ["x"], "chat": "c.chat"}
+    response = await jp_fetch(*ENDPOINT, "send", method="POST", body=json.dumps(body), raise_error=False)
+    assert response.code == 403
+
+
+def test_a_comment_sent_before_its_message_existed_is_stored(tmp_path):
+    path = tmp_path / "comments.json"
+    comment = stored(point(), status="sent", sentWith={"chat": "c.chat", "message": None})
+    comments.write_store(path, [comment])
+    assert comments.read_store(path)[0]["sentWith"] == {"chat": "c.chat", "message": None}
+
+
+def test_a_comment_on_a_session_message_names_the_session_and_quotes_it():
+    draft = selection(text="Why this prior?", path="project/chats/fit.chat", startLine=None, endLine=None, startCol=None, endCol=None, quote="a flat prior on Omega_m")
+    draft["target"].update(kind="message", message="m-1", version={"commit": None, "key": None, "hash": None, "label": None})
+    comment = stored(draft)
+    assert comments.describe_comment(comment, "project", None) == (
+        'session chats/fit.chat, quoting "a flat prior on Omega_m" — "Why this prior?"'
+    )

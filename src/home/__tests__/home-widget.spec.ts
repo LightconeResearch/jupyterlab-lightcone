@@ -1,7 +1,7 @@
 import type { Contents } from '@jupyterlab/services';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { analysis, fileModel } from '../../__tests__/project-fixtures';
-import { flush, homeHost, until } from './home-fixtures';
+import { flush, homeHost, setDocumentHidden, until } from './home-fixtures';
 
 jest.mock('../../pdf-runtime', () => ({}));
 jest.mock('../../api', () => ({
@@ -174,6 +174,38 @@ it('offers the report once a MyST configuration appears outside Contents', async
     h.widget.show();
     await until(() => h.text().includes('Open report'));
   } finally {
+    h.dispose();
+  }
+});
+
+it('stops looking for the report while the browser tab is hidden', async () => {
+  const h = host();
+  const listings = () =>
+    h.get.mock.calls.filter(
+      ([path, options]) => path === 'project' && options?.content === true
+    ).length;
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  const reshow = () => {
+    h.widget.hide();
+    h.widget.show();
+  };
+  try {
+    h.widget.cwd = 'project';
+    await until(() => listings() > 0);
+    setDocumentHidden(true);
+    // Lumino's polls linger for one tick after the browser tab hides.
+    reshow();
+    await wait(50);
+    const calls = listings();
+    reshow();
+    await wait(50);
+    expect(listings()).toBe(calls);
+
+    setDocumentHidden(false);
+    reshow();
+    await until(() => listings() > calls);
+  } finally {
+    setDocumentHidden(false);
     h.dispose();
   }
 });

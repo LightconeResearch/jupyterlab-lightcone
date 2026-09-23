@@ -1,7 +1,11 @@
 import { ServerConnection } from '@jupyterlab/services';
 import {
+  fetchLockedPackages,
+  fetchRevisionSource,
   fetchVersionContent,
+  isLockedPackages,
   isOutputVersion,
+  isRevisionSource,
   listVersions,
   versionContentUrl
 } from '../versions-api';
@@ -177,4 +181,58 @@ test('shares one listing between callers for a while and never caches a failure'
   ).rejects.toThrow();
   await listVersionsCached(settings, 'project/astra.yaml', 'baseline', 'other');
   expect(request).toHaveBeenCalledTimes(4);
+});
+
+test('reads a script at a recorded revision and the locked packages', async () => {
+  const source = {
+    file: 'src/plot.py',
+    commit: 'd'.repeat(40),
+    exists: true,
+    text: 'print(1)\n',
+    binary: false,
+    annexed: false,
+    truncated: false
+  };
+  const request = jest
+    .spyOn(ServerConnection, 'makeRequest')
+    .mockImplementation(async () => new Response(JSON.stringify(source)));
+  await expect(
+    fetchRevisionSource(
+      settings,
+      'project/astra.yaml',
+      'ddddddd',
+      'src/plot.py'
+    )
+  ).resolves.toEqual(source);
+  const url = new URL(request.mock.calls[0][0]);
+  expect(url.pathname).toBe('/lab/jupyterlab_lightcone/api/versions/source');
+  expect(url.searchParams.get('path')).toBe('project/astra.yaml');
+  expect(url.searchParams.get('commit')).toBe('ddddddd');
+  expect(url.searchParams.get('file')).toBe('src/plot.py');
+  expect(isRevisionSource({ ...source, text: 3 })).toBe(false);
+
+  const locked = {
+    commit: 'd'.repeat(40),
+    packages: [{ name: 'numpy', version: '2.1.0' }],
+    current: null
+  };
+  request.mockImplementation(async () => new Response(JSON.stringify(locked)));
+  await expect(
+    fetchLockedPackages(settings, 'project/astra.yaml', 'ddddddd')
+  ).resolves.toEqual(locked);
+  expect(new URL(request.mock.calls[1][0]).pathname).toBe(
+    '/lab/jupyterlab_lightcone/api/versions/packages'
+  );
+  expect(
+    isLockedPackages({ ...locked, packages: [{ name: 'x', version: 1 }] })
+  ).toBe(false);
+  request.mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ message: 'No such commit' }), {
+        status: 404
+      })
+  );
+  await expect(
+    fetchLockedPackages(settings, 'project/astra.yaml', 'ddddddd')
+  ).rejects.toThrow('Recorded environment request failed (404)');
 });

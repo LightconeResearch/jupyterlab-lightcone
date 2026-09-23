@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { AnalysisIndex, ResolvedOutput } from '@astra-spec/sdk';
 import { ContentsManager } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
+import { resolveOutputCode } from '../../code-access';
 import { JupyterOutputProvenance } from '../../output-provenance';
 import { listSessions } from '../../sessions/sessions-api';
 import type { IOutputVersion } from '../versions-api';
@@ -128,4 +129,49 @@ test('without the sessions plugin, sessions are listed but not linked', async ()
   await showConversation(new CommandRegistry());
   expect(container.textContent).toContain('Hubble diagram');
   expect(() => button('Hubble diagram')).toThrow();
+});
+
+test('the Code tab locates the script from the recipe, not the worker command', async () => {
+  const resolve = jest.mocked(resolveOutputCode);
+  resolve.mockClear();
+  resolve.mockResolvedValue({
+    relativePath: 'src/fit.py',
+    source: 'recorded run'
+  });
+  const recorded: IOutputVersion = {
+    ...version,
+    run: {
+      cmd: 'uv run -- python -m lightcone.engine.worker baseline/fit',
+      exit: 0,
+      inputs: [],
+      outputs: []
+    },
+    manifest: { recipe: 'python src/fit.py --output results/baseline/fit.png' }
+  };
+  await act(async () => {
+    root.render(
+      <JupyterOutputProvenance
+        contents={contents}
+        entrypoint="project/astra.yaml"
+        index={index}
+        universe="baseline"
+        output={output}
+        status={undefined}
+        version={recorded}
+        commands={new CommandRegistry()}
+      />
+    );
+  });
+  expect(resolve).toHaveBeenLastCalledWith(
+    contents,
+    'project/astra.yaml',
+    index,
+    output,
+    'python src/fit.py --output results/baseline/fit.png'
+  );
+  await act(async () => button('Code').click());
+  const panel = container.querySelector('[role="tabpanel"]')!;
+  expect(panel.textContent).toContain('python src/fit.py --output');
+  expect(panel.textContent).not.toContain('lightcone.engine.worker');
+  expect(panel.textContent).toContain('src/fit.py');
 });

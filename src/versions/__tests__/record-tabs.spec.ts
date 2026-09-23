@@ -1,3 +1,4 @@
+import React from 'react';
 import type { ILayoutRestorer, JupyterFrontEnd } from '@jupyterlab/application';
 import type {
   IThemeManager,
@@ -11,8 +12,9 @@ import type {
   ReadonlyPartialJSONObject,
   ReadonlyPartialJSONValue
 } from '@lumino/coreutils';
+import { MessageLoop } from '@lumino/messaging';
 import { Signal } from '@lumino/signaling';
-import type { Widget } from '@lumino/widgets';
+import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../../commands';
 import { registerElementCommands } from '../../element-commands';
 import type { ElementWidget } from '../../element-widget';
@@ -259,6 +261,44 @@ test('"Open in new tab" opens the version the tab shows now', async () => {
     widgetId: tab.id
   });
   expect(opened[1].versionCommit).toBe('a'.repeat(40));
+});
+
+test('keyboard focus stays in the tab when showing another record replaces the focused control', async () => {
+  await restore(bench.commands, 'lightcone-element-one');
+  const [tab] = bench.tabs();
+  const record = tab.content;
+  /** Stand-in body: the Back button of the record shown, remounted per record. */
+  jest
+    .spyOn(record, 'render')
+    .mockImplementation(() =>
+      React.createElement('button', { key: record.identity }, 'Back')
+    );
+  const rendered = async () => {
+    MessageLoop.flush();
+    await record.renderPromise;
+    await settle();
+  };
+  Widget.attach(tab, document.body);
+  try {
+    await rendered();
+    record.node.querySelector('button')!.focus();
+    expect(record.node.contains(document.activeElement)).toBe(true);
+    record.display(
+      { entrypoint: ENTRYPOINT, target: 'decisions.model', universeId: null },
+      identity('decisions.model'),
+      'Model'
+    );
+    await rendered();
+    expect(document.activeElement).toBe(record.node);
+    // Alt+← is bound to this node, so it keeps working from here.
+    record.node.querySelector('button')!.focus();
+    record.back();
+    await rendered();
+    expect(document.activeElement).toBe(record.node);
+    expect(record.reference.target).toBe('outputs.fit');
+  } finally {
+    Widget.detach(tab);
+  }
 });
 
 test('disposing the record disposes its tab', async () => {

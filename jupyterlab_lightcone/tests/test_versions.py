@@ -17,6 +17,8 @@ from jupyterlab_lightcone.projects import expose_engine_tools
 
 ENDPOINT = ('jupyterlab_lightcone', 'api', 'versions')
 CONTENT = (*ENDPOINT, 'content')
+SOURCE = (*ENDPOINT, 'source')
+PACKAGES = (*ENDPOINT, 'packages')
 RESULTS = Path('results', 'baseline')
 OUTPUTS = ['results/baseline/fig.png', 'results/baseline/.fig.manifest.json']
 
@@ -76,10 +78,10 @@ def init_project(root):
     return root
 
 
-def init_plain_repo(root, name, content):
+def init_plain_repo(root, name, content, *options):
     """A repository without an annex, holding one result file committed by hand; returns the commit."""
     root.mkdir(parents=True)
-    git(root, 'init', '-q')
+    git(root, 'init', '-q', *options)
     git(root, 'config', 'user.name', 'Researcher')
     git(root, 'config', 'user.email', 'researcher@example.org')
     (root / RESULTS).mkdir(parents=True)
@@ -193,6 +195,14 @@ def test_a_project_without_an_annex_keeps_its_bytes_in_git(tmp_path):
     assert version['run'] is None
     assert version['manifest'] is None
     assert versions.read_version(root, 'baseline', 'table', version['commit'])[1] == b'a,b\n1,2\n'
+
+
+def test_a_sha256_repository_serves_every_commit_it_lists(tmp_path):
+    root = tmp_path / 'plain'
+    commit = init_plain_repo(root, 'table.csv', b'a,b\n1,2\n', '--object-format=sha256')
+    [version] = versions.list_versions(root, 'baseline', 'table')['versions']
+    assert (version['commit'], len(commit)) == (commit, 64)
+    assert versions.read_version(root, 'baseline', 'table', commit)[1] == b'a,b\n1,2\n'
 
 
 def test_a_version_where_the_file_was_deleted_has_no_bytes(project):
@@ -398,7 +408,7 @@ def test_rejects_arbitrary_identities(project, universe, output):
         versions.read_version(root, universe, output, second)
 
 
-@pytest.mark.parametrize('commit', ['HEAD', 'abc', 'g' * 7, '0' * 41, 'main..HEAD', '-'])
+@pytest.mark.parametrize('commit', ['HEAD', 'abc', 'g' * 7, '0' * 41, '0' * 63, '0' * 65, 'main..HEAD', '-'])
 def test_rejects_malformed_commit_names(project, commit):
     root, _ = project
     with pytest.raises(HTTPError) as raised:
@@ -576,19 +586,144 @@ async def test_absent_content_is_a_distinguishable_404(jp_fetch, jp_serverapp):
     assert response.code == 400
 
 
-@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT])
+@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT, SOURCE, PACKAGES])
 async def test_requires_authentication(jp_fetch, endpoint):
-    params = {'path': 'astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': 'a' * 7}
+    params = {'path': 'astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': 'a' * 7, 'file': 'fig.py'}
     response = await jp_fetch(*endpoint, params=params, follow_redirects=False, headers={'Authorization': ''}, raise_error=False)
     assert response.code in (302, 403)
 
 
-@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT])
+@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT, SOURCE, PACKAGES])
 async def test_requires_read_authorization(jp_fetch, jp_serverapp, monkeypatch, endpoint):
     (Path(jp_serverapp.contents_manager.root_dir) / 'astra.yaml').write_text('version: 0.0.14\n')
     authorize = Mock(return_value=False)
     monkeypatch.setattr(jp_serverapp.authorizer, 'is_authorized', authorize)
-    params = {'path': 'astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': 'a' * 7}
+    params = {'path': 'astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': 'a' * 7, 'file': 'fig.py'}
     response = await jp_fetch(*endpoint, params=params, raise_error=False)
     assert response.code == 403
     assert authorize.call_args.args[2:] == ('read', 'contents')
+
+
+# --- the recorded revision: scripts and the locked environment ---------------
+
+LOCK_V1 = b"""version = 1
+requires-python = ">=3.11"
+
+[[package]]
+name = "numpy"
+version = "2.1.0"
+
+[[package]]
+name = "my-project"
+source = { editable = "." }
+
+[[package]]
+name = "astropy"
+version = "6.0.0"
+"""
+
+
+def commit_files(root, files, message):
+    """Commit plain files by hand; returns the commit."""
+    for name, content in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    git(root, 'add', '--', *files)
+    git(root, 'commit', '-q', '-m', message)
+    return git(root, 'rev-parse', 'HEAD').strip()
+
+
+def test_reads_a_script_as_a_revision_held_it(tmp_path):
+    root = init_project(tmp_path / 'project')
+    before = commit_files(root, {'src/fig.py': b'print("one")\n'}, 'Add the script')
+    commit_files(root, {'src/fig.py': b'print("two")\n'}, 'Change the script')
+    answer = versions.read_source(root, before[:7], 'src/fig.py')
+    assert answer == {
+        'file': 'src/fig.py', 'commit': before, 'exists': True, 'text': 'print("one")\n',
+        'binary': False, 'annexed': False, 'truncated': False,
+    }
+    missing = versions.read_source(root, before, 'src/other.py')
+    assert missing['exists'] is False and missing['text'] is None
+
+
+def test_a_script_of_a_project_below_the_repository_root_resolves_from_the_project(tmp_path):
+    repository = tmp_path / 'repository'
+    root = init_project(repository / 'analysis')
+    commit = commit_files(root, {'fig.py': b'x = 1\n'}, 'Add the script')
+    assert versions.read_source(root, commit, 'fig.py')['text'] == 'x = 1\n'
+
+
+def test_binary_oversized_and_annexed_files_are_not_shown_as_text(tmp_path, monkeypatch):
+    root = init_project(tmp_path / 'project')
+    commit = commit_files(root, {'blob.bin': b'\x00\x01', 'latin.txt': 'é'.encode('latin-1'), 'big.py': b'#' * 64}, 'Files')
+    assert versions.read_source(root, commit, 'blob.bin')['binary'] is True
+    assert versions.read_source(root, commit, 'latin.txt')['binary'] is True
+    monkeypatch.setattr(versions, 'MAX_SOURCE_BYTES', 10)
+    big = versions.read_source(root, commit, 'big.py')
+    assert big['truncated'] is True and big['text'] is None
+    monkeypatch.undo()
+    fig = materialize(root, b'\x89PNG one')
+    assert versions.read_source(root, fig, 'results/baseline/fig.png')['annexed'] is True
+
+
+@pytest.mark.parametrize('file', ['', '/etc/passwd', '../outside.py', 'a/../b.py', 'a//b.py', './a.py', 'a\\b.py', 'a\nb.py', 'x' * 1025])
+def test_rejects_paths_that_leave_the_project_or_break_a_request(file):
+    with pytest.raises(HTTPError) as error:
+        versions.validate_source_path(file, allow_hidden=False)
+    assert error.value.status_code == 400
+
+
+def test_hidden_files_follow_the_contents_managers_rule():
+    with pytest.raises(HTTPError) as error:
+        versions.validate_source_path('.env', allow_hidden=False)
+    assert error.value.status_code == 403
+    with pytest.raises(HTTPError):
+        versions.validate_source_path('config/.secret/key.py', allow_hidden=False)
+    assert versions.validate_source_path('.env', allow_hidden=True) == '.env'
+    assert versions.validate_source_path('src/fig.py', allow_hidden=False) == 'src/fig.py'
+
+
+def test_lists_the_packages_locked_at_a_commit_and_now(tmp_path):
+    root = init_project(tmp_path / 'project')
+    before = commit_files(root, {'uv.lock': LOCK_V1}, 'Lock')
+    commit_files(root, {'uv.lock': LOCK_V1.replace(b'2.1.0', b'2.2.0')}, 'Upgrade numpy')
+    answer = versions.locked_packages(root, before)
+    assert answer['commit'] == before
+    assert answer['packages'] == [
+        {'name': 'astropy', 'version': '6.0.0'},
+        {'name': 'my-project', 'version': None},
+        {'name': 'numpy', 'version': '2.1.0'},
+    ]
+    assert {'name': 'numpy', 'version': '2.2.0'} in answer['current']
+
+
+def test_a_missing_or_malformed_lock_lists_nothing(tmp_path):
+    root = init_project(tmp_path / 'project')
+    commit = git(root, 'rev-parse', 'HEAD').strip()
+    assert versions.locked_packages(root, commit) == {'commit': commit, 'packages': None, 'current': None}
+    assert versions.parse_lock_packages(b'not = [toml') is None
+    assert versions.parse_lock_packages(b'version = 1\n') is None
+    assert versions.parse_lock_packages(b'\xff') is None
+
+
+def test_revision_routes_reject_unknown_and_malformed_commits(tmp_path):
+    root = init_project(tmp_path / 'project')
+    with pytest.raises(HTTPError) as error:
+        versions.read_source(root, 'nope', 'fig.py')
+    assert error.value.status_code == 400
+    with pytest.raises(HTTPError) as error:
+        versions.locked_packages(root, 'b' * 40)
+    assert error.value.status_code == 404
+
+
+async def test_source_and_packages_endpoints(jp_fetch, jp_serverapp):
+    root = init_project(Path(jp_serverapp.contents_manager.root_dir) / 'project')
+    commit = commit_files(root, {'fig.py': b'print(1)\n', 'uv.lock': LOCK_V1}, 'Script and lock')
+    response = await jp_fetch(*SOURCE, params={'path': 'project/astra.yaml', 'commit': commit, 'file': 'fig.py'})
+    assert json.loads(response.body)['text'] == 'print(1)\n'
+    assert response.headers['Cache-Control'] == 'no-store'
+    hidden = await jp_fetch(*SOURCE, params={'path': 'project/astra.yaml', 'commit': commit, 'file': '.gitattributes'}, raise_error=False)
+    assert hidden.code == 403
+    response = await jp_fetch(*PACKAGES, params={'path': 'project/astra.yaml', 'commit': commit})
+    assert json.loads(response.body)['packages'][0] == {'name': 'astropy', 'version': '6.0.0'}

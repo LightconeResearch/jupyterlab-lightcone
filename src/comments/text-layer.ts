@@ -21,6 +21,11 @@ import {
 const BADGE_CLASS = 'jp-jupyterlab-lightcone-CommentBadge';
 const HIGHLIGHT_CLASS = 'jp-jupyterlab-lightcone-CommentHighlight';
 
+/** Space between a badge and the text column it sits beside, in pixels. */
+const BADGE_GAP = 6;
+/** The closest a badge comes to the layer's left edge, in pixels. */
+const BADGE_INSET = 2;
+
 export interface ITextLayerOptions {
   /** The widget node the layer covers; it becomes a positioned container. */
   host: HTMLElement;
@@ -44,6 +49,41 @@ export interface ITextIndex {
 interface IBadgeNodes {
   badge: HTMLElement;
   highlights: HTMLElement[];
+}
+
+/** Where a comment's quote was found, and the column its lines start in. */
+interface IQuoteMatch {
+  range: Range;
+  column: HTMLElement;
+}
+
+/**
+ * The element whose left edge starts the lines a range begins in: the nearest
+ * ancestor of its start that is not inline, or the list holding a list item,
+ * so that a badge in the margin clears the item's marker. Absolutely placed
+ * text, like the spans of a PDF page's text layer, is skipped for the page
+ * holding it. The root when everything up to it is inline.
+ */
+export function textColumn(range: Range, root: HTMLElement): HTMLElement {
+  const start = range.startContainer;
+  let node: HTMLElement | null =
+    start instanceof HTMLElement ? start : start.parentElement;
+  while (node && node !== root && root.contains(node)) {
+    const { display, position } = window.getComputedStyle(node);
+    if (position === 'absolute' || position === 'fixed') {
+      node = node.parentElement;
+      continue;
+    }
+    if (display === 'list-item') {
+      const list = node.parentElement?.closest<HTMLElement>('ul, ol');
+      return list && root.contains(list) ? list : node;
+    }
+    if (display && !display.startsWith('inline') && display !== 'contents') {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return root;
 }
 
 /**
@@ -209,7 +249,7 @@ export class TextCommentLayer implements IDisposable {
 
   private search(): void {
     const root = this.options.textRoot?.() ?? this.options.host;
-    this._ranges.clear();
+    this._matches.clear();
     if (!root || !this._comments.length) {
       return;
     }
@@ -243,7 +283,10 @@ export class TextCommentLayer implements IDisposable {
       const span = search.find(anchor.quote ?? '', anchor.prefix);
       const range = span ? rangeForSpan(search.index, span) : null;
       if (range) {
-        this._ranges.set(comment.id, range);
+        this._matches.set(comment.id, {
+          range,
+          column: textColumn(range, root)
+        });
       }
     }
   }
@@ -252,10 +295,11 @@ export class TextCommentLayer implements IDisposable {
     const origin = anchorLayer(this.options.host, this._layer);
     const live = new Set<string>();
     for (const comment of this._comments) {
-      const range = this._ranges.get(comment.id);
-      if (!range) {
+      const match = this._matches.get(comment.id);
+      if (!match) {
         continue;
       }
+      const { range, column } = match;
       const rects = Array.from(range.getClientRects()).filter(
         rect => rect.width > 0 && rect.height > 0
       );
@@ -272,10 +316,15 @@ export class TextCommentLayer implements IDisposable {
         'aria-label',
         `Comment ${comment.label}: ${comment.text}`
       );
+      // The badge sits in the margin beside the quote's first line, where it
+      // covers no text; the layer's edge stops it when there is no margin.
       const first = rects[0];
-      badge.style.left = `${first.left - origin.left}px`;
-      badge.style.top = `${first.top - origin.top}px`;
-      badge.style.height = `${first.height}px`;
+      const margin = column.getBoundingClientRect().left - origin.left;
+      badge.style.left = `${Math.max(
+        margin - BADGE_GAP,
+        badge.offsetWidth + BADGE_INSET
+      )}px`;
+      badge.style.top = `${first.top - origin.top + first.height / 2}px`;
       while (highlights.length > rects.length) {
         highlights.pop()?.remove();
       }
@@ -336,7 +385,7 @@ export class TextCommentLayer implements IDisposable {
   private _resizes: ResizeObserver;
   private _mutations: MutationObserver;
   private _comments: readonly IComment[] = [];
-  private _ranges = new Map<string, Range>();
+  private _matches = new Map<string, IQuoteMatch>();
   private _nodes = new Map<string, IBadgeNodes>();
   private _flash: string | null = null;
   private _frame: number | null = null;

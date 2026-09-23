@@ -12,7 +12,10 @@ import pytest
 from jupyterlab_lightcone import setup_routes
 
 ENDPOINT = ("jupyterlab_lightcone", "api", "setup")
-REPORT_KEYS = {"jupyterAi", "agents", "skills", "tools", "sandbox", "environment", "instructions", "storage"}
+REPORT_KEYS = {
+    "jupyterAi", "agents", "skills", "tools", "sandbox", "venue",
+    "environment", "kernel", "container", "instructions", "storage",
+}
 TOOL_KEYS = {"uv", "git", "git-annex", "myst"}
 SKILL_ROWS = {("claude", "lightcone"), ("claude", "astra"), ("codex", "lightcone"), ("codex", "astra")}
 GIT_IDENTITY = {
@@ -33,6 +36,8 @@ def assert_matches_contract(report):
         executable = agent["executable"]
         assert isinstance(executable["name"], str) and isinstance(executable["found"], bool)
         assert executable["path"] is None or isinstance(executable["path"], str)
+        assert agent["discovered"] is None or isinstance(agent["discovered"], bool)
+        assert agent["authenticated"] is None or isinstance(agent["authenticated"], bool)
     for skill in report["skills"]:
         assert skill["harness"] in ("claude", "codex") and isinstance(skill["name"], str)
         assert skill["version"] is None or isinstance(skill["version"], str)
@@ -45,13 +50,38 @@ def assert_matches_contract(report):
     sandbox = report["sandbox"]
     assert sandbox["backend"] is None or isinstance(sandbox["backend"], str)
     assert isinstance(sandbox["available"], bool)
+    where = report["venue"]
+    assert isinstance(where["slurm"], bool) and (where["nodes"] is None or isinstance(where["nodes"], int))
     environment = report["environment"]
-    assert environment is None or (isinstance(environment["lock"], bool) and isinstance(environment["venv"], bool))
+    assert environment is None or (
+        isinstance(environment["lock"], bool)
+        and isinstance(environment["venv"], bool)
+        and environment["mode"] in (None, "direct", "containerized")
+        and environment["lockCurrent"] in (None, True, False)
+        and environment["venvCurrent"] in (None, True, False)
+    )
+    kernel = report["kernel"]
+    assert kernel is None or (
+        isinstance(kernel["name"], str)
+        and (kernel["python"] is None or isinstance(kernel["python"], str))
+        and kernel["ipykernel"] in (None, True, False)
+        and isinstance(kernel["registered"], bool)
+    )
+    box = report["container"]
+    assert box is None or (
+        (box["runtime"] is None or isinstance(box["runtime"], str))
+        and box["image"] in (None, "direct", "absent", "unfetched", "present")
+    )
     instructions = report["instructions"]
     assert instructions is None or (isinstance(instructions["path"], str) and isinstance(instructions["exists"], bool))
     storage = report["storage"]
     assert storage is None or (
-        isinstance(storage["annex"], bool) and all(isinstance(remote, str) for remote in storage["remotes"])
+        isinstance(storage["annex"], bool)
+        and all(isinstance(remote, str) for remote in storage["remotes"])
+        and (
+            storage["content"] is None
+            or (isinstance(storage["content"]["files"], int) and isinstance(storage["content"]["absent"], int))
+        )
     )
 
 
@@ -164,25 +194,69 @@ def test_module_presence_is_checked_without_importing():
     assert setup_routes.module_installed("") is False
 
 
-def test_agents_pair_the_client_with_each_adapter(monkeypatch):
+def test_agents_pair_the_client_with_each_adapter(monkeypatch, tmp_path):
     monkeypatch.setattr(setup_routes, "module_installed", lambda name: name == setup_routes.ACP_CLIENT_MODULE)
     monkeypatch.setattr(
         setup_routes.shutil, "which", lambda name: "/opt/bin/claude-agent-acp" if name == "claude-agent-acp" else None
     )
-    assert setup_routes.probe_agents() == [
+    monkeypatch.setattr(setup_routes, "loaded_personas", lambda: {"claude-acp"})
+    monkeypatch.setattr(setup_routes.sys, "platform", "linux")
+    assert setup_routes.probe_agents(tmp_path, {"ANTHROPIC_API_KEY": "sk-test"}) == [
         {
             "id": "claude-acp",
             "name": "Claude",
             "installed": True,
             "executable": {"name": "claude-agent-acp", "found": True, "path": "/opt/bin/claude-agent-acp"},
+            "discovered": True,
+            "authenticated": True,
         },
         {
             "id": "codex-acp",
             "name": "Codex",
             "installed": True,
             "executable": {"name": "codex-acp", "found": False, "path": None},
+            "discovered": False,
+            "authenticated": False,
         },
     ]
+
+
+def test_discovery_is_unknown_until_jupyter_ai_loads_its_personas(monkeypatch, tmp_path):
+    monkeypatch.setattr(setup_routes, "loaded_personas", lambda: None)
+    assert {agent["discovered"] for agent in setup_routes.probe_agents(tmp_path, {})} == {None}
+
+
+def test_loaded_personas_come_from_jupyter_ais_class_cache(monkeypatch):
+    from jupyter_ai_persona_manager.persona_manager import PersonaManager
+
+    monkeypatch.setattr(PersonaManager, "_ep_persona_classes", None)
+    assert setup_routes.loaded_personas() is None
+    monkeypatch.setattr(PersonaManager, "_ep_persona_classes", [
+        {"module": "claude-acp", "persona_class": object, "traceback": None},
+        {"module": "codex-acp", "persona_class": None, "traceback": "boom"},
+        "not an entry",
+    ])
+    assert setup_routes.loaded_personas() == {"claude-acp"}
+
+
+@pytest.mark.parametrize("identifier, files, environ, platform, expected", [
+    ("claude-acp", [], {}, "linux", False),
+    ("claude-acp", [], {}, "darwin", None),
+    ("claude-acp", [".claude/.credentials.json"], {}, "linux", True),
+    ("claude-acp", [], {"CLAUDE_CODE_OAUTH_TOKEN": "t"}, "linux", True),
+    ("codex-acp", [], {}, "linux", False),
+    ("codex-acp", [".codex/auth.json"], {}, "linux", True),
+    ("codex-acp", ["elsewhere/auth.json"], {"CODEX_HOME": "elsewhere"}, "linux", True),
+    ("codex-acp", [], {"OPENAI_API_KEY": "k"}, "linux", True),
+    ("other-acp", [], {}, "linux", None),
+])
+def test_credentials_are_found_where_each_cli_keeps_them(tmp_path, identifier, files, environ, platform, expected):
+    for name in files:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("{}")
+    if "CODEX_HOME" in environ:
+        environ = {**environ, "CODEX_HOME": str(tmp_path / environ["CODEX_HOME"])}
+    assert setup_routes.agent_authenticated(identifier, tmp_path, environ, platform) is expected
 
 
 # Skills
@@ -424,20 +498,142 @@ def test_instructions_prefer_agents_md_then_claude_md(tmp_path):
     assert setup_routes.describe_instructions(tmp_path, "proj") == {"path": "proj/AGENTS.md", "exists": True}
 
 
-def test_environment_reports_lock_and_venv(tmp_path):
-    assert setup_routes.describe_environment(tmp_path) == {"lock": False, "venv": False}
+def test_environment_reports_lock_and_venv(tmp_path, monkeypatch):
+    asked = []
+
+    def uv_check(project, *arguments):
+        asked.append(arguments)
+        return arguments[0] == "lock"
+
+    monkeypatch.setattr(setup_routes, "uv_check", uv_check)
+    monkeypatch.setattr(setup_routes, "project_mode", lambda project: "direct")
+    assert setup_routes.describe_environment(tmp_path) == {
+        "lock": False, "venv": False, "mode": "direct", "lockCurrent": None, "venvCurrent": None,
+    }
+    assert asked == []
     (tmp_path / "uv.lock").write_text("")
     (tmp_path / ".venv").mkdir()
-    assert setup_routes.describe_environment(tmp_path) == {"lock": True, "venv": True}
+    assert setup_routes.describe_environment(tmp_path) == {
+        "lock": True, "venv": True, "mode": "direct", "lockCurrent": True, "venvCurrent": False,
+    }
+    # Asked as `lc status` asks: uv's own read-only checks.
+    assert asked == [("lock", "--check"), ("sync", "--locked", "--exact", "--check")]
+    monkeypatch.setattr(setup_routes, "project_mode", lambda project: "containerized")
+    assert setup_routes.describe_environment(tmp_path)["venvCurrent"] is None
+
+
+def test_uv_answers_for_itself_or_not_at_all(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup_routes.shutil, "which", lambda name: None)
+    assert setup_routes.uv_check(tmp_path, "lock", "--check") is None
+    monkeypatch.setattr(setup_routes.shutil, "which", lambda name: "/usr/bin/uv")
+    monkeypatch.setattr(setup_routes, "run_command", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1))
+    assert setup_routes.uv_check(tmp_path, "lock", "--check") is False
+    monkeypatch.setattr(setup_routes, "run_command", lambda argv, **kwargs: None)
+    assert setup_routes.uv_check(tmp_path, "lock", "--check") is None
+
+
+# Kernel
+
+
+@pytest.fixture
+def kernels(tmp_path, monkeypatch):
+    """A private Jupyter data directory, so no test touches the user's kernels."""
+    data = tmp_path / "jupyter-data"
+    monkeypatch.setenv("JUPYTER_DATA_DIR", str(data))
+    return data / "kernels"
+
+
+def venv_python(project, target=sys.executable):
+    """A project `.venv` whose interpreter runs `target` (this test environment's, by default)."""
+    bin_dir = project / ".venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    python = bin_dir / "python"
+    python.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n')
+    python.chmod(0o755)
+    return python
+
+
+def test_the_kernel_is_named_after_the_project_folder(tmp_path):
+    assert setup_routes.kernel_name(tmp_path / "My Project (v2)") == "lightcone-my-project-v2"
+    assert setup_routes.kernel_name(tmp_path / "...") == "lightcone-project"
+
+
+def test_a_project_kernel_is_registered_to_run_its_venv(tmp_path, kernels):
+    from jupyter_client.kernelspec import KernelSpecManager
+
+    project = tmp_path / "hubble"
+    python = venv_python(project)
+    assert setup_routes.describe_kernel(project) == {
+        "name": "lightcone-hubble", "python": str(python), "ipykernel": True, "registered": False,
+    }
+    described = setup_routes.register_kernel(project, "hubble/astra.yaml")
+    assert described["registered"] is True
+    spec = KernelSpecManager().get_kernel_spec("lightcone-hubble")
+    assert spec.argv[:3] == [str(python), "-m", "ipykernel_launcher"]
+    assert spec.display_name == "Python (hubble)"
+    assert spec.metadata == {"lightcone": {"project": "hubble/astra.yaml"}}
+    assert (kernels / "lightcone-hubble" / "kernel.json").is_file()
+    # Registering again replaces the spec instead of failing.
+    assert setup_routes.register_kernel(project, "hubble/astra.yaml")["registered"] is True
+
+
+def test_a_kernel_needs_a_runnable_venv_with_ipykernel(tmp_path, kernels):
+    from tornado.web import HTTPError
+
+    project = tmp_path / "bare"
+    project.mkdir()
+    assert setup_routes.describe_kernel(project)["python"] is None
+    with pytest.raises(HTTPError) as refused:
+        setup_routes.register_kernel(project, "bare/astra.yaml")
+    assert refused.value.status_code == 409
+    venv_python(project, "/bin/false")
+    assert setup_routes.describe_kernel(project)["ipykernel"] is False
+    with pytest.raises(HTTPError) as refused:
+        setup_routes.register_kernel(project, "bare/astra.yaml")
+    assert "uv add --dev ipykernel" in refused.value.log_message
+    assert not kernels.exists()
+
+
+def test_a_containerized_project_has_no_host_kernel(tmp_path):
+    project = tmp_path / "boxed"
+    venv_python(project)
+    (project / "pyproject.toml").write_text('[tool.lightcone.image]\nbase = "python:3.12"\n')
+    assert setup_routes.describe_kernel(project)["python"] is None
+
+
+def test_the_container_row_is_the_engines_view(tmp_path, monkeypatch):
+    monkeypatch.setattr(setup_routes.container, "runtime_hint", lambda: "podman")
+    assert setup_routes.describe_container(tmp_path) == {"runtime": "podman", "image": "direct"}
+    monkeypatch.setattr(setup_routes.container, "runtime_hint", lambda: "")
+
+    def broken(project):
+        raise RuntimeError("unreadable")
+
+    monkeypatch.setattr(setup_routes.container, "image_state", broken)
+    assert setup_routes.describe_container(tmp_path) == {"runtime": None, "image": None}
+
+
+@pytest.mark.parametrize("environ, expected", [
+    ({}, {"slurm": False, "nodes": None}),
+    ({"SLURM_JOB_ID": "7", "SLURM_JOB_NUM_NODES": "4"}, {"slurm": True, "nodes": 4}),
+    ({"SLURM_JOB_ID": "7", "SLURM_JOB_NUM_NODES": "four"}, {"slurm": True, "nodes": None}),
+])
+def test_the_venue_names_a_slurm_allocation(monkeypatch, environ, expected):
+    for name in ("SLURM_JOB_ID", "SLURM_JOB_NUM_NODES", "SLURM_NNODES"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environ.items():
+        monkeypatch.setenv(name, value)
+    assert setup_routes.describe_venue() == expected
 
 
 # Storage
 
 
 def git(*args, cwd):
-    subprocess.run(
+    """Run git in a test repository and return what it printed."""
+    return subprocess.run(
         ["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env={**os.environ, **GIT_IDENTITY}
-    )
+    ).stdout
 
 
 @pytest.fixture
@@ -464,21 +660,33 @@ def annex(clone):
 
 
 def test_storage_reads_a_real_annex_repository(annex):
-    assert setup_routes.describe_storage(annex) == {"annex": True, "remotes": ["origin"]}
+    assert setup_routes.describe_storage(annex) == {
+        "annex": True, "remotes": ["origin"], "content": {"files": 0, "absent": 0},
+    }
 
 
 def test_reading_storage_never_initializes_an_annex(clone):
-    assert setup_routes.describe_storage(clone) == {"annex": False, "remotes": []}
+    assert setup_routes.describe_storage(clone) == {"annex": False, "remotes": [], "content": None}
     uuid = subprocess.run(["git", "config", "--get", "annex.uuid"], cwd=clone, capture_output=True, text=True)
     assert uuid.returncode != 0
     assert not (clone / ".git" / "annex").exists()
     assert not (clone / ".git" / "hooks" / "pre-commit").exists()
 
 
+def test_reading_storage_never_merges_fetched_annex_branches(annex):
+    git("annex", "describe", "here", "origin, described again", cwd=annex.parent / "origin")
+    git("fetch", "-q", "origin", cwd=annex)
+    before = git("rev-parse", "git-annex", cwd=annex)
+    assert before != git("rev-parse", "origin/git-annex", cwd=annex)
+    assert setup_routes.describe_storage(annex)["remotes"] == ["origin"]
+    # git-annex would otherwise commit the fetched branch into the local one.
+    assert git("rev-parse", "git-annex", cwd=annex) == before
+
+
 def test_a_plain_repository_or_folder_is_not_an_annex(tmp_path):
     git("init", "-q", cwd=tmp_path)
-    assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": []}
-    assert setup_routes.describe_storage(tmp_path / "missing") == {"annex": False, "remotes": []}
+    assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": [], "content": None}
+    assert setup_routes.describe_storage(tmp_path / "missing") == {"annex": False, "remotes": [], "content": None}
 
 
 @pytest.mark.parametrize("hung", ["config", "annex"])
@@ -486,12 +694,12 @@ def test_storage_degrades_when_git_or_git_annex_hangs(tmp_path, monkeypatch, hun
     answer = annex_answers(json.dumps({"success": True}))
 
     def run(argv, **kwargs):
-        if argv[1] == hung:
+        if hung in argv:
             raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
         return answer(argv, **kwargs)
 
     monkeypatch.setattr(setup_routes.subprocess, "run", run)
-    assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": []}
+    assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": [], "content": None}
 
 
 def annex_answers(info_output):
@@ -508,7 +716,7 @@ def annex_answers(info_output):
 @pytest.mark.parametrize("output", ["not json", json.dumps([]), json.dumps({"success": False})])
 def test_unexpected_annex_output_is_not_an_annex(tmp_path, monkeypatch, output):
     monkeypatch.setattr(setup_routes.subprocess, "run", annex_answers(output))
-    assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": []}
+    assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": [], "content": None}
 
 
 @pytest.mark.parametrize("description, expected", [
@@ -534,7 +742,20 @@ def test_storage_ignores_special_remotes_and_this_repository(tmp_path, monkeypat
         "untrusted repositories": "not a list",
     }
     monkeypatch.setattr(setup_routes.subprocess, "run", annex_answers(json.dumps(info)))
-    assert setup_routes.describe_storage(tmp_path) == {"annex": True, "remotes": ["archive", "nas"]}
+    assert setup_routes.describe_storage(tmp_path) == {
+        "annex": True, "remotes": ["archive", "nas"], "content": {"files": 0, "absent": 0},
+    }
+
+
+def test_storage_counts_results_whose_content_is_elsewhere(annex):
+    (annex / "results").mkdir()
+    for name in ("a.bin", "b.bin"):
+        (annex / "results" / name).write_bytes(name.encode())
+    git("annex", "add", "results", cwd=annex)
+    git("commit", "-qm", "results", cwd=annex)
+    assert setup_routes.describe_storage(annex)["content"] == {"files": 2, "absent": 0}
+    git("annex", "drop", "--force", "results/a.bin", cwd=annex)
+    assert setup_routes.describe_storage(annex)["content"] == {"files": 2, "absent": 1}
 
 
 # The report
@@ -545,6 +766,7 @@ async def test_the_report_without_a_project_has_null_project_sections(tmp_path, 
     report = await setup_routes.build_report(None)
     assert_matches_contract(report)
     assert (report["environment"], report["instructions"], report["storage"]) == (None, None, None)
+    assert (report["kernel"], report["container"]) == (None, None)
     assert [agent["id"] for agent in report["agents"]] == ["claude-acp", "codex-acp"]
     assert {(skill["harness"], skill["name"]) for skill in report["skills"]} == SKILL_ROWS
     assert report["tools"]["git"]["found"] is True
@@ -558,9 +780,10 @@ async def test_the_report_describes_the_project(tmp_path, monkeypatch):
     (project / "AGENTS.md").write_text("# rules\n")
     report = await setup_routes.build_report(project, "project/astra.yaml")
     assert_matches_contract(report)
-    assert report["environment"] == {"lock": True, "venv": True}
+    assert (report["environment"]["lock"], report["environment"]["venv"]) == (True, True)
+    assert report["kernel"]["name"] == "lightcone-project"
     assert report["instructions"] == {"path": "project/AGENTS.md", "exists": True}
-    assert report["storage"] == {"annex": False, "remotes": []}
+    assert report["storage"] == {"annex": False, "remotes": [], "content": None}
 
 
 async def test_every_probe_runs_off_the_event_loop(tmp_path, monkeypatch):
@@ -578,8 +801,8 @@ async def test_every_probe_runs_off_the_event_loop(tmp_path, monkeypatch):
     monkeypatch.setattr(setup_routes, "home_directory", home_directory)
     report = await setup_routes.build_report(None)
     assert report["jupyterAi"] is False
-    # Jupyter AI, the ACP client and the home lookup were all asked, none of them on the loop's thread.
-    assert len(threads) == 3
+    # Jupyter AI, the ACP client and the home lookups were all asked, none of them on the loop's thread.
+    assert len(threads) == 4
     assert threading.get_ident() not in threads
 
 
@@ -613,15 +836,15 @@ async def test_the_route_describes_the_named_project(api, jp_root_dir):
     (project / "CLAUDE.md").write_text("# rules\n")
     report = json.loads((await api(params={"path": "project/astra.yaml"})).body)
     assert_matches_contract(report)
-    assert report["environment"] == {"lock": True, "venv": True}
+    assert (report["environment"]["lock"], report["environment"]["venv"]) == (True, True)
     assert report["instructions"] == {"path": "project/CLAUDE.md", "exists": True}
-    assert report["storage"] == {"annex": False, "remotes": []}
+    assert report["storage"] == {"annex": False, "remotes": [], "content": None}
 
 
 async def test_a_root_project_without_instructions_points_at_agents_md(api, jp_root_dir):
     (jp_root_dir / "astra.yaml").write_text("name: example\n")
     report = json.loads((await api(params={"path": "astra.yaml"})).body)
-    assert report["environment"] == {"lock": False, "venv": False}
+    assert (report["environment"]["lock"], report["environment"]["venv"]) == (False, False)
     assert report["instructions"] == {"path": "AGENTS.md", "exists": False}
 
 
@@ -698,3 +921,33 @@ async def test_requires_contents_read_authorization(api, jp_serverapp, monkeypat
     response = await api(raise_error=False)
     assert response.code == 403
     assert ("read", "contents") in asked
+
+
+
+# Registering a kernel
+
+
+async def test_the_kernel_route_registers_the_project_kernel(jp_fetch, jp_root_dir, jp_data_dir):
+    project = jp_root_dir / "project"
+    project.mkdir()
+    (project / "astra.yaml").write_text("name: example\n")
+    venv_python(project)
+    response = await jp_fetch(*ENDPOINT, "kernel", method="POST", body=json.dumps({"path": "project/astra.yaml"}))
+    assert json.loads(response.body)["registered"] is True
+    assert (jp_data_dir / "kernels" / "lightcone-project" / "kernel.json").is_file()
+
+
+async def test_registering_a_kernel_needs_execute_on_lightcone(jp_fetch, jp_serverapp, jp_root_dir, monkeypatch):
+    (jp_root_dir / "astra.yaml").write_text("name: example\n")
+    asked = []
+
+    def is_authorized(handler, user, action, resource):
+        asked.append((action, resource))
+        return (action, resource) != ("execute", "lightcone")
+
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", is_authorized)
+    response = await jp_fetch(
+        *ENDPOINT, "kernel", method="POST", body=json.dumps({"path": "astra.yaml"}), raise_error=False
+    )
+    assert response.code == 403
+    assert ("write", "contents") in asked and ("execute", "lightcone") in asked

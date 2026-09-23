@@ -11,7 +11,7 @@
   }
 
   .jp-jupyterlab-lightcone-element-context {
-    flex: 1 1 auto;
+    flex: 1 1 12rem;
   }
 
   .jp-jupyterlab-lightcone-element-actions {
@@ -62,17 +62,34 @@
     font-weight: 600;
   }
 
-  /* Version stepper, under the artifact or at the head of the provenance rail. */
-  .jp-jupyterlab-lightcone-VersionedArtifact {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    gap: 10px;
+  /* Back, Forward and the version stepper's arrows. */
+  .jp-jupyterlab-lightcone-Chevron {
+    display: block;
+    flex: 0 0 auto;
   }
 
-  .jp-jupyterlab-lightcone-VersionedArtifact-body {
+  /*
+   * A figure or table with versions: the version bar sits above the reader
+   * layout, outside the figure frame that zooms and pans its content.
+   */
+  .jp-jupyterlab-lightcone-VersionedOutput {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
     min-width: 0;
   }
+
+  .jp-jupyterlab-lightcone-VersionBar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--astra-color-border);
+    background: var(--astra-color-canvas);
+  }
+
+  /* Version stepper, above a figure or table, or in the provenance rail. */
 
   .jp-jupyterlab-lightcone-VersionStepper {
     display: flex;
@@ -118,6 +135,10 @@
     font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
   }
 
+  .jp-jupyterlab-lightcone-VersionBar .jp-jupyterlab-lightcone-VersionBanner {
+    flex: 1 1 16rem;
+  }
+
   .jp-jupyterlab-lightcone-VersionRail {
     display: grid;
     gap: 8px;
@@ -135,11 +156,22 @@
     text-transform: uppercase;
   }
 
+  /* Commit hashes are lower-case hex: shown as typed, never capitalised. */
+  .jp-jupyterlab-lightcone-VersionCompare > h4 code {
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
   /* Comparison of a version with the one before it. */
   .jp-jupyterlab-lightcone-VersionCompare {
     display: grid;
     gap: 10px;
     min-width: 0;
+  }
+
+  /* The figure frame's zoom buttons sit in its lower right corner. */
+  .astra-figure-zoom .jp-jupyterlab-lightcone-VersionCompare {
+    padding-inline-end: 48px;
   }
 
   .jp-jupyterlab-lightcone-VersionCompare-modes {
@@ -198,6 +230,29 @@
     background: var(--astra-color-accent);
     transform: translateX(-1px);
     pointer-events: none;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blink {
+    display: grid;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blinkControls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blinkLabel {
+    flex: 1 1 auto;
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-limits {
+    color: var(--astra-color-text-muted);
+    cursor: help;
   }
 
   .jp-jupyterlab-lightcone-VersionCompare-swipe label {
@@ -363,6 +418,66 @@
   .jp-jupyterlab-lightcone-Provenance-note {
     color: var(--astra-color-text-muted);
     font-size: var(--astra-font-size-xs);
+  }
+
+  /* The script as a run executed it, and its changes since. */
+  .jp-jupyterlab-lightcone-Provenance-revision pre {
+    max-height: 24rem;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-views {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-viewsLabel {
+    flex: 1 1 auto;
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-views button[aria-pressed='true'] {
+    color: var(--astra-color-text);
+    text-decoration: none;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine {
+    display: block;
+    white-space: pre;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-added {
+    background: color-mix(
+      in srgb,
+      var(--astra-color-kind-finding) 16%,
+      transparent
+    );
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-removed {
+    background: color-mix(in srgb, var(--astra-color-danger) 14%, transparent);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-gap {
+    color: var(--astra-color-text-subtle);
+    font-style: italic;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-packages {
+    margin-top: 12px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-packagesToggle {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
 
   .jp-jupyterlab-lightcone-Provenance-inputs ul,

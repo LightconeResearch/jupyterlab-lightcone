@@ -3,6 +3,8 @@
 Imports are lazy so the inventory works even where Jupyter AI was removed.
 """
 
+import re
+
 TOOLS = [
     "jupyterlab_lightcone.agent_tools:lightcone_preview_element",
     "jupyterlab_lightcone.agent_tools:lightcone_open_element",
@@ -87,6 +89,28 @@ async def lightcone_open_element(target: str) -> dict:
     return await _command("open-element", {"target": target})
 
 
+_COMMIT = re.compile(r"[0-9a-f]{7,40}")
+_KEY_LIMIT = 256
+
+
+def _card_version(value) -> dict | None:
+    """The committed output version the browser pinned for a card, when well formed.
+
+    The browser names the newest commit of an output's file (and its git-annex
+    key); anything malformed pins nothing, so the card follows current data.
+    """
+    if not isinstance(value, dict):
+        return None
+    commit = value.get("commit")
+    if not isinstance(commit, str) or not _COMMIT.fullmatch(commit.lower()):
+        return None
+    version = {"commit": commit.lower()}
+    key = value.get("key")
+    if isinstance(key, str) and 0 < len(key) <= _KEY_LIMIT and not re.search(r"[\s/\\]", key):
+        version["key"] = key
+    return version
+
+
 def _origin_persona():
     """Resolve the calling persona using the same registry as MCP routing.
 
@@ -126,6 +150,7 @@ async def lightcone_preview_element(target: str) -> dict:
     separate tab is explicitly wanted. Do not emit JSON or MySTRA roles in
     prose to create cards. No recipes execute and no papers are downloaded.
     Repeated previews of the same target in one prompt reuse the card.
+    An output's card keeps showing the version committed when it was made.
     """
     result = await _command("resolve-preview", {"target": target})
     if not result.get("success"):
@@ -162,6 +187,9 @@ async def lightcone_preview_element(target: str) -> dict:
         "target": element["target"],
         "universeId": element["universeId"],
     }
+    output_version = _card_version(element.get("outputVersion"))
+    if output_version is not None:
+        payload["outputVersion"] = output_version
     mime_type = "application/vnd.lightcone.astra+json"
     prompt_id = persona.processing_message.id
     for message in persona.chat.get_messages():

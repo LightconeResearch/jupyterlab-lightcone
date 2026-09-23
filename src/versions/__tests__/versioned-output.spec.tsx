@@ -8,6 +8,7 @@ import type { ILoadedProjectData } from '../../project-data';
 import { forgetVersions, listVersionsCached } from '../version-cache';
 import {
   useOutputVersioning,
+  VersionBar,
   VersionedArtifact,
   type IOutputVersioning
 } from '../versioned-output';
@@ -100,13 +101,19 @@ function Probe({
     onSelect
   );
   latest = versioning;
+  // Laid out as a record tab does: the bar above, the artifact in its frame.
   return (
-    <VersionedArtifact
-      versioning={versioning}
-      output={record}
-      compact={false}
-      current={<p>current artifact</p>}
-    />
+    <>
+      <VersionBar versioning={versioning} output={record} />
+      <div className="frame">
+        <VersionedArtifact
+          versioning={versioning}
+          output={record}
+          compact={false}
+          current={<p>current artifact</p>}
+        />
+      </div>
+    </>
   );
 }
 
@@ -179,6 +186,40 @@ test('shows the selected version and follows a selection changed by the host', a
   expect(latest?.isLatest).toBe(true);
   expect(container.textContent).toContain('current artifact');
   expect(onSelect).not.toHaveBeenCalled();
+});
+
+test('keeps the stepper and the banner out of the zoomable artifact frame', async () => {
+  list.mockResolvedValue({ file: 'results/baseline/fit.png', versions });
+  act(() => {
+    root.render(<Probe selected={'b'.repeat(40)} onSelect={jest.fn()} />);
+  });
+  await flush();
+  const frame = container.querySelector('.frame')!;
+  const bar = container.querySelector('.jp-jupyterlab-lightcone-VersionBar')!;
+  expect(bar.textContent).toContain('Older version · v2 of 3');
+  expect(bar.querySelector('[aria-label="Output versions"]')).not.toBeNull();
+  expect(frame.querySelector('[aria-label="Output versions"]')).toBeNull();
+  expect(frame.textContent).not.toContain('Older version');
+  // A data file has no frame: its versions stay in the provenance rail.
+  act(() => {
+    root.render(
+      <Probe
+        selected={undefined}
+        onSelect={jest.fn()}
+        record={
+          {
+            ...output(),
+            type: 'data',
+            format: 'npz'
+          } as unknown as ResolvedOutput
+        }
+      />
+    );
+  });
+  await flush();
+  expect(
+    container.querySelector('.jp-jupyterlab-lightcone-VersionBar')
+  ).toBeNull();
 });
 
 test('the stepper and the Latest button go through the host, closing the comparison', async () => {

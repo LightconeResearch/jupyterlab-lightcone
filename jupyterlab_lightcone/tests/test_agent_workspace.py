@@ -190,7 +190,38 @@ def test_the_extension_loads_without_jupyter_ai(monkeypatch):
     # A None entry makes the import fail, as it does when Jupyter AI is absent.
     monkeypatch.setitem(sys.modules, "jupyter_ai_persona_manager", None)
     monkeypatch.delitem(sys.modules, "jupyterlab_lightcone.agent_workspace", raising=False)
-    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=None, log=None))
+    server = SimpleNamespace(web_app=SimpleNamespace(settings={}))
+    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=server, log=None))
+    # Without Lightcone's manager, the composer appends comments to the message.
+    assert server.web_app.settings["page_config_data"][comments.COMMENT_DELIVERY] == "message"
+
+
+def _served(*apps):
+    server = _server(*apps)
+    server.web_app = SimpleNamespace(settings={})
+    return server
+
+
+def test_comments_go_in_the_prompt_only_when_every_manager_is_lightcones():
+    from jupyterlab_lightcone.application import LightconeApp
+
+    stock = extension.PersonaManagerExtension()
+    server = _served(stock)
+    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=server, log=logging.getLogger("test")))
+    assert server.web_app.settings["page_config_data"][comments.COMMENT_DELIVERY] == "prompt"
+
+    class Derived(PersonaManager):
+        pass
+
+    assert agent_workspace.delivers_comments(_server(extension.PersonaManagerExtension(persona_manager_class=Derived)))
+
+    class Custom(Upstream):
+        pass
+
+    server = _served(extension.PersonaManagerExtension(persona_manager_class=Custom))
+    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=server, log=logging.getLogger("test")))
+    assert server.web_app.settings["page_config_data"][comments.COMMENT_DELIVERY] == "message"
+    assert not agent_workspace.delivers_comments(_server())
 
 
 # --- comments and activity ----------------------------------------------------

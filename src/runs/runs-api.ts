@@ -1,4 +1,5 @@
-import type { ServerConnection } from '@jupyterlab/services';
+import { URLExt } from '@jupyterlab/coreutils';
+import { ServerConnection } from '@jupyterlab/services';
 import { isRecord, RequestError } from '../api';
 import { requestAPI } from '../request';
 
@@ -14,6 +15,19 @@ export interface IRunRecord {
   cmd: string;
   inputs: string[];
   outputs: string[];
+  /**
+   * The commit the run's `lc materialize` started from, as its manifest
+   * records it: runs sharing it come from one invocation. Null when unknown.
+   */
+  invocation?: string | null;
+}
+
+/** Where this server's runs execute. */
+export interface IVenue {
+  /** Whether the server runs inside a SLURM allocation. */
+  slurm: boolean;
+  /** The allocation's node count, when known. */
+  nodes: number | null;
 }
 
 /** State of a materialization the server started. */
@@ -40,6 +54,17 @@ export interface IJob {
 export interface IRunListing {
   runs: IRunRecord[];
   jobs: IJob[];
+  /** Where runs execute; absent from servers that do not say. */
+  venue?: IVenue;
+}
+
+/** Narrow a server payload to a venue. */
+export function isVenue(value: unknown): value is IVenue {
+  return (
+    isRecord(value) &&
+    typeof value.slurm === 'boolean' &&
+    (value.nodes === null || typeof value.nodes === 'number')
+  );
 }
 
 /** The schema ID of job events on the Jupyter Server event bus. */
@@ -79,7 +104,10 @@ export function isRunRecord(value: unknown): value is IRunRecord {
     (value.exit === null || typeof value.exit === 'number') &&
     typeof value.cmd === 'string' &&
     isStringArray(value.inputs) &&
-    isStringArray(value.outputs)
+    isStringArray(value.outputs) &&
+    (value.invocation === undefined ||
+      value.invocation === null ||
+      typeof value.invocation === 'string')
   );
 }
 
@@ -127,11 +155,16 @@ export async function listRuns(
       !Array.isArray(data.runs) ||
       !data.runs.every(isRunRecord) ||
       !Array.isArray(data.jobs) ||
-      !data.jobs.every(isJob)
+      !data.jobs.every(isJob) ||
+      (data.venue !== undefined && !isVenue(data.venue))
     ) {
       throw new Error('The server returned an invalid run listing.');
     }
-    return { runs: data.runs, jobs: data.jobs };
+    return {
+      runs: data.runs,
+      jobs: data.jobs,
+      ...(data.venue !== undefined ? { venue: data.venue } : {})
+    };
   } catch (error) {
     throw new RequestError('Runs', error);
   }
@@ -198,5 +231,62 @@ export async function cancelRun(
     );
   } catch (error) {
     throw new RequestError('Runs', error);
+  }
+}
+
+/** The server's own CPU and memory use, as jupyter-resource-usage reports it. */
+export interface IServerUsage {
+  /** Resident memory of the server and its kernels, in bytes. */
+  rss: number;
+  /** The memory limit, in bytes, when one is configured. */
+  memoryLimit: number | null;
+  /** CPU use in percent of one core, when tracked. */
+  cpuPercent: number | null;
+  /** How many cores the server may use, when tracked. */
+  cpuCount: number | null;
+}
+
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** Narrow jupyter-resource-usage's `api/metrics/v1` answer. */
+export function parseServerUsage(value: unknown): IServerUsage | null {
+  if (!isRecord(value)) return null;
+  const rss = finiteOrNull(value.rss);
+  if (rss === null) return null;
+  const memory =
+    isRecord(value.limits) && isRecord(value.limits.memory)
+      ? value.limits.memory
+      : undefined;
+  const limit = finiteOrNull(memory?.rss);
+  return {
+    rss,
+    memoryLimit: limit && limit > 0 ? limit : null,
+    cpuPercent: finiteOrNull(value.cpu_percent),
+    cpuCount: finiteOrNull(value.cpu_count)
+  };
+}
+
+/**
+ * The server's CPU and memory use from jupyter-resource-usage's REST API,
+ * or null when that extension is not installed (it exports no frontend
+ * token, so its route is the only way to ask).
+ */
+export async function fetchServerUsage(
+  settings: ServerConnection.ISettings
+): Promise<IServerUsage | null> {
+  const url = URLExt.join(settings.baseUrl, 'api/metrics/v1');
+  let response: Response;
+  try {
+    response = await ServerConnection.makeRequest(url, {}, settings);
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  try {
+    return parseServerUsage(await response.json());
+  } catch {
+    return null;
   }
 }

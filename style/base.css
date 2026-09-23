@@ -221,12 +221,15 @@
     background: var(--astra-color-canvas);
   }
 
+  /* Beside a session a record tab can be a third of the window wide: its
+   * parts wrap onto further lines rather than squeezing words apart. */
   .jp-jupyterlab-lightcone-element-toolbar {
     display: flex;
     flex: 0 0 auto;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px 12px;
     padding: 10px 20px;
     border-bottom: 1px solid var(--astra-color-border);
   }

@@ -14,7 +14,8 @@ import {
   startRun,
   type IJob,
   type IJobEvent,
-  type IRunRecord
+  type IRunRecord,
+  type IVenue
 } from './runs-api';
 import {
   applyJobEvent,
@@ -49,6 +50,8 @@ export interface IProjectRuns {
   readonly loading: boolean;
   /** The last listing failure; the previous runs stay visible. */
   readonly error: string | undefined;
+  /** Where runs execute, once a listing said so. */
+  readonly venue?: IVenue;
 }
 
 export interface IRunningJob {
@@ -297,6 +300,7 @@ export class RunsService implements IDisposable {
       this._set(entrypoint, {
         runs: listing.runs,
         jobs,
+        venue: listing.venue,
         loaded: true,
         loading: false,
         error: undefined

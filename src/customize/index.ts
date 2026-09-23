@@ -60,6 +60,7 @@ export const customizePlugin: JupyterFrontEndPlugin<void> = {
             current,
             themes,
             commands: app.commands,
+            kernelspecs: app.serviceManager.kernelspecs,
             translator: translator ?? undefined
           });
           widget = new MainAreaWidget({ content });
@@ -86,6 +87,7 @@ export const customizePlugin: JupyterFrontEndPlugin<void> = {
 
 export { CustomizeWidget } from './customize-widget';
 export {
+  agentFacts,
   attentionCount,
   attentionSummary,
   customizeSections,
@@ -101,7 +103,13 @@ export {
 export {
   fetchSetup,
   isSetupReport,
+  registerKernel,
   type IAgentSetup,
+  type IContainerSetup,
+  type IEnvironmentSetup,
+  type IKernelSetup,
+  type IStorageSetup,
+  type IVenue,
   type ISetupReport,
   type ISkillSetup,
   type ITool

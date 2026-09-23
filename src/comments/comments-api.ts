@@ -1,3 +1,4 @@
+import { PageConfig } from '@jupyterlab/coreutils';
 import type { ServerConnection } from '@jupyterlab/services';
 import { isRecord, RequestError } from '../api';
 import { requestAPI } from '../request';
@@ -52,7 +53,11 @@ export interface IComment {
   updated: string | null;
   author: string;
   status: CommentStatus;
-  sentWith: { chat: string; message: string } | null;
+  /**
+   * The chat and message a sent comment went with; the message is null when
+   * the composer appended the comment before the message had an id.
+   */
+  sentWith: { chat: string; message: string | null } | null;
   /** 1-based number among the pending comments of the same target. */
   label: number;
   text: string;
@@ -71,6 +76,27 @@ export interface ICommentDraft {
 export interface ICommentPatch {
   text?: string;
   anchor?: ICommentAnchor;
+}
+
+/**
+ * How pending comments reach the agent: appended by the server to the prompt
+ * copy the persona receives, or, where another persona manager runs, appended
+ * by the composer to the message text itself.
+ */
+export type CommentDelivery = 'prompt' | 'message';
+
+/** The page option in which the server states its comment delivery. */
+export const COMMENT_DELIVERY_OPTION = 'lightconeCommentDelivery';
+
+/**
+ * The delivery the server stated in the page configuration. Without a
+ * statement the composer appends the comments itself: that never sends them
+ * twice, since the server skips comments already marked sent.
+ */
+export function commentDelivery(
+  option: string = PageConfig.getOption(COMMENT_DELIVERY_OPTION)
+): CommentDelivery {
+  return option === 'prompt' ? 'prompt' : 'message';
 }
 
 /** Filters for listing comments. */
@@ -134,7 +160,7 @@ export function isComment(value: unknown): value is IComment {
     (value.sentWith === null ||
       (isRecord(value.sentWith) &&
         typeof value.sentWith.chat === 'string' &&
-        typeof value.sentWith.message === 'string')) &&
+        isStringOrNull(value.sentWith.message))) &&
     typeof value.label === 'number' &&
     typeof value.text === 'string' &&
     isTarget(value.target) &&
@@ -172,6 +198,34 @@ export async function listComments(
       throw new Error('The server returned an invalid comment listing.');
     }
     return data.comments;
+  } catch (error) {
+    throw new RequestError('Comments', error);
+  }
+}
+
+/**
+ * Mark pending comments sent with the next message of a chat and return
+ * their block for the composer to append; null when none was pending.
+ */
+export async function sendComments(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  ids: readonly string[],
+  chat: string
+): Promise<string | null> {
+  try {
+    const data = await requestAPI('api/comments/send', settings, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: entrypoint, ids, chat })
+    });
+    if (
+      !isRecord(data) ||
+      !(data.block === null || typeof data.block === 'string')
+    ) {
+      throw new Error('The server returned an invalid comment block.');
+    }
+    return data.block;
   } catch (error) {
     throw new RequestError('Comments', error);
   }

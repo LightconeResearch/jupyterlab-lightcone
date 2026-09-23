@@ -18,8 +18,11 @@ import { LightconeThemeBinding } from '../theme-adapter';
 import {
   buildPipelineGraph,
   downstreamOf,
+  edgeRoute,
+  type IPipelineGeometry,
   type IPipelineGraph,
-  type IPipelineNode
+  type IPipelineNode,
+  type IPipelinePoint
 } from './pipeline-graph';
 
 const PAD = 24;
@@ -43,13 +46,33 @@ function nodeY(node: IPipelineNode): number {
   return PAD + node.row * ROW;
 }
 
-function edgePath(from: IPipelineNode, to: IPipelineNode): string {
-  const x1 = nodeX(from) + NODE_WIDTH;
-  const y1 = nodeY(from) + NODE_HEIGHT / 2;
-  const x2 = nodeX(to);
-  const y2 = nodeY(to) + NODE_HEIGHT / 2;
-  const bend = Math.max(24, (x2 - x1) / 2);
-  return `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`;
+const GEOMETRY: IPipelineGeometry = {
+  pad: PAD,
+  column: COLUMN,
+  nodeWidth: NODE_WIDTH,
+  nodeHeight: NODE_HEIGHT,
+  row: ROW
+};
+
+/**
+ * An SVG path through an edge's route: a smooth curve between columns and a
+ * straight run across each column it skips.
+ */
+function edgePath(points: readonly IPipelinePoint[]): string {
+  const [first, ...rest] = points;
+  let path = `M${first.x},${first.y}`;
+  let previous = first;
+  rest.forEach((point, index) => {
+    // Odd positions after the start leave a skipped column: straight across.
+    if (index % 2 === 1 && index < rest.length - 1) {
+      path += ` L${point.x},${point.y}`;
+    } else {
+      const bend = Math.max(24, (point.x - previous.x) / 2);
+      path += ` C${previous.x + bend},${previous.y} ${point.x - bend},${point.y} ${point.x},${point.y}`;
+    }
+    previous = point;
+  });
+  return path;
 }
 
 interface IPipelineViewProps {
@@ -168,7 +191,7 @@ function PipelineGraph({
                 return (
                   <path
                     key={`${edge.from}->${edge.to}`}
-                    d={edgePath(from, to)}
+                    d={edgePath(edgeRoute(graph, from, to, GEOMETRY))}
                     data-kind={edge.kind}
                     data-highlighted={
                       highlighted?.has(edge.from) && highlighted.has(edge.to)

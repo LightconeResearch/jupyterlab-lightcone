@@ -3,6 +3,7 @@ import { recordTitle, type OutputStatus } from '@astra-spec/ui/model';
 import type { TranslationBundle } from '@jupyterlab/translation';
 import {
   addIcon,
+  caretDownIcon,
   editIcon,
   fileIcon,
   homeIcon,
@@ -52,6 +53,8 @@ export interface ISidebarHeaderProps {
   onHome: () => void;
   /** Absent when the create-project command is not registered. */
   onNewProject?: () => void;
+  /** Open the project switcher below its button; absent without one. */
+  onSwitch?: (anchor: HTMLElement) => void;
 }
 
 /** The project's name and path with a Home button, or a way to start one. */
@@ -60,7 +63,8 @@ export function SidebarHeader({
   label,
   trans,
   onHome,
-  onNewProject
+  onNewProject,
+  onSwitch
 }: ISidebarHeaderProps): React.ReactElement {
   const { project } = state;
   const mark = (
@@ -106,6 +110,18 @@ export function SidebarHeader({
           {path}
         </span>
       </div>
+      {onSwitch ? (
+        <button
+          type="button"
+          className={`${BASE}-iconButton jp-Button`}
+          title={trans.__('Switch project')}
+          aria-label={trans.__('Switch to another Lightcone project')}
+          aria-haspopup="menu"
+          onClick={event => onSwitch(event.currentTarget)}
+        >
+          <caretDownIcon.react tag="span" elementPosition="center" />
+        </button>
+      ) : null}
       <button
         type="button"
         className={`${BASE}-iconButton jp-Button`}
@@ -251,8 +267,11 @@ export function SessionsList({
               <button
                 type="button"
                 className={`${BASE}-rowAction jp-Button`}
-                title={trans.__('Rename session')}
-                aria-label={trans.__('Rename %1', session.title)}
+                title={trans.__('Rename chat file')}
+                aria-label={trans.__(
+                  'Rename the chat file of %1',
+                  session.title
+                )}
                 onClick={() => onRename(session)}
               >
                 <editIcon.react tag="span" elementPosition="center" />
@@ -294,6 +313,8 @@ export interface IResultsListProps {
   trans: TranslationBundle;
   onOpen: (output: ResolvedOutput) => void;
   onOpenAll: () => void;
+  /** An action below the list, such as rematerializing stale results. */
+  action?: React.ReactNode;
 }
 
 /** The project's outputs with their materialization state. */
@@ -303,7 +324,8 @@ export function ResultsList({
   statusFor,
   trans,
   onOpen,
-  onOpenAll
+  onOpenAll,
+  action
 }: IResultsListProps): React.ReactElement {
   if (!state.data) {
     return (
@@ -361,6 +383,7 @@ export function ResultsList({
           );
         })}
       </ul>
+      {action}
       <button type="button" className={`${BASE}-more`} onClick={onOpenAll}>
         {trans.__('All results →')}
       </button>

@@ -379,7 +379,13 @@ export interface IRunView {
   short?: string;
   time?: string;
   started?: string;
+  /** What ran: the DataLad record's command, which starts the engine's worker. */
   command?: string;
+  /**
+   * The output's recipe as the run expanded it, which names its script; not
+   * recorded by a version committed without a manifest.
+   */
+  recipe?: string;
   exit?: number;
   gitRevision?: string;
   engineVersion?: string;
@@ -420,6 +426,7 @@ export function runView(
       version?.time ??
       sidecar?.finishedAt,
     started: manifestString(manifest, 'started_at'),
+    recipe: manifestString(manifest, 'recipe') ?? sidecar?.recipe,
     command:
       version?.run?.cmd ??
       manifestString(manifest, 'recipe') ??

@@ -19,6 +19,7 @@ import {
 import { acquireProjectDataService } from './project-data-service';
 import { UUID, type ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { ElementTabs } from './element-tabs';
+import { latestCardVersion } from './versions/card-version';
 import { canonicalRecordPath, parseAstraPath } from './vendor/mystra-path';
 
 /** Expose record views and validate references before publishing chat previews. */
@@ -97,7 +98,9 @@ export function registerElementCommands(
           app.commands,
           key,
           id,
-          args.pinned === true
+          // A tab asked for explicitly is kept: a group has one preview, and
+          // the next result opened elsewhere must not replace this one.
+          args.pinned === true || newTab
         )
       });
       widget.id = id;
@@ -198,11 +201,20 @@ export function registerElementCommands(
                   : data.document.universe.universeId
             };
             if (command === CommandIDs.resolvePreview) {
+              // An output's card pins the version the agent shows now, so a
+              // later run does not change what an earlier turn displayed.
+              const outputVersion = await latestCardVersion(
+                app.serviceManager.contents,
+                reference.entrypoint,
+                data,
+                resolved.record
+              );
               return {
                 ...pinned,
                 label: resolved.record
                   ? recordTitle(resolved.record)
-                  : (resolved.paper?.title ?? resolved.analysis.name)
+                  : (resolved.paper?.title ?? resolved.analysis.name),
+                ...(outputVersion ? { outputVersion } : {})
               };
             }
             if (!resolved.record && !resolved.paper) {

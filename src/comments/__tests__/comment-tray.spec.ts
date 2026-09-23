@@ -114,6 +114,23 @@ describe('ChatCommentTrays', () => {
     trays.dispose();
   });
 
+  it('keeps an opening click from the chat, which would take the focus back', async () => {
+    const { chat, widget } = fakePanel();
+    // Jupyter Chat focuses its input on a click that leaves the focus outside.
+    const chatClick = jest.fn();
+    widget.node.addEventListener('click', chatClick);
+    const { trays, actions } = setup([chat]);
+    await until(() => !!widget.node.querySelector(CHIP));
+    widget.node
+      .querySelector<HTMLButtonElement>(
+        '.jp-jupyterlab-lightcone-CommentChip-open'
+      )
+      ?.click();
+    expect(actions.open).toHaveBeenCalledWith(comment);
+    expect(chatClick).not.toHaveBeenCalled();
+    trays.dispose();
+  });
+
   it('follows the input when the chat renders it again', async () => {
     const { chat, widget } = fakePanel();
     const { trays } = setup([chat]);

@@ -23,6 +23,7 @@ import { CommentHosts } from './comment-hosts';
 import { METADATA_KEY, withCommentIds } from './comment-model';
 import { CommentPopover } from './comment-popover';
 import { CommentService, ICommentService } from './comment-service';
+import { commentDelivery, type CommentDelivery } from './comments-api';
 import { ChatCommentTrays, type ICommentTrayActions } from './comment-tray';
 import { editorCommentExtension } from './editor-comments';
 
@@ -52,10 +53,13 @@ const POST_SEND_REFRESH = 1000;
  * The chat command provider that sends pending comments: it stamps their
  * IDs into the outgoing message's metadata, where the server's persona
  * manager reads them, appends their text to the prompt and marks them sent.
+ * Where the server runs another persona manager, which would ignore them,
+ * it appends their block to the message text instead, visibly.
  */
 export function commentCommandProvider(
   service: CommentService,
-  projects: ChatProjects
+  projects: ChatProjects,
+  delivery: CommentDelivery = commentDelivery()
 ): IChatCommandProvider {
   return {
     id: 'jupyterlab_lightcone:comments',
@@ -75,6 +79,12 @@ export function commentCommandProvider(
       const ids = service.pending(entrypoint).map(comment => comment.id);
       if (!ids.length) {
         return;
+      }
+      if (delivery === 'message') {
+        const block = await service.send(entrypoint, ids, name);
+        if (block) {
+          input.value = input.value ? `${input.value}\n\n${block}` : block;
+        }
       }
       input.updateMetadata({
         [METADATA_KEY]: withCommentIds(input.getMetadata(), ids)

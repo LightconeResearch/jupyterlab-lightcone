@@ -187,11 +187,16 @@ it('shows live jobs, refusals and the history, and routes their actions', async 
     h.widget.node.querySelector<HTMLButtonElement>(`.${CLASS}-run`)!.click();
     h.button('Open inventory →').click();
     await until(() => h.executed.length === 2);
-    // Without universes, a record tab is not pinned to one.
+    // Without universes, a record tab is not pinned to one; a run opens the
+    // version it made.
     expect(h.executed).toEqual([
       [
         CommandIDs.openElement,
-        { entrypoint: ENTRYPOINT, target: 'outputs.hubble_diagram' }
+        {
+          entrypoint: ENTRYPOINT,
+          target: 'outputs.hubble_diagram',
+          versionCommit: 'a889877deadbeef'
+        }
       ],
       [CommandIDs.openInventory, { path: ENTRYPOINT }]
     ]);
@@ -313,6 +318,48 @@ it('keeps relative times current while nothing runs', async () => {
     jest.advanceTimersByTime(3 * 60_000);
     await until(() => h.text().includes('3 min ago'));
     expect(h.text()).not.toContain('just now');
+  } finally {
+    h.dispose();
+  }
+});
+
+it('groups the history by invocation and says where runs execute', async () => {
+  const h = host({
+    runs: [
+      run({
+        commit: 'c1',
+        short: 'c1',
+        output: 'hubble_diagram',
+        universe: 'default',
+        invocation: 'abcdef1234'
+      }),
+      run({
+        commit: 'c2',
+        short: 'c2',
+        output: 'cosmology_fit',
+        universe: 'default',
+        invocation: 'abcdef1234'
+      })
+    ]
+  });
+  jest.mocked(listRuns).mockResolvedValue({
+    runs: [
+      run({ commit: 'c1', output: 'hubble_diagram', invocation: 'abcdef1234' }),
+      run({ commit: 'c2', output: 'cosmology_fit', invocation: 'abcdef1234' })
+    ],
+    jobs: [],
+    venue: { slurm: true, nodes: 3 }
+  });
+  try {
+    await h.service.refresh(ENTRYPOINT);
+    await until(() => h.text().includes('One lc materialize'));
+    expect(h.text()).toContain('One lc materialize · 2 outputs · from abcdef1');
+    expect(
+      h.widget.node.querySelectorAll(`.${CLASS}-invocation li`)
+    ).toHaveLength(2);
+    expect(h.text()).toContain(
+      'Runs execute across this SLURM allocation: 3 nodes, one worker each.'
+    );
   } finally {
     h.dispose();
   }

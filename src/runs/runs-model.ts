@@ -1,7 +1,14 @@
 import { isRecord, RequestError } from '../api';
 import type { MaterializationStatuses } from '../materialization-status';
 import { projectDirectory } from '../project-data';
-import type { IJob, IJobEvent, IRunRecord, JobState } from './runs-api';
+import type {
+  IJob,
+  IJobEvent,
+  IRunRecord,
+  IServerUsage,
+  IVenue,
+  JobState
+} from './runs-api';
 
 /** The server keeps this many lines per job; the client keeps the same. */
 export const JOB_LINE_LIMIT = 200;
@@ -117,6 +124,69 @@ export interface IRunGroup {
   day: string;
   label: string;
   runs: IRunRecord[];
+}
+
+/** Runs made by one `lc materialize`, or a run alone. */
+export interface IInvocationGroup {
+  /** The commit the invocation started from; null for a run alone. */
+  invocation: string | null;
+  runs: IRunRecord[];
+}
+
+/**
+ * Group consecutive runs of a newest-first history that one `lc materialize`
+ * made (they share the commit their manifests record). Runs whose invocation
+ * is unknown stay alone.
+ */
+export function groupRunsByInvocation(
+  runs: readonly IRunRecord[]
+): IInvocationGroup[] {
+  const groups: IInvocationGroup[] = [];
+  for (const run of runs) {
+    const invocation = run.invocation ?? null;
+    const last = groups[groups.length - 1];
+    if (invocation !== null && last?.invocation === invocation) {
+      last.runs.push(run);
+    } else {
+      groups.push({ invocation, runs: [run] });
+    }
+  }
+  return groups;
+}
+
+/** Where runs execute, in words: this host, or a SLURM allocation. */
+export function venueText(venue: IVenue | undefined): string | undefined {
+  if (!venue) return undefined;
+  if (!venue.slurm) return 'Runs execute on this server’s host.';
+  return venue.nodes
+    ? `Runs execute across this SLURM allocation: ${plural(venue.nodes, 'node')}, one worker each.`
+    : 'Runs execute inside a SLURM allocation of unknown size.';
+}
+
+/** Bytes as a short size: `812 MB`, `1.4 GB`. */
+export function formatMemory(bytes: number): string {
+  const units = ['B', 'kB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** The server's use, as jupyter-resource-usage reports it, in one line. */
+export function usageText(usage: IServerUsage): string {
+  const memory = usage.memoryLimit
+    ? `${formatMemory(usage.rss)} of ${formatMemory(usage.memoryLimit)} memory`
+    : `${formatMemory(usage.rss)} memory`;
+  const cpu =
+    usage.cpuPercent === null
+      ? undefined
+      : usage.cpuCount
+        ? `${Math.round(usage.cpuPercent)}% CPU of ${plural(usage.cpuCount, 'core')}`
+        : `${Math.round(usage.cpuPercent)}% CPU`;
+  return `Server and kernels: ${[memory, cpu].filter(Boolean).join(' · ')}`;
 }
 
 /** Group a newest-first history by local day, keeping the order given. */
@@ -360,6 +430,44 @@ export function staleTargets(statuses: MaterializationStatuses | undefined): {
     }
   }
   return { stale: stale.sort(), behind: behind.sort() };
+}
+
+/** The one materialization Home and the sidebar offer for out-of-date results. */
+export interface IRematerializeAction {
+  /** Stale outputs are remade; behind ones only need `--refresh`. */
+  kind: 'stale' | 'behind';
+  targets: string[];
+  refresh: boolean;
+  /** "Rematerialize stale (2)" or "Refresh behind (1)". */
+  label: string;
+}
+
+/**
+ * What to offer for a status report: remaking the stale outputs first, since
+ * their results no longer match their definition; else refreshing the ones
+ * behind; nothing when every output is current or the status is unknown.
+ */
+export function rematerializeAction(
+  statuses: MaterializationStatuses | undefined
+): IRematerializeAction | null {
+  const { stale, behind } = staleTargets(statuses);
+  if (stale.length) {
+    return {
+      kind: 'stale',
+      targets: stale,
+      refresh: false,
+      label: `Rematerialize stale (${stale.length})`
+    };
+  }
+  if (behind.length) {
+    return {
+      kind: 'behind',
+      targets: behind,
+      refresh: true,
+      label: `Refresh behind (${behind.length})`
+    };
+  }
+  return null;
 }
 
 /** A running job as the Running panel lists it; the section adds the icon. */

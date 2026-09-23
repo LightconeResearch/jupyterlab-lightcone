@@ -16,11 +16,13 @@ import { requireProject } from '../commands';
 import { ICurrentProject } from '../current-project';
 import type { IProjectRoot } from '../project-root';
 import { SessionManager } from './session-manager';
+import { addSessionPermissions } from './session-permissions';
 import { SessionPlaceholderFactory } from './session-placeholder';
 import { ISessionService } from './session-service';
 
 export {
   ISessionService,
+  type IBusySession,
   type ISessionStartOptions,
   type SessionState
 } from './session-service';
@@ -41,6 +43,13 @@ export {
   selectedPersona,
   type ISessionManagerOptions
 } from './session-manager';
+export {
+  agentModes,
+  modeWords,
+  modesText,
+  SessionPermissions,
+  addSessionPermissions
+} from './session-permissions';
 export {
   sessionStem,
   slugForTitle,
@@ -151,7 +160,11 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
       events: app.serviceManager.events,
       translator: translator ?? undefined
     });
-    app.shell.disposed.connect(() => sessions.dispose());
+    const permissions = addSessionPermissions(tracker);
+    app.shell.disposed.connect(() => {
+      permissions.dispose();
+      sessions.dispose();
+    });
 
     app.commands.addCommand(SessionsCommandIDs.newSession, {
       label: trans.__('New session'),

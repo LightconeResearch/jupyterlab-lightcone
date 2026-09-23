@@ -6,7 +6,7 @@ import type {
 } from '@jupyter/chat';
 import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
 import { Notification } from '@jupyterlab/apputils';
-import { PageConfig } from '@jupyterlab/coreutils';
+import { PageConfig, PathExt } from '@jupyterlab/coreutils';
 import type { Contents, Event } from '@jupyterlab/services';
 import {
   nullTranslator,
@@ -30,6 +30,7 @@ import {
   type ActivityTransition
 } from './session-activity';
 import type {
+  IBusySession,
   ISessionService,
   ISessionStartOptions,
   SessionState
@@ -39,7 +40,8 @@ import {
   titleForSession,
   titleFromMessage,
   uniqueSessionName,
-  SESSION_FILE_EXTENSION
+  SESSION_FILE_EXTENSION,
+  UNTITLED_SLUG
 } from './session-titles';
 import {
   listSessions,
@@ -54,6 +56,12 @@ const CREATE_CHAT_COMMAND = 'jupyterlab-chat:create';
 const OPEN_DOCUMENT_COMMAND = 'docmanager:open';
 /** Title data attribute that record tabs carry (see `element-widget.tsx`). */
 const RECORD_TAB_DATASET_KEY = 'lightcone-element';
+/**
+ * Title data attribute holding a session's title, which its tab shows in
+ * place of the file name (see `style/sessions.css`). The label itself must
+ * stay the file name: a document widget renames its file to match its label.
+ */
+export const SESSION_TITLE_DATASET_KEY = 'lightcone-session-title';
 /** PageConfig option the persona manager uses to advertise its default persona. */
 const DEFAULT_PERSONA_OPTION = 'jupyter_ai_default_persona';
 
@@ -114,7 +122,24 @@ interface ILiveSession {
   entrypoint: Promise<string | null>;
   state: SessionState;
   initialized: boolean;
+  /**
+   * Whether the chat had a first message when its content loaded; undefined
+   * until then. Only a session that gets its first message while open is
+   * named after it.
+   */
+  titledWhenLoaded?: boolean;
   disconnect: () => void;
+}
+
+/** A session file still called `untitled` in a project's `chats/` folder. */
+const UNTITLED_SESSION = /(^|\/)chats\/untitled(-\d+)?\.chat$/;
+
+/**
+ * Whether a session is still named `untitled`: created in `chats/` before its
+ * first message was written, as the sidebar and Lightcone Agent create them.
+ */
+export function isUntitledSession(localPath: string): boolean {
+  return UNTITLED_SESSION.test(localPath);
 }
 
 function isChatModel(value: unknown): value is IChatModel {
@@ -146,6 +171,35 @@ export function isSessionWidget(value: unknown): value is IChatPanel {
 /** Whether a widget is a record tab: results form their own column. */
 export function isRecordTab(widget: Widget): boolean {
   return widget.title.dataset[RECORD_TAB_DATASET_KEY] !== undefined;
+}
+
+/**
+ * The title a chat's messages give it: the first line of its first message
+ * not sent by a persona; empty before anyone wrote.
+ */
+export function messagesTitle(messages: IChatModel['messages']): string {
+  const first = messages.find(
+    message => !isPersonaUser(message.sender) && message.body.trim()
+  );
+  return first ? titleFromMessage(first.body) : '';
+}
+
+/**
+ * Show a main-area session's title on its tab, or its file name while it has
+ * none. Only the title's dataset changes, so the file keeps its name.
+ */
+export function syncSessionTabTitle(panel: IChatPanel): void {
+  if (panel.isDisposed || !isSessionWidget(panel)) {
+    return;
+  }
+  const title = messagesTitle(panel.model.messages);
+  const { [SESSION_TITLE_DATASET_KEY]: shown, ...others } = panel.title.dataset;
+  if ((title || undefined) === shown) {
+    return;
+  }
+  panel.title.dataset = title
+    ? { ...others, [SESSION_TITLE_DATASET_KEY]: title }
+    : others;
 }
 
 /**
@@ -229,6 +283,20 @@ export class SessionManager implements ISessionService, IDisposable {
 
   activity(path: string): SessionState | undefined {
     return this._live.get(this._contents.localPath(path))?.state;
+  }
+
+  busy(): IBusySession[] {
+    const busy: IBusySession[] = [];
+    for (const live of this._live.values()) {
+      if (live.state === 'working' || live.state === 'attention') {
+        busy.push({
+          path: live.path,
+          title: this._liveTitle(live),
+          state: live.state
+        });
+      }
+    }
+    return busy;
   }
 
   async createAndOpen(
@@ -610,6 +678,7 @@ export class SessionManager implements ISessionService, IDisposable {
         }
         live.chatId = id;
         this._byChatId.set(id, live);
+        live.titledWhenLoaded ??= !!messagesTitle(live.panel.model.messages);
         // Apply persona activity reported before the chat was ready.
         this._update(live);
       })
@@ -668,6 +737,8 @@ export class SessionManager implements ISessionService, IDisposable {
   }
 
   private _update(live: ILiveSession): void {
+    syncSessionTabTitle(live.panel);
+    this._nameAfterFirstMessage(live);
     const model = live.panel.model;
     const personas =
       live.chatId === null ? undefined : this._processing.get(live.chatId);
@@ -689,6 +760,47 @@ export class SessionManager implements ISessionService, IDisposable {
       this._notify(live, transition);
     }
     this._announce(live);
+  }
+
+  /**
+   * Name a session created without a message after its first one, as Home
+   * names the sessions it starts: `chats/untitled.chat` becomes
+   * `chats/<slug of the first line>.chat`. Jupyter Chat and this manager
+   * follow the rename; a chat that already had messages when it loaded, or
+   * one outside `chats/`, keeps its name.
+   */
+  private _nameAfterFirstMessage(live: ILiveSession): void {
+    if (
+      live.titledWhenLoaded !== false ||
+      !isSessionWidget(live.panel) ||
+      !isUntitledSession(live.path) ||
+      this._naming.has(live.path)
+    ) {
+      return;
+    }
+    const title = messagesTitle(live.panel.model.messages);
+    const slug = title ? slugForTitle(title) : UNTITLED_SLUG;
+    if (slug === UNTITLED_SLUG) {
+      return;
+    }
+    const from = live.panel.model.name;
+    this._naming.add(live.path);
+    void (async () => {
+      const directory = PathExt.dirname(from);
+      const name = await uniqueSessionName(this._contents, directory, slug);
+      await this._contents.rename(
+        from,
+        this._contents.resolvePath(
+          directory,
+          `${name}${SESSION_FILE_EXTENSION}`
+        )
+      );
+    })().catch(error => {
+      console.warn(
+        'Could not name the session after its first message.',
+        error
+      );
+    });
   }
 
   private _announce(live: ILiveSession): void {
@@ -743,12 +855,9 @@ export class SessionManager implements ISessionService, IDisposable {
         return titleForSession(listed);
       }
     }
-    const first = live.panel.model.messages.find(
-      message => !isPersonaUser(message.sender) && message.body.trim()
-    );
     return titleForSession({
       path: live.path,
-      title: first ? titleFromMessage(first.body) : ''
+      title: messagesTitle(live.panel.model.messages)
     });
   }
 
@@ -875,6 +984,8 @@ export class SessionManager implements ISessionService, IDisposable {
   private readonly _listings = new Map<string, ICachedListing>();
   private readonly _fetches = new Map<string, Promise<ISessionListing>>();
   private readonly _live = new Map<string, ILiveSession>();
+  /** Untitled sessions already being named, by their old local path. */
+  private readonly _naming = new Set<string>();
   private readonly _byChatId = new Map<string, ILiveSession>();
   /** Personas reporting that they process a message, by chat id. */
   private readonly _processing = new Map<string, Set<string>>();

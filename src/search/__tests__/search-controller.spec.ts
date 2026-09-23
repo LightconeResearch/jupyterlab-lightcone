@@ -13,7 +13,7 @@ import {
 } from '../../project-data-service';
 import type { IProjectRoot } from '../../project-root';
 import type { ISessionService } from '../../sessions/session-service';
-import type { ISessionInfo } from '../../sessions/sessions-api';
+import { searchSessions, type ISessionInfo } from '../../sessions/sessions-api';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { SearchController } from '../search-controller';
 
@@ -26,6 +26,10 @@ jest.mock('../../api', () => ({
   ...jest.requireActual('../../api'),
   collectPaperMetadata: jest.fn(),
   fetchPaper: jest.fn()
+}));
+jest.mock('../../sessions/sessions-api', () => ({
+  ...jest.requireActual('../../sessions/sessions-api'),
+  searchSessions: jest.fn()
 }));
 jest.mock('@jupyterlab/apputils', () => ({
   ...jest.requireActual('@jupyterlab/apputils'),
@@ -312,7 +316,7 @@ describe('SearchController', () => {
   });
 
   it('keeps what it shows while the project lookup is pending or failed', async () => {
-    const { controller, current, labels } = harness(undefined);
+    const { controller, current, sessions, labels } = harness(undefined);
     await controller.open();
     expect(controller.palette.inputNode.placeholder).toBe('Search');
     expect(labels()).toEqual(['Create project']);
@@ -332,11 +336,18 @@ describe('SearchController', () => {
     expect(labels()).toContain('Cosmology fit');
     expect(labels()).toContain('Hubble session');
 
-    // A retried lookup that finds the same project names it again.
+    // A retried lookup that finds the same project names it again and
+    // refreshes the hits kept from the earlier opening.
+    sessions.list.mockResolvedValueOnce([
+      session('work/chats/new.chat', 'Newest session')
+    ]);
     current.set(WORK);
     expect(controller.palette.inputNode.placeholder).toBe(
       'Search work: sessions, results, files, commands'
     );
+    await until(() => labels().includes('Newest session'));
+    expect(labels()).not.toContain('Hubble session');
+    expect(labels()).toContain('Cosmology fit');
   });
 
   it('names the missing project once a pending lookup finds none', async () => {
@@ -374,5 +385,49 @@ describe('SearchController', () => {
     } finally {
       observing.dispose();
     }
+  });
+
+  it('finds session text once typing pauses and opens the session', async () => {
+    jest
+      .mocked(searchSessions)
+      .mockReset()
+      .mockResolvedValue([
+        {
+          path: 'work/chats/hubble.chat',
+          title: 'Hubble session',
+          message: 'm1',
+          author: 'Codex',
+          agent: true,
+          time: '2026-09-23T10:00:00Z',
+          snippet: 'the residuals flatten above z = 1'
+        }
+      ]);
+    const { controller, labels, item, sessions } = harness(WORK);
+    await controller.open();
+    expect(searchSessions).not.toHaveBeenCalled();
+    controller.palette.inputNode.value = 'residuals';
+    controller.palette.inputNode.dispatchEvent(new Event('input'));
+    await until(() => labels().includes('the residuals flatten above z = 1'));
+    expect(jest.mocked(searchSessions).mock.calls[0].slice(1)).toEqual([
+      'work/astra.yaml',
+      'residuals'
+    ]);
+    await controller.palette.commands.execute(
+      item('the residuals flatten above z = 1')
+    );
+    await until(() => sessions.openSession.mock.calls.length > 0);
+    expect(sessions.openSession).toHaveBeenCalledWith('work/chats/hubble.chat');
+  });
+
+  it('never searches session text without the sessions service', async () => {
+    jest.mocked(searchSessions).mockReset();
+    const { controller } = harness(WORK, { withSessions: false });
+    await controller.open();
+    controller.palette.inputNode.value = 'residuals';
+    controller.palette.inputNode.dispatchEvent(new Event('input'));
+    await new Promise(resolve =>
+      setTimeout(resolve, SearchController.MESSAGE_SEARCH_DELAY + 50)
+    );
+    expect(searchSessions).not.toHaveBeenCalled();
   });
 });

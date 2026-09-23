@@ -4,20 +4,23 @@ import type { CommandRegistry } from '@lumino/commands';
 import { sessionActivity, sessionSubtitle } from '../home/home-model';
 import type { ILoadedProjectData } from '../project-data';
 import type { SessionState } from '../sessions/session-service';
-import type { ISessionInfo } from '../sessions/sessions-api';
+import type { ISessionInfo, ISessionMatch } from '../sessions/sessions-api';
 import type { IProjectFile } from './project-files';
 
 /** An icon as the command registry hands it out (a `LabIcon` in practice). */
 export type SearchIcon = ReturnType<CommandRegistry['icon']>;
 
-/** Kinds of search hit: the ASTRA surfaces plus sessions, files and commands. */
+/**
+ * Kinds of search hit: the ASTRA surfaces plus sessions (by title), messages
+ * (session text), files and commands.
+ */
 export type SearchKind =
-  ResolvedRecord['kind'] | 'paper' | 'session' | 'file' | 'command';
+  ResolvedRecord['kind'] | 'paper' | 'session' | 'message' | 'file' | 'command';
 
 /** The kinds drawn with an ASTRA glyph instead of an icon. */
 export type SearchSurfaceKind = Exclude<
   SearchKind,
-  'session' | 'file' | 'command'
+  'session' | 'message' | 'file' | 'command'
 >;
 
 /** What Enter does for a hit; `SearchController` dispatches on `type`. */
@@ -50,6 +53,7 @@ export interface ISearchCandidate {
 /** Section names in display order; prior insights sit with findings. */
 export const SEARCH_CATEGORIES: Readonly<Record<SearchKind, string>> = {
   session: 'Sessions',
+  message: 'In sessions',
   output: 'Results',
   decision: 'Decisions',
   input: 'Inputs',
@@ -61,19 +65,20 @@ export const SEARCH_CATEGORIES: Readonly<Record<SearchKind, string>> = {
 };
 
 /**
- * Where each kind's section sits, in display order: sessions, the
- * ASTRA records, files, then commands.
+ * Where each kind's section sits, in display order: sessions (titles,
+ * then their text), the ASTRA records, files, then commands.
  */
 export const SEARCH_SECTION_ORDER: Readonly<Record<SearchKind, number>> = {
   session: 1,
-  output: 2,
-  decision: 3,
-  input: 4,
-  finding: 5,
-  prior_insight: 5,
-  paper: 6,
-  file: 7,
-  command: 8
+  message: 2,
+  output: 3,
+  decision: 4,
+  input: 5,
+  finding: 6,
+  prior_insight: 6,
+  paper: 7,
+  file: 8,
+  command: 9
 };
 
 /** Every Lightcone command ID starts with this. */
@@ -132,6 +137,27 @@ export function sessionCandidates(
       action: { type: 'session', path: session.path },
       ...(options.icon ? { icon: options.icon } : {})
     }));
+}
+
+/**
+ * Messages of the project's sessions containing the query, newest first. The
+ * label is the text around the match, which the palette matches again; the
+ * caption names the session and who wrote the message.
+ */
+export function messageCandidates(
+  matches: readonly ISessionMatch[],
+  icon?: SearchIcon
+): ISearchCandidate[] {
+  return matches.map((match, index) => ({
+    id: `message:${match.path}:${match.message ?? index}`,
+    kind: 'message',
+    category: SEARCH_CATEGORIES.message,
+    label: match.snippet,
+    caption: match.author ? `${match.title} · ${match.author}` : match.title,
+    rank: index,
+    action: { type: 'session', path: match.path },
+    ...(icon ? { icon } : {})
+  }));
 }
 
 /**

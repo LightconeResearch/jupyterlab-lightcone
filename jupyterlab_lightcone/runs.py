@@ -29,6 +29,7 @@ from tornado import web
 
 from .project_routes import ProjectAPIHandler
 from .sessions import project_contents_path
+from .versions import batchable, blob_sizes, read_blobs
 
 JOB_SCHEMA_ID = "https://events.lightcone.dev/jupyterlab_lightcone/job/v1"
 JOB_SCHEMA_PATH = Path(__file__).parent / "event_schemas" / "job.yaml"
@@ -54,6 +55,10 @@ RESULTS_DIRECTORY = "results"
 """Where every materialization writes its output and manifest, relative to the project."""
 
 RUN_SUBJECT = re.compile(r"^\[DATALAD RUNCMD\] (\S+) \[(\S+)\]$")
+MAX_MANIFEST_BYTES = 256 * 1024
+"""A manifest larger than this is not read for its invocation."""
+_SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_GIT_SHA = re.compile(r"[0-9a-f]{7,64}")
 RECORD_START = "=== Do not change lines below ==="
 RECORD_END = "^^^ Do not change lines above ^^^"
 TARGET = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-/]{0,199}$")
@@ -127,13 +132,16 @@ def run_history(project: Path, limit: int = MAX_RUNS) -> list[dict]:
     materialization commits its output and manifest there. The repository may
     hold other projects, or be a larger work tree the engine adopted around
     this one, and their runs are not this project's. `--full-history` keeps
-    runs that history simplification would hide behind a merge.
+    runs that history simplification would hide behind a merge. Signature
+    checks are turned off, since a user's `log.showSignature` would print
+    their verdict into the output ahead of each signed commit's hash.
     """
     try:
         result = subprocess.run(
             [
                 "git",
                 "log",
+                "--no-show-signature",
                 f"--max-count={limit}",
                 "--full-history",
                 "--format=%H%x1f%cI%x1f%s%x1f%B%x1e",
@@ -157,7 +165,55 @@ def run_history(project: Path, limit: int = MAX_RUNS) -> list[dict]:
         run = parse_run(entry.strip())
         if run is not None:
             runs.append(run)
+    for run, invocation in zip(runs, run_invocations(project, runs)):
+        run["invocation"] = invocation
     return runs
+
+
+def run_invocations(project: Path, runs: list[dict]) -> list[str | None]:
+    """The invocation each run belongs to: the `git_sha` its manifest recorded.
+
+    Every output one `lc materialize` makes records the commit the run started
+    from, so runs sharing it come from one invocation. The manifest is read as
+    that run's commit holds it; a run without a readable one has None.
+    """
+    names: list[str | None] = []
+    for run in runs:
+        output, universe = run["output"], run["universe"]
+        name = f"{run['commit']}:./{RESULTS_DIRECTORY}/{universe}/.{output}.manifest.json"
+        safe = _SAFE_NAME.fullmatch(output) and _SAFE_NAME.fullmatch(universe) and batchable(name)
+        names.append(name if safe else None)
+    wanted = [name for name in names if name is not None]
+    try:
+        sizes = blob_sizes(project, wanted)
+        blobs = read_blobs(project, [name for name in wanted if (sizes[name] or 0) <= MAX_MANIFEST_BYTES])
+    except web.HTTPError:
+        return [None] * len(runs)
+    invocations: list[str | None] = []
+    for name in names:
+        try:
+            manifest = json.loads(blobs[name]) if name in blobs else None
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            manifest = None
+        sha = manifest.get("git_sha") if isinstance(manifest, dict) else None
+        invocations.append(sha if isinstance(sha, str) and _GIT_SHA.fullmatch(sha) else None)
+    return invocations
+
+
+def describe_venue() -> dict:
+    """Where this server's runs execute: inside a SLURM allocation, and on how many nodes.
+
+    The engine spans an allocation with one worker per node; outside one it
+    runs on this host. A SLURM environment whose node count is not a number is
+    still an allocation, of unknown size.
+    """
+    from lightcone.engine import venue
+
+    try:
+        nodes = venue.allocation_nodes()
+    except Exception:  # The engine refuses a mangled count; the report only says it is unknown.
+        return {"slurm": "SLURM_JOB_ID" in os.environ, "nodes": None}
+    return {"slurm": nodes > 0, "nodes": nodes or None}
 
 
 # =============================================================================
@@ -389,6 +445,55 @@ def _kill_group(process) -> None:
         pass
 
 
+def restore_stopped_results(project: Path) -> list[str]:
+    """Put back the committed results a stopped run removed or half wrote.
+
+    A materialization removes its outputs before the recipe writes them and
+    commits them afterwards. Stopped in between, it leaves them deleted or
+    partial, and the engine then refuses to start from that tree, advising to
+    commit it: the damage would become history. Tracked files under
+    `results/` that differ from HEAD are restored from HEAD; untracked files
+    are left alone. Returns the restored paths, relative to the project; none
+    outside Git or before the first commit, where there is nothing to restore.
+    Raises RuntimeError when Git cannot list or restore them.
+    """
+    head = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+        cwd=project,
+        capture_output=True,
+        timeout=GIT_TIMEOUT,
+        check=False,
+    )
+    if head.returncode != 0:
+        return []
+    changed = subprocess.run(
+        ["git", "diff", "--name-only", "--relative", "--diff-filter=DMT", "-z", "HEAD", "--", RESULTS_DIRECTORY],
+        cwd=project,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=GIT_TIMEOUT,
+        check=False,
+    )
+    if changed.returncode != 0:
+        raise RuntimeError(changed.stderr.strip() or "git diff failed")
+    paths = [path for path in changed.stdout.split("\0") if path]
+    if not paths:
+        return []
+    restored = subprocess.run(
+        ["git", "restore", "--source=HEAD", "--staged", "--worktree", "--", *paths],
+        cwd=project,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=GIT_TIMEOUT,
+        check=False,
+    )
+    if restored.returncode != 0:
+        raise RuntimeError(restored.stderr.strip() or "git restore failed")
+    return paths
+
+
 class JobRegistry:
     """This server's materialization jobs, in memory, supervised as process groups.
 
@@ -503,6 +608,8 @@ class JobRegistry:
             # Recipes share the engine's stdout; however bounded, the search for
             # its report stays off the event loop.
             job.report = await asyncio.to_thread(parse_report, job.stdout.text())
+            if job.state == "cancelled":
+                await self._restore_after_stop(job)
         except asyncio.CancelledError:
             if job.process is not None:
                 _kill_group(job.process)
@@ -513,6 +620,23 @@ class JobRegistry:
             if readers:
                 await asyncio.gather(*readers, return_exceptions=True)
             self._finish(job)
+
+    async def _restore_after_stop(self, job: Job) -> None:
+        """Undo what a stopped run did to the project's committed results, and say so."""
+        try:
+            restored = await asyncio.to_thread(restore_stopped_results, job.directory)
+        except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+            self.log.warning("Could not restore the results of stopped materialization %s: %s", job.id, error)
+            self._record(
+                job,
+                display_line(f"Could not restore the results the stopped run changed ({error}); check `git status` before materializing again."),
+            )
+            return
+        if restored:
+            self._record(
+                job,
+                display_line(f"Restored {len(restored)} committed result file(s) the stopped run had removed or changed: {', '.join(restored)}"),
+            )
 
     def _finish(self, job: Job) -> None:
         """Record the outcome once and announce it."""
@@ -608,7 +732,7 @@ class RunsHandler(ProjectAPIHandler):
         # Git walks the history on disk, so it runs off the event loop.
         runs = await asyncio.to_thread(run_history, project)
         jobs = job_registry(self.settings).listing(project)
-        self.finish({"runs": runs, "jobs": jobs})
+        self.finish({"runs": runs, "jobs": jobs, "venue": describe_venue()})
 
     @web.authenticated
     @authorized(action="write", resource="contents")

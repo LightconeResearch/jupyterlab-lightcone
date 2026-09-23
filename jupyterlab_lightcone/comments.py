@@ -9,7 +9,10 @@ dirties the project's Git tree.
 The store is hidden, so it is read from disk rather than through the Contents
 API; every route still resolves the entrypoint through the contents manager,
 which authorizes the project. `agent_workspace.py` delivers the pending
-comments to the agent through `deliver_comments`.
+comments to the agent through `deliver_comments`. Where a deployment runs
+another persona manager, nothing on the server sees the message go out: the
+composer then asks the `send` route for the block and appends it to the
+message itself.
 """
 
 import asyncio
@@ -29,6 +32,16 @@ from .project_routes import ProjectAPIHandler
 
 COMMENT_LOCKS = "lightcone_comment_locks"
 """The web application setting holding one `asyncio.Lock` per project store."""
+
+COMMENT_DELIVERY = "lightconeCommentDelivery"
+"""The page configuration option saying how pending comments reach the agent.
+
+``"prompt"`` when Lightcone's persona manager appends them to the prompt it
+hands the persona; ``"message"`` otherwise, when the composer appends them to
+the message text itself through the ``send`` route.
+"""
+
+MAX_SEND_IDS = 200
 
 STORE_VERSION = 1
 STORE_FILE = Path(".lightcone", "comments.json")
@@ -252,13 +265,13 @@ def _stored_comment(value) -> dict:
     if sent_with is not None and (
         not isinstance(sent_with, dict)
         or not isinstance(sent_with.get("chat"), str)
-        or not isinstance(sent_with.get("message"), str)
+        or not (sent_with.get("message") is None or isinstance(sent_with.get("message"), str))
     ):
-        raise ValueError("sentWith names a chat and a message.")
+        raise ValueError("sentWith names a chat and, when known, a message.")
     if isinstance(label, bool) or not isinstance(label, int) or label < 1:
         raise ValueError("A label is a positive integer.")
     # The draft fields were checked above; the store must be able to write these back too.
-    sent = (sent_with["chat"], sent_with["message"]) if sent_with is not None else ()
+    sent = (sent_with["chat"], sent_with.get("message")) if sent_with is not None else ()
     for field in (identifier, created, updated, author, *sent):
         if field is not None:
             _encodable(field, "A stored field")
@@ -268,7 +281,7 @@ def _stored_comment(value) -> dict:
         "updated": updated,
         "author": author,
         "status": status,
-        "sentWith": None if sent_with is None else {"chat": sent_with["chat"], "message": sent_with["message"]},
+        "sentWith": None if sent_with is None else {"chat": sent_with["chat"], "message": sent_with.get("message")},
         "label": label,
         **comment,
     }
@@ -447,6 +460,10 @@ def describe_comment(comment: dict, project_dir: str, file: str | None) -> str:
     if target["kind"] == "record":
         head = target["record"]
         details = [part for part in (file, f"version {label}" if label else None) if part]
+    elif target["kind"] == "message":
+        # A reply in a session's transcript: the quote says which one.
+        head = f"session {relative_path(target['path'], project_dir)}"
+        details = []
     else:
         head = relative_path(target["path"], project_dir)
         details = [f"version {label}"] if label else []
@@ -466,20 +483,28 @@ def describe_comment(comment: dict, project_dir: str, file: str | None) -> str:
 
 
 def format_comment_block(comments: list[dict], project_dir: str, files: dict[str, str | None]) -> str:
-    """The block appended to the user's message, one numbered line per comment."""
+    """The block appended to the user's message, one numbered entry per comment.
+
+    A note written over several lines keeps its line breaks; its later lines
+    are indented under the entry so that every entry still starts with its
+    number.
+    """
     lines = [f"Comments on this project ({len(comments)}):"]
     for index, comment in enumerate(comments, 1):
-        lines.append(f"{_marker(index)} {describe_comment(comment, project_dir, files.get(comment['id']))}")
+        first, *rest = describe_comment(comment, project_dir, files.get(comment["id"])).splitlines()
+        lines.append(f"{_marker(index)} {first}")
+        lines.extend(f"   {line}" if line else "" for line in rest)
     return "\n".join(lines)
 
 
 async def deliver_comments(
-    locks: dict, project: Path, project_dir: str, ids: list[str], chat: str, message_id: str
+    locks: dict, project: Path, project_dir: str, ids: list[str], chat: str, message_id: str | None
 ) -> str | None:
     """Mark the pending comments among `ids` sent with a message; return their block.
 
     Missing and already sent ids are skipped. Returns None when nothing was
-    pending, so the message goes out unchanged.
+    pending, so the message goes out unchanged. The message id is None when
+    the composer appends the block before the message exists.
     """
     path = store_path(project)
     wanted = set(ids)
@@ -554,6 +579,43 @@ class CommentsHandler(CommentAPIHandler):
         self.finish(comment)
 
 
+def validate_send(body) -> tuple[list[str], str]:
+    """The comment ids and the chat of a send request."""
+    if not isinstance(body, dict):
+        raise _bad("A send request is an object.")
+    ids, chat = body.get("ids"), body.get("chat")
+    if (
+        not isinstance(ids, list)
+        or not ids
+        or len(ids) > MAX_SEND_IDS
+        or not all(isinstance(identifier, str) and identifier for identifier in ids)
+    ):
+        raise _bad(f"A send request names 1 to {MAX_SEND_IDS} comment ids.")
+    if not isinstance(chat, str) or not chat or len(chat) > MAX_PATH_CHARS:
+        raise _bad("A send request names the chat the comments go to.")
+    _encodable(chat, "The chat path")
+    for identifier in ids:
+        _encodable(identifier, "A comment id")
+    return ids, chat
+
+
+class CommentsSendHandler(CommentAPIHandler):
+    """Mark pending comments sent and return their block, for a composer that appends it itself."""
+
+    @web.authenticated
+    @authorized(action="write", resource="contents")
+    async def post(self):
+        """`{"path", "ids", "chat"}` → `{"block"}`; the block is null when none was pending."""
+        body = self.get_json_body()
+        entrypoint = body.get("path") if isinstance(body, dict) else None
+        project = await self.project_named(entrypoint)
+        ids, chat = validate_send(body)
+        block = await deliver_comments(
+            self.locks(), project, project_directory(entrypoint), ids, chat, None
+        )
+        self.finish({"block": block})
+
+
 class CommentHandler(CommentAPIHandler):
     """Edit or delete one pending comment."""
 
@@ -598,5 +660,7 @@ def setup_comment_handlers(web_app):
     api = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api")
     web_app.add_handlers(".*$", [
         (url_path_join(api, "comments"), CommentsHandler),
+        # Before the id route, which would otherwise take "send" for an id.
+        (url_path_join(api, "comments", "send"), CommentsSendHandler),
         (url_path_join(api, "comments", r"([\w-]+)"), CommentHandler),
     ])

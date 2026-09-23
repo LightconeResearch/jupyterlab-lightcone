@@ -12,10 +12,12 @@ import {
 } from '../project-data-service';
 import type { IProjectRoot } from '../project-root';
 import type { ISessionService } from '../sessions/session-service';
+import { MIN_SESSION_QUERY, searchSessions } from '../sessions/sessions-api';
 import { walkProjectFiles, type IProjectFile } from './project-files';
 import {
   commandCandidates,
   fileCandidates,
+  messageCandidates,
   recordCandidates,
   sessionCandidates,
   type ISearchCandidate
@@ -88,6 +90,25 @@ export class SearchSources implements IDisposable {
       icon: chatIcon,
       activity: path => sessions.activity(path)
     });
+  }
+
+  /**
+   * Messages of the project's sessions containing `query`; nothing without
+   * the sessions service, which is what opens a hit, or for a short query.
+   */
+  async searchMessages(
+    project: IProjectRoot,
+    query: string
+  ): Promise<ISearchCandidate[]> {
+    if (!this.sessions || query.trim().length < MIN_SESSION_QUERY) {
+      return [];
+    }
+    const matches = await searchSessions(
+      this.app.serviceManager.serverSettings,
+      project.entrypoint,
+      query.trim()
+    );
+    return messageCandidates(matches, chatIcon);
   }
 
   async listRecords(project: IProjectRoot): Promise<ISearchCandidate[]> {

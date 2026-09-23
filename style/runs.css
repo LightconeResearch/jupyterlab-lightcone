@@ -367,3 +367,26 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Where runs execute, and what the server uses, under the header. */
+.jp-jupyterlab-lightcone-Runs-compute {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 12px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+}
+
+/* The outputs one lc materialize made, under one heading. */
+.jp-jupyterlab-lightcone-Runs-invocation {
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Runs-invocationHead {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}

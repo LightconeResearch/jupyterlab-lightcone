@@ -3,12 +3,15 @@
 The open AI-assisted research workbench
 
 **Lightcone Lab** brings a research workbench into JupyterLab, connecting
-methods, evidence, and computation. Inside a project it provides a Home page, a
-project sidebar, agent sessions, record tabs with result versions and
-provenance, runs, comments, search, and two Lightcone themes, on top of an ASTRA
-analysis inventory, materialized outputs, cited papers, and Jupyter AI
-integration. ASTRA is the analysis format; `astra.yaml` and its SDK contracts
-retain their names.
+methods, evidence, and computation. Inside a project it provides a
+[Home](#home) page, a [project sidebar](#lightcone-sidebar), agent
+[sessions](#sessions), [record tabs with result versions and
+provenance](#record-tabs-versions-and-provenance), [runs](#runs),
+[comments](#comments), [search](#search), a [settings page](#lightcone-settings)
+and two [Lightcone themes](#appearance), on top of an ASTRA analysis
+inventory, materialized outputs, cited papers, and Jupyter AI integration.
+ASTRA is the analysis format; `astra.yaml` and its SDK contracts retain their
+names.
 
 ## Requirements
 
@@ -78,12 +81,14 @@ between Home and the stock launcher.
 The left column shows the project's name and description, **Open report**
 (only when the project has a `myst.yml` or `myst.yaml`; it opens the
 [MySTRA Viewer](#mystra-viewer)), result plates under one freshness line with
-**All results →**, and a line of analysis counts with **Open inventory →**. The
-right column is the desk: a composer with an agent picker and **Start**, then
-recent sessions with a working or needs-input marker. **Start** is the only
-action on Home that sends anything. Home reads JupyterLab's theme variables, so
-it looks native under any theme; nothing on it starts a kernel, MyST or a
-recipe.
+**All results →**, and a line of analysis counts with **Open inventory →**.
+When results are stale the freshness line names them and **Rematerialize stale
+(N)** (or **Refresh behind (N)** when they only lag the environment) starts
+`lc materialize` for them and opens [Runs](#runs) to follow it. The right
+column is the desk: a composer with an agent picker and **Start**, then recent
+sessions with a working or needs-input marker. **Start** is the only action on
+Home that sends a message. Home reads JupyterLab's theme variables, so it looks
+native under any theme; showing it starts no kernel, MyST or recipe.
 
 The extension replaces `@jupyterlab/launcher-extension:plugin` through
 `disabledExtensions` in its `package.json`. Disabling Lightcone Lab
@@ -94,28 +99,51 @@ Elyra's, conflict with it.
 ### Lightcone sidebar
 
 The Lightcone icon in the left sidebar (or **Show Lightcone Sidebar** in the
-command palette) opens the project's navigation: its name with a Home button,
-**New session**, **Search**, the sessions (renamable, with activity markers),
-results with their materialization status, the analysis counts, the number of
-pending [comments](#comments), and links to **Files**, **Report** and
-[**Runs**](#runs). It follows the current project and never closes tabs when the
-project changes. Outside a project it offers **New project**.
+command palette) opens the project's navigation: its name with a project
+switcher (▾) and a Home button, **New session**, **Search**, the sessions
+(renamable, with activity markers), results with their materialization status
+and **Rematerialize stale (N)**, the analysis tree with record counts, the
+number of pending [comments](#comments), and links to **Files**, **Report** and
+[**Runs**](#runs). The switcher lists recently visited projects and the other
+projects in the same folder, plus **Open project…** and **New Lightcone
+project**; choosing one moves the file browser there, and the current project
+follows. The sidebar never closes or swaps tabs when the project changes. When
+two projects' tabs would read the same (two `astra.yaml` inventories, two
+Homes, two records called "Hubble diagram"), each such tab shows its
+project's folder name after its label. Outside a project the sidebar offers
+**New project**.
 
 ### Sessions
 
 A session is a Jupyter AI chat stored in `<project>/chats/`, named after its
-first message (`chats/hubble-diagram-with-error-bars.chat`; `untitled.chat` when
-started empty). **Start** on Home and **New session** in the sidebar create one
-and open it in the main area; **Lightcone Agent** does the same unless a session
-of the project is already open, which it focuses instead. Creating a session
-also creates `chats/` if needed and adds the project's `chats/` folder and
-`.chat` files to the repository's local `.git/info/exclude` (never to
-`.gitignore`), so chats stay out of the project's Git status. Results opened
-from a session split to its right, later results join that group, and closing
-them returns focus to the session. A session that finishes, or asks for
+first message (`chats/hubble-diagram-with-error-bars.chat`). **Start** on Home
+and **New session** in the sidebar create one and open it in the main area;
+**Lightcone Agent** does the same unless a session of the project is already
+open, which it focuses instead. A session started empty is created as
+`chats/untitled.chat` and renamed after its first message once you send it;
+the open tab follows the rename. Tabs, the sidebar and Home show a session's
+title (the first line of its first message), and the sidebar can rename its
+file. Creating a session also creates `chats/` if needed and adds the
+project's `chats/` folder and `.chat` files to the repository's local
+`.git/info/exclude` (never to `.gitignore`), so chats stay out of the
+project's Git status and `lc materialize` still runs. Results opened from a
+session split to its right, later results join that group, and closing them
+returns focus to the session. A session that finishes, or asks for
 permission, while you look elsewhere raises a notification with **Open
-session**. An empty session shows the project name and "What would you like to
-explore?".
+session**, and while its agent works it is listed under **Lightcone** in
+JupyterLab's Running panel. An empty session shows the project name and "What
+would you like to explore?".
+
+A session's toolbar states the agent's permission mode as Jupyter AI records
+it (for example "Codex: agent full access") and that the engine's sandbox
+covers only what `lc run` and `lc materialize` execute: it does not confine the
+agent's own shell. In the composer, `@` completes the project's records
+(`@hub` offers `outputs.hubble_diagram`, inserted with the version it has now)
+and `#` completes the project's sessions (inserted as their `chats/…` file), so
+the agent reads exactly what you referred to. When the ACP client records an
+agent's plan in its message (the Agent Client Protocol's plan entries under
+`plan`), the message shows it as a checklist, "Plan · 3 of 5";
+`jupyter-ai-acp-client` 0.3.0 does not record plans yet.
 
 Replies link back into the workbench: links to absolute paths under the server
 root open those files in JupyterLab, images at such paths render, and the last
@@ -192,60 +220,88 @@ and opens it again beside it.
 
 An output's record shows **Provenance** below Recipe as tabs: **Run** (status,
 times, command, exit code, commit and Git tree), **Code** (the recorded command
-and the script it names, opened as it is now), **Inputs** (the recorded input
-versions, each linking to its record), **Environment** (environment, engine, uv,
-image, sandbox, definition and data versions) and **Conversation** (sessions
+and the script it names: **As run** shows the script at the commit the run
+started from, **Changes since** its diff against the file now, and **Open
+current file** opens it), **Inputs** (the recorded input versions, each
+linking to its record), **Environment** (environment, engine, uv, image,
+sandbox, definition and data versions, and the packages `uv.lock` pinned for
+the run with what changed in the lock since) and **Conversation** (sessions
 active around the run, matched by time, so a heuristic). **Versions** steps
 through every committed version of the output file with ◀ and ▶; an older
 version shows its own bytes under a banner with **Latest**, and content missing
 from the local annex says so. **Compare with previous** shows images side by
-side or with a swipe slider, numeric deltas for JSON metrics, and row, column
-and header changes for CSV/TSV tables. **Pipeline** in the command palette draws
-the project's inputs and outputs as a graph colored by materialization status;
-click a node to open its record.
+side, with a swipe slider or blinking between the two, numeric deltas for JSON
+metrics, and row, column and header changes for CSV/TSV tables. Only outputs
+`lc materialize` made have versions; older bytes last only while git-annex
+keeps their content, and files an agent wrote outside `lc materialize` have no
+history (the ⓘ beside the stepper says so). **Pipeline** in the command
+palette draws the project's inputs and outputs as a graph colored by
+materialization status; click a node to open its record.
 
 ### Runs
 
 **Runs** (sidebar footer or command palette) lists the project's
 materialization jobs started from JupyterLab, with their live log and **Stop**,
 the outputs that are stale or behind with actions to rematerialize them, and the
-run history recorded in Git. **Materialize** in its toolbar, or **Materialize
-outputs** in the command palette, runs the engine's `materialize` in the project
-on the Jupyter server. One job runs per project at a time; the engine's refusals
-(a dirty tree, a missing committer) are shown as it prints them. Running jobs
-also appear under **Lightcone** in JupyterLab's Running panel. Materializing
-executes the project's recipes as the server user: an authorizer must permit
-`execute` on the `lightcone` resource and `write` on `contents`.
+run history recorded in Git, by day, with the outputs one `lc materialize` made
+grouped together; a run opens its output at the version it made. **Materialize**
+in its toolbar, or **Materialize outputs** in the command palette, runs the
+engine's `materialize` in the project on the Jupyter server; Home and the
+sidebar start the same job for stale results. One job runs per project at a
+time; the engine's refusals (a dirty tree, a login node, a missing committer)
+are shown as it prints them. Runs says where recipes execute (this host, or the
+SLURM allocation the server runs in, with its node count) and, when
+`jupyter-resource-usage` is installed, the server's memory and CPU use. Running
+jobs, and sessions whose agent is working, appear under **Lightcone** in
+JupyterLab's Running panel; **Stop All** there stops materializations only. A
+`lc materialize` an agent starts in its own shell is not followed; it appears
+in the history once it commits. Materializing executes the project's recipes
+as the server user: an authorizer must permit `execute` on the `lightcone`
+resource and `write` on `contents`.
 
 ### Comments
 
 Click a figure in a record tab or an image opened in JupyterLab to pin a comment
-at that point, or select text in a record, a Markdown preview, a text editor or
-a cited paper and choose **Comment**. Comments are numbered per target (①, ②, …)
-and kept in `<project>/.lightcone/comments.json`; pins on images can be dragged,
+at that point, or select text in a record, a Markdown preview, a text editor, a
+cited paper or a message of a session and choose **Comment**. Comments are
+numbered per target (①, ②, …), pinned to the version they were made on, and
+kept in `<project>/.lightcone/comments.json`; pins on images can be dragged,
 and every pending comment can be edited or deleted. Pending comments appear as
 chips above the composer of every session in the project and as a count in the
 sidebar; a chip opens its target. Sending the next message in a session sends
 the pending comments with it: the agent's prompt gains a short list of them, the
 chat keeps your message as typed and shows them as cards on it, and they leave
-the pending list.
+the pending list. Where a deployment configures its own Jupyter AI persona
+manager, which does not append them to the prompt, the list is appended to the
+message text itself instead.
 
 ### Search
 
 Ctrl+K (Cmd+K on macOS), **Search** in the sidebar, or **Search Lightcone
-project** in the command palette searches the current project's sessions,
-records (results, decisions, inputs, findings, papers), files and Lightcone
-commands. Sessions open in the main area, records as record tabs, files in
-their default editor.
+project** in the command palette searches the current project's sessions (by
+title, then, once you pause typing, the text of their messages under **In
+sessions**), records (results, decisions, inputs, findings, papers), files and
+Lightcone commands. Sessions open in the main area, records as record tabs,
+files in their default editor.
 
 ### Lightcone settings
 
 **Lightcone Settings** in the command palette opens one page of the actual
-setup: the agent adapters and their executables, installed Lightcone skills, the
-project's `AGENTS.md` or `CLAUDE.md` (**Edit** opens it), the project
-environment, the tools the engine uses, the execution boundary (sandbox), the
-project's git-annex storage and remotes, and the theme. **Refresh** checks
-again.
+setup. **Agents**: for Claude and Codex, whether Jupyter AI's ACP client is
+installed, the adapter executable is found, Jupyter AI discovered the persona
+(it loads personas once, so an adapter installed later needs a server restart)
+and credentials are found, each reported on its own. **Skills**: the Lightcone
+and ASTRA skills installed for each harness, with their version. **Project
+instructions**: the project's `AGENTS.md` or `CLAUDE.md` (**Edit** opens it).
+**Environment**: whether `uv.lock` matches `pyproject.toml` and `.venv` matches
+the lock (as `lc status` checks them), and **Register project kernel**, which
+installs a user kernel spec (`lightcone-<folder>`) running notebooks in the
+project's `.venv`; it needs `ipykernel` declared in the project (`uv add --dev
+ipykernel`) and `execute` on `lightcone`. **Tools** the engine uses.
+**Execution boundary**: the sandbox, the container runtime and image, and
+whether the server runs in a SLURM allocation. **Storage**: the project's
+git-annex, its remotes and how many annexed results lack their content here.
+**Appearance**: the theme. **Refresh** checks again.
 
 ### Project updates
 
@@ -382,7 +438,9 @@ its conversation. Cards display the existing ASTRA previews directly, including
 supported figures and tables. Click a card to open it in a tab; links and controls
 inside the card keep their own actions. They persist in saved
 chats and resolve the current project data in the universe each card recorded
-when it was created.
+when it was created. A card of a materialized output records the version it
+showed: it keeps showing those bytes after later runs, with a chip saying a
+newer version exists.
 The text fallback remains readable without Lightcone installed. These cards work
 with both the stock Markdown renderer and `jupyterlab-myst` enabled.
 
@@ -447,10 +505,24 @@ compatibility boundary and future ways to simplify it.
 Two JupyterLab themes, **Lightcone Light** and **Lightcone Dark**, restyle the
 whole shell in the Lightcone brand: parchment canvas, white documents, blue-ink
 actions, square corners and the brand fonts. Choose them under **Settings ›
-Theme** or in [Lightcone settings](#lightcone-settings). Under any other theme
-the shell stays as it is: Home and the sidebar read JupyterLab's theme variables,
-and inventory components use the shared Lightcone brand, following JupyterLab's
-light/dark setting.
+Theme** or in [Lightcone settings](#lightcone-settings); with **Settings ›
+Theme › Synchronize with System Settings** they can serve as the preferred
+light and dark themes. Lightcone never switches your theme; a deployment can
+make one the default in `overrides.json`:
+
+```json
+{
+  "@jupyterlab/apputils-extension:themes": {
+    "theme": "Lightcone Light"
+  }
+}
+```
+
+Under any other theme the shell stays as it is: Home and the sidebar read
+JupyterLab's theme variables, and inventory components use the shared
+Lightcone brand, following JupyterLab's light/dark setting. **Focus Layout** in
+the command palette collapses the right sidebar and hides the status bar; run it
+again to restore them.
 
 The brand adapter from `@lightcone-research/brand` supplies every ASTRA UI
 token; the extension does not redefine any of them from JupyterLab settings.

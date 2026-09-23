@@ -9,9 +9,12 @@ import { Widget } from '@lumino/widgets';
 import type { ICurrentProject } from '../../current-project';
 import type { IProjectRoot } from '../../project-root';
 import { CustomizeWidget } from '../customize-widget';
-import { fetchSetup, type ISetupReport } from '../setup-api';
+import { fetchSetup, registerKernel, type ISetupReport } from '../setup-api';
 
-jest.mock('../setup-api', () => ({ fetchSetup: jest.fn() }));
+jest.mock('../setup-api', () => ({
+  fetchSetup: jest.fn(),
+  registerKernel: jest.fn()
+}));
 const fetch = jest.mocked(fetchSetup);
 
 const report: ISetupReport = {
@@ -25,7 +28,9 @@ const report: ISetupReport = {
         name: 'claude-agent-acp',
         found: true,
         path: '/usr/bin/claude-agent-acp'
-      }
+      },
+      discovered: true,
+      authenticated: true
     }
   ],
   skills: [],
@@ -36,9 +41,23 @@ const report: ISetupReport = {
     myst: { found: true, path: '/usr/bin/myst', version: '1.6.0' }
   },
   sandbox: { backend: 'landlock', available: true },
-  environment: { lock: true, venv: true },
+  venue: { slurm: false, nodes: null },
+  environment: {
+    lock: true,
+    venv: true,
+    mode: 'direct',
+    lockCurrent: true,
+    venvCurrent: true
+  },
+  kernel: {
+    name: 'lightcone-project',
+    python: '/p/.venv/bin/python',
+    ipykernel: true,
+    registered: false
+  },
+  container: { runtime: null, image: 'direct' },
   instructions: { path: 'project/AGENTS.md', exists: true },
-  storage: { annex: true, remotes: [] }
+  storage: { annex: true, remotes: [], content: null }
 };
 
 const PROJECT: IProjectRoot = {
@@ -98,6 +117,7 @@ function host(
   options: {
     project?: IProjectRoot | null | undefined;
     themes?: FakeThemeManager;
+    kernelspecs?: { refreshSpecs: () => Promise<void> };
   } = {}
 ) {
   const commands = new CommandRegistry();
@@ -113,7 +133,8 @@ function host(
     settings: ServerConnection.makeSettings(),
     current,
     themes,
-    commands
+    commands,
+    kernelspecs: options.kernelspecs
   });
   widget.id = 'lightcone-customize';
   Widget.attach(widget, document.body);
@@ -297,6 +318,29 @@ it('keeps the last report when a refresh fails, and drops it for another project
     expect(h.text()).not.toContain('Claude Code');
     expect(h.text()).not.toContain('Checked at');
     expect(h.widget.report).toBeUndefined();
+  } finally {
+    h.dispose();
+  }
+});
+
+it('registers the project kernel, refreshes kernel specs and checks again', async () => {
+  const refreshSpecs = jest.fn(async () => undefined);
+  jest.mocked(registerKernel).mockResolvedValue({
+    name: 'lightcone-project',
+    python: '/p/.venv/bin/python',
+    ipykernel: true,
+    registered: true
+  });
+  const h = host({ kernelspecs: { refreshSpecs } });
+  try {
+    await until(() => !!h.button('Register project kernel'));
+    h.click('Register project kernel');
+    await until(() => fetch.mock.calls.length === 2);
+    expect(registerKernel).toHaveBeenCalledWith(
+      expect.anything(),
+      'project/astra.yaml'
+    );
+    expect(refreshSpecs).toHaveBeenCalledTimes(1);
   } finally {
     h.dispose();
   }

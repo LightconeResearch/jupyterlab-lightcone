@@ -385,6 +385,29 @@
   text-decoration: underline;
 }
 
+.jp-jupyterlab-lightcone-Sidebar-rematerialize {
+  display: block;
+  margin: 4px 12px 0;
+  padding: 2px 8px;
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-brand-color1);
+  background: transparent;
+  font: inherit;
+  font-size: var(--jp-ui-font-size0);
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rematerialize:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rematerialize:hover:not(:disabled) {
+  color: var(--jp-ui-inverse-font-color1);
+  background: var(--jp-brand-color1);
+}
+
 .jp-jupyterlab-lightcone-Sidebar-counts {
   overflow: hidden;
   color: var(--jp-ui-font-color3);

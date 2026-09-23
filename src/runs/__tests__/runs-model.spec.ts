@@ -9,7 +9,9 @@ import {
   formatDuration,
   formatElapsed,
   formatRelativeTime,
+  formatMemory,
   groupRunsByDay,
+  groupRunsByInvocation,
   jobOutcome,
   jobRunningItems,
   jobTitle,
@@ -17,10 +19,13 @@ import {
   mergeJob,
   parseTargets,
   refusalText,
+  rematerializeAction,
   staleTargets,
   startErrorMessage,
   summarizeReport,
   upsertJob,
+  usageText,
+  venueText,
   JOB_LINE_LIMIT
 } from '../runs-model';
 
@@ -337,6 +342,81 @@ describe('helpers for other views', () => {
       })
     ).toEqual({ stale: ['a/x', 'b/x'], behind: ['a/y'] });
     expect(staleTargets(undefined)).toEqual({ stale: [], behind: [] });
+  });
+
+  it('groups the runs one lc materialize made', () => {
+    const a = run({ commit: '1', invocation: 'aaaa' });
+    const b = run({ commit: '2', invocation: 'aaaa' });
+    const c = run({ commit: '3', invocation: null });
+    const d = run({ commit: '4' });
+    const e = run({ commit: '5', invocation: 'bbbb' });
+    const f = run({ commit: '6', invocation: 'aaaa' });
+    expect(groupRunsByInvocation([a, b, c, d, e, f])).toEqual([
+      { invocation: 'aaaa', runs: [a, b] },
+      { invocation: null, runs: [c] },
+      { invocation: null, runs: [d] },
+      { invocation: 'bbbb', runs: [e] },
+      { invocation: 'aaaa', runs: [f] }
+    ]);
+  });
+
+  it('says where runs execute and what the server uses', () => {
+    expect(venueText(undefined)).toBeUndefined();
+    expect(venueText({ slurm: false, nodes: null })).toBe(
+      'Runs execute on this server’s host.'
+    );
+    expect(venueText({ slurm: true, nodes: 4 })).toBe(
+      'Runs execute across this SLURM allocation: 4 nodes, one worker each.'
+    );
+    expect(venueText({ slurm: true, nodes: null })).toContain('unknown size');
+    expect(formatMemory(812_000_000)).toBe('812 MB');
+    expect(formatMemory(1_400_000_000)).toBe('1.4 GB');
+    expect(formatMemory(512)).toBe('512 B');
+    expect(
+      usageText({
+        rss: 1_400_000_000,
+        memoryLimit: 8_000_000_000,
+        cpuPercent: 35.4,
+        cpuCount: 8
+      })
+    ).toBe('Server and kernels: 1.4 GB of 8.0 GB memory · 35% CPU of 8 cores');
+    expect(
+      usageText({
+        rss: 812_000_000,
+        memoryLimit: null,
+        cpuPercent: null,
+        cpuCount: null
+      })
+    ).toBe('Server and kernels: 812 MB memory');
+  });
+
+  it('offers to remake stale outputs first, then to refresh those behind', () => {
+    expect(
+      rematerializeAction({
+        'a/x': { state: 'stale', detail: '' },
+        'a/y': { state: 'behind', detail: '' }
+      })
+    ).toEqual({
+      kind: 'stale',
+      targets: ['a/x'],
+      refresh: false,
+      label: 'Rematerialize stale (1)'
+    });
+    expect(
+      rematerializeAction({
+        'a/y': { state: 'behind', detail: '' },
+        'a/z': { state: 'behind', detail: '' }
+      })
+    ).toEqual({
+      kind: 'behind',
+      targets: ['a/y', 'a/z'],
+      refresh: true,
+      label: 'Refresh behind (2)'
+    });
+    expect(
+      rematerializeAction({ 'a/z': { state: 'current', detail: '' } })
+    ).toBeNull();
+    expect(rematerializeAction(undefined)).toBeNull();
   });
 
   it('maps job events back to entrypoints', () => {

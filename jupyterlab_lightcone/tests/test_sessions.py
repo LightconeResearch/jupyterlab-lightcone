@@ -233,6 +233,31 @@ def test_exclude_rules_are_relative_to_the_repository_root(tmp_path):
     assert sessions.exclude_patterns(nested, tmp_path) == ["/team/project/chats/", "/team/project/*.chat"]
 
 
+def test_exclude_rules_quote_wildcards_in_folder_names(tmp_path):
+    nested = tmp_path / "draft [v2]" / "a*b?c\\d"
+    nested.mkdir(parents=True)
+    assert sessions.exclude_patterns(nested, tmp_path) == [
+        "/draft \\[v2]/a\\*b\\?c\\\\d/chats/",
+        "/draft \\[v2]/a\\*b\\?c\\\\d/*.chat",
+    ]
+    spanning = tmp_path / "two\nlines"
+    spanning.mkdir()
+    with pytest.raises(ValueError):
+        sessions.exclude_patterns(spanning, tmp_path)
+
+
+def test_excluding_chats_of_a_folder_named_like_a_wildcard_hides_only_its_own(tmp_path):
+    git(tmp_path, "init", "-q")
+    for folder in ("draft [v2]", "draftv"):
+        write_chat(tmp_path / folder / "chats" / "talk.chat", chat(message("Hello")))
+        write_chat(tmp_path / folder / "loose.chat", chat(message("Hello")))
+    assert sessions.exclude_chats(tmp_path / "draft [v2]") is True
+    assert git(tmp_path, "status", "--porcelain", "--untracked-files=all").splitlines() == [
+        "?? draftv/chats/talk.chat",
+        "?? draftv/loose.chat",
+    ]
+
+
 def test_excluding_chats_appends_once_after_any_last_line(tmp_path):
     git(tmp_path, "init", "-q")
     exclude = tmp_path / ".git" / "info" / "exclude"
@@ -476,3 +501,59 @@ def test_every_verb_is_decorated_for_authentication(jp_serverapp):
         warnings.simplefilter("always")
         setup_session_handlers(jp_serverapp.web_app)
     assert not [record for record in records if issubclass(record.category, JupyterServerAuthWarning)]
+
+
+# --- full-text search ----------------------------------------------------------
+
+SEARCH = (*ENDPOINT, "search")
+
+
+def test_search_finds_messages_case_insensitively_newest_first(tmp_path):
+    project = tmp_path / "project"
+    write_chat(project / "chats" / "fit.chat", chat(
+        message("Plot the Hubble residuals", time=10.0),
+        message("I plotted the HUBBLE residuals versus redshift.", sender=CODEX, time=20.0),
+        message("Something else entirely", time=30.0),
+    ))
+    write_chat(project / "old.chat", chat(message("An older hubble question", time=5.0)))
+    matches = sessions.search_sessions("project", project, "hubble")
+    assert [(match["path"], match["time"][:19]) for match in matches] == [
+        ("project/chats/fit.chat", "1970-01-01T00:00:20"),
+        ("project/chats/fit.chat", "1970-01-01T00:00:10"),
+        ("project/old.chat", "1970-01-01T00:00:05"),
+    ]
+    agent_reply = matches[0]
+    assert agent_reply["title"] == "Plot the Hubble residuals"
+    assert agent_reply["author"] == "Codex" and agent_reply["agent"] is True
+    assert agent_reply["message"] == f"{CODEX}-20.0"
+    assert agent_reply["snippet"] == "I plotted the HUBBLE residuals versus redshift."
+    assert matches[1]["author"] == "Anonymous Megaclite" and matches[1]["agent"] is False
+
+
+def test_search_snippets_are_cut_around_the_match_and_matches_are_bounded(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    body = "a " * 100 + "needle" + "\n b" * 100
+    write_chat(project / "chats" / "long.chat", chat(*(message(body, time=float(i)) for i in range(5))))
+    monkeypatch.setattr(sessions, "MAX_SEARCH_MATCHES", 3)
+    matches = sessions.search_sessions("project", project, "needle")
+    assert len(matches) == 3
+    text = matches[0]["snippet"]
+    assert text.startswith("…") and text.endswith("…") and "needle" in text and "\n" not in text
+    # A query is literal text, never a pattern.
+    assert sessions.search_sessions("project", project, "a.*needle") == []
+
+
+async def test_the_search_endpoint(jp_fetch, project):
+    write_chat(project / "chats" / "fit.chat", chat(message("Fit the contour levels", time=1.0)))
+    response = await jp_fetch(*SEARCH, params={"path": "project/astra.yaml", "q": "contour"})
+    matches = json.loads(response.body)["matches"]
+    assert [match["path"] for match in matches] == ["project/chats/fit.chat"]
+    for query in ("x", "x" * 201):
+        refused = await jp_fetch(*SEARCH, params={"path": "project/astra.yaml", "q": query}, raise_error=False)
+        assert refused.code == 400
+
+
+async def test_searching_requires_contents_authorization(jp_fetch, jp_serverapp, project, monkeypatch):
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda *args, **kwargs: False)
+    response = await jp_fetch(*SEARCH, params={"path": "project/astra.yaml", "q": "fit"}, raise_error=False)
+    assert response.code == 403

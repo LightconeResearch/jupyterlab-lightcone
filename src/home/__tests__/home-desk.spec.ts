@@ -17,6 +17,7 @@ import {
   personasEvent,
   press,
   session,
+  setDocumentHidden,
   typeInto,
   until
 } from './home-fixtures';
@@ -356,6 +357,29 @@ describe('the sessions list', () => {
       await until(() => h.sessionRows().length === 2);
       expect(h.sessionRows()[0].textContent).toContain('New question');
     } finally {
+      h.dispose();
+    }
+  });
+
+  it('stops reading the sessions while the browser tab is hidden', async () => {
+    const service = sessions();
+    const h = deskHost({ sessions: service });
+    try {
+      await until(() => h.sessionRows().length === 2);
+      setDocumentHidden(true);
+      // Lumino's polls linger for one tick after the browser tab hides.
+      service.changed.emit(ENTRYPOINT);
+      await wait(50);
+      const calls = service.list.mock.calls.length;
+      service.changed.emit(ENTRYPOINT);
+      await wait(50);
+      expect(service.list.mock.calls.length).toBe(calls);
+
+      setDocumentHidden(false);
+      service.changed.emit(ENTRYPOINT);
+      await until(() => service.list.mock.calls.length > calls);
+    } finally {
+      setDocumentHidden(false);
       h.dispose();
     }
   });

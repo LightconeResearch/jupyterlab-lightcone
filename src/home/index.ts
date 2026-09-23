@@ -1,5 +1,6 @@
 import {
   ILabShell,
+  ILayoutRestorer,
   type JupyterFrontEnd,
   type JupyterFrontEndPlugin
 } from '@jupyterlab/application';
@@ -18,14 +19,16 @@ import { IStateDB } from '@jupyterlab/statedb';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { addIcon } from '@jupyterlab/ui-components';
 import { find } from '@lumino/algorithm';
-import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
+import { UUID, type ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import type { DockPanel, TabBar, Widget } from '@lumino/widgets';
 import { CommandIDs } from '../commands';
 import { ICurrentProject } from '../current-project';
 import { createProjectIcon } from '../icons';
+import { findProjectRoot } from '../project-root';
 import { ISessionService } from '../sessions/session-service';
 import { HomeCommandIDs } from './home-commands';
 import { HomeWidget } from './home-widget';
+import { lightconeIcon } from './icons';
 import { PersonaDirectory } from './personas';
 import { buildToolsMenu } from './tools-menu';
 
@@ -63,7 +66,8 @@ export const homePlugin: JupyterFrontEndPlugin<ILauncher> = {
     IDefaultFileBrowser,
     ICommandPalette,
     ITranslator,
-    IStateDB
+    IStateDB,
+    ILayoutRestorer
   ],
   activate
 };
@@ -76,7 +80,8 @@ function activate(
   defaultBrowser: IDefaultFileBrowser | null,
   palette: ICommandPalette | null,
   translator: ITranslator | null,
-  state: IStateDB | null
+  state: IStateDB | null,
+  restorer: ILayoutRestorer | null = null
 ): ILauncher {
   const { commands, shell } = app;
   const contents = app.serviceManager.contents;
@@ -89,6 +94,8 @@ function activate(
   }
   const model = new LauncherModel();
   const tracker = new WidgetTracker<HomeTab>({ namespace: 'lightcone-home' });
+  /** The name each Home tab has in the saved layout. */
+  const restoreKeys = new WeakMap<HomeTab, string>();
   // The sessions service is looked up after activation rather than declared:
   // the launcher provider must not depend on the chat tracker behind it, since
   // core plugins such as the notebook tracker consume `ILauncher` themselves and
@@ -133,8 +140,79 @@ function activate(
     menu.aboutToClose.connect(() => {
       window.setTimeout(() => menu.dispose(), 0);
     });
+    // The button sits at the header's right end: the menu hangs from its
+    // right edge instead of running past the window's.
     const rect = anchor.getBoundingClientRect();
-    menu.open(rect.left, rect.bottom + 4);
+    menu.open(rect.right, rect.bottom + 4, { horizontalAlignment: 'right' });
+  };
+
+  /**
+   * Open a Home tab. `restoreKey` names it in the saved layout, so a reload
+   * puts it back where it was, as it does with documents; the stock launcher
+   * tab was never restored, but Home is a project's front page.
+   */
+  const createTab = (
+    args: ReadonlyPartialJSONObject,
+    restoreKey: string
+  ): HomeTab => {
+    const cwd =
+      typeof args.cwd === 'string'
+        ? args.cwd
+        : (defaultBrowser?.model.path ?? '');
+    const id = `launcher-${launcherCount++}`;
+    const callback = (item: Widget) => {
+      // A launched document replaces the stock launcher body, as it always has.
+      if (find(shell.widgets('main'), widget => widget === item)) {
+        shell.add(item, 'main', { ref: id });
+        main.dispose();
+      }
+    };
+    const home = new HomeWidget({
+      model,
+      cwd,
+      commands,
+      contents,
+      themes,
+      current,
+      callback,
+      onOpenTools: anchor => openTools(main, anchor),
+      translator: translator ?? undefined,
+      sessions,
+      personas,
+      state
+    });
+    const main = new MainAreaWidget({ content: home });
+    main.id = id;
+    // If there are any other widgets open, remove the launcher close icon.
+    main.title.closable = !!Array.from(shell.widgets('main')).length;
+    shell.add(main, 'main', {
+      activate: typeof args.activate === 'boolean' ? args.activate : undefined,
+      ref: typeof args.ref === 'string' ? args.ref : undefined
+    });
+    restoreKeys.set(main, restoreKey);
+    void tracker.add(main);
+    if (labShell) {
+      const onLayoutModified = () => {
+        // If there is only a launcher open, remove the close icon.
+        main.title.closable = Array.from(labShell.widgets('main')).length > 1;
+      };
+      labShell.layoutModified.connect(onLayoutModified);
+      main.disposed.connect(() => {
+        labShell.layoutModified.disconnect(onLayoutModified);
+      });
+    }
+    if (defaultBrowser) {
+      const onPathChanged = (browserModel: FileBrowserModel) => {
+        home.cwd = browserModel.path;
+        // The saved layout reopens the tab on the folder it last showed.
+        void tracker.save(main);
+      };
+      defaultBrowser.model.pathChanged.connect(onPathChanged);
+      home.disposed.connect(() => {
+        defaultBrowser.model.pathChanged.disconnect(onPathChanged);
+      });
+    }
+    return main;
   };
 
   commands.addCommand(HomeCommandIDs.create, {
@@ -165,63 +243,70 @@ function activate(
         }
       }
     },
-    execute: (args: ReadonlyPartialJSONObject) => {
+    execute: (args: ReadonlyPartialJSONObject) => createTab(args, UUID.uuid4())
+  });
+
+  commands.addCommand(HomeCommandIDs.restore, {
+    label: trans.__('Restore Home'),
+    describedBy: {
+      args: {
+        type: 'object',
+        properties: {
+          cwd: { type: 'string' },
+          key: { type: 'string' }
+        }
+      }
+    },
+    execute: args =>
+      createTab(
+        { cwd: typeof args.cwd === 'string' ? args.cwd : '', activate: false },
+        typeof args.key === 'string' && args.key ? args.key : UUID.uuid4()
+      )
+  });
+  if (restorer) {
+    void restorer.restore(tracker, {
+      command: HomeCommandIDs.restore,
+      args: tab => ({ cwd: tab.content.cwd, key: restoreKeys.get(tab) ?? '' }),
+      name: tab => restoreKeys.get(tab) ?? tab.id
+    });
+  }
+
+  commands.addCommand(HomeCommandIDs.openHome, {
+    label: trans.__('Open Home'),
+    caption: trans.__('Show the Lightcone project’s Home'),
+    icon: lightconeIcon,
+    describedBy: {
+      args: {
+        type: 'object',
+        properties: {
+          cwd: {
+            type: 'string',
+            description: trans.__('A folder inside the project')
+          }
+        }
+      }
+    },
+    execute: async args => {
       const cwd =
         typeof args.cwd === 'string'
           ? args.cwd
           : (defaultBrowser?.model.path ?? '');
-      const id = `launcher-${launcherCount++}`;
-      const callback = (item: Widget) => {
-        // A launched document replaces the stock launcher body, as it always has.
-        if (find(shell.widgets('main'), widget => widget === item)) {
-          shell.add(item, 'main', { ref: id });
-          main.dispose();
-        }
-      };
-      const home = new HomeWidget({
-        model,
-        cwd,
-        commands,
-        contents,
-        themes,
-        current,
-        callback,
-        onOpenTools: anchor => openTools(main, anchor),
-        translator: translator ?? undefined,
-        sessions,
-        personas,
-        state
-      });
-      const main = new MainAreaWidget({ content: home });
-      main.id = id;
-      // If there are any other widgets open, remove the launcher close icon.
-      main.title.closable = !!Array.from(shell.widgets('main')).length;
-      shell.add(main, 'main', {
-        activate:
-          typeof args.activate === 'boolean' ? args.activate : undefined,
-        ref: typeof args.ref === 'string' ? args.ref : undefined
-      });
-      void tracker.add(main);
-      if (labShell) {
-        const onLayoutModified = () => {
-          // If there is only a launcher open, remove the close icon.
-          main.title.closable = Array.from(labShell.widgets('main')).length > 1;
-        };
-        labShell.layoutModified.connect(onLayoutModified);
-        main.disposed.connect(() => {
-          labShell.layoutModified.disconnect(onLayoutModified);
-        });
+      // Every Home tab follows the file browser, so a tab already showing
+      // this project is usually open: bring it forward rather than stacking
+      // another one. Otherwise open Home as every other entry point does.
+      const project = await findProjectRoot(contents, cwd);
+      const open = project
+        ? tracker.find(
+            tab =>
+              tab.content.mode === 'home' &&
+              tab.content.project?.entrypoint === project.entrypoint
+          )
+        : undefined;
+      if (open) {
+        shell.activateById(open.id);
+        return open;
       }
-      if (defaultBrowser) {
-        const onPathChanged = (browserModel: FileBrowserModel) => {
-          home.cwd = browserModel.path;
-        };
-        defaultBrowser.model.pathChanged.connect(onPathChanged);
-        home.disposed.connect(() => {
-          defaultBrowser.model.pathChanged.disconnect(onPathChanged);
-        });
-      }
-      return main;
+      return commands.execute(HomeCommandIDs.create, { cwd, activate: true });
     }
   });
 
@@ -312,6 +397,10 @@ function activate(
     palette.addItem({
       command: HomeCommandIDs.create,
       category: labTrans.__('Launcher')
+    });
+    palette.addItem({
+      command: HomeCommandIDs.openHome,
+      category: 'Lightcone Lab'
     });
     palette.addItem({
       command: HomeCommandIDs.newProject,

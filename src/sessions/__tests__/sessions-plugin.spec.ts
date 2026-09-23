@@ -106,7 +106,15 @@ function plugins(options: { tracker: boolean; project?: IProjectRoot | null }) {
   }
   registry.registerPlugin(sessionsPlugin);
   registry.registerPlugin(chatPlugin);
-  return { ...host, registry };
+  return {
+    ...host,
+    registry,
+    /** Dispose the session manager (and its poll) the way the shell does. */
+    dispose: () => {
+      host.shell.disposed.emit(undefined);
+      host.contents.dispose();
+    }
+  };
 }
 
 beforeEach(() => {
@@ -151,7 +159,7 @@ describe('sessionsPlugin', () => {
       );
     } finally {
       error.mockRestore();
-      host.contents.dispose();
+      host.dispose();
     }
   });
 
@@ -220,7 +228,7 @@ describe('sessionsPlugin', () => {
       );
     } finally {
       create.mockRestore();
-      host.contents.dispose();
+      host.dispose();
     }
   });
 
@@ -269,7 +277,7 @@ describe('sessionsPlugin', () => {
     } finally {
       create.mockRestore();
       open.mockRestore();
-      host.contents.dispose();
+      host.dispose();
     }
   });
 });

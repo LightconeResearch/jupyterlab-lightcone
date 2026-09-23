@@ -5,11 +5,13 @@ import { DisposableDelegate } from '@lumino/disposable';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../../commands';
+import { HomeCommandIDs } from '../../home/home-commands';
 import { requestAPI } from '../../request';
 import { RunsCommandIDs } from '../../runs/runs-commands';
 import { SearchCommandIDs } from '../../search';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { SidebarCommandIDs, WorkbenchCommandIDs, sidebarPlugin } from '..';
+import { RecentProjects } from '../project-switcher';
 import { SidebarModel } from '../sidebar-model';
 import { LightconeSidebar } from '../sidebar-panel';
 import {
@@ -55,7 +57,13 @@ class FakeThemeManager implements IThemeManager {
 
 const BASE = 'jp-jupyterlab-lightcone-Sidebar';
 
-function host(options: { project?: boolean; sessions?: boolean } = {}) {
+function host(
+  options: {
+    project?: boolean;
+    sessions?: boolean;
+    projects?: ConstructorParameters<typeof LightconeSidebar>[0]['projects'];
+  } = {}
+) {
   const { contents } = createContents({
     'project/astra.yaml': fileModel(PROJECT_SPEC),
     'project/myst.yml': fileModel('project: {}')
@@ -123,7 +131,8 @@ function host(options: { project?: boolean; sessions?: boolean } = {}) {
   const panel = new LightconeSidebar({
     commands,
     model,
-    themes: new FakeThemeManager()
+    themes: new FakeThemeManager(),
+    projects: options.projects
   });
   Widget.attach(panel, document.body);
   const text = () => panel.node.textContent ?? '';
@@ -251,6 +260,68 @@ describe('LightconeSidebar', () => {
         [WorkbenchCommandIDs.goToPath, { path: 'project' }],
         [CommandIDs.openMySTRA, { cwd: 'project' }],
         [RunsCommandIDs.openRuns, { entrypoint: 'project/astra.yaml' }]
+      ]);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('switches project from the header by moving the file browser', async () => {
+    const siblings = jest.fn(async () => ['other', 'project']);
+    const h = host({
+      projects: { recent: new RecentProjects(null), siblings }
+    });
+    try {
+      await until(() => h.text().includes('project'));
+      const button = h.panel.node.querySelector<HTMLButtonElement>(
+        '[aria-label="Switch to another Lightcone project"]'
+      );
+      expect(button).not.toBeNull();
+      button!.click();
+      await until(
+        () =>
+          !!document.querySelector('.jp-jupyterlab-lightcone-ProjectSwitcher')
+      );
+      expect(siblings).toHaveBeenCalledWith('');
+      const menu = document.querySelector<HTMLElement>(
+        '.jp-jupyterlab-lightcone-ProjectSwitcher'
+      )!;
+      expect(menu.textContent).toContain('Projects in this folder');
+      expect(menu.textContent).toContain('other');
+      expect(menu.textContent).toContain('New Lightcone project');
+      // Lumino menus read the legacy key codes: down, then Enter.
+      for (const keyCode of [40, 13]) {
+        menu.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            keyCode,
+            bubbles: true,
+            cancelable: true
+          })
+        );
+      }
+      await flush();
+      expect(h.executed).toContainEqual([
+        WorkbenchCommandIDs.goToPath,
+        { path: 'other', dontShowBrowser: true }
+      ]);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('brings the project’s open Home forward when the Home plugin runs', async () => {
+    const h = host();
+    h.commands.addCommand(HomeCommandIDs.openHome, {
+      execute: args => {
+        h.executed.push([HomeCommandIDs.openHome, args]);
+      }
+    });
+    try {
+      await until(() => h.text().includes('Sidebar project'));
+      h.click(`.${BASE}-iconButton`);
+      await flush();
+      expect(h.executed).toEqual([
+        [HomeCommandIDs.openHome, { cwd: 'project' }]
       ]);
     } finally {
       h.dispose();
@@ -432,7 +503,12 @@ describe('LightconeSidebar', () => {
       h.click(`.${BASE}-rowAction`, 1);
       await until(() => rename.mock.calls.length === 1);
       expect(getText).toHaveBeenCalledWith(
-        expect.objectContaining({ text: 'contours', suffix: '.chat' })
+        // The row's title comes from the first prompt, so only the file moves.
+        expect.objectContaining({
+          title: 'Rename chat file',
+          text: 'contours',
+          suffix: '.chat'
+        })
       );
       expect(rename).toHaveBeenCalledWith(
         'project/chats/contours.chat',

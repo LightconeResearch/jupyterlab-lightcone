@@ -1,4 +1,5 @@
 import React from 'react';
+import { Chevron } from './chevron';
 import { Button } from '@astra-spec/ui/primitives';
 import type { IOutputVersion } from './versions-api';
 import {
@@ -22,6 +23,13 @@ export interface IVersionStepperProps {
   loading: boolean;
   error: string | undefined;
 }
+
+/**
+ * What the history covers, stated wherever versions are shown: only the
+ * engine keeps versions, and only of what it made.
+ */
+export const VERSION_LIMITS =
+  'Versions are the commits lc materialize made of this output. Older bytes stay available only while git-annex keeps their content; files written outside lc materialize, such as an agent’s scratch files, have no history.';
 
 /** "v3 of 3 · 2 days ago · a889877" with older/newer controls. */
 export function VersionStepper({
@@ -64,7 +72,9 @@ export function VersionStepper({
   } else if (error) {
     summary = <span>Version history unavailable: {error}</span>;
   } else {
-    summary = <span>No committed versions</span>;
+    summary = (
+      <span>No committed versions: only lc materialize records a history</span>
+    );
   }
   return (
     <div
@@ -80,10 +90,18 @@ export function VersionStepper({
         disabled={older === undefined}
         onClick={() => onSelect(older)}
       >
-        <span aria-hidden="true">◀</span>
+        <Chevron direction="back" />
       </Button>
       <span className="jp-jupyterlab-lightcone-VersionStepper-summary">
         {summary}
+      </span>
+      <span
+        className="jp-jupyterlab-lightcone-VersionStepper-limits"
+        title={VERSION_LIMITS}
+        aria-label={VERSION_LIMITS}
+        role="note"
+      >
+        ⓘ
       </span>
       <Button
         size="small"
@@ -97,7 +115,7 @@ export function VersionStepper({
           onSelect(newer === versions[0]?.commit ? undefined : newer);
         }}
       >
-        <span aria-hidden="true">▶</span>
+        <Chevron direction="forward" />
       </Button>
       {version && older !== undefined && (
         <Button

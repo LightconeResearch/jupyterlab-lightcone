@@ -61,6 +61,28 @@ function isEditorView(value: unknown): value is EditorView {
 const TEXT_HOST_SELECTOR =
   '.jp-jupyterlab-lightcone-ElementWidget, .jp-MarkdownViewer';
 
+/** One message of a Jupyter Chat transcript; `data-index` indexes the model's messages. */
+const CHAT_MESSAGE_SELECTOR = '.jp-chat-message-container[data-index]';
+
+/** The part of a Jupyter Chat panel a session host reads. */
+interface IChatPanelLike {
+  model: { name: string; messages: readonly { id: string }[] };
+}
+
+/** A main-area Jupyter Chat panel: a session whose transcript can be commented. */
+function isSessionPanel(widget: Widget): widget is Widget & IChatPanelLike {
+  if (!('area' in widget) || widget.area !== 'main' || !('model' in widget)) {
+    return false;
+  }
+  const model: unknown = widget.model;
+  return (
+    isRecord(model) &&
+    typeof model.name === 'string' &&
+    Array.isArray(model.messages) &&
+    isRecord(model.input)
+  );
+}
+
 /**
  * The committed version of an output record a comment is pinned to: the one
  * `shownCommit` names (a record tab showing an older version), else the
@@ -132,6 +154,14 @@ abstract class CommentHost implements IDisposable {
 
   get isDisposed(): boolean {
     return this._isDisposed;
+  }
+
+  /**
+   * What a comment on a selection points at. A host is one target, except a
+   * session, whose messages are each their own.
+   */
+  targetFor(_root: HTMLElement): ICommentTarget | null {
+    return this.target();
   }
 
   /** The pending comments of this host's target. */
@@ -398,6 +428,106 @@ class FileHost extends CommentHost {
   private _resolved = false;
 }
 
+/**
+ * A session in the main area: selections in its messages are commented,
+ * each comment pointing at its message, and its badges mark the quotes.
+ */
+class SessionHost extends CommentHost {
+  constructor(
+    private panel: Widget & IChatPanelLike,
+    hosts: CommentHosts
+  ) {
+    super(panel, hosts);
+    this._node =
+      panel instanceof MainAreaWidget ? panel.content.node : panel.node;
+    this.text = new TextCommentLayer({
+      host: this._node,
+      onBadgeClick: (comment, element) =>
+        hosts.showComment(this, comment, element)
+    });
+    void this.resolve();
+  }
+
+  get node(): HTMLElement {
+    return this._node;
+  }
+
+  get entrypoint(): string | null {
+    return this._entrypoint;
+  }
+
+  /** The chat file, as the comment store names a session. */
+  get path(): string {
+    return (
+      this.hosts.documents?.contextForWidget(this.panel)?.path ??
+      this.panel.model.name
+    );
+  }
+
+  /** No single target: each message is its own. */
+  target(): ICommentTarget | null {
+    return null;
+  }
+
+  targetFor(root: HTMLElement): ICommentTarget | null {
+    const index = Number.parseInt(root.dataset.index ?? '', 10);
+    const message = Number.isInteger(index)
+      ? this.panel.model.messages[index]
+      : undefined;
+    if (!message) {
+      return null;
+    }
+    return {
+      kind: 'message',
+      path: this.path,
+      record: null,
+      universe: null,
+      message: message.id,
+      version: NULL_VERSION
+    };
+  }
+
+  async version(): Promise<ICommentTarget['version']> {
+    return NULL_VERSION;
+  }
+
+  /** Every pending comment on one of this session's messages. */
+  comments(): readonly IComment[] {
+    const entrypoint = this.entrypoint;
+    if (!entrypoint) {
+      return [];
+    }
+    const path = this.path;
+    return this.hosts.service
+      .pending(entrypoint)
+      .filter(
+        comment =>
+          comment.target.kind === 'message' && comment.target.path === path
+      );
+  }
+
+  private async resolve(): Promise<void> {
+    let entrypoint: string | null = null;
+    try {
+      const root = await findProjectRoot(
+        this.hosts.contents,
+        directoryOf(this.path)
+      );
+      entrypoint = root?.entrypoint ?? null;
+    } catch (error) {
+      console.warn('Could not find the project owning a session.', error);
+    }
+    if (this.isDisposed) {
+      return;
+    }
+    this._entrypoint = entrypoint;
+    this.refresh();
+  }
+
+  private _node: HTMLElement;
+  private _entrypoint: string | null = null;
+}
+
 export interface ICommentHostsOptions {
   app: JupyterFrontEnd;
   shell: ILabShell | null;
@@ -453,6 +583,11 @@ export class CommentHosts implements IDisposable {
     return this.options.app.serviceManager.serverSettings;
   }
 
+  /** The document manager, for the paths of open documents. */
+  get documents(): IDocumentManager | null {
+    return this.options.documents;
+  }
+
   get service(): CommentService {
     return this.options.service;
   }
@@ -485,8 +620,13 @@ export class CommentHosts implements IDisposable {
       return;
     }
     for (const widget of this.options.app.shell.widgets('main')) {
-      if (isElementTab(widget) && !this._hosts.has(widget)) {
+      if (this._hosts.has(widget)) {
+        continue;
+      }
+      if (isElementTab(widget)) {
         this.register(widget, new ElementHost(widget, this));
+      } else if (isSessionPanel(widget)) {
+        this.register(widget, new SessionHost(widget, this));
       }
     }
   };
@@ -746,6 +886,21 @@ export class CommentHosts implements IDisposable {
     node: Node
   ): { host: CommentHost; root: HTMLElement } | null {
     const element = node instanceof Element ? node : node.parentElement;
+    // A selection inside one message of a session comments on that message.
+    const message = element?.closest<HTMLElement>(CHAT_MESSAGE_SELECTOR);
+    if (message && !element?.closest('.cm-editor, .jp-chat-input-container')) {
+      this.scan();
+      for (const host of this._hosts.values()) {
+        if (
+          host instanceof SessionHost &&
+          host.node.contains(message) &&
+          host.entrypoint
+        ) {
+          return { host, root: message };
+        }
+      }
+      return null;
+    }
     const container = element?.closest<HTMLElement>(TEXT_HOST_SELECTOR);
     if (!container || element?.closest('.cm-editor')) {
       return null;
@@ -762,7 +917,7 @@ export class CommentHosts implements IDisposable {
   private startTextComment(capture: ISelectionCapture<CommentHost>): void {
     const { host } = capture;
     const entrypoint = host.entrypoint;
-    const target = host.target();
+    const target = host.targetFor(capture.root);
     if (!entrypoint || !target) {
       this.noProject();
       return;

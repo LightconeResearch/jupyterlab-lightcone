@@ -1,6 +1,7 @@
 import {
   IChatTracker,
   IMessageFooterRegistry,
+  IMessagePreambleRegistry,
   type IChatPanel
 } from '@jupyter/chat';
 import {
@@ -17,12 +18,14 @@ import { serverRoots } from './chat-paths';
 import { createChatProjectResolver, recordedChatProject } from './chat-project';
 import { attachChatLinks } from './link-fixer';
 import { BesideOpener } from './open-beside';
+import { PlanChecklist } from './plan-checklist';
 import { createTurnResultsFooter } from './turn-results-footer';
 
 /**
  * Working links and turn results in sessions: file links and images an agent
- * writes as server paths open in JupyterLab, and the last message of a reply
- * lists what was materialized and edited while the agent answered.
+ * writes as server paths open in JupyterLab, the last message of a reply
+ * lists what was materialized and edited while the agent answered, and a
+ * message carrying the agent's plan shows it as a checklist.
  */
 export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:chat-links',
@@ -35,7 +38,8 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
     IMessageFooterRegistry,
     ICurrentProject,
     ILabShell,
-    ITranslator
+    ITranslator,
+    IMessagePreambleRegistry
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -44,7 +48,8 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
     footers: IMessageFooterRegistry | null,
     currentProject: ICurrentProject | null,
     labShell: ILabShell | null,
-    translator: ITranslator | null
+    translator: ITranslator | null,
+    preambles: IMessagePreambleRegistry | null
   ): void => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const contents = app.serviceManager.contents;
@@ -88,6 +93,8 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
       tracker.forEach(attach);
       tracker.widgetAdded.connect((_sender, panel) => attach(panel));
     }
+
+    preambles?.addComponent(PlanChecklist);
 
     if (footers) {
       footers.addSection({

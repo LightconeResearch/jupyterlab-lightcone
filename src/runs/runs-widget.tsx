@@ -1,7 +1,7 @@
 import { recordTitle } from '@astra-spec/ui/model';
 import { ReactWidget, showErrorMessage } from '@jupyterlab/apputils';
 import { PathExt } from '@jupyterlab/coreutils';
-import type { Contents } from '@jupyterlab/services';
+import type { Contents, ServerConnection } from '@jupyterlab/services';
 import {
   nullTranslator,
   type ITranslator,
@@ -22,13 +22,21 @@ import { useMaterializationStatus } from '../materialization-status';
 import type { ILoadedProjectData } from '../project-data';
 import { acquireProjectDataService } from '../project-data-service';
 import { startMaterialization } from './materialize';
-import type { IJob, IRunRecord, JobState } from './runs-api';
+import {
+  fetchServerUsage,
+  type IJob,
+  type IRunRecord,
+  type IServerUsage,
+  type IVenue,
+  type JobState
+} from './runs-api';
 import { RunsCommandIDs } from './runs-commands';
 import {
   formatElapsed,
   formatRelativeTime,
   formatTimestamp,
   groupRunsByDay,
+  groupRunsByInvocation,
   isFinished,
   jobTitle,
   lastEndKey,
@@ -38,6 +46,8 @@ import {
   staleTargets,
   startErrorMessage,
   summarizeReport,
+  usageText,
+  venueText,
   type IReportSummary
 } from './runs-model';
 import type { IProjectRuns, RunsService } from './runs-service';
@@ -546,7 +556,7 @@ function History({
   runs: readonly IRunRecord[];
   now: number;
   outputLabel: (key: string) => string;
-  openOutput: (universe: string, output: string) => void;
+  openOutput: (universe: string, output: string, commit?: string) => void;
 }): React.ReactElement {
   const trans = useTrans();
   if (runs.length === 0) {
@@ -558,44 +568,124 @@ function History({
       </p>
     );
   }
+  const item = (run: IRunRecord) => (
+    <li key={run.commit}>
+      <button
+        type="button"
+        className={`${CLASS}-run`}
+        title={trans.__('Open %1', outputTargetPath(run.output))}
+        onClick={() => openOutput(run.universe, run.output, run.commit)}
+      >
+        <span className={`${CLASS}-runOutput`}>
+          {outputLabel(`${run.universe}/${run.output}`)}
+        </span>
+        <span className={`${CLASS}-runMeta`}>
+          <time dateTime={run.time} title={formatTimestamp(run.time)}>
+            {formatRelativeTime(run.time, now)}
+          </time>
+          <span className={`${CLASS}-exit`} data-ok={run.exit === 0}>
+            {run.exit === null
+              ? trans.__('exit unknown')
+              : trans.__('exit %1', run.exit)}
+          </span>
+          <code>{run.short}</code>
+        </span>
+        <code className={`${CLASS}-cmd`} title={run.cmd}>
+          {run.cmd}
+        </code>
+      </button>
+    </li>
+  );
   return (
     <>
       {groupRunsByDay(runs, now).map(group => (
         <div key={group.day} className={`${CLASS}-day`}>
           <h3>{group.label}</h3>
           <ul className={`${CLASS}-history`}>
-            {group.runs.map(run => (
-              <li key={run.commit}>
-                <button
-                  type="button"
-                  className={`${CLASS}-run`}
-                  title={trans.__('Open %1', outputTargetPath(run.output))}
-                  onClick={() => openOutput(run.universe, run.output)}
+            {groupRunsByInvocation(group.runs).map(invocation =>
+              invocation.invocation !== null && invocation.runs.length > 1 ? (
+                <li
+                  key={`${invocation.invocation}:${invocation.runs[0].commit}`}
+                  className={`${CLASS}-invocation`}
                 >
-                  <span className={`${CLASS}-runOutput`}>
-                    {outputLabel(`${run.universe}/${run.output}`)}
+                  <span
+                    className={`${CLASS}-invocationHead`}
+                    title={invocation.invocation}
+                  >
+                    {trans.__(
+                      'One lc materialize · %1 outputs · from %2',
+                      invocation.runs.length,
+                      invocation.invocation.slice(0, 7)
+                    )}
                   </span>
-                  <span className={`${CLASS}-runMeta`}>
-                    <time dateTime={run.time} title={formatTimestamp(run.time)}>
-                      {formatRelativeTime(run.time, now)}
-                    </time>
-                    <span className={`${CLASS}-exit`} data-ok={run.exit === 0}>
-                      {run.exit === null
-                        ? trans.__('exit unknown')
-                        : trans.__('exit %1', run.exit)}
-                    </span>
-                    <code>{run.short}</code>
-                  </span>
-                  <code className={`${CLASS}-cmd`} title={run.cmd}>
-                    {run.cmd}
-                  </code>
-                </button>
-              </li>
-            ))}
+                  <ul className={`${CLASS}-history`}>
+                    {invocation.runs.map(item)}
+                  </ul>
+                </li>
+              ) : (
+                invocation.runs.map(item)
+              )
+            )}
           </ul>
         </div>
       ))}
     </>
+  );
+}
+
+/** How often the server's CPU and memory are read while Runs is open, in ms. */
+const USAGE_INTERVAL = 10_000;
+
+/**
+ * The server's CPU and memory from jupyter-resource-usage, read while the
+ * view is mounted; undefined without that extension, which is then not asked
+ * again.
+ */
+function useServerUsage(
+  settings: ServerConnection.ISettings
+): IServerUsage | undefined {
+  const [usage, setUsage] = useState<IServerUsage>();
+  useEffect(() => {
+    let active = true;
+    let timer = 0;
+    const read = async () => {
+      const answer = await fetchServerUsage(settings);
+      if (!active) return;
+      setUsage(answer ?? undefined);
+      if (answer) {
+        timer = window.setTimeout(() => void read(), USAGE_INTERVAL);
+      }
+    };
+    void read();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [settings]);
+  return usage;
+}
+
+/**
+ * Where runs execute and what the server is using: the SLURM allocation the
+ * engine spans, and jupyter-resource-usage's figures when it is installed.
+ * Materializations an agent starts in its own shell are not watched here;
+ * they appear in the history once they commit.
+ */
+function Compute({
+  venue,
+  settings
+}: {
+  venue: IVenue | undefined;
+  settings: ServerConnection.ISettings;
+}): React.ReactElement | null {
+  const usage = useServerUsage(settings);
+  const where = venueText(venue);
+  if (!where && !usage) return null;
+  return (
+    <p className={`${CLASS}-compute`} role="status">
+      {where ? <span>{where}</span> : null}
+      {usage ? <span>{usageText(usage)}</span> : null}
+    </p>
   );
 }
 
@@ -633,12 +723,18 @@ function RunsView({
     const title = record ? recordTitle(record) : output;
     return universes && universe ? `${title} · ${universe}` : title;
   };
-  const openOutput = (universe: string, output: string): void => {
+  /** Open an output's record; a run opens it at the version that run made. */
+  const openOutput = (
+    universe: string,
+    output: string,
+    commit?: string
+  ): void => {
     void commands
       .execute(CommandIDs.openElement, {
         entrypoint,
         target: outputTargetPath(output),
-        ...(universes && universe ? { universeId: universe } : {})
+        ...(universes && universe ? { universeId: universe } : {}),
+        ...(commit ? { versionCommit: commit } : {})
       })
       .catch(reason =>
         showErrorMessage(
@@ -698,6 +794,7 @@ function RunsView({
           {trans.__('Could not read the run history: %1', runs.error)}
         </p>
       ) : null}
+      <Compute venue={runs.venue} settings={contents.serverSettings} />
       <section className={`${CLASS}-section`}>
         <h2>{trans.__('Materialize')}</h2>
         <MaterializeForm blocked={running} onStart={start} />

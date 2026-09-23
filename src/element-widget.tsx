@@ -76,10 +76,12 @@ import {
   stepHistory,
   type IElementHistory
 } from './versions/element-history';
+import { Chevron } from './versions/chevron';
 import { renderKeepingFocus } from './versions/focus-restore';
 import { restoreScrollOffset } from './versions/scroll-restore';
 import {
   useOutputVersioning,
+  VersionBar,
   VersionedArtifact,
   VersionRail
 } from './versions/versioned-output';
@@ -221,7 +223,7 @@ function HistoryControls({
         disabled={!widget.canGoBack}
         onClick={() => widget.back()}
       >
-        <span aria-hidden="true">◀</span>
+        <Chevron direction="back" />
       </Button>
       <Button
         size="small"
@@ -231,7 +233,7 @@ function HistoryControls({
         disabled={!widget.canGoForward}
         onClick={() => widget.forward()}
       >
-        <span aria-hidden="true">▶</span>
+        <Chevron direction="forward" />
       </Button>
       {crumbs.length > 1 && (
         <nav
@@ -317,39 +319,42 @@ function OutputRecordDetail({
   );
   const universe = data.document.universe.universeId;
   return (
-    <OutputDetail
-      record={record}
-      relations={outputRelations(data.index, record)}
-      renderArtifact={(output, options) => (
-        <VersionedArtifact
-          versioning={versioning}
-          output={output}
-          compact={options.compact}
-          current={renderers.renderArtifact?.(output, options) ?? null}
-        />
-      )}
-      renderCodeLink={renderers.renderCodeLink}
-      renderProvenance={output => (
-        <>
-          <VersionRail versioning={versioning} output={output} />
-          <JupyterOutputProvenance
-            key={`${entrypoint}:${universe}:${output.canonicalPath}`}
-            contents={contents}
-            entrypoint={entrypoint}
-            universe={universe}
-            index={data.index}
+    <div className="jp-jupyterlab-lightcone-VersionedOutput">
+      <VersionBar versioning={versioning} output={record} />
+      <OutputDetail
+        record={record}
+        relations={outputRelations(data.index, record)}
+        renderArtifact={(output, options) => (
+          <VersionedArtifact
+            versioning={versioning}
             output={output}
-            status={status}
-            version={versioning.shown}
-            onOpenRecord={open}
-            commands={commands}
+            compact={options.compact}
+            current={renderers.renderArtifact?.(output, options) ?? null}
           />
-        </>
-      )}
-      onOpenRecord={open}
-      expanded={expanded}
-      onExpandedChange={onExpandedChange}
-    />
+        )}
+        renderCodeLink={renderers.renderCodeLink}
+        renderProvenance={output => (
+          <>
+            <VersionRail versioning={versioning} output={output} />
+            <JupyterOutputProvenance
+              key={`${entrypoint}:${universe}:${output.canonicalPath}`}
+              contents={contents}
+              entrypoint={entrypoint}
+              universe={universe}
+              index={data.index}
+              output={output}
+              status={status}
+              version={versioning.shown}
+              onOpenRecord={open}
+              commands={commands}
+            />
+          </>
+        )}
+        onOpenRecord={open}
+        expanded={expanded}
+        onExpandedChange={onExpandedChange}
+      />
+    </div>
   );
 }
 

@@ -15,11 +15,14 @@ import {
   SidePanel
 } from '@jupyterlab/ui-components';
 import type { CommandRegistry } from '@lumino/commands';
+import type { IDisposable } from '@lumino/disposable';
 import type { Message } from '@lumino/messaging';
 import { PanelLayout, Widget } from '@lumino/widgets';
 import React from 'react';
 import { CommandIDs } from '../commands';
+import { HomeCommandIDs } from '../home/home-commands';
 import { outputMaterializationStatus } from '../materialization-status';
+import { RematerializeButton } from '../runs/rematerialize-button';
 import { RunsCommandIDs } from '../runs/runs-commands';
 import { SearchCommandIDs } from '../search';
 import {
@@ -28,7 +31,13 @@ import {
 } from '../sessions/session-titles';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import { LightconeThemeBinding } from '../theme-adapter';
+import type { IProjectRoot } from '../project-root';
 import { lightconeIcon } from './icons';
+import {
+  buildProjectSwitcher,
+  siblingFolder,
+  type RecentProjects
+} from './project-switcher';
 import { WorkbenchCommandIDs } from './sidebar-commands';
 import {
   analysisRows,
@@ -99,11 +108,20 @@ class SidebarSection extends PanelWithToolbar {
   private readonly _count: Widget;
 }
 
+/** Where the project switcher finds projects to offer. */
+export interface IProjectSwitcherSource {
+  recent: RecentProjects;
+  /** Folders inside `folder` that hold a project. */
+  siblings: (folder: string) => Promise<string[]>;
+}
+
 export interface ILightconeSidebarOptions {
   commands: CommandRegistry;
   model: SidebarModel;
   themes: IThemeManager;
   translator?: ITranslator | null;
+  /** Absent: the header offers no project switcher. */
+  projects?: IProjectSwitcherSource;
 }
 
 /**
@@ -115,6 +133,7 @@ export class LightconeSidebar extends SidePanel {
     super({ translator: options.translator ?? undefined });
     this._commands = options.commands;
     this._model = options.model;
+    this._projects = options.projects;
     this._bundle = (options.translator ?? nullTranslator).load(
       'jupyterlab_lightcone'
     );
@@ -178,6 +197,7 @@ export class LightconeSidebar extends SidePanel {
     this._commands.commandChanged.disconnect(this._onCommandsChanged, this);
     this._commands.keyBindingChanged.disconnect(this._onCommandsChanged, this);
     this._theme.dispose();
+    this._switcher?.dispose();
     for (const section of this._sections) {
       section.dispose();
     }
@@ -252,6 +272,59 @@ export class LightconeSidebar extends SidePanel {
     this._footer.update();
   }
 
+  /**
+   * Offer the recently visited projects and those beside this one. Choosing
+   * one moves the file browser there, which the current project follows;
+   * no tab is closed or swapped.
+   */
+  private async _openSwitcher(
+    project: IProjectRoot,
+    anchor: HTMLElement
+  ): Promise<void> {
+    const source = this._projects;
+    if (!source) {
+      return;
+    }
+    const trans = this._bundle;
+    const [siblings] = await Promise.all([
+      source.siblings(siblingFolder(project)).catch(error => {
+        console.warn('Could not list the projects beside this one.', error);
+        return [];
+      }),
+      source.recent.ready
+    ]);
+    const extras: { label: string; execute: () => void }[] = [];
+    for (const [command, label] of [
+      [CommandIDs.openExistingProject, trans.__('Open project…')],
+      [CommandIDs.createProject, trans.__('New Lightcone project')]
+    ] as const) {
+      if (this._commands.hasCommand(command)) {
+        extras.push({
+          label,
+          execute: () => this._run(label, () => this._commands.execute(command))
+        });
+      }
+    }
+    const menu = buildProjectSwitcher({
+      current: project,
+      recent: source.recent.projects,
+      siblings,
+      go: path =>
+        this._run(trans.__('Could not switch project'), () =>
+          this._commands.execute(WorkbenchCommandIDs.goToPath, {
+            path: path || '/',
+            dontShowBrowser: true
+          })
+        ),
+      extras
+    });
+    // One switcher at a time; a menu also disposes itself once it closes.
+    this._switcher?.dispose();
+    this._switcher = menu;
+    const rect = anchor.getBoundingClientRect();
+    menu.open(rect.left, rect.bottom + 2);
+  }
+
   private _run(title: string, action: () => Promise<unknown>): void {
     void action().catch(error => {
       void showErrorMessage(
@@ -273,11 +346,17 @@ export class LightconeSidebar extends SidePanel {
           if (!project) {
             return;
           }
+          // Bring the project's open Home forward when the Home plugin runs;
+          // any launcher replacement still answers `launcher:create`.
           this._run(trans.__('Could not open Home'), () =>
-            this._commands.execute(WorkbenchCommandIDs.createLauncher, {
-              cwd: project.path,
-              activate: true
-            })
+            this._commands.hasCommand(HomeCommandIDs.openHome)
+              ? this._commands.execute(HomeCommandIDs.openHome, {
+                  cwd: project.path
+                })
+              : this._commands.execute(WorkbenchCommandIDs.createLauncher, {
+                  cwd: project.path,
+                  activate: true
+                })
           );
         }}
         onNewProject={
@@ -285,6 +364,14 @@ export class LightconeSidebar extends SidePanel {
             ? () =>
                 this._run(trans.__('Could not create a project'), () =>
                   this._commands.execute(CommandIDs.createProject)
+                )
+            : undefined
+        }
+        onSwitch={
+          project && this._projects
+            ? anchor =>
+                this._run(trans.__('Could not list projects'), () =>
+                  this._openSwitcher(project, anchor)
                 )
             : undefined
         }
@@ -358,11 +445,12 @@ export class LightconeSidebar extends SidePanel {
   /**
    * Ask for a new file name and rename the session's chat file. The list
    * refreshes from the rename's file change; an open chat follows the file.
+   * The row keeps its title, which the server takes from the first prompt.
    */
   private async _renameSession(session: ISessionInfo): Promise<void> {
     const trans = this._bundle;
     const result = await InputDialog.getText({
-      title: trans.__('Rename session'),
+      title: trans.__('Rename chat file'),
       label: trans.__('File name'),
       text: sessionStem(session.path),
       suffix: SESSION_FILE_EXTENSION,
@@ -410,6 +498,16 @@ export class LightconeSidebar extends SidePanel {
             })
           );
         }}
+        action={
+          entrypoint ? (
+            <RematerializeButton
+              commands={this._commands}
+              entrypoint={entrypoint}
+              statuses={state.statuses}
+              className="jp-jupyterlab-lightcone-Sidebar-rematerialize"
+            />
+          ) : null
+        }
       />
     );
   }
@@ -480,6 +578,8 @@ export class LightconeSidebar extends SidePanel {
 
   private readonly _commands: CommandRegistry;
   private readonly _model: SidebarModel;
+  private readonly _projects: IProjectSwitcherSource | undefined;
+  private _switcher: IDisposable | null = null;
   private readonly _bundle: TranslationBundle;
   private readonly _theme: LightconeThemeBinding;
   private readonly _headerView: ModelView;

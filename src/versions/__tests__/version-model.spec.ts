@@ -220,6 +220,7 @@ describe('run view', () => {
         git_sha: 'def456',
         lc_version: '0.6',
         env_version: 'sha256:newenv',
+        recipe: 'python fit.py --robust',
         uv_version: '0.8.1',
         image: { tag: 'ghcr.io/x:1' },
         hermeticity: { backend: 'landlock', network: false },
@@ -234,6 +235,7 @@ describe('run view', () => {
       time: '2026-09-20T09:59:00Z',
       started: '2026-09-20T09:58:00Z',
       command: 'uv run fit.py',
+      recipe: 'python fit.py --robust',
       exit: 0,
       gitRevision: 'def456',
       engineVersion: '0.6',
@@ -252,6 +254,7 @@ describe('run view', () => {
       source: 'record',
       time: record.finishedAt,
       command: record.recipe,
+      recipe: record.recipe,
       gitRevision: 'abc123',
       engineVersion: '0.5',
       environmentVersion: 'sha256:env',
@@ -283,6 +286,7 @@ describe('run view', () => {
       inputs: ['data/x.csv']
     });
     expect(view.gitRevision).toBeUndefined();
+    expect(view.recipe).toBeUndefined();
     expect(view.engineVersion).toBeUndefined();
     expect(view.environmentVersion).toBeUndefined();
     const bare = runView(

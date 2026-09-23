@@ -131,6 +131,7 @@
 .jp-jupyterlab-lightcone-Home-description {
   max-width: 64ch;
   margin: 0 0 22px;
+  color: var(--jp-ui-font-color2);
   font-family: var(--jp-content-font-family);
   font-size: 15px;
   line-height: 1.6;
@@ -231,6 +232,30 @@
   background: var(--jp-warn-color1);
 }
 
+/* The one action on out-of-date results: quiet, beside the line naming them. */
+.jp-jupyterlab-lightcone-Home-rematerialize {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-brand-color1);
+  background: none;
+  font: inherit;
+  font-size: var(--jp-ui-font-size0);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-rematerialize:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jp-jupyterlab-lightcone-Home-rematerialize:hover:not(:disabled) {
+  color: var(--lc-accent-contrast, var(--jp-ui-inverse-font-color1));
+  background: var(--jp-brand-color1);
+}
+
 .jp-jupyterlab-lightcone-Home-link {
   flex: 0 0 auto;
   margin-left: auto;
@@ -268,7 +293,28 @@
   cursor: pointer;
 }
 
+/* The plates reuse ASTRA UI's artifact preview. Its tokens map to the Lab
+ * theme here, as Home forces no palette or font of its own: a plate reads like
+ * the rest of Lab under any theme, and the Lightcone themes bring the brand
+ * through these same variables. */
 .jp-jupyterlab-lightcone-Home-platePreview {
+  --astra-color-canvas: var(--jp-layout-color0);
+  --astra-color-surface-muted: var(--jp-layout-color2);
+  --astra-color-artifact-paper: var(--jp-layout-color0);
+  --astra-color-artifact-ink: var(--jp-content-font-color1);
+  --astra-color-text: var(--jp-ui-font-color1);
+  --astra-color-text-muted: var(--jp-ui-font-color2);
+  --astra-color-text-subtle: var(--jp-ui-font-color2);
+  --astra-color-text-faint: var(--jp-ui-font-color3);
+  --astra-color-border: var(--jp-border-color2);
+  --astra-color-kind-output: var(--jp-brand-color1);
+  --astra-font-ui: var(--jp-ui-font-family);
+  --astra-font-body: var(--jp-content-font-family);
+  --astra-font-mono: var(--jp-code-font-family);
+  --astra-font-size-xs: var(--jp-ui-font-size0);
+  --astra-font-size-2xs: 10px;
+  --astra-radius-preview: var(--jp-border-radius);
+
   display: flex;
   box-sizing: border-box;
   aspect-ratio: 4 / 3;
@@ -288,11 +334,13 @@
   box-shadow: var(--jp-elevation-z2);
 }
 
+/* The plate is the frame: the preview inside draws none of its own. */
 .jp-jupyterlab-lightcone-Home-platePreview > .astra-artifact {
   width: 100%;
   max-height: 100%;
   margin: 0;
   overflow: hidden;
+  border: 0;
 }
 
 .jp-jupyterlab-lightcone-Home-platePreview > figure.astra-artifact {
@@ -302,9 +350,27 @@
   justify-content: center;
 }
 
+/* A value list (a one-row table) reads from the plate's top left. The
+ * selector outweighs ASTRA UI's isolation reset for `pre`. */
+.jp-jupyterlab-lightcone-Home-platePreview > .astra-artifact[data-type='text'] {
+  align-self: stretch;
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview.astra-ui.astra-isolate pre {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--jp-content-font-color1);
+  background: transparent;
+  font: 10.5px/1.6 var(--jp-code-font-family);
+  white-space: pre;
+}
+
 .jp-jupyterlab-lightcone-Home-platePreview img {
   max-width: 100%;
   max-height: 100%;
+  padding: 0;
   object-fit: contain;
 }
 

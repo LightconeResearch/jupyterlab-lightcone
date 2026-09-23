@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import { ServerConnection } from '@jupyterlab/services';
 import { ProvenanceTabs } from '../provenance-tabs';
-import { VersionCompare } from '../version-compare';
+import { BLINK_INTERVAL, VersionCompare } from '../version-compare';
 import type { IVersionTarget } from '../version-content';
 import { VersionStepper } from '../version-stepper';
 import type { IOutputVersion } from '../versions-api';
@@ -119,6 +119,10 @@ test('the stepper reports loading, failure and an empty history', () => {
     );
   });
   expect(container.textContent).toContain('No committed versions');
+  // What a history covers is stated wherever versions are shown.
+  expect(
+    container.querySelector('[role="note"]')?.getAttribute('title')
+  ).toContain('only while git-annex keeps their content');
 });
 
 test('provenance tabs show the run and switch panels, loading sessions on demand', () => {
@@ -212,6 +216,102 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
   expect(
     container.querySelector('[role="tab"][aria-selected="true"]')?.textContent
   ).toBe('Conversation');
+});
+
+test('the Code tab shows the script as run and its changes since', () => {
+  const run: IRunView = {
+    source: 'version',
+    commit: 'c'.repeat(40),
+    gitRevision: 'd'.repeat(40),
+    inputVersions: {},
+    decisions: {},
+    inputs: []
+  };
+  const onShowCode = jest.fn();
+  const onShowEnvironment = jest.fn();
+  const render = (
+    extra: Partial<React.ComponentProps<typeof ProvenanceTabs>>
+  ) =>
+    act(() => {
+      root.render(
+        <ProvenanceTabs
+          run={run}
+          code={{ relativePath: 'src/plot.py', source: 'recorded run' }}
+          inputs={[]}
+          onShowCode={onShowCode}
+          onShowEnvironment={onShowEnvironment}
+          {...extra}
+        />
+      );
+    });
+  render({});
+  const panel = () => container.querySelector('[role="tabpanel"]')!;
+  act(() => button('Code').click());
+  expect(onShowCode).toHaveBeenCalledTimes(1);
+  expect(panel().textContent).toContain('Reading the script at ddddddd');
+  render({
+    recordedCode: {
+      loading: false,
+      source: {
+        file: 'src/plot.py',
+        commit: 'd'.repeat(40),
+        exists: true,
+        text: 'a = 1\nb = 2\n',
+        binary: false,
+        annexed: false,
+        truncated: false
+      },
+      current: 'a = 1\nb = 3\n'
+    }
+  });
+  expect(panel().querySelector('pre code')?.textContent).toBe('a = 1\nb = 2\n');
+  act(() => button('Changes since').click());
+  const diff = panel().querySelector(
+    '.jp-jupyterlab-lightcone-Provenance-diff'
+  )!;
+  expect(diff.querySelector('.jp-mod-removed')?.textContent).toBe('- b = 2\n');
+  expect(diff.querySelector('.jp-mod-added')?.textContent).toBe('+ b = 3\n');
+  render({
+    recordedCode: {
+      loading: false,
+      source: {
+        file: 'src/plot.py',
+        commit: 'd'.repeat(40),
+        exists: false,
+        text: null,
+        binary: false,
+        annexed: false,
+        truncated: false
+      },
+      current: null
+    }
+  });
+  expect(panel().textContent).toContain('did not exist at ddddddd');
+  act(() => button('Environment').click());
+  expect(onShowEnvironment).toHaveBeenCalledTimes(1);
+  render({
+    packages: {
+      loading: false,
+      locked: {
+        commit: 'd'.repeat(40),
+        packages: [
+          { name: 'numpy', version: '2.1.0' },
+          { name: 'scipy', version: '1.0' }
+        ],
+        current: [
+          { name: 'numpy', version: '2.2.0' },
+          { name: 'astropy', version: '6.0' }
+        ]
+      }
+    }
+  });
+  expect(panel().textContent).toContain('2 packages locked');
+  expect(panel().textContent).toContain('3 changes since');
+  expect(panel().textContent).toContain('numpy 2.1.0 → 2.2.0');
+  expect(panel().textContent).toContain('astropy added (6.0)');
+  expect(panel().textContent).toContain('scipy removed (was 1.0)');
+  act(() => button('Show every locked package').click());
+  expect(panel().textContent).toContain('scipy 1.0');
 });
 
 test('provenance tabs explain a missing or unreadable record', () => {
@@ -373,6 +473,38 @@ describe('version comparison', () => {
     expect(new URL(images[0].src).searchParams.get('commit')).toBe(
       older.commit
     );
+  });
+
+  test('images blink between the two versions, pausing on demand', async () => {
+    jest.useFakeTimers();
+    try {
+      act(() => {
+        root.render(
+          <VersionCompare
+            target={target}
+            output={output('figure', 'png')}
+            newer={newer}
+            older={older}
+          />
+        );
+      });
+      act(() => button('Blink').click());
+      const images = container.querySelectorAll('img');
+      expect(images).toHaveLength(2);
+      const top = images[1];
+      expect(top.style.visibility).toBe('visible');
+      expect(container.textContent).toContain('Shown');
+      act(() => jest.advanceTimersByTime(BLINK_INTERVAL));
+      expect(top.style.visibility).toBe('hidden');
+      expect(container.textContent).toContain('Previous');
+      act(() => button('Pause').click());
+      act(() => jest.advanceTimersByTime(BLINK_INTERVAL * 3));
+      expect(top.style.visibility).toBe('hidden');
+      act(() => button('Show newer').click());
+      expect(top.style.visibility).toBe('visible');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('formats without a comparison say so', async () => {

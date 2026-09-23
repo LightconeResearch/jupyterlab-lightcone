@@ -236,3 +236,50 @@ async def test_malformed_preview_response_does_not_publish(bridge, persona, elem
     assert result["success"] is False
     assert "INVALID_PREVIEW_RESPONSE" in result["error"]
     persona.chat.add_message.assert_not_called()
+
+
+async def test_preview_of_an_output_pins_the_version_the_browser_named(bridge, persona):
+    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
+
+    bridge.execute_command.return_value = {"success": True, "result": {
+        "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline",
+        "label": "Figure",
+        "outputVersion": {"commit": "A889877" + "0" * 33, "key": "SHA256E-s10--abc.png"},
+    }}
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        result = await lightcone_preview_element("outputs.figure")
+    finally:
+        bridge.target_client_id.reset(token)
+    assert result["success"] is True
+    message = persona.chat.add_message.call_args.args[0]
+    assert message.mime_model.data["application/vnd.lightcone.astra+json"]["outputVersion"] == {
+        "commit": "a889877" + "0" * 33, "key": "SHA256E-s10--abc.png"
+    }
+
+
+@pytest.mark.parametrize("version", [
+    None, "a889877", {"commit": "xyz"}, {"commit": "a88987"}, {"key": "SHA256E-s1--x"},
+])
+async def test_a_malformed_output_version_pins_nothing(bridge, persona, version):
+    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
+
+    bridge.execute_command.return_value = {"success": True, "result": {
+        "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline",
+        "label": "Figure", "outputVersion": version,
+    }}
+    token = bridge.target_client_id.set("origin-browser")
+    try:
+        await lightcone_preview_element("outputs.figure")
+    finally:
+        bridge.target_client_id.reset(token)
+    payload = persona.chat.add_message.call_args.args[0].mime_model.data["application/vnd.lightcone.astra+json"]
+    assert "outputVersion" not in payload
+
+
+def test_an_unusable_annex_key_is_dropped_but_the_commit_kept():
+    from jupyterlab_lightcone.agent_tools import _card_version
+
+    assert _card_version({"commit": "a889877", "key": "bad key"}) == {"commit": "a889877"}
+    assert _card_version({"commit": "a889877", "key": "x/y"}) == {"commit": "a889877"}
+    assert _card_version({"commit": "a889877", "key": "k" * 257}) == {"commit": "a889877"}

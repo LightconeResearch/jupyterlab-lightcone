@@ -336,7 +336,8 @@ export function viewChanges(
 /**
  * Where a session's chat file moves when it is renamed to `name`: the same
  * folder (and drive), with the name made a slug the way new sessions are
- * named. Undefined when the name is blank or leaves the path unchanged.
+ * named. Undefined when the name is blank or leaves the path unchanged, which
+ * includes accepting the current name of a file that is not a slug.
  */
 export function renamedSessionPath(
   path: string,
@@ -346,11 +347,12 @@ export function renamedSessionPath(
   if (stem.toLowerCase().endsWith(SESSION_FILE_EXTENSION)) {
     stem = stem.slice(0, -SESSION_FILE_EXTENSION.length).trim();
   }
-  if (!stem) {
+  const current = sessionStem(path);
+  if (!stem || stem === current) {
     return undefined;
   }
   const slug = slugForTitle(stem);
-  if (slug === sessionStem(path)) {
+  if (slug === current) {
     return undefined;
   }
   const slash = path.lastIndexOf('/');

@@ -41,8 +41,28 @@ class FakeBrowserModel {
   readonly pathChanged = new Signal<this, unknown>(this);
 }
 
+/** The layout restorer: records what the plugin asks it to restore. */
+class FakeRestorer {
+  tracker: unknown;
+  options: {
+    command: string;
+    args: (tab: HomeTab) => Record<string, unknown>;
+    name: (tab: HomeTab) => string;
+  } | null = null;
+  restore(tracker: unknown, options: FakeRestorer['options']): Promise<void> {
+    this.tracker = tracker;
+    this.options = options;
+    return Promise.resolve();
+  }
+}
+
 /** A JupyterLab-like application around the Home plugin. */
-function pluginHost(options: { sessions?: FakeSessionService | null } = {}) {
+function pluginHost(
+  options: {
+    sessions?: FakeSessionService | null;
+    restorer?: FakeRestorer | null;
+  } = {}
+) {
   const entries: Record<string, Contents.IModel> = {
     'project/astra.yaml': fileModel(analysis('Union 2.1 cosmology')),
     'elsewhere/notes.txt': fileModel('notes')
@@ -98,7 +118,8 @@ function pluginHost(options: { sessions?: FakeSessionService | null } = {}) {
       { model: browserModel },
       palette,
       null,
-      state
+      state,
+      (options.restorer ?? null) as never
     );
   const create = async (
     args: Record<string, string | boolean> = {}
@@ -188,6 +209,35 @@ describe('homePlugin', () => {
     }
   });
 
+  it('restores Home tabs from the saved layout under a stable name', async () => {
+    const restorer = new FakeRestorer();
+    const h = pluginHost({ restorer });
+    try {
+      h.activate();
+      const options = restorer.options;
+      expect(options?.command).toBe(HomeCommandIDs.restore);
+      const first = await h.create();
+      const second = await h.create({ cwd: 'elsewhere' });
+      const key = options!.name(first);
+      expect(key).not.toBe(options!.name(second));
+      expect(options!.args(first)).toEqual({ cwd: 'project', key });
+
+      // A reload recreates the tab under the same name, without focusing it.
+      const restored: unknown = await h.commands.execute(
+        HomeCommandIDs.restore,
+        { cwd: 'project', key }
+      );
+      if (!isHomeTab(restored)) {
+        throw new Error('The restore command did not return a Home tab.');
+      }
+      expect(options!.name(restored)).toBe(key);
+      expect(restored.content.cwd).toBe('project');
+      expect(h.added[2].options).toEqual({ activate: false, ref: undefined });
+    } finally {
+      h.dispose();
+    }
+  });
+
   it('switches a tab between Home and the full launcher', async () => {
     const h = pluginHost();
     try {
@@ -209,6 +259,41 @@ describe('homePlugin', () => {
       expect(h.commands.isEnabled(HomeCommandIDs.showHome, args)).toBe(true);
       await h.commands.execute(HomeCommandIDs.showHome, args);
       expect(tab.content.mode).toBe('home');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('brings a project’s open Home forward instead of stacking another', async () => {
+    const h = pluginHost();
+    try {
+      h.activate();
+      const tab = await h.create();
+      await until(() => tab.content.mode === 'home');
+      h.shell.activateById.mockClear();
+
+      const shown: unknown = await h.commands.execute(HomeCommandIDs.openHome, {
+        cwd: 'project'
+      });
+      expect(shown).toBe(tab);
+      expect(h.shell.activateById).toHaveBeenCalledWith(tab.id);
+      expect(h.main).toHaveLength(1);
+
+      // A tab switched to the full launcher is not Home: a new tab opens.
+      tab.content.showLauncher();
+      const opened: unknown = await h.commands.execute(
+        HomeCommandIDs.openHome,
+        { cwd: 'project' }
+      );
+      expect(opened).not.toBe(tab);
+      expect(h.main).toHaveLength(2);
+      // Outside any project it opens a launcher in that folder.
+      const elsewhere: unknown = await h.commands.execute(
+        HomeCommandIDs.openHome,
+        { cwd: 'elsewhere' }
+      );
+      expect(isHomeTab(elsewhere) && elsewhere.content.cwd).toBe('elsewhere');
+      expect(h.main).toHaveLength(3);
     } finally {
       h.dispose();
     }

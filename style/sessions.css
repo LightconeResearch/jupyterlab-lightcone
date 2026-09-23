@@ -24,3 +24,74 @@
 .jp-jupyterlab-lightcone-SessionPlaceholder-prompt {
   font-size: var(--jp-ui-font-size2);
 }
+
+/*
+ * A session's tab reads as its title, the first line of its first message,
+ * which the session manager puts in the tab's data attribute. The label keeps
+ * the file name (the tooltip still shows it): a document widget renames its
+ * file whenever its label changes.
+ */
+.lm-DockPanel-tabBar
+  .lm-TabBar-tab[data-lightcone-session-title]
+  > .lm-TabBar-tabLabel {
+  display: none;
+}
+
+/*
+ * The title is the tab's ::before, which JupyterLab otherwise uses for the
+ * active tab's top bar only; that tab draws its bar as a shadow instead.
+ */
+.lm-DockPanel-tabBar .lm-TabBar-tab[data-lightcone-session-title]::before,
+.lm-DockPanel-tabBar
+  .lm-TabBar-tab.jp-mod-current[data-lightcone-session-title]::before {
+  position: static;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  order: 1;
+  overflow: hidden;
+  background: none;
+  content: attr(data-lightcone-session-title);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-DockPanel-tabBar
+  .lm-TabBar-tab.jp-mod-current[data-lightcone-session-title] {
+  box-shadow: inset 0 var(--jp-private-horizontal-tab-active-top-border, 2px) 0
+    var(--jp-brand-color1);
+}
+
+.lm-DockPanel-tabBar
+  .lm-TabBar-tab[data-lightcone-session-title]
+  > .lm-TabBar-tabCloseIcon {
+  order: 2;
+}
+
+/*
+ * A session's toolbar states the agent's permission mode and that the
+ * engine's sandbox does not bound the agent's own shell.
+ */
+.jp-jupyterlab-lightcone-SessionPermissions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.jp-jupyterlab-lightcone-SessionPermissions-mode {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jp-jupyterlab-lightcone-SessionPermissions-note {
+  color: var(--jp-ui-font-color3);
+}

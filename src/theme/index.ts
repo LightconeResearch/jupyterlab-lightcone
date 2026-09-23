@@ -65,3 +65,9 @@ export const lightconeDarkThemePlugin: JupyterFrontEndPlugin<void> = {
     registerLightconeTheme(manager, LIGHTCONE_DARK_THEME, false);
   }
 };
+
+export {
+  FocusLayout,
+  FocusLayoutCommandIDs,
+  focusLayoutPlugin
+} from './focus-layout';

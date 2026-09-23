@@ -197,6 +197,19 @@ export function homeHost(options: IHomeHostOptions) {
   };
 }
 
+/** Hide or show the browser tab, the way Lumino's polls observe it. */
+export function setDocumentHidden(hidden: boolean): void {
+  if (hidden) {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden'
+    });
+  } else {
+    Reflect.deleteProperty(document, 'visibilityState');
+  }
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
 /** Type into a React-controlled field the way a browser does. */
 export function typeInto(
   field: HTMLTextAreaElement | HTMLSelectElement,

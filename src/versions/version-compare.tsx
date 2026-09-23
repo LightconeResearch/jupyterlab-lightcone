@@ -64,13 +64,97 @@ function ImageSide({
   );
 }
 
+/** How two image versions are laid against each other. */
+type ImageCompareMode = 'side' | 'swipe' | 'blink';
+
+/** How long each version stays up while blinking, in ms. */
+export const BLINK_INTERVAL = 700;
+
+/**
+ * Both versions stacked in one frame, alternating: a change shows as motion.
+ * The alternation pauses while the pointer rests on the frame or the Pause
+ * button holds it, so either version can be studied.
+ */
+function BlinkCompare({
+  output,
+  newer,
+  older,
+  newerUrl,
+  olderUrl
+}: {
+  output: ResolvedOutput;
+  newer: IOutputVersion;
+  older: IOutputVersion;
+  newerUrl: string;
+  olderUrl: string;
+}): React.ReactElement {
+  const [showNewer, setShowNewer] = useState(true);
+  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const running = !paused && !hovered;
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(
+      () => setShowNewer(value => !value),
+      BLINK_INTERVAL
+    );
+    return () => window.clearInterval(timer);
+  }, [running]);
+  const shown = showNewer ? newer : older;
+  return (
+    <div className="jp-jupyterlab-lightcone-VersionCompare-blink">
+      <div
+        className="jp-jupyterlab-lightcone-VersionCompare-stack"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <img
+          src={olderUrl}
+          alt={`${output.label ?? output.id} at ${older.short}`}
+        />
+        <img
+          src={newerUrl}
+          alt={`${output.label ?? output.id} at ${newer.short}`}
+          style={{ visibility: showNewer ? 'visible' : 'hidden' }}
+        />
+      </div>
+      <div className="jp-jupyterlab-lightcone-VersionCompare-blinkControls">
+        <span
+          className="jp-jupyterlab-lightcone-VersionCompare-blinkLabel"
+          role="status"
+        >
+          {versionCaption(shown, showNewer ? 'Shown' : 'Previous')}
+        </span>
+        <Button
+          size="small"
+          variant="quiet"
+          aria-pressed={paused}
+          onClick={() => setPaused(value => !value)}
+        >
+          {paused ? 'Resume' : 'Pause'}
+        </Button>
+        <Button
+          size="small"
+          variant="quiet"
+          onClick={() => {
+            setPaused(true);
+            setShowNewer(value => !value);
+          }}
+        >
+          {showNewer ? 'Show previous' : 'Show newer'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ImageCompare({
   target,
   output,
   newer,
   older
 }: IVersionCompareProps): React.ReactElement {
-  const [mode, setMode] = useState<'side' | 'swipe'>('side');
+  const [mode, setMode] = useState<ImageCompareMode>('side');
   const [split, setSplit] = useState(50);
   const sliderId = useId();
   const url = (version: IOutputVersion) =>
@@ -106,8 +190,25 @@ function ImageCompare({
         >
           Swipe
         </Button>
+        <Button
+          size="small"
+          variant={mode === 'blink' ? 'secondary' : 'quiet'}
+          aria-pressed={mode === 'blink'}
+          disabled={!swipeable}
+          onClick={() => setMode('blink')}
+        >
+          Blink
+        </Button>
       </div>
-      {mode === 'side' || !swipeable ? (
+      {mode === 'blink' && swipeable ? (
+        <BlinkCompare
+          output={output}
+          newer={newer}
+          older={older}
+          newerUrl={url(newer)}
+          olderUrl={url(older)}
+        />
+      ) : mode === 'side' || !swipeable ? (
         <div className="jp-jupyterlab-lightcone-VersionCompare-pair">
           <ImageSide
             target={target}

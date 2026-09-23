@@ -1,3 +1,4 @@
+import type { ArtifactPreviewData } from '@astra-spec/ui/lib';
 import type { OutputStatus } from '@astra-spec/ui/model';
 import type { ILauncher } from '@jupyterlab/launcher';
 import type { CommandRegistry } from '@lumino/commands';
@@ -19,7 +20,11 @@ export function homeMode(
   return project && !stockRequested ? 'home' : 'stock';
 }
 
-/** Coarse relative time, as session lists and freshness lines show it. */
+/**
+ * Coarse relative time, as session lists and freshness lines show it. Units
+ * are counted in whole elapsed periods, as the sidebar counts them, so the
+ * same session reads "14 h" there and "14 h ago" here.
+ */
 export function formatRelativeTime(
   time: string | Date,
   now: Date = new Date()
@@ -28,34 +33,34 @@ export function formatRelativeTime(
   if (Number.isNaN(ms)) {
     return '';
   }
-  const seconds = Math.round((now.getTime() - ms) / 1000);
+  const seconds = Math.max(0, Math.floor((now.getTime() - ms) / 1000));
   if (seconds < 45) {
     return 'just now';
   }
-  const minutes = Math.round(seconds / 60);
+  const minutes = Math.max(1, Math.floor(seconds / 60));
   if (minutes < 60) {
     return `${minutes} min ago`;
   }
-  const hours = Math.round(minutes / 60);
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) {
     return `${hours} h ago`;
   }
-  const days = Math.round(hours / 24);
+  const days = Math.floor(hours / 24);
   if (days === 1) {
     return 'yesterday';
   }
   if (days < 7) {
     return `${days} days ago`;
   }
-  const weeks = Math.round(days / 7);
-  if (weeks < 5) {
+  if (days < 30) {
+    const weeks = Math.floor(days / 7);
     return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
   }
-  const months = Math.round(days / 30);
-  if (months < 12) {
+  if (days < 365) {
+    const months = Math.floor(days / 30);
     return months === 1 ? '1 month ago' : `${months} months ago`;
   }
-  const years = Math.round(days / 365);
+  const years = Math.floor(days / 365);
   return years === 1 ? '1 year ago' : `${years} years ago`;
 }
 
@@ -233,6 +238,81 @@ export function outputKindLabel(type: string | undefined): string {
     default:
       return type ? type[0].toUpperCase() + type.slice(1) : 'Output';
   }
+}
+
+/** How Home orders its plates: figures lead, then values, then data summaries. */
+const PLATE_KIND_ORDER: Record<string, number> = {
+  figure: 0,
+  metric: 1,
+  table: 2,
+  data: 3,
+  report: 4
+};
+
+/**
+ * Order outputs for Home's results plates: figures first, then metrics,
+ * tables and data, keeping the declaration order within each kind.
+ */
+export function orderPlates<T extends { type?: string }>(
+  outputs: readonly T[]
+): T[] {
+  const rank = (output: T) =>
+    PLATE_KIND_ORDER[output.type ?? ''] ?? Object.keys(PLATE_KIND_ORDER).length;
+  return outputs
+    .map((output, index) => ({ output, index }))
+    .sort((a, b) => rank(a.output) - rank(b.output) || a.index - b.index)
+    .map(({ output }) => output);
+}
+
+/**
+ * The field column of a plate's value list, in characters: a plate holds
+ * about 22, and the values matter more than the names.
+ */
+const PLATE_FIELD_WIDTH = 10;
+
+/** A field name cut to the plate's field column. */
+function plateField(name: string, width: number): string {
+  return name.length > width
+    ? `${name.slice(0, width - 1)}…`
+    : name.padEnd(width);
+}
+
+/** A table cell as a short plate value: four significant digits for decimals. */
+function plateValue(cell: string | number | boolean | null): string {
+  if (cell === null) {
+    return '—';
+  }
+  if (typeof cell === 'number' && !Number.isInteger(cell)) {
+    return String(Number(cell.toPrecision(4)));
+  }
+  return String(cell);
+}
+
+/**
+ * Adapt an artifact preview to a plate. A one-row table, such as a fit's
+ * parameters, is unreadable as a strip of truncated columns at plate size:
+ * it becomes a list of field and value lines instead. Anything else is kept.
+ */
+export function platePreview(
+  preview: ArtifactPreviewData
+): ArtifactPreviewData {
+  if (
+    preview.kind !== 'table' ||
+    preview.rows.length !== 1 ||
+    preview.headers.length < 3
+  ) {
+    return preview;
+  }
+  const [row] = preview.rows;
+  const width = Math.min(
+    PLATE_FIELD_WIDTH,
+    Math.max(...preview.headers.map(header => header.length))
+  );
+  const lines = preview.headers.map(
+    (header, index) =>
+      `${plateField(header, width)} ${plateValue(row[index] ?? null)}`
+  );
+  return { kind: 'text', text: lines.join('\n'), truncated: preview.truncated };
 }
 
 /** The record lists an analysis node exposes, without depending on the SDK's exact shape. */

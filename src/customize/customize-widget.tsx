@@ -4,7 +4,7 @@ import {
   showErrorMessage,
   type IThemeManager
 } from '@jupyterlab/apputils';
-import type { ServerConnection } from '@jupyterlab/services';
+import type { KernelSpec, ServerConnection } from '@jupyterlab/services';
 import {
   nullTranslator,
   type ITranslator,
@@ -19,10 +19,11 @@ import {
   attentionSummary,
   customizeSections,
   themeChoices,
+  type ICustomizeAction,
   type ICustomizeSection,
   type IThemeChoices
 } from './customize-model';
-import { fetchSetup, type ISetupReport } from './setup-api';
+import { fetchSetup, registerKernel, type ISetupReport } from './setup-api';
 
 /**
  * JupyterLab's theme switch. The themes plugin that provides `IThemeManager`
@@ -67,6 +68,8 @@ export interface ICustomizeWidgetOptions {
   current: ICurrentProject;
   themes: IThemeManager;
   commands: CommandRegistry;
+  /** Refreshed after a kernel is registered, so pickers list it. */
+  kernelspecs?: Pick<KernelSpec.IManager, 'refreshSpecs'>;
   translator?: ITranslator;
 }
 
@@ -84,6 +87,8 @@ interface ICustomizeState {
   checked?: Date;
   loading: boolean;
   error?: string;
+  /** The kind of row action in progress. */
+  busy?: ICustomizeAction['kind'];
 }
 
 interface ICustomizeViewProps {
@@ -93,7 +98,7 @@ interface ICustomizeViewProps {
   themes: IThemeChoices;
   trans: TranslationBundle;
   onRefresh: () => void;
-  onOpenFile: (path: string) => void;
+  onAction: (action: ICustomizeAction) => void;
   onChangeTheme: (name: string) => void;
 }
 
@@ -106,10 +111,13 @@ function checkedAt(date: Date): string {
 
 function Section({
   section,
-  onOpenFile
+  busy,
+  onAction
 }: {
   section: ICustomizeSection;
-  onOpenFile: (path: string) => void;
+  /** The kind of action in progress, whose buttons wait. */
+  busy: ICustomizeAction['kind'] | undefined;
+  onAction: (action: ICustomizeAction) => void;
 }): React.ReactElement {
   const headingId = useId();
   return (
@@ -146,7 +154,8 @@ function Section({
                     <button
                       type="button"
                       className="jp-mod-styled"
-                      onClick={() => onOpenFile(action.path)}
+                      disabled={busy === action.kind}
+                      onClick={() => onAction(action)}
                     >
                       {action.label}
                     </button>
@@ -195,7 +204,7 @@ function Appearance({
       <h2 id={headingId}>{trans.__('Appearance')}</h2>
       <p className="jp-jupyterlab-lightcone-Customize-summary">
         {trans.__(
-          'Lab, Home, the Lightcone sidebar and this page follow the JupyterLab theme. ASTRA views, such as the inventory, record tabs, chat cards and result previews, keep the Lightcone look and follow only whether the theme is light or dark.'
+          'Lab, Home, the Lightcone sidebar and this page follow the JupyterLab theme. ASTRA views, such as the inventory, record tabs and chat cards, keep the Lightcone look and follow only whether the theme is light or dark.'
         )}
       </p>
       <dl className="jp-jupyterlab-lightcone-Customize-rows">
@@ -278,7 +287,8 @@ function CustomizeView(props: ICustomizeViewProps): React.ReactElement {
             <Section
               key={section.id}
               section={section}
-              onOpenFile={props.onOpenFile}
+              busy={state.busy}
+              onAction={props.onAction}
             />
           ))}
         </>
@@ -375,8 +385,8 @@ export class CustomizeWidget extends ReactWidget {
         onRefresh={() => {
           void this.refresh();
         }}
-        onOpenFile={path => {
-          void this._openFile(path);
+        onAction={action => {
+          void this._act(action);
         }}
         onChangeTheme={name => {
           void this._changeTheme(name);
@@ -413,6 +423,42 @@ export class CustomizeWidget extends ReactWidget {
 
   private _onThemeChanged(): void {
     this.update();
+  }
+
+  /** Perform a row's action. */
+  private async _act(action: ICustomizeAction): Promise<void> {
+    switch (action.kind) {
+      case 'open-file':
+        return this._openFile(action.path);
+      case 'register-kernel':
+        return this._registerKernel();
+    }
+  }
+
+  /**
+   * Register the project's environment as a notebook kernel, then let the
+   * launcher and kernel pickers see it and check the page again.
+   */
+  private async _registerKernel(): Promise<void> {
+    const project = this._options.current.project;
+    if (!project) {
+      return;
+    }
+    this._setState({ ...this._state, busy: 'register-kernel' });
+    try {
+      await registerKernel(this._options.settings, project.entrypoint);
+      await this._options.kernelspecs?.refreshSpecs();
+    } catch (error) {
+      await showErrorMessage(
+        this._trans.__('Could not register the project kernel'),
+        error instanceof Error ? error : String(error)
+      );
+    } finally {
+      if (!this.isDisposed) {
+        this._setState({ ...this._state, busy: undefined });
+        void this.refresh();
+      }
+    }
   }
 
   /**

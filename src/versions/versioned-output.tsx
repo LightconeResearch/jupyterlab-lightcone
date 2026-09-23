@@ -260,9 +260,11 @@ function Stepper({
 }
 
 /**
- * The artifact area of a versioned output: the current artifact, or the
- * selected older version's bytes, or a comparison, with the stepper below.
- * The compact form (cards and the metric pill) only swaps in the older bytes.
+ * The artifact area of a versioned output: the current artifact, the selected
+ * older version's bytes, or a comparison. A figure's frame zooms and pans
+ * everything in it, so the stepper and the older-version banner live in the
+ * `VersionBar` above the output instead. The compact form (cards and the
+ * metric pill) only swaps in the older bytes.
  */
 export function VersionedArtifact({
   versioning,
@@ -279,21 +281,8 @@ export function VersionedArtifact({
   const { target, shown, previous } = versioning;
   if (!versioning.enabled || !target) return <>{current}</>;
   const older = shown && !versioning.isLatest ? shown : undefined;
-  if (compact) {
-    return older ? (
-      <OlderVersionPreview
-        target={target}
-        output={output}
-        version={older}
-        compact
-      />
-    ) : (
-      <>{current}</>
-    );
-  }
-  let body: React.ReactNode;
-  if (versioning.compare && shown && previous) {
-    body = (
+  if (!compact && versioning.compare && shown && previous) {
+    return (
       <VersionCompare
         target={target}
         output={output}
@@ -301,25 +290,36 @@ export function VersionedArtifact({
         older={previous}
       />
     );
-  } else if (older) {
-    body = (
-      <OlderVersionPreview
-        target={target}
-        output={output}
-        version={older}
-        compact={false}
-      />
-    );
-  } else {
-    body = current;
   }
+  return older ? (
+    <OlderVersionPreview
+      target={target}
+      output={output}
+      version={older}
+      compact={compact}
+    />
+  ) : (
+    <>{current}</>
+  );
+}
+
+/**
+ * The version controls of a figure or a table, above its frame: the stepper,
+ * and the banner saying an older version is shown.
+ */
+export function VersionBar({
+  versioning,
+  output
+}: {
+  versioning: IOutputVersioning;
+  output: ResolvedOutput;
+}): React.ReactElement | null {
+  if (!versioning.enabled || !versioning.target || !isVisualOutput(output))
+    return null;
   return (
-    <div className="jp-jupyterlab-lightcone-VersionedArtifact">
-      <OlderVersionBanner versioning={versioning} />
-      <div className="jp-jupyterlab-lightcone-VersionedArtifact-body">
-        {body}
-      </div>
+    <div className="jp-jupyterlab-lightcone-VersionBar">
       <Stepper versioning={versioning} output={output} />
+      <OlderVersionBanner versioning={versioning} />
     </div>
   );
 }

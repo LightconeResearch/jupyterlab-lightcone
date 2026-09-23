@@ -7,11 +7,14 @@ import { JupyterArtifactAccess } from './artifact-access';
 export function JupyterArtifactPreview({
   access,
   compact,
-  output
+  output,
+  adapt
 }: {
   access: JupyterArtifactAccess;
   compact: boolean;
   output: ResolvedOutput;
+  /** Reshape the loaded preview for the host, such as Home's small plates. */
+  adapt?: (preview: ArtifactPreviewData) => ArtifactPreviewData;
 }): React.ReactElement {
   const [preview, setPreview] = useState<ArtifactPreviewData | undefined>(
     output.artifact ? { kind: 'loading' } : undefined
@@ -42,7 +45,7 @@ export function JupyterArtifactPreview({
   return (
     <ArtifactPreview
       output={output}
-      preview={preview}
+      preview={preview && adapt ? adapt(preview) : preview}
       compact={compact}
       caption={null}
     />

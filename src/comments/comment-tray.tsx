@@ -95,7 +95,12 @@ function CommentChip({
       <button
         type="button"
         className="jp-jupyterlab-lightcone-CommentChip-open"
-        onClick={() => actions.open(comment)}
+        onClick={event => {
+          // Jupyter Chat focuses its input on a click that leaves the focus
+          // outside the chat, which would take the opened target's tab back.
+          event.stopPropagation();
+          actions.open(comment);
+        }}
       >
         <Icon.react
           tag="span"

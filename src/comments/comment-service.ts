@@ -7,6 +7,7 @@ import {
   createComment,
   deleteComment,
   listComments,
+  sendComments,
   updateComment,
   type IComment,
   type ICommentDraft,
@@ -78,6 +79,25 @@ export class CommentService implements ICommentService, IDisposable {
   /** Whether the pending comments of a project were fetched at least once. */
   known(entrypoint: string): boolean {
     return this._pending.has(this.key(entrypoint));
+  }
+
+  /**
+   * Mark comments sent with a chat's next message and return the block the
+   * composer appends to it, for servers that do not append it to the prompt.
+   */
+  async send(
+    entrypoint: string,
+    ids: readonly string[],
+    chat: string
+  ): Promise<string | null> {
+    const key = this.key(entrypoint);
+    const block = await sendComments(this.settings, key, ids, chat);
+    const sent = new Set(ids);
+    this.store(
+      key,
+      (this._pending.get(key) ?? []).filter(item => !sent.has(item.id))
+    );
+    return block;
   }
 
   async refresh(entrypoint: string): Promise<void> {

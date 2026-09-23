@@ -17,7 +17,9 @@ import {
   SessionManager,
   isComposerStamp,
   isRecordTab,
+  isUntitledSession,
   isSessionWidget,
+  messagesTitle,
   personaMetadata,
   selectedPersona
 } from '../session-manager';
@@ -508,6 +510,69 @@ describe('SessionManager.openSession', () => {
   });
 });
 
+describe('naming a session after its first message', () => {
+  it('renames an untitled session once, when its first message arrives while open', async () => {
+    const h = host();
+    const rename = jest
+      .spyOn(h.contents, 'rename')
+      .mockImplementation(async (from, to) => fileModel('', { path: to }));
+    try {
+      const fresh = h.addPanel('p/chats/untitled.chat');
+      await flush();
+      expect(rename).not.toHaveBeenCalled();
+      fresh.model.messages = [
+        {
+          id: '1',
+          body: 'Plot the residuals\nagainst redshift',
+          sender: human,
+          time: 1
+        }
+      ];
+      fresh.model.messagesUpdated.emit();
+      await flush();
+      expect(rename).toHaveBeenCalledWith(
+        'p/chats/untitled.chat',
+        'p/chats/plot-the-residuals.chat'
+      );
+      fresh.model.messagesUpdated.emit();
+      await flush();
+      expect(rename).toHaveBeenCalledTimes(1);
+
+      // A chat that already had messages when it opened keeps its name, and
+      // so does one outside chats/ or with a name of its own.
+      const old = new Promise<string>(resolve =>
+        setTimeout(() => resolve('id-old'), 0)
+      );
+      const loaded = h.addPanel('p/chats/untitled-2.chat', 'main', old);
+      loaded.model.messages = [
+        { id: '1', body: 'Earlier question', sender: human, time: 1 }
+      ];
+      const named = h.addPanel('p/chats/plan.chat');
+      const loose = h.addPanel('p/untitled.chat');
+      await flush();
+      await flush();
+      for (const panel of [loaded, named, loose]) {
+        panel.model.messages = [
+          { id: '2', body: 'Another question', sender: human, time: 2 }
+        ];
+        panel.model.messagesUpdated.emit();
+      }
+      await flush();
+      expect(rename).toHaveBeenCalledTimes(1);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('recognizes untitled sessions in a chats folder only', () => {
+    expect(isUntitledSession('p/chats/untitled.chat')).toBe(true);
+    expect(isUntitledSession('chats/untitled-3.chat')).toBe(true);
+    expect(isUntitledSession('p/untitled.chat')).toBe(false);
+    expect(isUntitledSession('p/chats/untitled-notes.chat')).toBe(false);
+    expect(isUntitledSession('p/chats/plan.chat')).toBe(false);
+  });
+});
+
 describe('SessionManager activity', () => {
   it('merges live activity into listings, notifies when done and announces the project', async () => {
     const h = host();
@@ -519,12 +584,17 @@ describe('SessionManager activity', () => {
       expect(h.manager.activity('p/chats/plan.chat')).toBe('idle');
       expect(changes).toEqual(['p/astra.yaml']);
 
+      expect(h.manager.busy()).toEqual([]);
       session.model.writers = [{ user: agent }];
       session.model.writersChanged.emit(undefined);
       expect(h.manager.activity('p/chats/plan.chat')).toBe('working');
       expect((await h.manager.list('p/astra.yaml'))[0].activity).toBe(
         'working'
       );
+      // The Running panel lists it while the agent works.
+      expect(h.manager.busy()).toEqual([
+        { path: 'p/chats/plan.chat', title: 'Plan', state: 'working' }
+      ]);
 
       session.model.writers = [];
       session.model.writersChanged.emit(undefined);
@@ -698,6 +768,35 @@ describe('SessionManager activity', () => {
     }
   });
 
+  it('keeps the inherited activity until the main-area panel has loaded the chat', async () => {
+    const h = host();
+    try {
+      const path = 'p/chats/plan.chat';
+      const side = h.addPanel(path, 'sidebar');
+      await flush();
+      side.model.writers = [{ user: agent }];
+      side.model.writersChanged.emit(undefined);
+      expect(h.manager.activity(path)).toBe('working');
+
+      // The main-area document is still loading: its empty model says nothing
+      // about the agent, so the handover must not read as a finished session.
+      const ready = new PromiseDelegate<string>();
+      const main = h.addPanel(path, 'main', ready.promise);
+      side.dispose();
+      await flush();
+      expect(h.manager.activity(path)).toBe('working');
+      expect(Notification.manager.notifications).toHaveLength(0);
+
+      main.model.writers = [{ user: agent }];
+      ready.resolve(`id-${path}`);
+      await flush();
+      expect(h.manager.activity(path)).toBe('working');
+      expect(Notification.manager.notifications).toHaveLength(0);
+    } finally {
+      h.dispose();
+    }
+  });
+
   it('follows the main-area session while the side panel of its chat stays open', async () => {
     const h = host();
     try {
@@ -779,6 +878,60 @@ describe('SessionManager activity', () => {
     } finally {
       h.dispose();
     }
+  });
+});
+
+describe('SessionManager tab titles', () => {
+  it('names a session tab after its first message and leaves the label alone', async () => {
+    const h = host();
+    try {
+      const session = h.addPanel('p/chats/fit-the-model.chat');
+      session.title.label = 'fit-the-model.chat';
+      session.title.dataset = { type: 'document-title' };
+      await flush();
+      // Nobody wrote yet: the tab shows the file name.
+      expect(session.title.dataset).toEqual({ type: 'document-title' });
+
+      session.model.messages = [
+        { id: '1', body: 'hello', sender: agent, time: 1 },
+        {
+          id: '2',
+          body: '\n  Fit the model\nwith errors',
+          sender: human,
+          time: 2
+        }
+      ];
+      session.model.messagesUpdated.emit();
+      expect(session.title.dataset).toEqual({
+        type: 'document-title',
+        'lightcone-session-title': 'Fit the model'
+      });
+      // The label is the file name, which a document widget would rename to.
+      expect(session.title.label).toBe('fit-the-model.chat');
+
+      session.model.messages = [];
+      session.model.messagesUpdated.emit();
+      expect(session.title.dataset).toEqual({ type: 'document-title' });
+
+      // A chat in Jupyter Chat's side panel keeps its own title.
+      const side = h.addPanel('p/chats/side.chat', 'sidebar');
+      side.model.messages = [{ id: '3', body: 'Side', sender: human, time: 3 }];
+      side.model.messagesUpdated.emit();
+      expect(side.title.dataset).toEqual({});
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('titles messages like the server, skipping personas', () => {
+    expect(messagesTitle([])).toBe('');
+    expect(
+      messagesTitle([
+        { id: '1', body: 'Echo', sender: agent, time: 1 },
+        { id: '2', body: '   ', sender: human, time: 2 },
+        { id: '3', body: 'Plot residuals\nplease', sender: human, time: 3 }
+      ] as never)
+    ).toBe('Plot residuals');
   });
 });
 

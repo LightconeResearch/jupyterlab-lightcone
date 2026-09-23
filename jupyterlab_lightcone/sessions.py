@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 
 from jupyter_server.auth import authorized
@@ -38,6 +39,11 @@ PERSONA_PREFIX = "jupyter-ai-personas::"
 CHAT_SUFFIX = ".chat"
 MAX_CHAT_BYTES = 2 * 1024 * 1024
 TITLE_LENGTH = 80
+MIN_QUERY_LENGTH = 2
+MAX_QUERY_LENGTH = 200
+MAX_SEARCH_MATCHES = 50
+SNIPPET_CONTEXT = 50
+"""Characters of a message kept on each side of a search match."""
 EXCLUDE_PATTERNS = ("chats/", "*.chat")
 GIT_TIMEOUT = 10
 
@@ -141,15 +147,8 @@ def last_agent(document: dict | None) -> str | None:
     """The display name of the last persona that wrote, or the last segment of its ID."""
     for message in reversed(_messages(document)):
         sender = message.get("sender")
-        if not _is_persona(sender):
-            continue
-        user = _users(document).get(sender)
-        if isinstance(user, dict):
-            for key in ("display_name", "name"):
-                name = user.get(key)
-                if isinstance(name, str) and name.strip():
-                    return name.strip()
-        return sender.rsplit("::", 1)[-1]
+        if _is_persona(sender):
+            return sender_name(document, sender)
     return None
 
 
@@ -220,6 +219,70 @@ def list_sessions(project_path: str, project: Path, activity: dict) -> list[dict
     return sorted(sessions, key=lambda session: (session["modified"], session["path"]), reverse=True)
 
 
+def sender_name(document: dict | None, sender) -> str | None:
+    """How the chat's user map names a sender, else the last segment of a persona's ID."""
+    user = _users(document).get(sender) if isinstance(sender, str) else None
+    if isinstance(user, dict):
+        for key in ("display_name", "name"):
+            name = user.get(key)
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+    return sender.rsplit("::", 1)[-1] if _is_persona(sender) else None
+
+
+def snippet(body: str, start: int, end: int) -> str:
+    """The match with some context on each side, on one line, marked where cut."""
+    begin = max(0, start - SNIPPET_CONTEXT)
+    finish = min(len(body), end + SNIPPET_CONTEXT)
+    text = " ".join(body[begin:finish].split())
+    return f"{'…' if begin else ''}{text}{'…' if finish < len(body) else ''}"
+
+
+def message_time(message: dict) -> str | None:
+    """A message's time as ISO 8601; Jupyter Chat stores seconds since the epoch."""
+    value = message.get("time")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return datetime.fromtimestamp(value, tz=timezone.utc).isoformat(timespec="milliseconds")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def search_sessions(project_path: str, project: Path, query: str) -> list[dict]:
+    """Messages of the project's sessions containing `query`, case-insensitively.
+
+    One match per message, newest first, at most `MAX_SEARCH_MATCHES`; each
+    names its session, the message, its author and a snippet around the match.
+    """
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    matches = []
+    for directory in (project / CHATS_DIRECTORY, project):
+        for chat in _chat_files(directory):
+            document = read_chat(chat)
+            if document is None:
+                continue
+            location = contents_join(project_path, chat.relative_to(project).as_posix())
+            title = session_title(document, chat.stem)
+            for message in _messages(document):
+                body = message.get("body")
+                found = pattern.search(body) if isinstance(body, str) else None
+                if found is None:
+                    continue
+                identifier = message.get("id")
+                matches.append({
+                    "path": location,
+                    "title": title,
+                    "message": identifier if isinstance(identifier, str) else None,
+                    "author": sender_name(document, message.get("sender")),
+                    "agent": _is_persona(message.get("sender")),
+                    "time": message_time(message),
+                    "snippet": snippet(body, found.start(), found.end()),
+                })
+    matches.sort(key=lambda match: (match["time"] or "", match["path"]), reverse=True)
+    return matches[:MAX_SEARCH_MATCHES]
+
+
 def _git(project: Path, *arguments: str) -> str:
     """Run one Git query in the project, without a shell, and return its output."""
     completed = subprocess.run(
@@ -239,9 +302,13 @@ def exclude_patterns(project: Path, toplevel: Path) -> list[str]:
     A project that is a repository of its own excludes `/chats/` and `/*.chat`;
     one nested in a larger repository prefixes both with its own folder, so the
     rules keep pointing at the project's chats rather than the repository's.
+    Raises ValueError for a folder name no single rule can hold.
     """
     relative = project.resolve().relative_to(toplevel.resolve()).as_posix()
-    prefix = "" if relative == "." else f"/{relative}"
+    if "\n" in relative or "\r" in relative:
+        raise ValueError("An exclude rule cannot name a folder whose name spans lines")
+    # Quote the wildcards Git would otherwise read in a folder name such as `draft [v2]`.
+    prefix = "" if relative == "." else "/" + re.sub(r"([\\*?\[])", r"\\\1", relative)
     return [f"{prefix}/{pattern}" for pattern in EXCLUDE_PATTERNS]
 
 
@@ -322,9 +389,34 @@ class ProjectSessionsHandler(ProjectAPIHandler):
         self.finish({"directory": directory})
 
 
+class SessionSearchHandler(ProjectAPIHandler):
+    """Search the text of a project's sessions, for the search modal."""
+
+    unavailable_message = "Sessions require local files"
+
+    @web.authenticated
+    @authorized
+    async def get(self):
+        """`?path=<entrypoint>&q=<text>` → `{"matches": [...]}`, newest first."""
+        entrypoint = self.get_query_argument("path")
+        query = self.get_query_argument("q").strip()
+        if not MIN_QUERY_LENGTH <= len(query) <= MAX_QUERY_LENGTH:
+            raise web.HTTPError(
+                400, f"A search needs {MIN_QUERY_LENGTH} to {MAX_QUERY_LENGTH} characters."
+            )
+        await self.project_named(entrypoint)
+        project_path = project_contents_path(entrypoint)
+        project = project_folder(self.contents_root, project_path)
+        matches = await asyncio.to_thread(search_sessions, project_path, project, query)
+        self.finish({"matches": matches})
+
+
 def setup_session_handlers(web_app):
-    """Register the sessions route under the server base URL, including JupyterHub prefixes."""
+    """Register the sessions routes under the server base URL, including JupyterHub prefixes."""
     # Not `api/sessions`: Jupyter clients (Galata among them) treat any URL ending in
     # `/api/sessions` as the kernel-session API.
     route = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "chat-sessions")
-    web_app.add_handlers(".*$", [(route, ProjectSessionsHandler)])
+    web_app.add_handlers(".*$", [
+        (route, ProjectSessionsHandler),
+        (url_path_join(route, "search"), SessionSearchHandler),
+    ])

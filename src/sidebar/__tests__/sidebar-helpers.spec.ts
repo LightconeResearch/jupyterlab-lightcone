@@ -346,6 +346,13 @@ describe('renamedSessionPath', () => {
     expect(renamedSessionPath('project/chats/a.chat', '   ')).toBeUndefined();
     expect(renamedSessionPath('project/chats/a.chat', '.chat')).toBeUndefined();
     expect(renamedSessionPath('project/chats/a.chat', 'A')).toBeUndefined();
+    // Accepting the dialog's text unchanged keeps a name that is not a slug.
+    expect(
+      renamedSessionPath('project/chats/Hubble Fit.chat', 'Hubble Fit')
+    ).toBeUndefined();
+    expect(
+      renamedSessionPath('project/chats/Hubble Fit.chat', 'Hubble Fit v2')
+    ).toBe('project/chats/hubble-fit-v2.chat');
   });
 });
 

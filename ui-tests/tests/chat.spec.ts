@@ -270,7 +270,7 @@ prior_insights:
     await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
       filepath
     });
-  }, `${tmpPath}/chats/untitled.chat`);
+  }, `${tmpPath}/chats/show-the-decision-and-figure.chat`);
   await expect(cards).toHaveCount(2);
   await expect(figure.locator('img')).toBeVisible();
   expect(errors).toEqual([]);

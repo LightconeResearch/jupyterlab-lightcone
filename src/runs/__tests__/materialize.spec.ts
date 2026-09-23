@@ -1,5 +1,5 @@
 import { Notification } from '@jupyterlab/apputils';
-import { JobFailure, startMaterialization } from '../materialize';
+import { startMaterialization } from '../materialize';
 import { cancelRun, getRun, listRuns, startRun, type IJob } from '../runs-api';
 import { FORGOTTEN_JOB_MESSAGE } from '../runs-service';
 import { job, refused, runsHost, until } from './runs-fixtures';
@@ -171,9 +171,12 @@ it('rejects without a toast when the job cannot start', async () => {
   }
 });
 
-it('carries the ended job on failures', () => {
-  const failed = job({ state: 'cancelled' });
-  const failure = new JobFailure(failed);
-  expect(failure.job).toBe(failed);
-  expect(failure.message).toBe('Materialization stopped.');
+it('says plainly that a job was stopped, without an error to dismiss', async () => {
+  const { notification } = await follow(
+    ['cosmology_contours'],
+    job({ state: 'cancelled', exit: -15, finished: '2026-09-23T12:00:00.000Z' })
+  );
+  expect(notification.type).toBe('info');
+  expect(notification.message).toBe('Materialization stopped.');
+  expect(notification.options.autoClose).toBe(8000);
 });

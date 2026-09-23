@@ -91,12 +91,8 @@ export interface IImageLayerOptions {
     y: number,
     event: MouseEvent
   ): void;
-  /** A click on a pending comment's pin. */
-  onPinClick(
-    comment: IComment,
-    element: HTMLElement,
-    event: PointerEvent
-  ): void;
+  /** A click on a pending comment's pin, or Enter or Space on it. */
+  onPinClick(comment: IComment, element: HTMLElement, event: MouseEvent): void;
   /** A pin was dragged to a new place. */
   onPinMoved(comment: IComment, x: number, y: number): void;
 }
@@ -366,9 +362,18 @@ export class ImageCommentLayer implements IDisposable {
     pin.addEventListener('pointerup', finish);
     pin.addEventListener('pointercancel', finish);
     pin.addEventListener('click', event => {
-      // The pointer handlers already acted; keep the host from seeing a click.
+      // The pointer handlers already acted on a pointer click; keep the host
+      // from seeing it. A click from the keyboard (Enter or Space on the
+      // focused pin) has no pointer before it and opens the comment here.
       event.preventDefault();
       event.stopPropagation();
+      if (event.detail !== 0 || this._dragging) {
+        return;
+      }
+      const current = this._comments.find(item => item.id === comment.id);
+      if (current) {
+        this.options.onPinClick(current, pin, event);
+      }
     });
     return pin;
   }

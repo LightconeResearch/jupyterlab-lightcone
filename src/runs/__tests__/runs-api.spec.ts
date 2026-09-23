@@ -2,11 +2,13 @@ import { ServerConnection } from '@jupyterlab/services';
 import { RequestError } from '../../api';
 import {
   cancelRun,
+  fetchServerUsage,
   getRun,
   isJob,
   isJobEvent,
   isRunRecord,
   listRuns,
+  parseServerUsage,
   startRun
 } from '../runs-api';
 import { startErrorMessage } from '../runs-model';
@@ -170,4 +172,48 @@ test('refuses an invalid job', async () => {
   await expect(startRun(settings, ENTRYPOINT)).rejects.toThrow(
     'The server returned an invalid job.'
   );
+});
+
+describe('where runs execute and what the server uses', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('keeps the venue and the invocation a listing reports', async () => {
+    respond({
+      runs: [run({ invocation: 'abc1234' })],
+      jobs: [],
+      venue: { slurm: true, nodes: 2 }
+    });
+    const listing = await listRuns(settings, ENTRYPOINT);
+    expect(listing.venue).toEqual({ slurm: true, nodes: 2 });
+    expect(listing.runs[0].invocation).toBe('abc1234');
+    expect(isRunRecord({ ...run(), invocation: 3 })).toBe(false);
+    jest.restoreAllMocks();
+    respond({ runs: [], jobs: [], venue: { slurm: 'yes' } });
+    await expect(listRuns(settings, ENTRYPOINT)).rejects.toThrow(
+      'invalid run listing'
+    );
+  });
+
+  it('reads jupyter-resource-usage when it is installed, and nothing otherwise', async () => {
+    const request = respond({
+      rss: 1000,
+      limits: { memory: { rss: 4000 } },
+      cpu_percent: 12.5,
+      cpu_count: 4
+    });
+    await expect(fetchServerUsage(settings)).resolves.toEqual({
+      rss: 1000,
+      memoryLimit: 4000,
+      cpuPercent: 12.5,
+      cpuCount: 4
+    });
+    expect(sent(request).url.pathname).toBe('/lab/api/metrics/v1');
+    jest.restoreAllMocks();
+    respond({ message: 'Not Found' }, 404);
+    await expect(fetchServerUsage(settings)).resolves.toBeNull();
+    expect(parseServerUsage({ rss: 'x' })).toBeNull();
+    expect(
+      parseServerUsage({ rss: 5, limits: { memory: { rss: 0 } } })
+    ).toEqual({ rss: 5, memoryLimit: null, cpuPercent: null, cpuCount: null });
+  });
 });

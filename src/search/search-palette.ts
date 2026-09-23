@@ -11,7 +11,8 @@ import {
 } from './search-candidates';
 
 /** The candidate groups, each replaced as a whole when its source answers. */
-export type SearchGroup = 'sessions' | 'records' | 'files' | 'commands';
+export type SearchGroup =
+  'sessions' | 'messages' | 'records' | 'files' | 'commands';
 
 /** Root class of the palette; the modal wrapper adds `-Modal`. */
 export const SEARCH_CLASS = 'jp-jupyterlab-lightcone-Search';

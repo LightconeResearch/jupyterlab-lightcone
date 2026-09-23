@@ -158,6 +158,19 @@ class PersonaManager(JupyterAIPersonaManager):
         return web_app.settings.setdefault(COMMENT_LOCKS, {}) if web_app is not None else {}
 
 
+def delivers_comments(serverapp) -> bool:
+    """Whether every Jupyter AI persona manager is Lightcone's, which appends comments to prompts.
+
+    A deployment that configured another class (not derived from this one)
+    leaves the composer to append the comments to the message itself.
+    """
+    apps = serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
+    return bool(apps) and all(
+        isinstance(app.persona_manager_class, type) and issubclass(app.persona_manager_class, PersonaManager)
+        for app in apps
+    )
+
+
 def select_project_persona_manager(serverapp) -> bool:
     """Use the project-aware manager unless the deployment chose another one.
 

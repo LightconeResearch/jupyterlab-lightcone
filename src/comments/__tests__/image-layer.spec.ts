@@ -171,6 +171,35 @@ describe('ImageCommentLayer', () => {
     layer.dispose();
   });
 
+  it('opens a pin from the keyboard but not twice from a pointer', async () => {
+    const { host, layer, options } = setup();
+    const comment = makeComment('a', pointAnchor(10, 20));
+    layer.setComments([comment]);
+    await frames.flush();
+    const pin = host.querySelector<HTMLElement>(PIN);
+    if (!pin) {
+      throw new Error('No pin was drawn.');
+    }
+    // Enter or Space on a focused button fires a click with no pointer.
+    pin.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 })
+    );
+    expect(options.onPinClick).toHaveBeenCalledTimes(1);
+    expect(options.onPinClick).toHaveBeenLastCalledWith(
+      comment,
+      pin,
+      expect.any(MouseEvent)
+    );
+    // A pointer click acts on pointerup; its click event must not repeat it.
+    pin.dispatchEvent(pointer('pointerdown', { clientX: 120, clientY: 70 }));
+    pin.dispatchEvent(pointer('pointerup', { clientX: 120, clientY: 70 }));
+    pin.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })
+    );
+    expect(options.onPinClick).toHaveBeenCalledTimes(2);
+    layer.dispose();
+  });
+
   it('shows and clears the draft marker', async () => {
     const { host, image, layer } = setup();
     layer.setDraft(image, 10, 20);

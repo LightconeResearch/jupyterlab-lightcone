@@ -5,7 +5,7 @@ import os
 from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
-from .comments import setup_comment_handlers
+from .comments import COMMENT_DELIVERY, setup_comment_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
 from .mystra import MySTRAManager
@@ -63,12 +63,18 @@ class LightconeApp(ExtensionApp):
         """Start Jupyter AI agents at their project root; a no-op without Jupyter AI.
 
         Optional and best-effort: no Jupyter AI incompatibility may stop the
-        inventory, viewer and paper routes from loading.
+        inventory, viewer and paper routes from loading. Where Lightcone's
+        manager does not handle messages, pending comments travel in the
+        message text instead of the prompt copy.
         """
+        page_config = self.serverapp.web_app.settings.setdefault("page_config_data", {})
+        page_config[COMMENT_DELIVERY] = "message"
         try:
-            from .agent_workspace import select_project_persona_manager
+            from .agent_workspace import delivers_comments, select_project_persona_manager
 
             selected = select_project_persona_manager(self.serverapp)
+            if delivers_comments(self.serverapp):
+                page_config[COMMENT_DELIVERY] = "prompt"
         except ImportError:
             return
         except Exception:

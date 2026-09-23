@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import tomllib
 import urllib.parse
 from pathlib import Path, PurePosixPath
 
@@ -56,7 +57,17 @@ CONTENT_TYPES = {
 }
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
-_COMMIT = re.compile(r"^[0-9a-f]{7,40}$")
+MAX_SOURCE_BYTES = 1024 * 1024
+"""The largest script the source route returns as text."""
+
+MAX_LOCK_BYTES = 8 * 1024 * 1024
+"""The largest ``uv.lock`` the packages route parses."""
+
+MAX_SOURCE_PATH = 1024
+"""The longest project-relative path the source route accepts."""
+
+_COMMIT = re.compile(r"[0-9a-f]{7,40}|[0-9a-f]{64}")
+"""A commit as the content route accepts it: abbreviated, or any full name the listing gives."""
 _OBJECT_NAME = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _KEY = re.compile(r"[^-]+(?:-s(\d+))?(?:-m\d+)?(?:-S\d+)?(?:-C\d+)?--.*")
 """git-annex's key grammar: a backend, then the optional size, mtime, chunk
@@ -467,8 +478,8 @@ def list_versions(project: Path, universe: str, output: str) -> dict:
 
 def read_version(project: Path, universe: str, output: str, commit: str) -> tuple[str, bytes]:
     """The output file's project-relative path and its bytes at a commit."""
-    if not _COMMIT.match(commit):
-        raise web.HTTPError(400, "A commit is named by 7 to 40 hexadecimal characters")
+    if not _COMMIT.fullmatch(commit):
+        raise web.HTTPError(400, "A commit is named by 7 to 40 hexadecimal characters, or 64")
     file, _ = output_file(project, universe, output)
     resolved = run_git(project, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")
     if resolved.returncode != 0:
@@ -511,6 +522,128 @@ def content_disposition(name: str) -> str:
     """An inline disposition naming the file, in both the ASCII and the RFC 5987 form."""
     ascii_name = re.sub(r'[^\x20-\x7e]|["\\]', "_", name)
     return f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{urllib.parse.quote(name, safe='')}"
+
+
+# =============================================================================
+# The recorded revision: scripts and the locked environment
+# =============================================================================
+
+
+def resolve_commit(project: Path, commit: str) -> str:
+    """The full name of a commit given as 7 to 40 hexadecimal characters, or 64."""
+    if not isinstance(commit, str) or not _COMMIT.fullmatch(commit):
+        raise web.HTTPError(400, "A commit is named by 7 to 40 hexadecimal characters, or 64")
+    resolved = run_git(project, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")
+    if resolved.returncode != 0:
+        raise web.HTTPError(404, "No such commit in this project", reason="commit")
+    return resolved.stdout.decode("utf-8", "replace").strip()
+
+
+def validate_source_path(file, allow_hidden: bool) -> str:
+    """A project-relative POSIX path that stays inside the project and is not hidden.
+
+    The contents manager refuses hidden files unless the server allows them;
+    history must not become a way around that rule.
+    """
+    if (
+        not isinstance(file, str)
+        or not file
+        or len(file) > MAX_SOURCE_PATH
+        or "\\" in file
+        or not batchable(file)
+    ):
+        raise web.HTTPError(400, "A project-relative file path is required")
+    parts = file.split("/")
+    if file.startswith("/") or any(part in ("", ".", "..") for part in parts):
+        raise web.HTTPError(400, "A project-relative file path is required")
+    if not allow_hidden and any(part.startswith(".") for part in parts):
+        raise web.HTTPError(403, "Hidden files are not available on this server")
+    return file
+
+
+def read_source(project: Path, commit: str, file: str) -> dict:
+    """A text file as the project held it at a commit: the script a run executed.
+
+    ``text`` is None when the file did not exist then, is larger than
+    ``MAX_SOURCE_BYTES`` (``truncated``), is not UTF-8 text (``binary``) or is
+    an annexed file (``annexed``), whose bytes are data rather than code.
+    """
+    resolved = resolve_commit(project, commit)
+    name = f"{resolved}:./{file}"
+    answer = {
+        "file": file,
+        "commit": resolved,
+        "exists": False,
+        "text": None,
+        "binary": False,
+        "annexed": False,
+        "truncated": False,
+    }
+    size = blob_sizes(project, [name])[name]
+    if size is None:
+        return answer
+    answer["exists"] = True
+    if size > MAX_SOURCE_BYTES:
+        answer["truncated"] = True
+        return answer
+    blob = read_blobs(project, [name]).get(name, b"")
+    if pointer_key(blob) is not None:
+        answer["annexed"] = True
+        return answer
+    if b"\x00" in blob:
+        answer["binary"] = True
+        return answer
+    try:
+        answer["text"] = blob.decode("utf-8")
+    except UnicodeDecodeError:
+        answer["binary"] = True
+    return answer
+
+
+def parse_lock_packages(data: bytes) -> list[dict] | None:
+    """The packages a ``uv.lock`` pins, sorted by name; None when it is not a lock.
+
+    Each entry is ``{"name", "version"}``; the project's own package, which uv
+    locks by path rather than by version, has a null version.
+    """
+    try:
+        lock = tomllib.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    packages = lock.get("package")
+    if not isinstance(packages, list):
+        return None
+    pinned: dict[str, str | None] = {}
+    for package in packages:
+        if not isinstance(package, dict) or not isinstance(package.get("name"), str):
+            continue
+        version = package.get("version")
+        pinned[package["name"]] = version if isinstance(version, str) else None
+    return [{"name": name, "version": pinned[name]} for name in sorted(pinned)]
+
+
+def locked_packages(project: Path, commit: str) -> dict:
+    """The environment a run was locked to, and the one locked now, from ``uv.lock``.
+
+    ``packages`` is the lock at the commit and ``current`` the lock in the
+    working tree; either is None when that lock is absent, oversized or
+    unreadable.
+    """
+    resolved = resolve_commit(project, commit)
+    name = f"{resolved}:./uv.lock"
+    size = blob_sizes(project, [name])[name]
+    packages = None
+    if size is not None and size <= MAX_LOCK_BYTES:
+        blob = read_blobs(project, [name]).get(name)
+        packages = None if blob is None else parse_lock_packages(blob)
+    current = None
+    lock = project / "uv.lock"
+    try:
+        if lock.is_file() and lock.stat().st_size <= MAX_LOCK_BYTES:
+            current = parse_lock_packages(lock.read_bytes())
+    except OSError:
+        current = None
+    return {"commit": resolved, "packages": packages, "current": current}
 
 
 # =============================================================================
@@ -577,13 +710,44 @@ class OutputVersionContentHandler(ProjectAPIHandler):
         super().write_error(status_code, **kwargs)
 
 
+class RevisionSourceHandler(ProjectAPIHandler):
+    """A project file as a recorded revision held it, for a run's Code tab."""
+
+    unavailable_message = "Recorded code requires local files"
+
+    @web.authenticated
+    @authorized
+    async def get(self):
+        """Return the file's text at the commit, or say why it cannot be shown."""
+        project = await self.project()
+        commit = self.get_query_argument("commit")
+        file = validate_source_path(self.get_query_argument("file"), self.contents_manager.allow_hidden)
+        self.finish(await asyncio.to_thread(read_source, project, commit, file))
+
+
+class LockedPackagesHandler(ProjectAPIHandler):
+    """The packages ``uv.lock`` pinned at a commit, beside today's, for a run's Environment tab."""
+
+    unavailable_message = "Recorded environments require local files"
+
+    @web.authenticated
+    @authorized
+    async def get(self):
+        """Return both package lists; either is null when its lock cannot be read."""
+        project = await self.project()
+        commit = self.get_query_argument("commit")
+        self.finish(await asyncio.to_thread(locked_packages, project, commit))
+
+
 def setup_versions_handlers(web_app):
-    """Register the listing and content routes under the server base URL, JupyterHub prefixes included."""
+    """Register the listing, content, source and packages routes under the server base URL."""
     api = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "versions")
     web_app.add_handlers(
         ".*$",
         [
             (api, OutputVersionsHandler),
             (url_path_join(api, "content"), OutputVersionContentHandler),
+            (url_path_join(api, "source"), RevisionSourceHandler),
+            (url_path_join(api, "packages"), LockedPackagesHandler),
         ],
     )

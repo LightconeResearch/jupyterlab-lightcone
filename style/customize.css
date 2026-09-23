@@ -4,6 +4,7 @@
 
 .jp-jupyterlab-lightcone-Customize {
   overflow: auto;
+  container: lightcone-customize / inline-size;
   background: var(--jp-layout-color1);
   color: var(--jp-ui-font-color1);
   font-family: var(--jp-ui-font-family);
@@ -170,12 +171,19 @@
   font-size: var(--jp-ui-font-size1);
 }
 
-@media (width < 560px) {
+/* The page often shares the main area with a session or a result: stack the
+ * rows by the tab's own width, not the window's. */
+@container lightcone-customize (width < 560px) {
   .jp-jupyterlab-lightcone-Customize-header {
     flex-direction: column;
   }
 
   .jp-jupyterlab-lightcone-Customize-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .jp-jupyterlab-lightcone-Customize-row select.jp-mod-styled {
+    width: 100%;
+    min-width: 0;
   }
 }

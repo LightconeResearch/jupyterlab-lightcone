@@ -21,6 +21,8 @@ import {
 } from '@jupyterlab/ui-components';
 import { UUID, type ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { ICurrentProject } from '../current-project';
+import { lightconeIcon } from '../icons';
+import { ISessionService } from '../sessions/session-service';
 import { projectDirectory } from '../project-data';
 import { findProjectRoot } from '../project-root';
 import { startMaterialization } from './materialize';
@@ -78,7 +80,8 @@ export const runsPlugin: JupyterFrontEndPlugin<void> = {
     ILayoutRestorer,
     ICommandPalette,
     IRunningSessionManagers,
-    ITranslator
+    ITranslator,
+    ISessionService
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -87,7 +90,8 @@ export const runsPlugin: JupyterFrontEndPlugin<void> = {
     restorer: ILayoutRestorer | null,
     palette: ICommandPalette | null,
     running: IRunningSessionManagers | null,
-    translator: ITranslator | null
+    translator: ITranslator | null,
+    sessions: ISessionService | null
   ) => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const contents = app.serviceManager.contents;
@@ -306,13 +310,30 @@ export const runsPlugin: JupyterFrontEndPlugin<void> = {
     }
 
     if (running) {
+      const busy = sessions?.busy?.bind(sessions);
       addRunningSection(running, {
         service,
         openRuns: entrypoint => {
           void openRuns(entrypoint).catch(error => {
             console.warn('Could not open Lightcone runs.', error);
           });
-        }
+        },
+        sessions:
+          sessions && busy
+            ? {
+                busy,
+                changed: sessions.changed,
+                icon: lightconeIcon,
+                open: path => {
+                  void sessions.openSession(path).catch(error => {
+                    console.warn(
+                      'Could not open the Lightcone session.',
+                      error
+                    );
+                  });
+                }
+              }
+            : null
       });
     }
 

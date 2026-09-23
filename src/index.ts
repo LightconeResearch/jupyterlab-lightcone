@@ -19,11 +19,17 @@ import { commentsPlugin } from './comments';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
 import { customizePlugin } from './customize';
 import { homePlugin } from './home';
+import { mentionsPlugin } from './mentions';
 import { runsPlugin } from './runs';
 import { searchPlugin } from './search';
 import { sessionPlaceholderPlugin, sessionsPlugin } from './sessions';
 import { sidebarPlugin } from './sidebar';
-import { lightconeDarkThemePlugin, lightconeLightThemePlugin } from './theme';
+import { tabLabelsPlugin } from './tab-labels';
+import {
+  focusLayoutPlugin,
+  lightconeDarkThemePlugin,
+  lightconeLightThemePlugin
+} from './theme';
 import { versionsPlugin } from './versions';
 import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
@@ -156,14 +162,17 @@ export default [
   sessionPlaceholderPlugin,
   chatPlugin,
   chatLinksPlugin,
+  mentionsPlugin,
   projectNotificationsPlugin,
   lightconeLightThemePlugin,
   lightconeDarkThemePlugin,
+  focusLayoutPlugin,
   homePlugin,
   sidebarPlugin,
   commentsPlugin,
   versionsPlugin,
   runsPlugin,
   searchPlugin,
-  customizePlugin
+  customizePlugin,
+  tabLabelsPlugin
 ];

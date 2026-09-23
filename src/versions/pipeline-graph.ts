@@ -152,3 +152,72 @@ export function downstreamOf(graph: IPipelineGraph, path: string): Set<string> {
   }
   return result;
 }
+
+/** Where the view draws nodes, in pixels. */
+export interface IPipelineGeometry {
+  /** Margin around the graph. */
+  pad: number;
+  /** Distance from one column's left edge to the next one's. */
+  column: number;
+  nodeWidth: number;
+  nodeHeight: number;
+  /** Distance from one row's top edge to the next one's. */
+  row: number;
+}
+
+/** A point an edge passes through. */
+export interface IPipelinePoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * The route of an edge: out of its source's right side, across every column
+ * it skips through a gap between that column's nodes (so it never runs
+ * under a node it does not belong to), and into its target's left side.
+ * Consecutive points after the first come in pairs: where the edge enters a
+ * skipped column and where it leaves it, at the same height.
+ */
+export function edgeRoute(
+  graph: IPipelineGraph,
+  from: IPipelineNode,
+  to: IPipelineNode,
+  geometry: IPipelineGeometry
+): IPipelinePoint[] {
+  const { pad, column, nodeWidth, nodeHeight, row } = geometry;
+  const x = (layer: number) => pad + layer * column;
+  const middle = (node: IPipelineNode) => pad + node.row * row + nodeHeight / 2;
+  const start = { x: x(from.layer) + nodeWidth, y: middle(from) };
+  const end = { x: x(to.layer), y: middle(to) };
+  const points: IPipelinePoint[] = [start];
+  const gap = row - nodeHeight;
+  let previous = start;
+  for (let layer = from.layer + 1; layer < to.layer; layer += 1) {
+    const size = graph.nodes.filter(node => node.layer === layer).length;
+    const centre = x(layer) + nodeWidth / 2;
+    // Where a straight line from the last point to the target would cross.
+    const wanted =
+      previous.y +
+      ((end.y - previous.y) * (centre - previous.x)) / (end.x - previous.x);
+    // Lanes: above the column, between two of its nodes, or below it.
+    const lanes = Array.from(
+      { length: size + 1 },
+      (_, index) => pad + index * row - gap / 2
+    );
+    // Clear of every node of the column, with a little air.
+    const clear = (y: number) =>
+      Array.from({ length: size }).every(
+        (_, index) =>
+          y < pad + index * row - 2 || y > pad + index * row + nodeHeight + 2
+      );
+    const y = clear(wanted)
+      ? wanted
+      : lanes.reduce((best, lane) =>
+          Math.abs(lane - wanted) < Math.abs(best - wanted) ? lane : best
+        );
+    previous = { x: x(layer) + nodeWidth, y };
+    points.push({ x: x(layer), y }, previous);
+  }
+  points.push(end);
+  return points;
+}

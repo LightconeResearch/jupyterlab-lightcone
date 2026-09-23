@@ -1,6 +1,11 @@
 import { assembleLoadedProject, resolveProject } from '../../project-data';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
-import { buildPipelineGraph, downstreamOf } from '../pipeline-graph';
+import {
+  buildPipelineGraph,
+  downstreamOf,
+  edgeRoute,
+  type IPipelineGeometry
+} from '../pipeline-graph';
 
 const yaml = `version: "0.0.14"
 name: Pipeline
@@ -101,4 +106,32 @@ test('handles a project without inputs or outputs', async () => {
   expect(
     await graphFor('version: "0.0.14"\nname: Empty\ninputs: []\noutputs: []\n')
   ).toEqual({ nodes: [], edges: [], layers: 0, rows: 0 });
+});
+
+test('edges cross the columns they skip between nodes, never under one', async () => {
+  const graph = await graphFor(yaml);
+  const geometry: IPipelineGeometry = {
+    pad: 24,
+    column: 250,
+    nodeWidth: 200,
+    nodeHeight: 50,
+    row: 68
+  };
+  const byPath = new Map(graph.nodes.map(node => [node.path, node]));
+  const route = (from: string, to: string) =>
+    edgeRoute(graph, byPath.get(from)!, byPath.get(to)!, geometry);
+  // Adjacent columns: straight from the source's right side to the target.
+  expect(route('outputs.fit', 'outputs.plot')).toHaveLength(2);
+  // The catalog feeds the table two columns on, past the fit.
+  const skip = route('inputs.catalog', 'outputs.table');
+  expect(skip).toHaveLength(4);
+  const [start, enter, leave, end] = skip;
+  expect(start.x).toBe(24 + 200);
+  expect(end.x).toBe(24 + 2 * 250);
+  expect(enter).toEqual({ x: 24 + 250, y: enter.y });
+  expect(leave).toEqual({ x: 24 + 250 + 200, y: enter.y });
+  for (const node of graph.nodes.filter(item => item.layer === 1)) {
+    const top = 24 + node.row * 68;
+    expect(enter.y < top || enter.y > top + 50).toBe(true);
+  }
 });

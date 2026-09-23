@@ -7,7 +7,9 @@ import {
   isLightconeCategory,
   LAUNCHER_CATEGORY,
   launcherCategory,
+  orderPlates,
   outputKindLabel,
+  platePreview,
   sessionActivity,
   sessionSubtitle,
   summarizeFreshness
@@ -44,6 +46,12 @@ describe('formatRelativeTime', () => {
     expect(at('2026-09-09T12:00:00Z')).toBe('2 weeks ago');
     expect(at('2026-07-23T12:00:00Z')).toBe('2 months ago');
     expect(at('2024-09-23T12:00:00Z')).toBe('2 years ago');
+  });
+
+  it('counts whole periods, as the sidebar does', () => {
+    expect(at('2026-09-22T21:10:00Z')).toBe('14 h ago');
+    expect(at('2026-09-20T02:00:00Z')).toBe('3 days ago');
+    expect(at('2026-08-25T12:00:00Z')).toBe('4 weeks ago');
   });
 
   it('accepts dates and rejects unparsable input', () => {
@@ -232,6 +240,65 @@ describe('outputKindLabel', () => {
     expect(outputKindLabel('report')).toBe('Report');
     expect(outputKindLabel('model')).toBe('Model');
     expect(outputKindLabel(undefined)).toBe('Output');
+  });
+});
+
+describe('orderPlates', () => {
+  it('puts figures first and keeps the declared order within a kind', () => {
+    const outputs = [
+      { id: 'fit', type: 'table' },
+      { id: 'grid', type: 'data' },
+      { id: 'hubble', type: 'figure' },
+      { id: 'notes', type: 'report' },
+      { id: 'contours', type: 'figure' },
+      { id: 'h0', type: 'metric' },
+      { id: 'other' }
+    ];
+    expect(orderPlates(outputs).map(output => output.id)).toEqual([
+      'hubble',
+      'contours',
+      'h0',
+      'fit',
+      'grid',
+      'notes',
+      'other'
+    ]);
+    expect(outputs[0].id).toBe('fit');
+  });
+});
+
+describe('platePreview', () => {
+  it('lists the fields of a one-row table with short values', () => {
+    expect(
+      platePreview({
+        kind: 'table',
+        headers: ['model', 'omega_m', 'n_supernovae', 'a_very_long_name'],
+        rows: [['curved_lcdm', 0.29131347504573885, 580, null]],
+        truncated: true
+      })
+    ).toEqual({
+      kind: 'text',
+      text: [
+        'model      curved_lcdm',
+        'omega_m    0.2913',
+        'n_superno… 580',
+        'a_very_lo… —'
+      ].join('\n'),
+      truncated: true
+    });
+  });
+
+  it('keeps every other preview as it is', () => {
+    const tall = { kind: 'table' as const, headers: ['a', 'b', 'c'], rows: [] };
+    const narrow = {
+      kind: 'table' as const,
+      headers: ['a', 'b'],
+      rows: [[1, 2]]
+    };
+    const image = { kind: 'image' as const, url: 'x.png' };
+    expect(platePreview(tall)).toBe(tall);
+    expect(platePreview(narrow)).toBe(narrow);
+    expect(platePreview(image)).toBe(image);
   });
 });
 

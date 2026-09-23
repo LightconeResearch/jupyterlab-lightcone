@@ -2,7 +2,12 @@ import { emptyAnchor, pointAnchor } from '../comment-model';
 import type { ICommentAnchor } from '../comments-api';
 import { COMMENT_LAYER_CLASS, ImageCommentLayer } from '../image-layer';
 import * as textAnchor from '../text-anchor';
-import { indexText, rangeForSpan, TextCommentLayer } from '../text-layer';
+import {
+  indexText,
+  rangeForSpan,
+  TextCommentLayer,
+  textColumn
+} from '../text-layer';
 import { Frames, makeComment, placeAt, rect } from './fixtures';
 
 const BADGE = '.jp-jupyterlab-lightcone-CommentBadge';
@@ -114,6 +119,39 @@ describe('indexText and rangeForSpan', () => {
   });
 });
 
+describe('textColumn', () => {
+  function rangeIn(root: HTMLElement, selector: string): Range {
+    const range = document.createRange();
+    range.selectNodeContents(textIn(root, selector));
+    return range;
+  }
+
+  it('finds the block, list or page whose edge starts the quoted line', () => {
+    const root = document.createElement('div');
+    root.innerHTML =
+      '<p class="para">A <em class="em">quote</em></p>' +
+      '<ul class="list"><li><span class="item">item</span></li></ul>' +
+      '<div class="page"><div class="layer"><span class="span">pdf</span></div></div>' +
+      '<span class="loose">loose</span>';
+    document.body.appendChild(root);
+    for (const selector of ['.layer', '.span']) {
+      root
+        .querySelector<HTMLElement>(selector)
+        ?.style.setProperty('position', 'absolute');
+    }
+    expect(textColumn(rangeIn(root, '.em'), root)).toBe(
+      root.querySelector('.para')
+    );
+    expect(textColumn(rangeIn(root, '.item'), root)).toBe(
+      root.querySelector('.list')
+    );
+    expect(textColumn(rangeIn(root, '.span'), root)).toBe(
+      root.querySelector('.page')
+    );
+    expect(textColumn(rangeIn(root, '.loose'), root)).toBe(root);
+  });
+});
+
 describe('TextCommentLayer', () => {
   function setup() {
     const host = document.createElement('div');
@@ -122,6 +160,13 @@ describe('TextCommentLayer', () => {
       '<div data-page="3"><p class="three">magnitude offset</p></div>';
     document.body.appendChild(host);
     placeAt(host, rect(0, 0, 400, 300));
+    // Each paragraph's text column starts at x = 40; the quotes start there.
+    for (const selector of ['.two', '.three']) {
+      const paragraph = host.querySelector(selector);
+      if (paragraph) {
+        placeAt(paragraph, rect(40, 0, 300, 400));
+      }
+    }
     lineBoxes.set(textIn(host, '.two'), rect(40, 60, 90, 14));
     lineBoxes.set(textIn(host, '.three'), rect(40, 160, 90, 14));
     const onBadgeClick = jest.fn();
@@ -146,8 +191,9 @@ describe('TextCommentLayer', () => {
     expect(badges).toHaveLength(1);
     expect(badges[0].textContent).toBe('③');
     expect(badges[0].dataset.commentId).toBe('a');
-    expect(badges[0].style.left).toBe('30px');
-    expect(badges[0].style.top).toBe('40px');
+    // In the margin 6px left of the column, level with the quote's first line.
+    expect(badges[0].style.left).toBe('24px');
+    expect(badges[0].style.top).toBe('47px');
     const highlight = host.querySelector<HTMLElement>(HIGHLIGHT);
     expect(highlight?.style.width).toBe('90px');
     expect(highlight?.style.height).toBe('14px');
@@ -159,7 +205,29 @@ describe('TextCommentLayer', () => {
     layer.setComments([makeComment('a', quoteAnchor('magnitude offset', 3))]);
     await frames.flush();
     const badge = host.querySelector<HTMLElement>(BADGE);
-    expect(badge?.style.top).toBe('140px');
+    expect(badge?.style.top).toBe('147px');
+    layer.dispose();
+  });
+
+  it('keeps a badge off a quote that starts mid-line', async () => {
+    const { host, layer, node } = setup();
+    const paragraph = host.querySelector('.two');
+    if (!paragraph) {
+      throw new Error('No paragraph.');
+    }
+    paragraph.innerHTML = 'The <em>magnitude offset</em>';
+    placeAt(paragraph, rect(40, 0, 300, 400));
+    // The quote starts 30px into the line; the badge still sits in the margin.
+    lineBoxes.set(textIn(paragraph, 'em'), rect(70, 60, 90, 14));
+    layer.setComments([makeComment('a', quoteAnchor('magnitude offset'))]);
+    await frames.flush();
+    const badge = host.querySelector<HTMLElement>(BADGE);
+    expect(badge?.style.left).toBe('24px');
+    // With no margin, the layer's edge holds it.
+    placeAt(node, rect(40, 20, 400, 300));
+    layer.schedule();
+    await frames.flush();
+    expect(badge?.style.left).toBe('2px');
     layer.dispose();
   });
 
