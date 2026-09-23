@@ -1,9 +1,11 @@
-import { createRoot, type Root } from 'react-dom/client';
-import { act } from 'react-dom/test-utils';
 import type { IThemeManager } from '@jupyterlab/apputils';
+import type { IChangedArgs } from '@jupyterlab/coreutils';
 import { ServerConnection } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
+import { PromiseDelegate } from '@lumino/coreutils';
+import { DisposableDelegate } from '@lumino/disposable';
 import { Signal } from '@lumino/signaling';
+import { Widget } from '@lumino/widgets';
 import type { ICurrentProject } from '../../current-project';
 import type { IProjectRoot } from '../../project-root';
 import { CustomizeWidget } from '../customize-widget';
@@ -11,13 +13,6 @@ import { fetchSetup, type ISetupReport } from '../setup-api';
 
 jest.mock('../setup-api', () => ({ fetchSetup: jest.fn() }));
 const fetch = jest.mocked(fetchSetup);
-
-// React 18 warns about `act` unless the environment declares support for it.
-(
-  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
-const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 const report: ISetupReport = {
   jupyterAi: true,
@@ -46,33 +41,74 @@ const report: ISetupReport = {
   storage: { annex: true, remotes: [] }
 };
 
-class CurrentProjectStub implements ICurrentProject {
-  project: IProjectRoot | null | undefined = {
-    path: 'project',
-    entrypoint: 'project/astra.yaml'
-  };
-  readonly changed: Signal<ICurrentProject, void> = new Signal<
-    ICurrentProject,
-    void
-  >(this);
+const PROJECT: IProjectRoot = {
+  path: 'project',
+  entrypoint: 'project/astra.yaml'
+};
+
+/** A settable current project. */
+class FakeCurrentProject implements ICurrentProject {
+  constructor(public project: IProjectRoot | null | undefined) {}
+  readonly changed = new Signal<this, void>(this);
+  set(project: IProjectRoot | null | undefined): void {
+    this.project = project;
+    this.changed.emit();
+  }
 }
 
-function host() {
+/** A theme manager whose theme the test sets and announces. */
+class FakeThemeManager implements IThemeManager {
+  theme: string | null = 'JupyterLab Light';
+  themes: string[] = ['JupyterLab Dark', 'JupyterLab Light'];
+  themeChanged = new Signal<this, IChangedArgs<string, string | null>>(this);
+  isLight = (name: string) => name.endsWith('Light');
+  getDisplayName = (name: string) => name;
+  themeScrollbars = () => false;
+  loadCSS = async () => undefined;
+  setTheme = jest.fn(async (_name: string) => undefined);
+  register = () => new DisposableDelegate(() => undefined);
+  apply(theme: string): void {
+    const oldValue = this.theme;
+    this.theme = theme;
+    this.themeChanged.emit({ name: 'theme', oldValue, newValue: theme });
+  }
+}
+
+/** JupyterLab's `ThemeManager`, which can follow the system color scheme. */
+class FakeAdaptiveThemeManager extends FakeThemeManager {
+  adaptive = true;
+  isToggledAdaptiveTheme = () => this.adaptive;
+  toggleAdaptiveTheme = jest.fn(async () => {
+    this.adaptive = !this.adaptive;
+  });
+}
+
+/** Poll until `predicate` holds, failing after `timeout` ms. */
+async function until(predicate: () => boolean, timeout = 2000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeout) {
+      throw new Error('Timed out waiting for a condition.');
+    }
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+
+function host(
+  options: {
+    project?: IProjectRoot | null | undefined;
+    themes?: FakeThemeManager;
+  } = {}
+) {
   const commands = new CommandRegistry();
   const open = jest.fn();
   const changeTheme = jest.fn();
   commands.addCommand('docmanager:open', { execute: open });
   commands.addCommand('apputils:change-theme', { execute: changeTheme });
-  const current = new CurrentProjectStub();
-  const themeChanged = new Signal<IThemeManager, unknown>({} as IThemeManager);
-  const themes = {
-    theme: 'JupyterLab Light',
-    themes: ['JupyterLab Dark', 'JupyterLab Light'],
-    getDisplayName: (name: string) => name,
-    isLight: (name: string) => name.endsWith('Light'),
-    themeChanged,
-    setTheme: jest.fn()
-  } as unknown as IThemeManager;
+  const current = new FakeCurrentProject(
+    'project' in options ? options.project : PROJECT
+  );
+  const themes = options.themes ?? new FakeThemeManager();
   const widget = new CustomizeWidget({
     settings: ServerConnection.makeSettings(),
     current,
@@ -80,27 +116,37 @@ function host() {
     commands
   });
   widget.id = 'lightcone-customize';
-  const node = document.createElement('div');
-  let root: Root | undefined;
-  const render = async () => {
-    // The widget re-renders its own node through Lumino's message loop.
-    await act(async () => {
-      await flush();
-    });
-    root ??= createRoot(node);
-    await act(async () => root!.render(widget.render()));
+  Widget.attach(widget, document.body);
+  const text = () => widget.node.textContent ?? '';
+  const button = (label: string) =>
+    Array.from(widget.node.querySelectorAll('button')).find(
+      candidate => candidate.textContent === label
+    );
+  const click = (label: string) => {
+    const element = button(label);
+    if (!element) {
+      throw new Error(`No ${label} button.`);
+    }
+    element.click();
+  };
+  const select = () => {
+    const element = widget.node.querySelector('select');
+    if (!element) {
+      throw new Error('The Appearance section has no theme picker.');
+    }
+    return element;
   };
   return {
     widget,
-    node,
     current,
+    themes,
     open,
     changeTheme,
-    render,
-    dispose: () => {
-      act(() => root?.unmount());
-      widget.dispose();
-    }
+    text,
+    button,
+    click,
+    select,
+    dispose: () => widget.dispose()
   };
 }
 
@@ -112,23 +158,68 @@ beforeEach(() => {
 it('checks the current project and again when the user browses to another', async () => {
   const h = host();
   try {
-    await h.render();
+    await until(() => h.text().includes('Everything Lightcone needs'));
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][1]).toBe('project/astra.yaml');
-    expect(h.node.textContent).toContain('Project project');
-    expect(h.node.textContent).toContain('Claude Code');
-    expect(h.node.textContent).toContain('Everything Lightcone needs');
-    h.current.project = { path: 'other', entrypoint: 'other/astra.yaml' };
-    h.current.changed.emit();
-    await h.render();
+    expect(h.text()).toContain('Project project');
+    expect(h.text()).toContain('Claude Code');
+    h.current.set({ path: 'other', entrypoint: 'other/astra.yaml' });
+    await until(() => h.text().includes('Project other'));
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[1][1]).toBe('other/astra.yaml');
-    expect(h.node.textContent).toContain('Project other');
-    h.current.project = null;
-    h.current.changed.emit();
-    await h.render();
+    h.current.set(null);
+    await until(() => h.text().includes('No Lightcone project'));
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(fetch.mock.calls[2][1]).toBeUndefined();
-    expect(h.node.textContent).toContain('No Lightcone project');
+  } finally {
+    h.dispose();
+  }
+});
+
+it('drops the previous project’s rows while the next project is checked', async () => {
+  const h = host();
+  try {
+    await until(() => h.text().includes('project/AGENTS.md'));
+    const pending = new PromiseDelegate<ISetupReport>();
+    fetch.mockReturnValueOnce(pending.promise);
+    h.current.set({ path: 'other', entrypoint: 'other/astra.yaml' });
+    await until(() => h.text().includes('Checking what is installed'));
+    expect(h.text()).toContain('Project other');
+    expect(h.text()).not.toContain('project/AGENTS.md');
+    expect(h.text()).not.toContain('Claude Code');
+    expect(h.button('Edit')).toBeUndefined();
+    expect(h.widget.report).toBeUndefined();
+    pending.resolve({
+      ...report,
+      instructions: { path: 'other/AGENTS.md', exists: true }
+    });
+    await until(() => h.text().includes('other/AGENTS.md'));
+    h.click('Edit');
+    expect(h.open).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'other/AGENTS.md' })
+    );
+  } finally {
+    h.dispose();
+  }
+});
+
+it('waits for the project lookup before saying there is no project', async () => {
+  const h = host({ project: undefined });
+  try {
+    await until(() => h.text().includes('Claude Code'));
+    expect(h.text()).toContain('Looking for a project');
+    expect(h.text()).not.toContain('No Lightcone project');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][1]).toBeUndefined();
+    // Outside every project the server is asked the same question: no recheck.
+    h.current.set(null);
+    await until(() => h.text().includes('No Lightcone project'));
+    expect(h.text()).toContain('Claude Code');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    h.current.set(PROJECT);
+    await until(() => h.text().includes('Project project'));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][1]).toBe('project/astra.yaml');
   } finally {
     h.dispose();
   }
@@ -137,12 +228,8 @@ it('checks the current project and again when the user browses to another', asyn
 it('opens the project instructions right after the settings tab', async () => {
   const h = host();
   try {
-    await h.render();
-    const edit = Array.from(h.node.querySelectorAll('button')).find(
-      button => button.textContent === 'Edit'
-    );
-    expect(edit).toBeDefined();
-    await act(async () => edit!.click());
+    await until(() => h.button('Edit') !== undefined);
+    h.click('Edit');
     expect(h.open).toHaveBeenCalledWith({
       path: 'project/AGENTS.md',
       options: { mode: 'tab-after', ref: 'lightcone-customize' }
@@ -152,20 +239,45 @@ it('opens the project instructions right after the settings tab', async () => {
   }
 });
 
-it('switches the theme through the theme command', async () => {
+it('switches the theme through the theme command and follows the Lab theme', async () => {
   const h = host();
   try {
-    await h.render();
-    const select = h.node.querySelector('select');
-    expect(select?.value).toBe('JupyterLab Light');
+    await until(() => h.widget.node.querySelector('select') !== null);
+    expect(h.select().value).toBe('JupyterLab Light');
     expect(
-      Array.from(h.node.querySelectorAll('optgroup')).map(group => group.label)
+      Array.from(h.widget.node.querySelectorAll('optgroup')).map(
+        group => group.label
+      )
     ).toEqual(['Light', 'Dark']);
-    await act(async () => {
-      select!.value = 'JupyterLab Dark';
-      select!.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    h.select().value = 'JupyterLab Dark';
+    h.select().dispatchEvent(new Event('change', { bubbles: true }));
+    await until(() => h.changeTheme.mock.calls.length > 0);
     expect(h.changeTheme).toHaveBeenCalledWith({ theme: 'JupyterLab Dark' });
+    expect(h.themes.setTheme).not.toHaveBeenCalled();
+    // The picker shows the theme Lab applies, so it moves once Lab applies it.
+    expect(h.select().value).toBe('JupyterLab Light');
+    h.themes.apply('JupyterLab Dark');
+    await until(() => h.select().value === 'JupyterLab Dark');
+  } finally {
+    h.dispose();
+  }
+});
+
+it('applies the picked theme when the theme follows the system', async () => {
+  const themes = new FakeAdaptiveThemeManager();
+  const h = host({ themes });
+  try {
+    await until(() => h.widget.node.querySelector('select') !== null);
+    h.select().value = 'JupyterLab Dark';
+    h.select().dispatchEvent(new Event('change', { bubbles: true }));
+    await until(() => themes.toggleAdaptiveTheme.mock.calls.length > 0);
+    // The picked theme is stored before syncing stops, so it is the one applied.
+    expect(themes.setTheme).toHaveBeenCalledWith('JupyterLab Dark');
+    expect(themes.setTheme.mock.invocationCallOrder[0]).toBeLessThan(
+      themes.toggleAdaptiveTheme.mock.invocationCallOrder[0]
+    );
+    expect(themes.adaptive).toBe(false);
+    expect(h.changeTheme).not.toHaveBeenCalled();
   } finally {
     h.dispose();
   }
@@ -174,21 +286,16 @@ it('switches the theme through the theme command', async () => {
 it('keeps the last report when a refresh fails, and drops it for another project', async () => {
   const h = host();
   try {
-    await h.render();
+    await until(() => h.text().includes('Claude Code'));
     fetch.mockRejectedValueOnce(new Error('Setup request failed (503)'));
-    const refresh = Array.from(h.node.querySelectorAll('button')).find(
-      button => button.textContent === 'Refresh'
-    );
-    await act(async () => refresh!.click());
-    await h.render();
-    expect(h.node.textContent).toContain('Setup request failed (503)');
-    expect(h.node.textContent).toContain('Claude Code');
+    h.click('Refresh');
+    await until(() => h.text().includes('Setup request failed (503)'));
+    expect(h.text()).toContain('Claude Code');
     fetch.mockRejectedValueOnce(new Error('Setup request failed (404)'));
-    h.current.project = { path: 'gone', entrypoint: 'gone/astra.yaml' };
-    h.current.changed.emit();
-    await h.render();
-    expect(h.node.textContent).toContain('Setup request failed (404)');
-    expect(h.node.textContent).not.toContain('Claude Code');
+    h.current.set({ path: 'gone', entrypoint: 'gone/astra.yaml' });
+    await until(() => h.text().includes('Setup request failed (404)'));
+    expect(h.text()).not.toContain('Claude Code');
+    expect(h.text()).not.toContain('Checked at');
     expect(h.widget.report).toBeUndefined();
   } finally {
     h.dispose();

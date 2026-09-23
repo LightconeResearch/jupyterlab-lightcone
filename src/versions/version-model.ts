@@ -1,5 +1,6 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { OutputRun } from '@astra-spec/ui/model';
+import { isRecord } from '../api';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import type { IOutputVersion } from './versions-api';
 
@@ -126,46 +127,86 @@ export interface IMetricDelta {
   delta: number | undefined;
 }
 
+/** The leaf-by-leaf comparison of two JSON metric documents. */
+export interface IMetricComparison {
+  deltas: IMetricDelta[];
+  /** A document held more numeric leaves than were compared. */
+  truncated: boolean;
+}
+
+/**
+ * At most this many numeric leaves are read from each document: a metric
+ * holds a handful, and a 2 MB array must not stall the page.
+ */
+export const METRIC_LEAF_LIMIT = 500;
+
+/** Collects numeric leaves up to a limit. */
+class LeafCollector {
+  constructor(readonly limit: number) {}
+
+  readonly leaves = new Map<string, number>();
+  truncated = false;
+
+  /** Add one leaf; false once the limit is reached. */
+  add(key: string, value: number): boolean {
+    if (this.leaves.size >= this.limit) {
+      this.truncated = true;
+      return false;
+    }
+    this.leaves.set(key, value);
+    return true;
+  }
+}
+
 function numericLeaves(
   value: unknown,
   prefix: string,
   depth: number,
-  into: Map<string, number>
+  into: LeafCollector
 ): void {
+  if (into.truncated) return;
   if (typeof value === 'number' && Number.isFinite(value)) {
-    into.set(prefix || 'value', value);
+    into.add(prefix || 'value', value);
     return;
   }
   if (typeof value === 'string' && value.trim() !== '') {
     const parsed = Number(value);
-    if (Number.isFinite(parsed)) into.set(prefix || 'value', parsed);
+    if (Number.isFinite(parsed)) into.add(prefix || 'value', parsed);
     return;
   }
-  if (depth >= 3 || value === null || typeof value !== 'object') return;
-  const entries = Array.isArray(value)
-    ? value.map((item, index): [string, unknown] => [String(index), item])
-    : Object.entries(value);
-  for (const [key, item] of entries)
-    numericLeaves(item, prefix ? `${prefix}.${key}` : key, depth + 1, into);
+  if (depth >= 3) return;
+  const child = (key: string) => (prefix ? `${prefix}.${key}` : key);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length && !into.truncated; index += 1)
+      numericLeaves(value[index], child(String(index)), depth + 1, into);
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const key of Object.keys(value)) {
+    if (into.truncated) return;
+    numericLeaves(value[key], child(key), depth + 1, into);
+  }
 }
 
 /**
  * Numeric differences between two JSON metric documents, leaf by leaf, in
  * the order the newer document lists them followed by leaves only the older
  * one has. Nested objects and arrays are flattened to dotted keys, three
- * levels deep.
+ * levels deep. Each document contributes at most `limit` leaves.
  */
-export function metricDeltas(older: unknown, newer: unknown): IMetricDelta[] {
-  const before = new Map<string, number>();
-  const after = new Map<string, number>();
+export function metricDeltas(
+  older: unknown,
+  newer: unknown,
+  limit = METRIC_LEAF_LIMIT
+): IMetricComparison {
+  const before = new LeafCollector(limit);
+  const after = new LeafCollector(limit);
   numericLeaves(older, '', 0, before);
   numericLeaves(newer, '', 0, after);
-  const keys = [...after.keys(), ...before.keys()].filter(
-    (key, index, all) => all.indexOf(key) === index
-  );
-  return keys.map(key => {
-    const a = before.get(key);
-    const b = after.get(key);
+  const keys = new Set([...after.leaves.keys(), ...before.leaves.keys()]);
+  const deltas = Array.from(keys, key => {
+    const a = before.leaves.get(key);
+    const b = after.leaves.get(key);
     return {
       key,
       older: a,
@@ -173,6 +214,7 @@ export function metricDeltas(older: unknown, newer: unknown): IMetricDelta[] {
       delta: a !== undefined && b !== undefined ? b - a : undefined
     };
   });
+  return { deltas, truncated: before.truncated || after.truncated };
 }
 
 /** Format a metric value for a delta table. */
@@ -231,6 +273,18 @@ export function tableShape(
     rows: complete.length,
     truncated
   };
+}
+
+/**
+ * Header and row count of a JSON table: an array of row objects, whose
+ * columns are their keys in order of first appearance. Undefined for any
+ * other document.
+ */
+export function tableShapeFromRows(value: unknown): ITableShape | undefined {
+  if (!Array.isArray(value) || !value.every(isRecord)) return undefined;
+  const headers = new Set<string>();
+  for (const row of value) for (const key of Object.keys(row)) headers.add(key);
+  return { headers: [...headers], rows: value.length, truncated: false };
 }
 
 /** How two table versions differ in shape. */
@@ -310,7 +364,7 @@ export function manifestStringMap(
   key: string
 ): Record<string, string> {
   const value = manifest?.[key];
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  if (!isRecord(value)) return {};
   const result: Record<string, string> = {};
   for (const [name, item] of Object.entries(value))
     if (typeof item === 'string') result[name] = item;
@@ -323,13 +377,11 @@ export interface IRunView {
   source: 'version' | 'record';
   commit?: string;
   short?: string;
-  subject?: string;
   time?: string;
   started?: string;
   command?: string;
   exit?: number;
   gitRevision?: string;
-  gitRemote?: string;
   engineVersion?: string;
   environmentVersion?: string;
   uvVersion?: string;
@@ -339,16 +391,17 @@ export interface IRunView {
   dataVersion?: string;
   inputVersions: Record<string, string>;
   decisions: Record<string, string>;
-  /** Paths the DataLad record lists. */
+  /** Paths the DataLad record lists as read. */
   inputs: string[];
-  outputs: string[];
 }
 
 /**
- * Combine a committed version (its DataLad record and manifest) with the
- * current run record into one view. A version wins where both know a fact;
- * the record fills in when no version is available. Undefined when neither
- * recorded anything.
+ * Describe one materialization: a committed version from its own DataLad
+ * record and manifest, or, when no version is described, the current run
+ * record (the sidecar). A version never borrows the sidecar's facts: the
+ * sidecar describes the latest run, so a version committed without a valid
+ * manifest shows only what its commit recorded. Undefined when neither
+ * exists.
  */
 export function runView(
   run: OutputRun | null | undefined,
@@ -356,40 +409,37 @@ export function runView(
 ): IRunView | undefined {
   if (!version && !run) return undefined;
   const manifest = version?.manifest;
+  const sidecar = version ? undefined : run;
   const image = manifest?.image;
-  const imageTag =
-    image && typeof image === 'object' && !Array.isArray(image)
-      ? manifestString(image as Record<string, unknown>, 'tag')
-      : undefined;
   return {
     source: version ? 'version' : 'record',
     commit: version?.commit,
     short: version?.short,
-    subject: version?.subject,
     time:
       manifestString(manifest, 'finished_at') ??
       version?.time ??
-      run?.finishedAt,
+      sidecar?.finishedAt,
     started: manifestString(manifest, 'started_at'),
     command:
-      version?.run?.cmd ?? manifestString(manifest, 'recipe') ?? run?.recipe,
+      version?.run?.cmd ??
+      manifestString(manifest, 'recipe') ??
+      sidecar?.recipe,
     exit: version?.run?.exit,
-    gitRevision: manifestString(manifest, 'git_sha') ?? run?.gitRevision,
-    gitRemote: manifestString(manifest, 'git_remote'),
-    engineVersion: manifestString(manifest, 'lc_version') ?? run?.cliVersion,
+    gitRevision: manifestString(manifest, 'git_sha') ?? sidecar?.gitRevision,
+    engineVersion:
+      manifestString(manifest, 'lc_version') ?? sidecar?.cliVersion,
     environmentVersion:
-      manifestString(manifest, 'env_version') ?? run?.environment,
+      manifestString(manifest, 'env_version') ?? sidecar?.environment,
     uvVersion: manifestString(manifest, 'uv_version'),
-    image: imageTag,
+    image: isRecord(image) ? manifestString(image, 'tag') : undefined,
     sandbox: sandboxLine(manifest),
     definitionVersion: manifestString(manifest, 'definition_version'),
     dataVersion: manifestString(manifest, 'data_version'),
     inputVersions: manifest
       ? manifestStringMap(manifest, 'input_versions')
-      : { ...(run?.inputVersions ?? {}) },
+      : { ...(sidecar?.inputVersions ?? {}) },
     decisions: manifestStringMap(manifest, 'decisions'),
-    inputs: version?.run?.inputs ?? [],
-    outputs: version?.run?.outputs ?? []
+    inputs: version?.run?.inputs ?? []
   };
 }
 
@@ -399,8 +449,7 @@ export function sandboxLine(
 ): string | undefined {
   const value = manifest?.hermeticity;
   if (typeof value === 'string') return value || undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    return undefined;
+  if (!isRecord(value)) return undefined;
   const parts = Object.entries(value)
     .filter(([, item]) => ['string', 'number', 'boolean'].includes(typeof item))
     .map(([key, item]) => `${key}: ${String(item)}`);

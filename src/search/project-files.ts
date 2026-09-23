@@ -7,8 +7,6 @@ export interface IProjectFile {
   name: string;
   /** Project-relative folder; empty at the project root. */
   directory: string;
-  /** Segments in the project-relative path; 1 for a root file. */
-  depth: number;
 }
 
 export interface IProjectWalkOptions {
@@ -16,11 +14,16 @@ export interface IProjectWalkOptions {
   limit?: number;
   /** Deepest file depth listed (4 by default). */
   maxDepth?: number;
+  /**
+   * Folders listed at most, one Contents request each (200 by default); the
+   * project root is always listed.
+   */
+  maxListings?: number;
 }
 
-/** Default bounds of the walk, shared with the tests. */
-export const PROJECT_WALK_LIMIT = 500;
-export const PROJECT_WALK_DEPTH = 4;
+const PROJECT_WALK_LIMIT = 500;
+const PROJECT_WALK_DEPTH = 4;
+const PROJECT_WALK_LISTINGS = 200;
 
 /** Tool folders that never hold anything a researcher searches for. */
 const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
@@ -70,8 +73,9 @@ function isModelList(content: unknown): content is Contents.IModel[] {
 
 /**
  * List a project's files breadth first through the Contents API, shallow
- * files first, stopping at `limit` files or `maxDepth` levels. A folder that
- * cannot be listed is skipped, never fatal.
+ * files first, stopping at `limit` files, `maxDepth` levels or `maxListings`
+ * folder requests, whichever comes first. A folder that cannot be listed is
+ * skipped, never fatal.
  */
 export async function walkProjectFiles(
   contents: Contents.IManager,
@@ -80,10 +84,15 @@ export async function walkProjectFiles(
 ): Promise<IProjectFile[]> {
   const limit = options.limit ?? PROJECT_WALK_LIMIT;
   const maxDepth = options.maxDepth ?? PROJECT_WALK_DEPTH;
+  const maxListings = options.maxListings ?? PROJECT_WALK_LISTINGS;
   const files: IProjectFile[] = [];
   const queue: IQueuedDirectory[] = [{ path: root, directory: '', depth: 0 }];
+  // Folders listed plus folders queued never exceed `maxListings`, so a tree
+  // of many near-empty folders costs a bounded number of requests.
+  let listed = 0;
   while (queue.length && files.length < limit) {
     const current = queue.shift()!;
+    listed += 1;
     let listing: Contents.IModel;
     try {
       listing = await contents.get(current.path, {
@@ -106,7 +115,7 @@ export async function walkProjectFiles(
       const path = contents.resolvePath(current.path, entry.name);
       const depth = current.depth + 1;
       if (entry.type === 'directory') {
-        if (depth < maxDepth) {
+        if (depth < maxDepth && listed + queue.length < maxListings) {
           queue.push({
             path,
             directory: current.directory
@@ -120,12 +129,7 @@ export async function walkProjectFiles(
       if (files.length >= limit) {
         break;
       }
-      files.push({
-        path,
-        name: entry.name,
-        directory: current.directory,
-        depth
-      });
+      files.push({ path, name: entry.name, directory: current.directory });
     }
   }
   return files;

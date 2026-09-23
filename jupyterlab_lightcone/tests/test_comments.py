@@ -2,12 +2,16 @@
 
 import asyncio
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
+from jupyter_server.auth import User
 import pytest
 from tornado.web import HTTPError
 
 from jupyterlab_lightcone import comments
+from jupyterlab_lightcone.projects import owning_project, project_root
 
 ENDPOINT = ("jupyterlab_lightcone", "api", "comments")
 
@@ -136,11 +140,29 @@ def _line_below_zero(draft):
     draft["anchor"].update(type="text", quote="q", startLine=-1)
 
 
+# A JSON body may escape a lone surrogate, which the UTF-8 store cannot hold.
+def _lone_surrogate_in_text(draft):
+    draft["text"] = "Move \ud800 the legend."
+
+
+def _lone_surrogate_in_path(draft):
+    draft["target"]["path"] = "notes\ud800.md"
+
+
+def _lone_surrogate_in_quote(draft):
+    draft["anchor"].update(type="text", quote="\udfff")
+
+
+def _lone_surrogate_in_version(draft):
+    draft["target"]["version"]["label"] = "v\ud800"
+
+
 @pytest.mark.parametrize("spoil", [
     _without_text, _too_long, _bad_kind, _record_without_record, _message_without_id,
     _point_without_y, _off_the_image, _boolean_coordinate, _not_a_number,
     _text_without_anchor, _pdf_without_page, _quote_too_long, _record_with_space,
-    _null_byte_in_path, _line_below_zero,
+    _null_byte_in_path, _line_below_zero, _lone_surrogate_in_text, _lone_surrogate_in_path,
+    _lone_surrogate_in_quote, _lone_surrogate_in_version,
 ])
 def test_invalid_drafts_are_rejected(spoil):
     draft = point()
@@ -190,12 +212,41 @@ def test_a_corrupt_store_is_an_error_not_a_silent_loss(tmp_path, content):
     assert error.value.status_code == 500
 
 
+@pytest.mark.parametrize("field, value", [
+    ("id", "\ud800"), ("created", "\ud800"), ("updated", "\ud800"), ("author", "\udfff"),
+    ("sentWith", {"chat": "talk\ud800.chat", "message": "m0"}),
+])
+def test_a_stored_field_that_could_not_be_written_back_is_refused(tmp_path, field, value):
+    """A hand-edited store may escape a lone surrogate outside the draft fields too."""
+    path = comments.store_path(tmp_path)
+    path.parent.mkdir()
+    comment = stored(point(), status="sent", sentWith={"chat": "talk.chat", "message": "m0"})
+    comment[field] = value
+    path.write_text(json.dumps({"version": 1, "comments": [comment]}))
+    with pytest.raises(HTTPError) as error:
+        comments.read_store(path)
+    assert error.value.status_code == 500
+
+
 def test_the_store_is_bounded(tmp_path, monkeypatch):
     path = comments.store_path(tmp_path)
     comments.write_store(path, [stored(point())])
     monkeypatch.setattr(comments, "MAX_STORE_BYTES", 16)
     with pytest.raises(HTTPError):
         comments.read_store(path)
+
+
+def test_a_write_never_outgrows_what_can_be_read(tmp_path, monkeypatch):
+    path = comments.store_path(tmp_path)
+    kept = [stored(point())]
+    comments.write_store(path, kept)
+    monkeypatch.setattr(comments, "MAX_STORE_BYTES", path.stat().st_size)
+    with pytest.raises(HTTPError) as error:
+        comments.write_store(path, [*kept, stored(point(text="Second"))])
+    assert error.value.status_code == 413
+    # The previous store is untouched and still readable, with no temporary file left.
+    assert comments.read_store(path) == kept
+    assert sorted(entry.name for entry in path.parent.iterdir()) == ["comments.json"]
 
 
 def test_labels_count_pending_comments_per_target_and_close_gaps():
@@ -314,18 +365,29 @@ async def test_delivery_marks_only_the_named_pending_comments_sent(tmp_path):
     assert after[sent_before["id"]]["sentWith"] == {"chat": "old.chat", "message": "m0"}
     # The remaining pending comment closes the gap in the labels.
     assert after[third["id"]]["status"] == "pending" and after[third["id"]]["label"] == 1
-    assert list(locks) == [str(root)]
+    assert list(locks) == [str(root.resolve())]
     # Nothing pending: the message goes out unchanged.
     assert await comments.deliver_comments(locks, root, "project", [first["id"]], "c", "m2") is None
 
 
 async def test_delivery_waits_for_a_request_holding_the_lock(tmp_path):
-    root = project(tmp_path)
-    comments.write_store(comments.store_path(root), [stored(point())])
+    """Even when the server root is a symlink, as JupyterHub homes often are.
+
+    The routes resolve the project; delivery keeps the logical path the chat
+    has. Both name one store, so both must take one lock.
+    """
+    project(tmp_path / "real")
+    home = tmp_path / "home"
+    home.symlink_to(tmp_path / "real", target_is_directory=True)
+    route = project_root(home.resolve(), "project/astra.yaml")
+    chat = owning_project(home, Path("project/chats"))
+    assert route != chat
+    comments.write_store(comments.store_path(route), [stored(point())])
     locks = {}
-    lock = comments.comment_lock(locks, root)
+    lock = comments.comment_lock(locks, route)
+    assert comments.comment_lock(locks, chat) is lock
     await lock.acquire()
-    delivery = asyncio.ensure_future(comments.deliver_comments(locks, root, "", ["x"], "c", "m"))
+    delivery = asyncio.ensure_future(comments.deliver_comments(locks, chat, "project", ["x"], "c", "m"))
     await asyncio.sleep(0.01)
     assert not delivery.done()
     lock.release()
@@ -344,11 +406,8 @@ def jp_base_url():
 @pytest.fixture
 def served(jp_serverapp):
     """A project inside the served root, with the comment routes registered."""
-    web_app = jp_serverapp.web_app
-    if comments.COMMENT_LOCKS not in web_app.settings:
-        # The application registers the routes once it wires this module in.
-        comments.setup_comment_handlers(web_app)
-    root = comments.Path(jp_serverapp.contents_manager.root_dir)
+    assert comments.COMMENT_LOCKS in jp_serverapp.web_app.settings, "application.py must call setup_comment_handlers"
+    root = Path(jp_serverapp.contents_manager.root_dir)
     project(root)
     assert not jp_serverapp.contents_manager.allow_hidden
     return root / "project"
@@ -364,13 +423,17 @@ async def _create(jp_fetch, draft, path="project/astra.yaml"):
     return _body(response)
 
 
-async def test_comments_are_created_listed_edited_and_deleted(jp_fetch, served):
+async def test_comments_are_created_listed_edited_and_deleted(jp_fetch, served, jp_serverapp, monkeypatch):
+    # The shared test token names no user; give its requests a known one.
+    monkeypatch.setattr(
+        jp_serverapp.identity_provider, "generate_anonymous_user", lambda handler: User(username="researcher")
+    )
     first = await _create(jp_fetch, point())
     second = await _create(jp_fetch, point(text="Second"))
     note = await _create(jp_fetch, selection(path="project/index.md"))
     assert (first["label"], second["label"], note["label"]) == (1, 2, 1)
     assert first["status"] == "pending" and first["sentWith"] is None and first["updated"] is None
-    assert isinstance(first["author"], str)
+    assert first["author"] == "researcher"
     assert first["text"] == "The legend covers the high-redshift points."
     assert comments.store_path(served).is_file()
 
@@ -422,11 +485,35 @@ async def test_sent_comments_are_history(jp_fetch, served):
     ("GET", None, None, {"path": "project/astra.yaml", "status": "draft"}),
     ("GET", None, None, {"path": "../astra.yaml"}),
     ("PATCH", "missing", json.dumps({}), {"path": "project/astra.yaml"}),
+    ("POST", None, json.dumps({"path": "project/astra.yaml", "comment": point(text="\ud800")}), None),
 ])
 async def test_bad_requests_are_rejected(jp_fetch, served, method, path, body, params):
     arguments = ENDPOINT + ((path,) if path else ())
     response = await jp_fetch(*arguments, method=method, body=body, params=params, raise_error=False)
     assert response.code == 400
+
+
+@pytest.mark.parametrize("user, expected", [
+    (User(username="researcher"), "researcher"),
+    ({"username": "legacy"}, "legacy"),
+    ({"name": "No username"}, ""),
+    (None, ""),
+])
+def test_the_author_is_the_requesting_username(user, expected):
+    handler = SimpleNamespace(current_user=user)
+    assert comments.CommentAPIHandler.author.fget(handler) == expected
+
+
+async def test_a_full_store_refuses_new_comments_but_stays_usable(jp_fetch, served, monkeypatch):
+    first = await _create(jp_fetch, point())
+    monkeypatch.setattr(comments, "MAX_STORE_BYTES", comments.store_path(served).stat().st_size)
+    body = json.dumps({"path": "project/astra.yaml", "comment": point(text="Second")})
+    response = await jp_fetch(*ENDPOINT, method="POST", body=body, raise_error=False)
+    assert response.code == 413
+    listing = _body(await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"}))["comments"]
+    assert [comment["id"] for comment in listing] == [first["id"]]
+    deleted = await jp_fetch(*ENDPOINT, first["id"], method="DELETE", params={"path": "project/astra.yaml"})
+    assert deleted.code == 204
 
 
 async def test_unknown_comments_are_not_found(jp_fetch, served):
@@ -436,7 +523,7 @@ async def test_unknown_comments_are_not_found(jp_fetch, served):
 
 
 async def test_a_project_the_contents_manager_hides_is_refused(jp_fetch, served, jp_serverapp):
-    hidden = comments.Path(jp_serverapp.contents_manager.root_dir) / ".secret"
+    hidden = Path(jp_serverapp.contents_manager.root_dir) / ".secret"
     hidden.mkdir()
     (hidden / "astra.yaml").write_text("name: hidden\n")
     response = await jp_fetch(*ENDPOINT, params={"path": ".secret/astra.yaml"}, raise_error=False)

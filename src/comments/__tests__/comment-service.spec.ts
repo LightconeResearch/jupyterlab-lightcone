@@ -126,6 +126,24 @@ describe('CommentService', () => {
     service.dispose();
   });
 
+  it('reports a delete as done even when the renumbered list cannot be fetched', async () => {
+    list.mockResolvedValueOnce([comment('a', 1), comment('b', 2)]);
+    remove.mockResolvedValue(undefined);
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const service = new CommentService(settings);
+    await service.refresh('project/astra.yaml');
+    list.mockRejectedValueOnce(new Error('offline'));
+    await expect(
+      service.remove('project/astra.yaml', 'a')
+    ).resolves.toBeUndefined();
+    expect(service.pending('project/astra.yaml').map(c => c.id)).toEqual(['b']);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    service.dispose();
+  });
+
   it('reuses the full listing for a while and drops it after a write', async () => {
     jest.useFakeTimers({ now: 0 });
     list.mockImplementation(async (_settings, _entrypoint, query) =>

@@ -1,8 +1,22 @@
+import type { IThemeManager } from '@jupyterlab/apputils';
+import type { IChangedArgs } from '@jupyterlab/coreutils';
+import { Drive, type Contents } from '@jupyterlab/services';
+import { CommandRegistry } from '@lumino/commands';
+import { DisposableDelegate } from '@lumino/disposable';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
+import { AstraInventoryPanel } from '../../inventory-panel';
+import {
+  observeProjectDataServices,
+  type ProjectDataService
+} from '../../project-data-service';
 import { requestAPI } from '../../request';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
-import { SidebarModel, type ISidebarState } from '../sidebar-model';
+import {
+  CoalescingRunner,
+  SidebarModel,
+  type ISidebarState
+} from '../sidebar-model';
 import {
   FakeCommentService,
   FakeCurrentProject,
@@ -31,13 +45,45 @@ function statuses(outputs: Record<string, string>) {
   };
 }
 
-function host(options: { sessions?: boolean; comments?: boolean } = {}) {
-  const { contents } = createContents({
+class FakeThemeManager implements IThemeManager {
+  theme: string | null = 'JupyterLab Light';
+  themes: string[] = ['JupyterLab Light'];
+  themeChanged = new Signal<this, IChangedArgs<string, string | null>>(this);
+  isLight = () => true;
+  getDisplayName = (theme: string) => theme;
+  themeScrollbars = () => false;
+  loadCSS = async () => undefined;
+  setTheme = async () => undefined;
+  register = () => new DisposableDelegate(() => undefined);
+}
+
+/** Make the browser tab hidden or visible, as Lumino's polls see it. */
+function setDocumentHidden(hidden: boolean | undefined): void {
+  if (hidden === undefined) {
+    Reflect.deleteProperty(document, 'visibilityState');
+  } else {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => (hidden ? 'hidden' : 'visible')
+    });
+  }
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+function host(
+  options: {
+    sessions?: boolean;
+    comments?: boolean;
+    entries?: Record<string, Contents.IModel>;
+  } = {}
+) {
+  const { contents, get } = createContents({
     'project/astra.yaml': fileModel(PROJECT_SPEC),
     'project/myst.yml': fileModel('project: {}'),
     'other/astra.yaml': fileModel(
       'version: "0.0.14"\nname: Other\ninputs: []\noutputs: []\n'
-    )
+    ),
+    ...options.entries
   });
   request.mockImplementation(async (endpoint: string) => {
     if (endpoint.startsWith('api/materialization')) {
@@ -78,6 +124,7 @@ function host(options: { sessions?: boolean; comments?: boolean } = {}) {
   model.changed.connect((_sender, state) => states.push(state));
   return {
     contents,
+    get,
     current,
     sessions,
     comments,
@@ -167,6 +214,89 @@ describe('SidebarModel', () => {
     }
   });
 
+  it('holds no project data lease and reads nothing while hidden', async () => {
+    const h = host();
+    const services: ProjectDataService[] = [];
+    const observer = observeProjectDataServices(h.contents, service =>
+      services.push(service)
+    );
+    try {
+      await flush();
+      await flush();
+      expect(services).toHaveLength(0);
+      expect(h.get).not.toHaveBeenCalled();
+      h.model.visible = true;
+      await until(() => !!h.model.state.data && h.model.state.reportAvailable);
+      expect(services).toHaveLength(1);
+      h.model.visible = false;
+      expect(services[0].isDisposed).toBe(true);
+      // What the sidebar showed stays, and shows at once when it comes back.
+      expect(h.model.state.data?.document.analysis.name).toBe(
+        'Sidebar project'
+      );
+      h.model.visible = true;
+      expect(services).toHaveLength(2);
+      expect(h.model.state.data?.document.analysis.name).toBe(
+        'Sidebar project'
+      );
+      await until(() => services[1].state.data !== undefined);
+      expect(h.model.state.data).toBe(services[1].state.data);
+    } finally {
+      observer.dispose();
+      h.dispose();
+    }
+  });
+
+  it('stops polling while the browser tab is hidden', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const h = host();
+    try {
+      h.model.visible = true;
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(h.model.state.sessionsLoaded).toBe(true);
+      const shown = h.sessions!.list.mock.calls.length;
+      await jest.advanceTimersByTimeAsync(31000);
+      expect(h.sessions!.list.mock.calls.length).toBeGreaterThan(shown);
+      setDocumentHidden(true);
+      // Lumino lets a poll run one more tick after the tab is hidden.
+      await jest.advanceTimersByTimeAsync(31000);
+      const sessions = h.sessions!.list.mock.calls.length;
+      const statuses = request.mock.calls.length;
+      await jest.advanceTimersByTimeAsync(120000);
+      expect(h.sessions!.list.mock.calls.length).toBe(sessions);
+      expect(request.mock.calls.length).toBe(statuses);
+      setDocumentHidden(false);
+      await jest.advanceTimersByTimeAsync(31000);
+      expect(h.sessions!.list.mock.calls.length).toBeGreaterThan(sessions);
+    } finally {
+      setDocumentHidden(undefined);
+      h.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('looks for the report of a project at a drive root on that drive', async () => {
+    const h = host({
+      entries: {
+        'archive:astra.yaml': fileModel(PROJECT_SPEC),
+        'archive:myst.yml': fileModel('project: {}')
+      }
+    });
+    h.contents.addDrive(new Drive({ name: 'archive' }));
+    try {
+      h.model.visible = true;
+      await until(() => h.model.state.reportAvailable);
+      h.current.set({ path: 'archive:', entrypoint: 'archive:astra.yaml' });
+      await until(() => h.model.state.reportAvailable);
+      expect(h.get).toHaveBeenCalledWith('archive:myst.yml', {
+        content: false
+      });
+      expect(h.get).not.toHaveBeenCalledWith('myst.yml', { content: false });
+    } finally {
+      h.dispose();
+    }
+  });
+
   it('clears everything when the project changes and ignores stale answers', async () => {
     const h = host();
     try {
@@ -194,6 +324,34 @@ describe('SidebarModel', () => {
       expect(h.model.state.project).toBeNull();
       expect(h.model.state.data).toBeUndefined();
       expect(h.model.state.sessionsLoaded).toBe(false);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('lists the new project at once when it changes during a listing', async () => {
+    const h = host();
+    try {
+      h.model.visible = true;
+      await until(() => h.model.state.sessionsLoaded);
+      h.sessions!.listings.set('other/astra.yaml', [
+        session({ path: 'other/chats/other.chat', title: 'Other session' })
+      ]);
+      let release: (value: never[]) => void = () => undefined;
+      h.sessions!.list.mockImplementationOnce(
+        () => new Promise(resolve => (release = resolve))
+      );
+      const calls = h.sessions!.list.mock.calls.length;
+      h.sessions!.changed.emit('project/astra.yaml');
+      await until(() => h.sessions!.list.mock.calls.length > calls);
+      // The project changes while its listing is still in flight.
+      h.current.set({ path: 'other', entrypoint: 'other/astra.yaml' });
+      await flush();
+      release([]);
+      await until(() =>
+        h.model.state.sessions.some(item => item.title === 'Other session')
+      );
+      expect(h.sessions!.list).toHaveBeenLastCalledWith('other/astra.yaml');
     } finally {
       h.dispose();
     }
@@ -302,6 +460,93 @@ describe('SidebarModel', () => {
     }
   });
 
+  it('follows the analysis the inventory shows', async () => {
+    const h = host();
+    const commands = new CommandRegistry();
+    const panel = new AstraInventoryPanel(
+      h.contents,
+      new FakeThemeManager(),
+      commands
+    );
+    try {
+      await panel.display(
+        { analysisPath: 'systematics' },
+        'project/astra.yaml'
+      );
+      const inventory = Object.assign(new Widget(), {
+        context: { path: 'project/astra.yaml' },
+        content: panel
+      });
+      inventory.addClass('jp-jupyterlab-lightcone-Document');
+      h.shell.currentWidget = inventory;
+      h.shell.currentChanged.emit({});
+      await flush();
+      expect(h.model.state.view).toEqual({
+        inventory: 'project/astra.yaml',
+        analysisPath: 'systematics'
+      });
+      // Choosing the root analysis inside the inventory moves the highlight.
+      await panel.display({ scope: 'root' }, 'project/astra.yaml');
+      await flush();
+      expect(h.model.state.view.analysisPath).toBe('$');
+    } finally {
+      panel.dispose();
+      h.dispose();
+    }
+  });
+
+  it('follows the current chat when its file is renamed', async () => {
+    const h = host();
+    try {
+      const pathChanged = new Signal<object, string>({});
+      const chat = Object.assign(new Widget(), {
+        context: { path: 'project/chats/untitled.chat', pathChanged }
+      });
+      h.shell.currentWidget = chat;
+      h.shell.currentChanged.emit({});
+      await flush();
+      expect(h.model.state.view.session).toBe('project/chats/untitled.chat');
+      chat.context.path = 'project/chats/hubble.chat';
+      pathChanged.emit(chat.context.path);
+      await flush();
+      expect(h.model.state.view.session).toBe('project/chats/hubble.chat');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('renames a session file in its folder and refuses a taken name', async () => {
+    const h = host({
+      entries: {
+        'project/chats/untitled.chat': fileModel('{}'),
+        'project/chats/taken.chat': fileModel('{}')
+      }
+    });
+    const rename = jest
+      .spyOn(h.contents, 'rename')
+      .mockImplementation(async (path, newPath) =>
+        fileModel('', { path: newPath })
+      );
+    try {
+      await expect(
+        h.model.renameSession('project/chats/untitled.chat', 'Hubble fit')
+      ).resolves.toBe('project/chats/hubble-fit.chat');
+      expect(rename).toHaveBeenCalledWith(
+        'project/chats/untitled.chat',
+        'project/chats/hubble-fit.chat'
+      );
+      await expect(
+        h.model.renameSession('project/chats/untitled.chat', 'Taken')
+      ).rejects.toThrow('taken.chat already exists');
+      await expect(
+        h.model.renameSession('project/chats/untitled.chat', '  ')
+      ).resolves.toBeUndefined();
+      expect(rename).toHaveBeenCalledTimes(1);
+    } finally {
+      h.dispose();
+    }
+  });
+
   it('works without sessions or comments and stops after disposal', async () => {
     const h = host({ sessions: false, comments: false });
     try {
@@ -321,5 +566,72 @@ describe('SidebarModel', () => {
     await flush();
     expect(h.states.length).toBe(count);
     expect(h.model.isDisposed).toBe(true);
+  });
+});
+
+describe('CoalescingRunner', () => {
+  it('joins a run in flight, and runs again once for requests made during it', async () => {
+    const releases: (() => void)[] = [];
+    const update = jest.fn(
+      () => new Promise<void>(resolve => releases.push(resolve))
+    );
+    const runner = new CoalescingRunner(update);
+    const first = runner.run();
+    expect(runner.run()).toBe(first);
+    expect(update).toHaveBeenCalledTimes(1);
+    void runner.request();
+    void runner.request();
+    releases[0]();
+    await until(() => update.mock.calls.length === 2);
+    releases[1]();
+    await first;
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a failure only when no newer request superseded it', async () => {
+    let fail = true;
+    const runner = new CoalescingRunner(async () => {
+      if (fail) {
+        fail = false;
+        throw new Error('stale');
+      }
+    });
+    await expect(runner.run()).rejects.toThrow('stale');
+    fail = true;
+    const running = runner.run();
+    void runner.request();
+    await expect(running).resolves.toBeUndefined();
+  });
+
+  it('runs again for a request made just after its last pass finished', async () => {
+    let calls = 0;
+    const runner = new CoalescingRunner(() => {
+      calls += 1;
+      const done = Promise.resolve();
+      if (calls === 1) {
+        // Two reactions later, the runner's pass is over, before anything
+        // awaiting the run has resumed.
+        void done
+          .then(() => undefined)
+          .then(() => {
+            void runner.request();
+          });
+      }
+      return done;
+    });
+    await runner.request();
+    await flush();
+    expect(calls).toBe(2);
+  });
+
+  it('recovers from an update that throws instead of rejecting', async () => {
+    const update = jest.fn((): Promise<void> => {
+      throw new Error('synchronous');
+    });
+    const runner = new CoalescingRunner(update);
+    await expect(runner.run()).rejects.toThrow('synchronous');
+    update.mockImplementation(async () => undefined);
+    await expect(runner.run()).resolves.toBeUndefined();
+    expect(update).toHaveBeenCalledTimes(2);
   });
 });

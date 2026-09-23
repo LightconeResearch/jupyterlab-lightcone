@@ -47,12 +47,15 @@ export interface IOutputVersioning {
   isLatest: boolean;
 }
 
-const COMMIT_PATTERN = /^[0-9a-f]{7,40}$/i;
-
 /**
- * Load and select the committed versions of an output. The listing reloads
- * when the artifact changes or its materialization status moves, so a run
- * that just finished appears without reopening the tab.
+ * Load the committed versions of an output and show the one selected. The
+ * listing reloads when the artifact changes or its materialization status
+ * moves, so a run that just finished appears without reopening the tab.
+ *
+ * The selection is controlled: `selected` comes from the host (a record tab
+ * keeps it in its history entry) and every change goes through `onSelect`,
+ * so a version requested while the output is already shown takes effect. A
+ * selected commit the history does not hold falls back to the newest.
  */
 export function useOutputVersioning(
   contents: Contents.IManager,
@@ -60,7 +63,8 @@ export function useOutputVersioning(
   data: ILoadedProjectData,
   output: ResolvedOutput | undefined,
   status: OutputStatus | undefined,
-  requestedCommit?: string
+  selected: string | undefined,
+  onSelect: (commit: string | undefined) => void
 ): IOutputVersioning {
   const universe = data.document.universe.universeId;
   const enabled =
@@ -84,11 +88,6 @@ export function useOutputVersioning(
     versions?: readonly IOutputVersion[];
     error?: string;
   }>({ key: '' });
-  const [selected, setSelected] = useState<string | undefined>(
-    requestedCommit && COMMIT_PATTERN.test(requestedCommit)
-      ? requestedCommit
-      : undefined
-  );
   const [compare, setCompare] = useState(false);
   const state = status?.state;
   const detail = status?.detail;
@@ -137,8 +136,8 @@ export function useOutputVersioning(
       selected &&
       !versionPosition(loadedVersions, selected)
     )
-      setSelected(undefined);
-  }, [loadedVersions, selected]);
+      onSelect(undefined);
+  }, [loadedVersions, selected, onSelect]);
   const position = versionPosition(versions, selected);
   const shown = position ? versions[position.index] : undefined;
   const previousCommit = stepVersion(versions, selected, -1);
@@ -153,7 +152,7 @@ export function useOutputVersioning(
     error: current?.error,
     selected,
     select: commit => {
-      setSelected(commit);
+      onSelect(commit);
       if (commit === undefined) setCompare(false);
     },
     compare,
@@ -165,7 +164,11 @@ export function useOutputVersioning(
   };
 }
 
-function OlderVersionPreview({
+/**
+ * The bounded preview of an output's bytes at one committed version, in the
+ * same frame as the current artifact's preview.
+ */
+export function OlderVersionPreview({
   target,
   output,
   version,

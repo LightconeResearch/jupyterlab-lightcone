@@ -8,10 +8,10 @@ import { RequestError } from '../api';
 import type { ICommentService } from '../comments/comment-service';
 import type { ICurrentProject } from '../current-project';
 import {
-  parseMaterializationStatuses,
+  fetchMaterializationStatuses,
   type MaterializationStatuses
 } from '../materialization-status';
-import type { ILoadedProjectData } from '../project-data';
+import { projectDirectory, type ILoadedProjectData } from '../project-data';
 import {
   acquireProjectDataService,
   type IProjectDataLease,
@@ -19,7 +19,6 @@ import {
   type ProjectDataService
 } from '../project-data-service';
 import { findModel, type IProjectRoot } from '../project-root';
-import { requestAPI } from '../request';
 import type {
   ISessionService,
   SessionState
@@ -27,8 +26,9 @@ import type {
 import type { ISessionInfo } from '../sessions/sessions-api';
 import {
   describeWidget,
-  recordNavigation,
+  renamedSessionPath,
   sessionMarker,
+  viewChanges,
   type ICurrentView
 } from './sidebar-helpers';
 
@@ -44,6 +44,7 @@ export interface ISidebarState {
   error: string | undefined;
   /** `lc status` per output, when the server reported it. */
   statuses: MaterializationStatuses | undefined;
+  /** Why `lc status` could not be read, when it could not. */
   statusError: string | undefined;
   /** The project's sessions, newest first. */
   sessions: readonly ISessionInfo[];
@@ -73,25 +74,79 @@ export interface ISidebarModelOptions {
   comments: ICommentService | null;
 }
 
-async function fetchStatuses(
-  contents: Contents.IManager,
-  entrypoint: string
-): Promise<MaterializationStatuses> {
-  if (contents.driveName(entrypoint)) {
-    throw new Error('Materialization status requires local files.');
+/**
+ * Run one update at a time. `run` joins the update in flight, which is what a
+ * periodic poll wants; `request` asks for another pass once it settles, which
+ * is what a change wants, because the answer in flight may predate it (a
+ * project switch, a new chat file). `Poll.refresh()` alone would drop such a
+ * request while a refresh is still running.
+ */
+export class CoalescingRunner {
+  constructor(private readonly _update: () => Promise<void>) {}
+
+  /** Join the update in flight, or start one. */
+  run(): Promise<void> {
+    return this._running ?? this._start();
   }
-  const query = new URLSearchParams({ path: entrypoint });
-  const payload = await requestAPI(
-    `api/materialization?${query}`,
-    contents.serverSettings
-  );
-  return parseMaterializationStatuses(payload);
+
+  /** Start an update, or run it again after the one in flight. */
+  request(): Promise<void> {
+    if (this._running) {
+      this._dirty = true;
+      return this._running;
+    }
+    return this._start();
+  }
+
+  private _start(): Promise<void> {
+    // `_loop` only settles after awaiting an update, so this is set first.
+    const running = this._loop();
+    this._running = running;
+    return running;
+  }
+
+  // A failure is reported only when no newer request superseded it. The loop
+  // stops being the run in flight in the same step it decides to stop, so a
+  // request that arrives later always starts another pass.
+  private async _loop(): Promise<void> {
+    try {
+      for (;;) {
+        this._dirty = false;
+        try {
+          await this._invoke();
+        } catch (error) {
+          if (!this._dirty) {
+            throw error;
+          }
+          continue;
+        }
+        if (!this._dirty) {
+          return;
+        }
+      }
+    } finally {
+      this._running = undefined;
+    }
+  }
+
+  // An update that throws instead of rejecting still settles asynchronously.
+  private _invoke(): Promise<void> {
+    try {
+      return this._update();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  private _running: Promise<void> | undefined;
+  private _dirty = false;
 }
 
 /**
  * Follow the current project and gather what the sidebar shows: project data,
  * materialization status, sessions, pending comments and the current view.
- * Polling runs only while the sidebar is visible.
+ * Nothing is fetched or polled while the sidebar is hidden, and the polls
+ * also stand by while the browser tab is hidden.
  */
 export class SidebarModel implements IDisposable {
   constructor(options: ISidebarModelOptions) {
@@ -100,19 +155,20 @@ export class SidebarModel implements IDisposable {
     this._current = options.current;
     this._sessions = options.sessions;
     this._comments = options.comments;
+    this._statusRunner = new CoalescingRunner(() => this._updateStatuses());
+    this._sessionsRunner = new CoalescingRunner(() => this._updateSessions());
     this._statusPoll = new Poll({
       name: 'jupyterlab_lightcone:sidebar:status',
-      auto: false,
       frequency: { interval: 15000, max: 60000, backoff: true },
-      standby: () => !this._visible || !this._entrypoint,
-      factory: () => this._updateStatuses()
+      standby: () => !this._visible || !this._entrypoint || 'when-hidden',
+      factory: () => this._statusRunner.run()
     });
     this._sessionsPoll = new Poll({
       name: 'jupyterlab_lightcone:sidebar:sessions',
-      auto: false,
       frequency: { interval: 15000, max: 60000, backoff: true },
-      standby: () => !this._visible || !this._entrypoint || !this._sessions,
-      factory: () => this._updateSessions()
+      standby: () =>
+        !this._visible || !this._entrypoint || !this._sessions || 'when-hidden',
+      factory: () => this._sessionsRunner.run()
     });
     this._current.changed.connect(this._bind, this);
     this._contents.fileChanged.connect(this._onFileChanged, this);
@@ -155,7 +211,11 @@ export class SidebarModel implements IDisposable {
     return this._isDisposed;
   }
 
-  /** Whether the sidebar is on screen; polling pauses while it is not. */
+  /**
+   * Whether the sidebar is on screen. While it is not, the model holds no
+   * project-data lease and fetches nothing; it keeps what it last showed and
+   * refreshes everything once shown again.
+   */
   get visible(): boolean {
     return this._visible;
   }
@@ -166,7 +226,10 @@ export class SidebarModel implements IDisposable {
     }
     this._visible = value;
     if (value) {
+      this._acquire();
       void this.refresh();
+    } else {
+      this._release();
     }
   }
 
@@ -186,11 +249,31 @@ export class SidebarModel implements IDisposable {
     const entrypoint = this._entrypoint;
     await Promise.all([
       this._lease?.service.refresh().catch(() => undefined),
-      this._statusPoll.refresh(),
-      this._sessionsPoll.refresh(),
+      this._statusRunner.request().catch(() => undefined),
+      this._sessionsRunner.request().catch(() => undefined),
       this._refreshComments(entrypoint),
       this._checkReport(entrypoint)
     ]);
+  }
+
+  /**
+   * Rename a session's chat file in its folder through the Contents API; the
+   * name becomes a slug the way new sessions are named. An open chat follows
+   * the rename, since its document context tracks the file. Returns the new
+   * path, or undefined when the name is blank or changes nothing.
+   */
+  async renameSession(path: string, name: string): Promise<string | undefined> {
+    const target = renamedSessionPath(path, name);
+    if (!target) {
+      return undefined;
+    }
+    if (await findModel(this._contents, target)) {
+      throw new Error(
+        `A session named ${PathExt.basename(target)} already exists in this folder.`
+      );
+    }
+    await this._contents.rename(path, target);
+    return target;
   }
 
   dispose(): void {
@@ -229,17 +312,22 @@ export class SidebarModel implements IDisposable {
     this._sessionsError = undefined;
     this._pendingComments = 0;
     this._reportAvailable = false;
-    if (entrypoint) {
-      this._lease = acquireProjectDataService(this._contents, entrypoint);
-      this._lease.service.changed.connect(this._onData, this);
-      this._onData(this._lease.service, this._lease.service.state);
-      void this._lease.service.get().catch(() => undefined);
-      void this._statusPoll.refresh();
-      void this._sessionsPoll.refresh();
-      void this._refreshComments(entrypoint);
-      void this._checkReport(entrypoint);
+    if (this._visible) {
+      this._acquire();
+      void this.refresh();
     }
     this._schedule();
+  }
+
+  /** Lease the project's shared data while the sidebar shows the project. */
+  private _acquire(): void {
+    const entrypoint = this._entrypoint;
+    if (!entrypoint || this._lease || this._isDisposed) {
+      return;
+    }
+    this._lease = acquireProjectDataService(this._contents, entrypoint);
+    this._lease.service.changed.connect(this._onData, this);
+    this._onData(this._lease.service, this._lease.service.state);
   }
 
   private _release(): void {
@@ -254,8 +342,12 @@ export class SidebarModel implements IDisposable {
     if (sender !== this._lease?.service) {
       return;
     }
-    if (state.data !== this._data || state.error !== this._error) {
-      this._data = state.data;
+    // A lease taken again after the sidebar was hidden may start empty; keep
+    // what the sidebar showed until the project resolves. A project switch
+    // clears `_data` first, so this never shows another project's data.
+    const data = state.data ?? this._data;
+    if (data !== this._data || state.error !== this._error) {
+      this._data = data;
       this._error = state.error;
       this._schedule();
     }
@@ -268,7 +360,10 @@ export class SidebarModel implements IDisposable {
     }
     const generation = this._generation;
     try {
-      const statuses = await fetchStatuses(this._contents, entrypoint);
+      const statuses = await fetchMaterializationStatuses(
+        this._contents,
+        entrypoint
+      );
       if (generation !== this._generation || this._isDisposed) {
         return;
       }
@@ -343,7 +438,8 @@ export class SidebarModel implements IDisposable {
 
   private async _checkReport(entrypoint: string): Promise<void> {
     const generation = this._generation;
-    const directory = PathExt.dirname(entrypoint);
+    // Keeps the `drive:` prefix of a project at a drive root.
+    const directory = projectDirectory(entrypoint);
     let available = false;
     try {
       for (const name of REPORT_FILES) {
@@ -373,10 +469,11 @@ export class SidebarModel implements IDisposable {
     change: Contents.IChangedArgs
   ): void {
     const entrypoint = this._entrypoint;
-    if (!entrypoint) {
+    // Hidden, nothing is fetched; showing the sidebar refreshes everything.
+    if (!entrypoint || !this._visible) {
       return;
     }
-    const root = this._contents.localPath(PathExt.dirname(entrypoint));
+    const root = this._contents.localPath(projectDirectory(entrypoint));
     const drive = this._contents.driveName(entrypoint);
     const paths = [change.oldValue?.path, change.newValue?.path].filter(
       (path): path is string =>
@@ -389,9 +486,9 @@ export class SidebarModel implements IDisposable {
     if (!inside.length) {
       return;
     }
-    void this._statusPoll.refresh();
+    this._request(this._statusRunner);
     if (inside.some(path => path.endsWith('.chat') || change.type !== 'save')) {
-      void this._sessionsPoll.refresh();
+      this._request(this._sessionsRunner);
     }
     if (inside.some(path => REPORT_FILES.includes(PathExt.basename(path)))) {
       void this._checkReport(entrypoint);
@@ -403,10 +500,17 @@ export class SidebarModel implements IDisposable {
     entrypoint: string
   ): void {
     if (this._entrypoint && entrypoint === this._entrypoint) {
-      void this._sessionsPoll.refresh();
+      if (this._visible) {
+        this._request(this._sessionsRunner);
+      }
       // Live activity changes affect markers even when the list did not.
       this._schedule();
     }
+  }
+
+  // Failures are already in the state; the poll backs off on its own ticks.
+  private _request(runner: CoalescingRunner): void {
+    void runner.request().catch(() => undefined);
   }
 
   private _onCommentsChanged(
@@ -424,17 +528,22 @@ export class SidebarModel implements IDisposable {
   }
 
   /**
-   * Watch the current record tab: a link followed inside it shows another
-   * record without changing which widget is current.
+   * Watch the current widget for views it changes in place: a renamed
+   * document, a link followed in a record tab, another analysis in the
+   * inventory. None of these changes which widget is current.
    */
   private _follow(widget: Widget | null): void {
-    const navigation = recordNavigation(widget);
-    if (navigation === this._navigation) {
+    if (widget === this._followed) {
       return;
     }
-    this._navigation?.disconnect(this._refreshView, this);
-    this._navigation = navigation;
-    navigation?.connect(this._refreshView, this);
+    for (const signal of this._viewSignals) {
+      signal.disconnect(this._refreshView, this);
+    }
+    this._followed = widget;
+    this._viewSignals = viewChanges(widget);
+    for (const signal of this._viewSignals) {
+      signal.connect(this._refreshView, this);
+    }
   }
 
   private _refreshView(): void {
@@ -443,6 +552,7 @@ export class SidebarModel implements IDisposable {
     if (
       view.session !== previous.session ||
       view.inventory !== previous.inventory ||
+      view.analysisPath !== previous.analysisPath ||
       view.record?.entrypoint !== previous.record?.entrypoint ||
       view.record?.target !== previous.record?.target ||
       view.record?.doi !== previous.record?.doi
@@ -471,6 +581,8 @@ export class SidebarModel implements IDisposable {
   private readonly _current: ICurrentProject;
   private readonly _sessions: ISessionService | null;
   private readonly _comments: ICommentService | null;
+  private readonly _statusRunner: CoalescingRunner;
+  private readonly _sessionsRunner: CoalescingRunner;
   private readonly _statusPoll: Poll;
   private readonly _sessionsPoll: Poll;
   private readonly _changed = new Signal<this, ISidebarState>(this);
@@ -486,7 +598,8 @@ export class SidebarModel implements IDisposable {
   private _pendingComments = 0;
   private _reportAvailable = false;
   private _view: ICurrentView = {};
-  private _navigation: ISignal<unknown, unknown> | undefined;
+  private _followed: Widget | null = null;
+  private _viewSignals: ISignal<unknown, unknown>[] = [];
   private _visible = false;
   private _generation = 0;
   private _scheduled = false;

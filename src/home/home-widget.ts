@@ -1,4 +1,3 @@
-import type { JupyterFrontEnd } from '@jupyterlab/application';
 import type { IThemeManager } from '@jupyterlab/apputils';
 import { Launcher, type ILauncher } from '@jupyterlab/launcher';
 import type { Contents } from '@jupyterlab/services';
@@ -26,7 +25,6 @@ export interface IHomeWidgetOptions {
   cwd: string;
   commands: CommandRegistry;
   contents: Contents.IManager;
-  shell: JupyterFrontEnd.IShell;
   themes: IThemeManager;
   current: ICurrentProject;
   /** The stock launcher's callback: replace this tab with the launched widget. */
@@ -93,7 +91,6 @@ export class HomeWidget extends Panel {
     this._view = new HomeView({
       contents: options.contents,
       commands: options.commands,
-      shell: options.shell,
       themes: options.themes,
       sessions: options.sessions ?? null,
       personas: options.personas ?? null,
@@ -119,6 +116,9 @@ export class HomeWidget extends Panel {
     }
     this._cwd = value;
     this._launcher.cwd = value;
+    // The stock body names its folder at once: when the project lookup finds
+    // the same project (or none again) it leaves the tab untouched.
+    this._updateTitle();
     void this._resolve();
   }
 
@@ -199,6 +199,24 @@ export class HomeWidget extends Panel {
       this._launcher.hide();
       this._stockBar.hide();
       this._view.show();
+    } else {
+      this._view.setProject(null);
+      this._view.hide();
+      if (project) {
+        this._stockBar.project = project;
+        this._stockBar.show();
+      } else {
+        this._stockBar.hide();
+      }
+      this._launcher.show();
+    }
+    this._updateTitle();
+  }
+
+  /** Home names its project; the stock body names the folder it launches into. */
+  private _updateTitle(): void {
+    const project = this._project;
+    if (this.mode === 'home' && project) {
       this.title.label = this._trans.__('Home');
       this.title.icon = lightconeIcon;
       this.title.caption = this._trans.__(
@@ -207,15 +225,6 @@ export class HomeWidget extends Panel {
       );
       return;
     }
-    this._view.setProject(null);
-    this._view.hide();
-    if (project) {
-      this._stockBar.project = project;
-      this._stockBar.show();
-    } else {
-      this._stockBar.hide();
-    }
-    this._launcher.show();
     this.title.label = this._trans.__('Launcher');
     this.title.icon = launcherIcon;
     this.title.caption = this._cwd || '/';

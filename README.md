@@ -3,9 +3,12 @@
 The open AI-assisted research workbench
 
 **Lightcone Lab** brings a research workbench into JupyterLab, connecting
-methods, evidence, and computation. The extension currently provides an ASTRA
-analysis inventory, materialized outputs, cited papers, and Jupyter AI integration. ASTRA is the
-analysis format; `astra.yaml` and its SDK contracts retain their names.
+methods, evidence, and computation. Inside a project it provides a Home page, a
+project sidebar, agent sessions, record tabs with result versions and
+provenance, runs, comments, search, and two Lightcone themes, on top of an ASTRA
+analysis inventory, materialized outputs, cited papers, and Jupyter AI
+integration. ASTRA is the analysis format; `astra.yaml` and its SDK contracts
+retain their names.
 
 ## Requirements
 
@@ -31,54 +34,112 @@ there is one, the status bar shows **Lightcone · _project_**; click it to open
 the project's inventory. Browsing outside every project clears it. New Jupyter
 AI chats join the current project (see below).
 
-Outside a project, the Lightcone Lab launcher shows **＋ Create project** and
-**Open project**. Inside a project or its subfolders, it shows the agent,
-inventory, and report. The launcher heading identifies the project root.
+Outside a project, the launcher is JupyterLab's own plus one **New Lightcone
+project** card; **Open project** stays in the command palette. Inside a project
+or its subfolders, the launcher tab shows the project's [Home](#home) instead.
 Browse labels folders containing `astra.yaml` as **ASTRA project**; this indicates
 presence, not validation of the specification.
 
-Choose **Create project** in the launcher (or command palette), enter a project
-folder, or use **Browse…** to select an existing directory. Create defaults to a
-new `my-project` subfolder, which you can rename. Paths are relative to
-the Jupyter server's root; absolute paths inside that root are also accepted.
-Existing projects open directly. For a folder without `astra.yaml`, **Create
-project here** initializes the exact folder shown, as `lc init` would. Inspecting
-or cancelling the form creates nothing. The extension installs `lightcone-cli` as
-a dependency and calls its engine directly, so no `lc` command has to be on the
-server's `PATH`. Initialization requires a local filesystem server, and the
-engine's own tools, `uv` and `git`, on the server's `PATH`; failures are
-displayed in the form and can be retried. After closing the form or
-reloading JupyterLab, run **Finish project setup** from the command palette to
-resume setup, including when `astra.yaml` already exists. The Create form also
-offers **Finish setup…** after inspecting an existing project. Both routes show
-the exact destination before running initialization; file presence alone does
-not imply setup completed. Each setup action opens a fresh form so an older
-draft cannot override a newly selected destination.
+Choose **New Lightcone project** in the launcher (or **Create project** in the
+command palette), enter a project folder, or use **Browse…** to select an
+existing directory. Create defaults to a new `my-project` subfolder, which you
+can rename. Paths are relative to the Jupyter server's root; absolute paths
+inside that root are also accepted. Existing projects open directly. For a
+folder without `astra.yaml`, **Create project here** initializes the exact
+folder shown, as `lc init` would. Inspecting or cancelling the form creates
+nothing. The extension installs `lightcone-cli` as a dependency and calls its
+engine directly, so no `lc` command has to be on the server's `PATH`.
+Initialization requires a local filesystem server, and the engine's own tools,
+`uv` and `git`, on the server's `PATH`; failures are displayed in the form and
+can be retried. After closing the form or reloading JupyterLab, run **Finish
+project setup** from the command palette to resume setup, including when
+`astra.yaml` already exists. The Create form also offers **Finish setup…** after
+inspecting an existing project. Both routes show the exact destination before
+running initialization; file presence alone does not imply setup completed. Each
+setup action opens a fresh form so an older draft cannot override a newly
+selected destination.
 
-After opening or creating a project, the file browser navigates there and the
-project launcher opens. Choose the agent, inventory, or viewer from the launcher.
-Choosing Lightcone Agent creates its chat file inside the project, which is also
-the working directory used by Jupyter AI's ACP client. Select a configured persona
-in Jupyter AI to start messaging; opening the chat does not send a message.
-Inventory and Lightcone Agent commands invoked in a folder without `astra.yaml`
-offer the same setup form.
+After opening or creating a project, the file browser navigates there and a
+launcher tab opens on the project's Home. Inventory and Lightcone Agent commands
+invoked in a folder without `astra.yaml` offer the same setup form.
+
+### Home
+
+Inside a project, the launcher tab is the project's front page. A header names
+the project path and holds **Tools ▾**, which lists the launcher's items by
+category (kernels and other extensions' items included; Lightcone's own cards
+are on Home itself) and ends with **Show the full launcher**; that tab then
+shows the stock launcher, with **Back to Home** to return. Every way of opening
+a launcher keeps working and keeps its folder: the tab bar's **+**, **File › New
+Launcher**, Ctrl+Shift+L, the file browser's button, an emptied main area and
+`/lab/tree/...` URLs. Browsing into or out of a project switches an open tab
+between Home and the stock launcher.
+
+The left column shows the project's name and description, **Open report**
+(only when the project has a `myst.yml` or `myst.yaml`; it opens the
+[MySTRA Viewer](#mystra-viewer)), result plates under one freshness line with
+**All results →**, and a line of analysis counts with **Open inventory →**. The
+right column is the desk: a composer with an agent picker and **Start**, then
+recent sessions with a working or needs-input marker. **Start** is the only
+action on Home that sends anything. Home reads JupyterLab's theme variables, so
+it looks native under any theme; nothing on it starts a kernel, MyST or a
+recipe.
+
+The extension replaces `@jupyterlab/launcher-extension:plugin` through
+`disabledExtensions` in its `package.json`. Disabling Lightcone Lab
+(`jupyter labextension disable jupyterlab-lightcone`) restores the stock
+launcher. Other launcher replacements, such as `jupyterlab-launchpad` or
+Elyra's, conflict with it.
+
+### Lightcone sidebar
+
+The Lightcone icon in the left sidebar (or **Show Lightcone Sidebar** in the
+command palette) opens the project's navigation: its name with a Home button,
+**New session**, **Search**, the sessions (renamable, with activity markers),
+results with their materialization status, the analysis counts, the number of
+pending [comments](#comments), and links to **Files**, **Report** and
+[**Runs**](#runs). It follows the current project and never closes tabs when the
+project changes. Outside a project it offers **New project**.
+
+### Sessions
+
+A session is a Jupyter AI chat stored in `<project>/chats/`, named after its
+first message (`chats/hubble-diagram-with-error-bars.chat`; `untitled.chat` when
+started empty). **Start** on Home and **New session** in the sidebar create one
+and open it in the main area; **Lightcone Agent** does the same unless a session
+of the project is already open, which it focuses instead. Creating a session
+also creates `chats/` if needed and adds the project's `chats/` folder and
+`.chat` files to the repository's local `.git/info/exclude` (never to
+`.gitignore`), so chats stay out of the project's Git status. Results opened
+from a session split to its right, later results join that group, and closing
+them returns focus to the session. A session that finishes, or asks for
+permission, while you look elsewhere raises a notification with **Open
+session**. An empty session shows the project name and "What would you like to
+explore?".
+
+Replies link back into the workbench: links to absolute paths under the server
+root open those files in JupyterLab, images at such paths render, and the last
+reply of a turn lists the outputs materialized during it (**Materialized during
+this reply**) and the files the agent edited (**Files edited**).
+
+### Inventory
 
 Open `astra.yaml` in the file browser, or select **Open With → Lightcone Lab**.
-The **Lightcone Lab** launcher category and command palette also offer
-**ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
-result files and starts no kernel. JupyterLab may create its standard document
-checkpoint when opening a writable file; the normal text editor remains
-available for editing.
+The full launcher's **Lightcone Lab · _project_** section, Home's **Open
+inventory →** and the command palette also offer **ASTRA Inventory**. The
+inventory is read-only: viewing preserves analysis and result files and starts
+no kernel. JupyterLab may create its standard document checkpoint when opening a
+writable file; the normal text editor remains available for editing.
 
 The inventory shows outputs, decisions, inputs, findings, and a bibliography
-using the shared ASTRA components. Prior insights remain accessible through their
-decisions and source papers. The project hierarchy in the sidebar lists the
-analysis and its sub-analyses; select a name to switch analyses. Select a record
-to inspect its details. Figures, CSV/TSV tables, and JSON tables/metrics have
-bounded previews and an action to open the full artifact in a JupyterLab document
-tab, using the file's default viewer. Opening an artifact again reveals its
-existing tab. Paths, universe selection, validation, and artifact cache tokens
-come from `@astra-spec/sdk`.
+using the shared ASTRA components. Prior insights remain accessible through
+their decisions and source papers. The project hierarchy beside the inventory
+lists the analysis and its sub-analyses; select a name to switch analyses.
+Select a record to inspect its details. Figures, CSV/TSV tables, and JSON
+tables/metrics have bounded previews and an action to open the full artifact in
+a JupyterLab document tab, using the file's default viewer. Opening an artifact
+again reveals its existing tab. Paths, universe selection, validation, and
+artifact cache tokens come from `@astra-spec/sdk`.
 
 Inventory results show a small marker when the Lightcone engine reports them as
 **Behind** (still valid, but the environment moved since) or **Stale**
@@ -88,10 +149,6 @@ prints. Current results show no extra marker. Status checks run every 15 seconds
 visible and after local file changes. Engine failures clear markers and show one
 message in the headbar; status returns automatically after recovery. The
 integration currently covers local root-analysis outputs.
-
-Open a result to see its **Provenance** below Recipe: status, last run, and Git
-revision. **Details** opens the recorded recipe, input versions, environment, and
-Lightcone version without leaving the result.
 
 Output details also offer **Open code** beside Recipe when a local script can be
 resolved. It opens the current file in a reusable editor tab, preferring the
@@ -120,6 +177,75 @@ Projects refresh after relevant file operations, through **Refresh ASTRA
 Inventory**, and by polling while the browser is visible. Multiple views of the
 same project share that work. A transient invalid edit preserves the last valid
 view and displays a notice until the project recovers.
+
+### Record tabs, versions and provenance
+
+Results, decisions, inputs, findings and papers opened from Home, the sidebar,
+search, chat cards or links open as record tabs (see
+[pinning](#jupyter-ai-rich-references-and-agent-navigation) for how tabs are
+reused). Following a link inside a record navigates the same tab: **Back** and
+**Forward** in its toolbar (Alt+← and Alt+→ while it has focus) retrace the
+path, the toolbar shows the trail
+(`outputs.hubble_diagram›decisions.cosmological_model`), and coming back
+restores where you had scrolled. **Open in new tab** keeps the current record
+and opens it again beside it.
+
+An output's record shows **Provenance** below Recipe as tabs: **Run** (status,
+times, command, exit code, commit and Git tree), **Code** (the recorded command
+and the script it names, opened as it is now), **Inputs** (the recorded input
+versions, each linking to its record), **Environment** (environment, engine, uv,
+image, sandbox, definition and data versions) and **Conversation** (sessions
+active around the run, matched by time, so a heuristic). **Versions** steps
+through every committed version of the output file with ◀ and ▶; an older
+version shows its own bytes under a banner with **Latest**, and content missing
+from the local annex says so. **Compare with previous** shows images side by
+side or with a swipe slider, numeric deltas for JSON metrics, and row, column
+and header changes for CSV/TSV tables. **Pipeline** in the command palette draws
+the project's inputs and outputs as a graph colored by materialization status;
+click a node to open its record.
+
+### Runs
+
+**Runs** (sidebar footer or command palette) lists the project's
+materialization jobs started from JupyterLab, with their live log and **Stop**,
+the outputs that are stale or behind with actions to rematerialize them, and the
+run history recorded in Git. **Materialize** in its toolbar, or **Materialize
+outputs** in the command palette, runs the engine's `materialize` in the project
+on the Jupyter server. One job runs per project at a time; the engine's refusals
+(a dirty tree, a missing committer) are shown as it prints them. Running jobs
+also appear under **Lightcone** in JupyterLab's Running panel. Materializing
+executes the project's recipes as the server user: an authorizer must permit
+`execute` on the `lightcone` resource and `write` on `contents`.
+
+### Comments
+
+Click a figure in a record tab or an image opened in JupyterLab to pin a comment
+at that point, or select text in a record, a Markdown preview, a text editor or
+a cited paper and choose **Comment**. Comments are numbered per target (①, ②, …)
+and kept in `<project>/.lightcone/comments.json`; pins on images can be dragged,
+and every pending comment can be edited or deleted. Pending comments appear as
+chips above the composer of every session in the project and as a count in the
+sidebar; a chip opens its target. Sending the next message in a session sends
+the pending comments with it: the agent's prompt gains a short list of them, the
+chat keeps your message as typed and shows them as cards on it, and they leave
+the pending list.
+
+### Search
+
+Ctrl+K (Cmd+K on macOS), **Search** in the sidebar, or **Search Lightcone
+project** in the command palette searches the current project's sessions,
+records (results, decisions, inputs, findings, papers), files and Lightcone
+commands. Sessions open in the main area, records as record tabs, files in
+their default editor.
+
+### Lightcone settings
+
+**Lightcone Settings** in the command palette opens one page of the actual
+setup: the agent adapters and their executables, installed Lightcone skills, the
+project's `AGENTS.md` or `CLAUDE.md` (**Edit** opens it), the project
+environment, the tools the engine uses, the execution boundary (sandbox), the
+project's git-annex storage and remotes, and the theme. **Refresh** checks
+again.
 
 ### Project updates
 
@@ -204,23 +330,26 @@ support continuous scrolling, zoom, and navigation to cited passages.
 
 ### Jupyter AI: rich references and agent navigation
 
-Jupyter AI 3.2 (Jupyter Chat 0.25) is installed with the extension. Configure an agent through
-Jupyter AI as usual. With an inventory open (or its folder selected), run
-**Lightcone Agent** from the command palette or the **Lightcone Lab**
-launcher section at the top of the launcher page. The gold chat shortcut opens
-Jupyter Chat in the left sidebar and uses the
-launcher’s current folder. Outside an ASTRA project it opens the folder-selection and project-creation form. The composer opens empty, and your
-message is sent to the agent exactly as written: Lightcone adds no context text.
+Jupyter AI 3.2 (Jupyter Chat 0.25) is installed with the extension. Configure an
+agent through Jupyter AI as usual. Start a [session](#sessions) from Home or the
+sidebar, or, with an inventory open (or its folder selected), run **Lightcone
+Agent** from the command palette or the full launcher's **Lightcone Lab ·
+_project_** section. The gold chat shortcut focuses a session already open in
+the project, or creates one, in the main area. Outside an ASTRA project it opens
+the folder-selection and project-creation form. It sends nothing, and your
+message is sent to the chat exactly as written: Lightcone adds no context text
+of its own. Only pending [comments](#comments) are appended, to the prompt the
+agent receives, never to the saved message.
 
 Instead, the agent starts in the right place: its session's working directory is
 the root of the chat's ASTRA project, so `lc`, `astra` and relative paths work
 without naming the project. Every Jupyter AI chat has a project, however it was
-opened (the Jupyter Chat sidebar's **+**, the launcher's **Chat** card,
-**File › New**, or an existing `.chat` file):
+opened (a Lightcone session, the Jupyter Chat sidebar's **+**, the launcher's
+**Chat** item, **File › New**, or an existing `.chat` file):
 
 1. A chat stored inside a project belongs to it: the nearest folder at or above
    the chat containing `astra.yaml`. Chats can live beside `astra.yaml` or in a
-   subfolder such as `chats/`.
+   subfolder; sessions live in `chats/`.
 2. Any other chat joins the [current project](#use) when it is first opened,
    and the `.chat` file records it (`lightcone_project` in its metadata). It
    keeps that project when you browse to another one; open a new chat there.
@@ -307,16 +436,21 @@ Missing outputs stay unavailable and papers download only through **Fetch paper*
 Inline `{astra}` roles in response text do not produce hover previews. The
 previous Markdown DOM adapter has been removed: MyST consumes unknown roles,
 and neither renderer offers a shared inline extension hook. Agents should use
-the preview tool instead. Full MyST documents, block/value/citation roles,
-and historical result snapshots are outside this implementation.
+the preview tool instead. Full MyST documents and block/value/citation roles
+are outside this implementation.
 
 See the [integration design](docs/design/jupyter-ai-integration.md) for the
 compatibility boundary and future ways to simplify it.
 
 ### Appearance
 
-Inventory components use the shared Lightcone brand and follow JupyterLab's
-light/dark theme without changing the surrounding shell.
+Two JupyterLab themes, **Lightcone Light** and **Lightcone Dark**, restyle the
+whole shell in the Lightcone brand: parchment canvas, white documents, blue-ink
+actions, square corners and the brand fonts. Choose them under **Settings ›
+Theme** or in [Lightcone settings](#lightcone-settings). Under any other theme
+the shell stays as it is: Home and the sidebar read JupyterLab's theme variables,
+and inventory components use the shared Lightcone brand, following JupyterLab's
+light/dark setting.
 
 The brand adapter from `@lightcone-research/brand` supplies every ASTRA UI
 token; the extension does not redefine any of them from JupyterLab settings.
@@ -338,6 +472,11 @@ jupyter labextension list
 After installing a new extension, restart JupyterLab. During development, build
 after TypeScript changes and refresh the browser; restart the server after
 Python changes.
+
+Home provides JupyterLab's launcher in place of
+`@jupyterlab/launcher-extension:plugin`. If launchers misbehave, check that no
+other launcher replacement (such as `jupyterlab-launchpad`) is enabled; inside a
+project, **Tools ▾ › Show the full launcher** shows the stock view in that tab.
 
 ## Uninstall
 

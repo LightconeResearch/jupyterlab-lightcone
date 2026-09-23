@@ -5,10 +5,7 @@ import type { CommandRegistry } from '@lumino/commands';
 import { h, type VirtualElement } from '@lumino/virtualdom';
 import type { Menu } from '@lumino/widgets';
 import { HomeCommandIDs } from './home-commands';
-import { groupLauncherItems } from './home-model';
-
-/** Home offers Lightcone's own launcher cards in its body, not in Tools. */
-const LIGHTCONE_CATEGORY_PREFIX = 'Lightcone Lab';
+import { groupLauncherItems, isLightconeCategory } from './home-model';
 
 const KERNEL_ICON_CLASS = 'jp-jupyterlab-lightcone-HomeTools-kernelIcon';
 const CATEGORY_CLASS = 'jp-jupyterlab-lightcone-HomeTools-category';
@@ -69,7 +66,8 @@ export function buildToolsMenu(options: IToolsMenuOptions): MenuSvg {
       console: trans.__('Console'),
       other: trans.__('Other')
     },
-    exclude: item => (item.category ?? '').startsWith(LIGHTCONE_CATEGORY_PREFIX)
+    // Home offers Lightcone's own launcher cards in its body, not in Tools.
+    exclude: item => isLightconeCategory(item.category)
   });
   for (const group of groups) {
     menu.addItem({

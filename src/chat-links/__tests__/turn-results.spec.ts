@@ -1,4 +1,5 @@
 import type { IRunRecord } from '../../runs/runs-api';
+import { isPersonaUser } from '../../sessions/session-activity';
 import {
   filesEditedIn,
   isAgentMessage,
@@ -47,6 +48,18 @@ describe('isAgentMessage', () => {
       true
     );
     expect(isAgentMessage({ sender: USER })).toBe(false);
+  });
+
+  it('counts the same senders as agents as the sessions do', () => {
+    for (const sender of [
+      AGENT,
+      USER,
+      { username: 'bot', bot: true },
+      { username: 'jupyter-ai-personas' },
+      { username: 'jupyter-ai-personas-legacy' }
+    ]) {
+      expect(isAgentMessage({ sender })).toBe(isPersonaUser(sender));
+    }
   });
 });
 

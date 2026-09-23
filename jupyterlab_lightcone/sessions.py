@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 
 from jupyter_server.auth import authorized
@@ -18,13 +18,15 @@ from jupyter_server.utils import url_path_join
 from tornado import web
 
 from .project_routes import ProjectAPIHandler, contents_call
-from .projects import project_root
+from .projects import inside_root
 
 SESSION_ACTIVITY = "lightcone_session_activity"
 """The web application setting mapping a chat's Contents path to its live activity.
 
-The persona manager in `agent_workspace` writes `{"state": "working" | "idle",
-"persona": <id>, "since": <iso8601>}` there while it processes a message.
+The one definition of the key: the persona manager in `agent_workspace` writes
+`{"state": "working" | "idle", "persona": <id>, "since": <iso8601>}` there,
+through `session_activity`, while it processes a message. It lives here
+because this module does not need Jupyter AI to be installed.
 """
 
 CHATS_DIRECTORY = "chats"
@@ -40,16 +42,36 @@ EXCLUDE_PATTERNS = ("chats/", "*.chat")
 GIT_TIMEOUT = 10
 
 
-def contents_path(root: Path, path: Path) -> str:
-    """The Jupyter Contents path of a local path; the root itself is ``''``."""
-    relative = path.relative_to(root).as_posix()
-    return "" if relative == "." else relative
+def project_contents_path(entrypoint: str) -> str:
+    """The Contents path of the project an entrypoint names; the root is ``''``.
+
+    Taken from the entrypoint as the browser wrote it, not from the resolved
+    folder: a project reached through a symlink inside the root keeps the
+    paths under which the browser opens its chats and the persona manager
+    records their activity.
+    """
+    parent = PurePosixPath(entrypoint).parent.as_posix()
+    return "" if parent == "." else parent
 
 
-def chats_directory(root: Path, project: Path) -> str:
-    """The Contents path of a project's sessions folder."""
-    base = contents_path(root, project)
-    return f"{base}/{CHATS_DIRECTORY}" if base else CHATS_DIRECTORY
+def project_folder(root: Path, project_path: str) -> Path:
+    """The folder on disk that a project's Contents path names, within `root`.
+
+    The folder holding the entrypoint as the browser named it, never the one a
+    symlinked `astra.yaml` points into, so the chats read and excluded here are
+    those under the paths this module reports.
+    """
+    return inside_root(root, Path(project_path), "Project is outside the contents root")
+
+
+def contents_join(directory: str, relative: str) -> str:
+    """The Contents path of `relative` below a directory's Contents path."""
+    return f"{directory}/{relative}" if directory else relative
+
+
+def chats_directory(project_path: str) -> str:
+    """The Contents path of a project's sessions folder, from the project's own."""
+    return contents_join(project_path, CHATS_DIRECTORY)
 
 
 def read_chat(path: Path) -> dict | None:
@@ -63,7 +85,9 @@ def read_chat(path: Path) -> dict | None:
         return None
     try:
         document = json.loads(data)
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
+        # The parser recurses per nesting level, so a deeply nested file
+        # exhausts the recursion limit well within the size cap.
         return None
     return document if isinstance(document, dict) else None
 
@@ -137,18 +161,22 @@ def message_count(document: dict | None) -> int:
 def activity_state(activity: dict, path: str) -> str:
     """The persona manager's live state for a chat: ``working`` or ``idle``."""
     entry = activity.get(path)
-    state = entry.get("state") if isinstance(entry, dict) else entry
+    state = entry.get("state") if isinstance(entry, dict) else None
     return "working" if state == "working" else "idle"
 
 
-def describe_session(root: Path, path: Path, activity: dict) -> dict:
-    """One session as the workbench lists it."""
-    modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-    document = read_chat(path)
-    location = contents_path(root, path)
+def describe_session(project_path: str, project: Path, chat: Path, activity: dict) -> dict:
+    """One session as the workbench lists it.
+
+    `project` is the folder on disk; `project_path` is its Contents path, from
+    which the chat's reported path and its activity key are built.
+    """
+    modified = datetime.fromtimestamp(chat.stat().st_mtime, tz=timezone.utc)
+    document = read_chat(chat)
+    location = contents_join(project_path, chat.relative_to(project).as_posix())
     return {
         "path": location,
-        "title": session_title(document, path.stem),
+        "title": session_title(document, chat.stem),
         "modified": modified.isoformat(timespec="milliseconds"),
         "messages": message_count(document),
         "lastAgent": last_agent(document),
@@ -174,7 +202,7 @@ def _chat_files(directory: Path) -> list[Path]:
     return sorted(chats)
 
 
-def list_sessions(root: Path, project: Path, activity: dict) -> list[dict]:
+def list_sessions(project_path: str, project: Path, activity: dict) -> list[dict]:
     """Every session of a project, newest first.
 
     Chats live in `chats/`; those created beside `astra.yaml` before that
@@ -184,9 +212,10 @@ def list_sessions(root: Path, project: Path, activity: dict) -> list[dict]:
     for directory in (project / CHATS_DIRECTORY, project):
         for chat in _chat_files(directory):
             try:
-                sessions.append(describe_session(root, chat, activity))
-            except OSError:
-                # A chat removed while listing must not hide the others.
+                sessions.append(describe_session(project_path, project, chat, activity))
+            except (OSError, ValueError, OverflowError):
+                # A chat removed while listing, or one whose modification time
+                # no date can hold, must not hide the others.
                 continue
     return sorted(sessions, key=lambda session: (session["modified"], session["path"]), reverse=True)
 
@@ -221,30 +250,27 @@ def exclude_chats(project: Path) -> bool:
 
     Appends the missing rules to the repository's `info/exclude`, which stays
     local and never touches the project's own `.gitignore`. Returns whether the
-    file was changed; a folder that is not inside a Git repository is left
-    alone.
+    file was changed. A folder outside every Git repository, or a server
+    without Git, is left alone; any other failure to query the repository or
+    to read or write the file raises (`OSError`, `ValueError` or
+    `subprocess.SubprocessError`), so the caller can report it.
     """
     try:
         toplevel = Path(_git(project, "rev-parse", "--show-toplevel"))
-        exclude = project / _git(project, "rev-parse", "--git-path", "info/exclude")
-        patterns = exclude_patterns(project, toplevel)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError):
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Git reports no repository here, or is not installed at all.
         return False
-    try:
-        existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
-    except OSError:
-        return False
+    exclude = project / _git(project, "rev-parse", "--git-path", "info/exclude")
+    patterns = exclude_patterns(project, toplevel)
+    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
     present = {line.strip() for line in existing.splitlines()}
     missing = [pattern for pattern in patterns if pattern not in present]
     if not missing:
         return False
     lead = "" if not existing or existing.endswith("\n") else "\n"
-    try:
-        exclude.parent.mkdir(parents=True, exist_ok=True)
-        with exclude.open("a", encoding="utf-8") as stream:
-            stream.write(lead + "".join(f"{pattern}\n" for pattern in missing))
-    except OSError:
-        return False
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    with exclude.open("a", encoding="utf-8") as stream:
+        stream.write(lead + "".join(f"{pattern}\n" for pattern in missing))
     return True
 
 
@@ -253,35 +279,29 @@ class ProjectSessionsHandler(ProjectAPIHandler):
 
     unavailable_message = "Sessions require local files"
 
-    async def project_named(self, path) -> Path:
-        """Resolve and authorize a project from an entrypoint carried in a request body."""
-        if not isinstance(path, str):
-            raise web.HTTPError(400, "A local astra.yaml path is required")
-        root = self.contents_root
-        project = project_root(root, path)
-        # Apply the contents manager's read and hidden-file rules too.
-        await contents_call(self.contents_manager.get, path, content=False, type="file")
-        self.set_header("Cache-Control", "no-store")
-        return project
-
     @web.authenticated
     @authorized
     async def get(self):
         """List the project's sessions, newest first, with their live activity."""
-        project = await self.project()
-        root = self.contents_root
+        entrypoint = self.get_query_argument("path")
+        await self.project_named(entrypoint)
+        project_path = project_contents_path(entrypoint)
+        project = project_folder(self.contents_root, project_path)
         # Copy the registry so the listing thread never races the persona manager.
         activity = dict(self.settings.get(SESSION_ACTIVITY) or {})
-        sessions = await asyncio.to_thread(list_sessions, root, project, activity)
-        self.finish({"directory": chats_directory(root, project), "sessions": sessions})
+        sessions = await asyncio.to_thread(list_sessions, project_path, project, activity)
+        self.finish({"directory": chats_directory(project_path), "sessions": sessions})
 
     @web.authenticated
     @authorized(action="write", resource="contents")
     async def post(self):
         """Create the project's `chats` folder and keep chats out of its Git status."""
         body = self.get_json_body()
-        project = await self.project_named(body.get("path") if isinstance(body, dict) else None)
-        directory = chats_directory(self.contents_root, project)
+        entrypoint = body.get("path") if isinstance(body, dict) else None
+        await self.project_named(entrypoint)
+        project_path = project_contents_path(entrypoint)
+        project = project_folder(self.contents_root, project_path)
+        directory = chats_directory(project_path)
         manager = self.contents_manager
         try:
             await contents_call(manager.get, directory, content=False, type="directory")
@@ -290,8 +310,15 @@ class ProjectSessionsHandler(ProjectAPIHandler):
                 raise
             # Through the manager, so the browser's file events fire.
             await contents_call(manager.new, model={"type": "directory"}, path=directory)
-        if await asyncio.to_thread(exclude_chats, project):
-            self.log.info("Excluded chats from the Git status of %s", project)
+        try:
+            excluded = await asyncio.to_thread(exclude_chats, project)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # The folder is ready either way; only the Git hygiene is missing,
+            # and the engine will name the dirty tree if it refuses to run.
+            self.log.warning("Could not exclude chats from the Git status of %s", project, exc_info=True)
+        else:
+            if excluded:
+                self.log.info("Excluded chats from the Git status of %s", project)
         self.finish({"directory": directory})
 
 

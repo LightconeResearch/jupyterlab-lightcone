@@ -1,16 +1,7 @@
-import type { JupyterFrontEnd } from '@jupyterlab/application';
-import type { IThemeManager } from '@jupyterlab/apputils';
-import { LauncherModel } from '@jupyterlab/launcher';
-import { CommandRegistry } from '@lumino/commands';
-import { Signal } from '@lumino/signaling';
-import { Widget } from '@lumino/widgets';
-import type { ICurrentProject } from '../../current-project';
-import {
-  analysis,
-  createContents,
-  fileModel
-} from '../../__tests__/project-fixtures';
-import { HomeWidget } from '../home-widget';
+import type { Contents } from '@jupyterlab/services';
+import { PromiseDelegate } from '@lumino/coreutils';
+import { analysis, fileModel } from '../../__tests__/project-fixtures';
+import { flush, homeHost, until } from './home-fixtures';
 
 jest.mock('../../pdf-runtime', () => ({}));
 jest.mock('../../api', () => ({
@@ -26,80 +17,19 @@ jest.mock('../../runs/runs-api', () => ({
   listRuns: jest.fn().mockResolvedValue({ runs: [], jobs: [] })
 }));
 
-const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-
-/** Wait for an asynchronous condition instead of a fixed delay. */
-async function until(condition: () => boolean, timeout = 3000): Promise<void> {
-  const start = Date.now();
-  while (!condition()) {
-    if (Date.now() - start > timeout) {
-      throw new Error('Timed out waiting for the Home widget.');
-    }
-    await flush();
-  }
-}
-
 function host() {
-  const { contents } = createContents({
+  const entries: Record<string, Contents.IModel> = {
     'project/astra.yaml': fileModel(analysis('Union 2.1 cosmology')),
-    'project/myst.yml': fileModel('site: {}'),
     'project/data/readme.txt': fileModel('hello'),
-    'elsewhere/notes.txt': fileModel('notes')
-  });
-  const commands = new CommandRegistry();
-  const themes = {
-    theme: 'JupyterLab Light',
-    isLight: () => true,
-    themeChanged: new Signal<object, void>({})
-  } as unknown as IThemeManager;
-  const changed = new Signal<ICurrentProject, void>(
-    {} as unknown as ICurrentProject
-  );
-  const current = { project: undefined, changed } as unknown as ICurrentProject;
-  const shell = {
-    widgets: () => [][Symbol.iterator](),
-    activateById: jest.fn(),
-    currentWidget: null
-  } as unknown as JupyterFrontEnd.IShell;
-  const onOpenTools = jest.fn();
-  const widget = new HomeWidget({
-    model: new LauncherModel(),
-    cwd: 'elsewhere',
-    commands,
-    contents,
-    shell,
-    themes,
-    current,
-    callback: jest.fn(),
-    onOpenTools
-  });
-  Widget.attach(widget, document.body);
-  const bodies = () => ({
-    launcher: !widget.node
-      .querySelector('.jp-jupyterlab-lightcone-Home-launcher')
-      ?.classList.contains('lm-mod-hidden'),
-    view: !widget.node
-      .querySelector('.jp-jupyterlab-lightcone-HomeView')
-      ?.classList.contains('lm-mod-hidden'),
-    stockBar: !widget.node
-      .querySelector('.jp-jupyterlab-lightcone-Home-stockBar')
-      ?.classList.contains('lm-mod-hidden')
-  });
-  return {
-    widget,
-    contents,
-    changed,
-    onOpenTools,
-    bodies,
-    dispose: () => {
-      widget.dispose();
-      contents.dispose();
-    }
+    'elsewhere/notes.txt': fileModel('notes'),
+    'other/notes.txt': fileModel('notes')
   };
+  return { entries, ...homeHost({ entries }) };
 }
 
 it('shows the stock launcher outside a project and Home inside one', async () => {
   const h = host();
+  h.entries['project/myst.yml'] = fileModel('site: {}');
   try {
     await until(() => h.widget.project === null);
     expect(h.widget.mode).toBe('stock');
@@ -122,18 +52,16 @@ it('shows the stock launcher outside a project and Home inside one', async () =>
     });
 
     // The page renders from the project's own data, with no results yet.
-    await until(() =>
-      h.widget.node.textContent!.includes('Union 2.1 cosmology')
-    );
-    const text = h.widget.node.textContent!;
+    await until(() => h.text().includes('Union 2.1 cosmology'));
+    await until(() => h.text().includes('Open report'));
+    const text = h.text();
     expect(text).toContain('Lightcone Lab');
     expect(text).toContain('No results yet');
-    expect(text).toContain('Open report');
     expect(text).toContain('0 decisions');
     // No sessions service: no desk, no composer.
     expect(text).not.toContain('New session');
 
-    const tools = h.widget.node.querySelector<HTMLButtonElement>(
+    const tools = h.query<HTMLButtonElement>(
       '.jp-jupyterlab-lightcone-Home-tools'
     );
     tools!.click();
@@ -152,9 +80,7 @@ it('switches to the full launcher per tab and forgets that on leaving the projec
     expect(h.widget.mode).toBe('stock');
     expect(h.widget.title.label).toBe('Launcher');
     expect(h.bodies()).toEqual({ launcher: true, view: false, stockBar: true });
-    expect(h.widget.node.textContent).toContain(
-      'Showing the full launcher for project.'
-    );
+    expect(h.text()).toContain('Showing the full launcher for project.');
     h.widget.showHome();
     expect(h.widget.mode).toBe('home');
 
@@ -173,20 +99,81 @@ it('switches to the full launcher per tab and forgets that on leaving the projec
   }
 });
 
-it('re-resolves when the current project changes and ignores stale lookups', async () => {
+it('ignores a project lookup that settles after the tab moved on', async () => {
   const h = host();
   try {
     h.widget.cwd = 'project';
     await until(() => h.widget.mode === 'home');
-    jest.spyOn(h.contents, 'get').mockImplementationOnce(
-      () => new Promise(() => undefined) // a lookup that never settles
-    );
+    const pending = new PromiseDelegate<Contents.IModel>();
+    // The current project changed: the tab looks its folder up again, slowly.
+    h.get.mockImplementationOnce(() => pending.promise);
     h.changed.emit();
+    await Promise.resolve();
     h.widget.cwd = 'elsewhere';
     await until(() => h.widget.project === null);
+    // The outdated answer names the project the tab has left.
+    pending.resolve(
+      fileModel(analysis('Union 2.1 cosmology'), { path: 'project/astra.yaml' })
+    );
+    await flush();
+    await flush();
+    expect(h.widget.project).toBeNull();
     expect(h.widget.mode).toBe('stock');
+    expect(h.widget.title.label).toBe('Launcher');
   } finally {
     h.dispose();
   }
-  expect(h.widget.isDisposed).toBe(true);
+});
+
+it('names the folder the stock launcher opens into as the file browser moves', async () => {
+  const h = host();
+  try {
+    await until(() => h.widget.project === null);
+    expect(h.widget.title.caption).toBe('elsewhere');
+    // Another folder outside any project: the lookup finds no project again.
+    h.widget.cwd = 'other';
+    await flush();
+    await flush();
+    expect(h.widget.project).toBeNull();
+    expect(h.widget.title.caption).toBe('other');
+    h.widget.cwd = '';
+    expect(h.widget.title.caption).toBe('/');
+
+    // Inside a project the caption names the project, from any subfolder.
+    h.widget.cwd = 'project';
+    await until(() => h.widget.mode === 'home');
+    h.widget.cwd = 'project/data';
+    expect(h.widget.title.caption).toBe('Lightcone Lab · project');
+  } finally {
+    h.dispose();
+  }
+});
+
+it('offers the report once a MyST configuration appears outside Contents', async () => {
+  const h = host();
+  try {
+    h.widget.cwd = 'project';
+    await until(() => h.text().includes('Union 2.1 cosmology'));
+    await until(() =>
+      h.get.mock.calls.some(
+        ([path, options]) => path === 'project' && options?.content === true
+      )
+    );
+    await flush();
+    expect(h.text()).not.toContain('Open report');
+    // The check lists the project folder: asking for the missing files would
+    // log a 404 warning on the server at every poll.
+    const asked = h.get.mock.calls.map(([path]) => path);
+    expect(asked).not.toContain('project/myst.yml');
+    expect(asked).not.toContain('project/myst.yaml');
+
+    // An agent or `myst init` writes the file on the server while the user
+    // looks at another tab; no Contents event announces it.
+    h.widget.hide();
+    h.entries['project/myst.yml'] = fileModel('site: {}');
+    h.widget.show();
+    await until(() => h.text().includes('Open report'));
+  } finally {
+    h.dispose();
+  }
 });

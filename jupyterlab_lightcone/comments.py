@@ -25,8 +25,7 @@ from jupyter_server.auth import authorized
 from jupyter_server.utils import url_path_join
 from tornado import web
 
-from .project_routes import ProjectAPIHandler, contents_call
-from .projects import project_root
+from .project_routes import ProjectAPIHandler
 
 COMMENT_LOCKS = "lightcone_comment_locks"
 """The web application setting holding one `asyncio.Lock` per project store."""
@@ -60,8 +59,13 @@ def store_path(project: Path) -> Path:
 
 
 def comment_lock(locks: dict, project: Path) -> asyncio.Lock:
-    """The lock serializing every read-modify-write of one project's store."""
-    return locks.setdefault(str(project), asyncio.Lock())
+    """The lock serializing every read-modify-write of one project's store.
+
+    Keyed by the project's real path: the routes resolve symlinks, while agent
+    delivery keeps the logical path the Contents API shows (a symlinked
+    JupyterHub home, for instance). Both must take the same lock for one store.
+    """
+    return locks.setdefault(os.path.realpath(project), asyncio.Lock())
 
 
 def project_directory(entrypoint: str) -> str:
@@ -87,6 +91,19 @@ def _bad(message: str) -> web.HTTPError:
     return web.HTTPError(400, message)
 
 
+def _encodable(value: str, name: str) -> str:
+    """Refuse text the UTF-8 store cannot hold, such as a lone surrogate.
+
+    JSON request bodies may escape one (`"\\ud800"`); accepting it would only
+    fail later, when the store is written.
+    """
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise _bad(f"{name} must be valid Unicode text.") from None
+    return value
+
+
 def _optional_string(value, name: str, limit: int) -> str | None:
     if value is None:
         return None
@@ -94,7 +111,7 @@ def _optional_string(value, name: str, limit: int) -> str | None:
         raise _bad(f"{name} must be a string or null.")
     if len(value) > limit:
         raise _bad(f"{name} must be at most {limit} characters.")
-    return value
+    return _encodable(value, name)
 
 
 def _optional_number(value, name: str) -> float | None:
@@ -117,7 +134,7 @@ def validate_text(value) -> str:
     """A comment's note: one to a thousand characters of visible text."""
     if not isinstance(value, str):
         raise _bad("A comment needs a text.")
-    text = value.strip()
+    text = _encodable(value, "The comment").strip()
     if not text:
         raise _bad("A comment needs a text.")
     if len(text) > MAX_TEXT_CHARS:
@@ -135,6 +152,7 @@ def validate_target(value) -> dict:
     path = value.get("path")
     if not isinstance(path, str) or not path or "\x00" in path or len(path) > MAX_PATH_CHARS:
         raise _bad("The target needs a Contents path.")
+    _encodable(path, "The target path")
     record = _optional_string(value.get("record"), "record", MAX_FIELD_CHARS)
     if record is not None and (not record or any(character.isspace() for character in record)):
         raise _bad("A record path holds no whitespace.")
@@ -239,6 +257,11 @@ def _stored_comment(value) -> dict:
         raise ValueError("sentWith names a chat and a message.")
     if isinstance(label, bool) or not isinstance(label, int) or label < 1:
         raise ValueError("A label is a positive integer.")
+    # The draft fields were checked above; the store must be able to write these back too.
+    sent = (sent_with["chat"], sent_with["message"]) if sent_with is not None else ()
+    for field in (identifier, created, updated, author, *sent):
+        if field is not None:
+            _encodable(field, "A stored field")
     return {
         "id": identifier,
         "created": created,
@@ -278,12 +301,20 @@ def read_store(path: Path) -> list[dict]:
 
 
 def write_store(path: Path, comments: list[dict]) -> None:
-    """Replace the store atomically, so a crash leaves the previous version."""
+    """Replace the store atomically, so a crash leaves the previous version.
+
+    A store larger than `read_store` accepts is refused with a 413 before
+    anything is written: it would make every route, deletion included, fail.
+    """
+    payload = json.dumps(
+        {"version": STORE_VERSION, "comments": comments}, ensure_ascii=False, indent=2
+    ).encode("utf-8")
+    if len(payload) > MAX_STORE_BYTES:
+        raise web.HTTPError(413, "The project's comment store is full.")
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps({"version": STORE_VERSION, "comments": comments}, ensure_ascii=False, indent=2)
     descriptor, temporary = tempfile.mkstemp(prefix=".comments-", suffix=".json", dir=path.parent)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
@@ -488,17 +519,6 @@ class CommentAPIHandler(ProjectAPIHandler):
         username = user.get("username") if isinstance(user, dict) else getattr(user, "username", None)
         return username if isinstance(username, str) else ""
 
-    async def body_project(self, body) -> Path:
-        """Resolve and authorize a project named in a request body, as `project()` does for the query."""
-        entrypoint = body.get("path") if isinstance(body, dict) else None
-        if not isinstance(entrypoint, str):
-            raise web.HTTPError(400, "A project entrypoint path is required.")
-        project = project_root(self.contents_root, entrypoint)
-        # Apply the contents manager's read and hidden-file rules too.
-        await contents_call(self.contents_manager.get, entrypoint, content=False, type="file")
-        self.set_header("Cache-Control", "no-store")
-        return project
-
 
 class CommentsHandler(CommentAPIHandler):
     """List a project's comments, or add one."""
@@ -521,7 +541,8 @@ class CommentsHandler(CommentAPIHandler):
     async def post(self):
         """Save a pending comment with the next label on its target."""
         body = self.get_json_body()
-        project = await self.body_project(body)
+        # The base class's preamble authorizes the entrypoint; a non-object body is a 400 there.
+        project = await self.project_named(body.get("path") if isinstance(body, dict) else None)
         draft = validate_draft(body.get("comment"))
         path = store_path(project)
         async with comment_lock(self.locks(), project):

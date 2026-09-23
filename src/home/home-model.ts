@@ -59,6 +59,31 @@ export function formatRelativeTime(
   return years === 1 ? '1 year ago' : `${years} years ago`;
 }
 
+/** The launcher category of Lightcone's own cards. */
+export const LAUNCHER_CATEGORY = 'Lightcone Lab';
+
+/**
+ * The category Lightcone's launcher cards use: the plain name outside a
+ * project, qualified by the project's path inside one.
+ */
+export function launcherCategory(projectPath: string | null): string {
+  return projectPath === null
+    ? LAUNCHER_CATEGORY
+    : `${LAUNCHER_CATEGORY} · ${projectPath || '/'}`;
+}
+
+/**
+ * Whether a launcher category is one `launcherCategory` produces. Home offers
+ * those cards in its own body, so the Tools menu leaves them out; other
+ * extensions' categories that merely start with the same words stay.
+ */
+export function isLightconeCategory(category: string | undefined): boolean {
+  return (
+    category === LAUNCHER_CATEGORY ||
+    (category?.startsWith(`${LAUNCHER_CATEGORY} · `) ?? false)
+  );
+}
+
 /** Launcher items of one category, in display order. */
 export interface ILauncherGroup {
   category: string;

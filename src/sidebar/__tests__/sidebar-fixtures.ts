@@ -9,7 +9,10 @@ import type {
 } from '../../sessions/session-service';
 import type { ISessionInfo } from '../../sessions/sessions-api';
 
-/** A project with figures, a table, a decision, a finding and a child analysis. */
+/**
+ * A project with a figure, a table, an output the default universe does not
+ * make (it needs the curved model), a decision, a finding and a child analysis.
+ */
 export const PROJECT_SPEC = `version: "0.0.14"
 name: Sidebar project
 description: A project for the sidebar tests.
@@ -26,6 +29,11 @@ outputs:
     type: table
     format: json
     inputs: [catalog]
+  - id: curvature_posterior
+    type: figure
+    format: png
+    inputs: [catalog]
+    when: [cosmological_model.curved]
 decisions:
   cosmological_model:
     label: Cosmological model

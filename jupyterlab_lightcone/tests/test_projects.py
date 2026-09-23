@@ -88,6 +88,27 @@ def test_rejects_paths_outside_server(tmp_path, value):
         projects.project_path(tmp_path, value)
 
 
+@pytest.mark.parametrize("entrypoint", [
+    "", "/abs/astra.yaml", "a\\b/astra.yaml", "drive:astra.yaml", "a\x00b/astra.yaml", "../astra.yaml", "notes.yaml",
+])
+def test_an_entrypoint_the_server_cannot_serve_is_a_validation_error(tmp_path, entrypoint):
+    with pytest.raises(HTTPError) as refused:
+        projects.project_root(tmp_path, entrypoint)
+    assert refused.value.status_code == 400
+
+
+async def test_an_entrypoint_in_a_request_body_is_validated_like_a_query(jp_fetch, jp_root_dir):
+    """Tornado strips control characters from query arguments only, never from JSON bodies."""
+    (jp_root_dir / "a b").mkdir()
+    (jp_root_dir / "a b" / "astra.yaml").write_text("name: example")
+    response = await jp_fetch(
+        "jupyterlab_lightcone", "api", "chat-sessions",
+        method="POST", body=json.dumps({"path": "a\x00b/astra.yaml"}), raise_error=False,
+    )
+    assert response.code == 400
+    assert not (jp_root_dir / "a b" / "chats").exists()
+
+
 def test_rejects_symlink_escape_and_file_paths(tmp_path):
     root = tmp_path / "root"
     root.mkdir()

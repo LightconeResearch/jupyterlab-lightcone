@@ -24,8 +24,43 @@ import {
 } from './customize-model';
 import { fetchSetup, type ISetupReport } from './setup-api';
 
-/** JupyterLab's own theme switch; the manager is used directly when absent. */
-export const CHANGE_THEME_COMMAND = 'apputils:change-theme';
+/**
+ * JupyterLab's theme switch. The themes plugin that provides `IThemeManager`
+ * registers it, so it is always present when this page exists.
+ */
+const CHANGE_THEME_COMMAND = 'apputils:change-theme';
+
+/**
+ * The "Synchronize with System Settings" switch. `ThemeManager` has it, but
+ * `IThemeManager` does not declare it.
+ */
+interface IAdaptiveThemeManager extends IThemeManager {
+  isToggledAdaptiveTheme(): boolean;
+  toggleAdaptiveTheme(): Promise<void>;
+}
+
+/** Whether the manager has the "Synchronize with System Settings" switch. */
+function isAdaptiveThemeManager(
+  manager: IThemeManager
+): manager is IAdaptiveThemeManager {
+  return (
+    'isToggledAdaptiveTheme' in manager &&
+    typeof manager.isToggledAdaptiveTheme === 'function' &&
+    'toggleAdaptiveTheme' in manager &&
+    typeof manager.toggleAdaptiveTheme === 'function'
+  );
+}
+
+/**
+ * Whether two lookups ask the server for the same report. Outside a project
+ * (null) and before the lookup settles (undefined) both ask without a path.
+ */
+function sameProject(
+  a: IProjectRoot | null | undefined,
+  b: IProjectRoot | null | undefined
+): boolean {
+  return a?.entrypoint === b?.entrypoint;
+}
 
 export interface ICustomizeWidgetOptions {
   settings: ServerConnection.ISettings;
@@ -36,10 +71,16 @@ export interface ICustomizeWidgetOptions {
 }
 
 interface ICustomizeState {
-  /** The last report; kept while refreshing so the page never blanks. */
+  /**
+   * The last report. A check of the same project keeps it so the page never
+   * blanks; a check of another project drops it at once.
+   */
   report?: ISetupReport;
-  /** The project the report describes. */
-  project: IProjectRoot | null;
+  /**
+   * The project the report, or the check in flight, describes: null outside
+   * every project, undefined while the project lookup is unsettled or failed.
+   */
+  project: IProjectRoot | null | undefined;
   checked?: Date;
   loading: boolean;
   error?: string;
@@ -47,7 +88,7 @@ interface ICustomizeState {
 
 interface ICustomizeViewProps {
   state: ICustomizeState;
-  project: IProjectRoot | null;
+  project: IProjectRoot | null | undefined;
   theme: string | null;
   themes: IThemeChoices;
   trans: TranslationBundle;
@@ -83,34 +124,37 @@ function Section({
       </p>
       {section.rows.length ? (
         <dl className="jp-jupyterlab-lightcone-Customize-rows">
-          {section.rows.map(row => (
-            <div
-              key={row.id}
-              className="jp-jupyterlab-lightcone-Customize-row"
-              data-state={row.state}
-            >
-              <dt>{row.label}</dt>
-              <dd>
-                <span className="jp-jupyterlab-lightcone-Customize-value">
-                  {row.value}
-                </span>
-                {row.detail ? (
-                  <span className="jp-jupyterlab-lightcone-Customize-detail">
-                    {row.detail}
+          {section.rows.map(row => {
+            const { action } = row;
+            return (
+              <div
+                key={row.id}
+                className="jp-jupyterlab-lightcone-Customize-row"
+                data-state={row.state}
+              >
+                <dt>{row.label}</dt>
+                <dd>
+                  <span className="jp-jupyterlab-lightcone-Customize-value">
+                    {row.value}
                   </span>
-                ) : null}
-                {row.action ? (
-                  <button
-                    type="button"
-                    className="jp-mod-styled"
-                    onClick={() => onOpenFile(row.action!.path)}
-                  >
-                    {row.action.label}
-                  </button>
-                ) : null}
-              </dd>
-            </div>
-          ))}
+                  {row.detail ? (
+                    <span className="jp-jupyterlab-lightcone-Customize-detail">
+                      {row.detail}
+                    </span>
+                  ) : null}
+                  {action ? (
+                    <button
+                      type="button"
+                      className="jp-mod-styled"
+                      onClick={() => onOpenFile(action.path)}
+                    >
+                      {action.label}
+                    </button>
+                  ) : null}
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       ) : (
         <p className="jp-jupyterlab-lightcone-Customize-empty">
@@ -151,7 +195,7 @@ function Appearance({
       <h2 id={headingId}>{trans.__('Appearance')}</h2>
       <p className="jp-jupyterlab-lightcone-Customize-summary">
         {trans.__(
-          'The JupyterLab theme applies to every surface, including Lightcone’s.'
+          'Lab, Home, the Lightcone sidebar and this page follow the JupyterLab theme. ASTRA views, such as the inventory, record tabs, chat cards and result previews, keep the Lightcone look and follow only whether the theme is light or dark.'
         )}
       </p>
       <dl className="jp-jupyterlab-lightcone-Customize-rows">
@@ -195,9 +239,11 @@ function CustomizeView(props: ICustomizeViewProps): React.ReactElement {
           </p>
           <h1>{trans.__('Lightcone settings')}</h1>
           <p className="jp-jupyterlab-lightcone-Customize-project">
-            {project
-              ? trans.__('Project %1', project.path || '/')
-              : trans.__('No Lightcone project in the current folder')}
+            {project === undefined
+              ? trans.__('Looking for a project…')
+              : project
+                ? trans.__('Project %1', project.path || '/')
+                : trans.__('No Lightcone project in the current folder')}
           </p>
         </div>
         <div className="jp-jupyterlab-lightcone-Customize-status">
@@ -280,11 +326,22 @@ export class CustomizeWidget extends ReactWidget {
     return this._state.report;
   }
 
-  /** Fetch the setup report for the current project again. */
+  /**
+   * Fetch the setup report for the current project again. Before the project
+   * lookup settles, the report covers what does not depend on a project.
+   */
   async refresh(): Promise<void> {
     const request = ++this._generation;
-    const project = this._options.current.project ?? null;
-    this._setState({ ...this._state, loading: true, error: undefined });
+    const project = this._options.current.project;
+    // Rows about another project would sit under this project's name, and
+    // their Edit would open that project's file: drop them before checking.
+    const keep = sameProject(this._state.project, project);
+    this._setState({
+      report: keep ? this._state.report : undefined,
+      project,
+      checked: keep ? this._state.checked : undefined,
+      loading: true
+    });
     try {
       const report = await fetchSetup(
         this._options.settings,
@@ -298,13 +355,8 @@ export class CustomizeWidget extends ReactWidget {
       if (this.isDisposed || request !== this._generation) {
         return;
       }
-      // A report for another project would mislead; keep one for this project.
-      const sameProject =
-        this._state.project?.entrypoint === project?.entrypoint;
       this._setState({
         ...this._state,
-        report: sameProject ? this._state.report : undefined,
-        project,
         loading: false,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -316,7 +368,7 @@ export class CustomizeWidget extends ReactWidget {
     return (
       <CustomizeView
         state={this._state}
-        project={current.project ?? null}
+        project={current.project}
         theme={themes.theme}
         themes={themeChoices(themes)}
         trans={this._trans}
@@ -342,7 +394,20 @@ export class CustomizeWidget extends ReactWidget {
     super.dispose();
   }
 
+  /**
+   * Check the new project. A lookup settling on "no project" asks for the
+   * same report as the unsettled one, so that report, shown or in flight,
+   * stands and only the header changes.
+   */
   private _onProjectChanged(): void {
+    const { report, project, loading } = this._state;
+    if (
+      (report || loading) &&
+      sameProject(project, this._options.current.project)
+    ) {
+      this.update();
+      return;
+    }
     void this.refresh();
   }
 
@@ -369,17 +434,23 @@ export class CustomizeWidget extends ReactWidget {
     }
   }
 
+  /**
+   * Apply the picked theme. While the theme follows the system, JupyterLab's
+   * theme command only stops following it and brings back the stored theme,
+   * not the picked one. So the page stores the picked theme first, then stops
+   * following the system, which applies it.
+   */
   private async _changeTheme(name: string): Promise<void> {
-    if (!name || name === this._options.themes.theme) {
+    const { commands, themes } = this._options;
+    if (!name || name === themes.theme) {
       return;
     }
     try {
-      if (this._options.commands.hasCommand(CHANGE_THEME_COMMAND)) {
-        await this._options.commands.execute(CHANGE_THEME_COMMAND, {
-          theme: name
-        });
+      if (isAdaptiveThemeManager(themes) && themes.isToggledAdaptiveTheme()) {
+        await themes.setTheme(name);
+        await themes.toggleAdaptiveTheme();
       } else {
-        await this._options.themes.setTheme(name);
+        await commands.execute(CHANGE_THEME_COMMAND, { theme: name });
       }
     } catch (error) {
       await showErrorMessage(

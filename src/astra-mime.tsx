@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type {
   JupyterFrontEnd,
@@ -8,7 +8,11 @@ import { IThemeManager, showErrorMessage } from '@jupyterlab/apputils';
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { Widget } from '@lumino/widgets';
-import { RecordPreview } from '@astra-spec/ui/components';
+import {
+  ArtifactPreview,
+  RecordPreview,
+  type ArtifactRenderer
+} from '@astra-spec/ui/components';
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import { resolveElement } from './element-reference';
 import { useProject } from './element-widget';
@@ -24,6 +28,8 @@ import {
   type IAstraCardVersion
 } from './astra-mime-data';
 import { listVersionsCached } from './versions/version-cache';
+import type { IVersionTarget } from './versions/version-content';
+import { OlderVersionPreview } from './versions/versioned-output';
 import type { IOutputVersion } from './versions/versions-api';
 
 interface ICardProps {
@@ -61,17 +67,27 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
 /** How a card's recorded version relates to the output's history. */
 export type CardVersionState = 'unknown' | 'latest' | 'superseded' | 'missing';
 
+/** The version of a newest-first history a card's commit names, if any. */
+export function findCardVersion(
+  version: IAstraCardVersion,
+  versions: readonly IOutputVersion[]
+): IOutputVersion | undefined {
+  return versions.find(
+    candidate =>
+      candidate.commit === version.commit ||
+      candidate.commit.startsWith(version.commit)
+  );
+}
+
 /** Compare a card's commit with the newest-first history of its output. */
 export function cardVersionState(
   version: IAstraCardVersion,
   versions: readonly IOutputVersion[] | undefined
 ): CardVersionState {
   if (!versions) return 'unknown';
-  const matches = (candidate: IOutputVersion) =>
-    candidate.commit === version.commit ||
-    candidate.commit.startsWith(version.commit);
-  if (!versions.length || !versions.some(matches)) return 'missing';
-  return matches(versions[0]) ? 'latest' : 'superseded';
+  const recorded = findCardVersion(version, versions);
+  if (!recorded) return 'missing';
+  return recorded === versions[0] ? 'latest' : 'superseded';
 }
 
 const CARD_VERSION_TEXT: Record<CardVersionState, string> = {
@@ -81,65 +97,142 @@ const CARD_VERSION_TEXT: Record<CardVersionState, string> = {
   missing: 'not in the current history'
 };
 
-function CardVersionChip({
-  app,
-  reference,
-  version,
-  data,
-  output,
-  onOpen
-}: {
-  app: JupyterFrontEnd;
-  reference: IAstraCard;
-  version: IAstraCardVersion;
-  data: ILoadedProjectData;
-  output: ResolvedOutput;
-  onOpen: () => void;
-}): React.ReactElement {
-  const contents = app.serviceManager.contents;
-  const comparable =
-    isRootAnalysisOutput(data.index, output) &&
-    !contents.driveName(reference.entrypoint);
-  const universe = data.document.universe.universeId;
-  const [versions, setVersions] = useState<readonly IOutputVersion[]>();
+/** The history of a card's output; `settled` once the listing answered or failed. */
+function useCardVersions(target: IVersionTarget | undefined): {
+  versions?: readonly IOutputVersion[];
+  settled: boolean;
+} {
+  const [listing, setListing] = useState<{
+    target?: IVersionTarget;
+    versions?: readonly IOutputVersion[];
+  }>({});
   useEffect(() => {
-    if (!comparable) return;
+    if (!target) return;
     let active = true;
     listVersionsCached(
-      contents.serverSettings,
-      reference.entrypoint,
-      universe,
-      output.id
+      target.settings,
+      target.entrypoint,
+      target.universe,
+      target.outputId
     ).then(
-      listing => {
-        if (active) setVersions(listing.versions);
+      result => {
+        if (active) setListing({ target, versions: result.versions });
       },
       () => {
-        if (active) setVersions(undefined);
+        if (active) setListing({ target });
       }
     );
     return () => {
       active = false;
     };
-  }, [comparable, contents, reference.entrypoint, universe, output.id]);
+  }, [target]);
+  const current = !!target && listing.target === target;
+  return {
+    versions: current ? listing.versions : undefined,
+    settled: !target || current
+  };
+}
+
+export interface IVersionedCardProps {
+  app: JupyterFrontEnd;
+  reference: IAstraCard;
+  /** The version the card was made from. */
+  version: IAstraCardVersion;
+  data: ILoadedProjectData;
+  /** The output the card shows. */
+  output: ResolvedOutput;
+  /** How the host renders an output's current artifact. */
+  renderArtifact: ArtifactRenderer | undefined;
+  /** Render the card's preview with the given artifact renderer. */
+  renderPreview: (renderArtifact: ArtifactRenderer) => React.ReactNode;
+  onOpen: () => void;
+}
+
+/**
+ * A card made from a committed version of an output: it shows that version's
+ * bytes while newer ones exist, so that a card from an earlier turn still
+ * shows what the agent showed then, and a chip says how the version relates
+ * to the output's history. A version the history does not hold, or a
+ * history that cannot be read, shows the current artifact.
+ */
+export function VersionedCard({
+  app,
+  reference,
+  version,
+  data,
+  output,
+  renderArtifact,
+  renderPreview,
+  onOpen
+}: IVersionedCardProps): React.ReactElement {
+  const contents = app.serviceManager.contents;
+  const comparable =
+    isRootAnalysisOutput(data.index, output) &&
+    !contents.driveName(reference.entrypoint);
+  const settings = contents.serverSettings;
+  const universe = data.document.universe.universeId;
+  const target = useMemo<IVersionTarget | undefined>(
+    () =>
+      comparable
+        ? {
+            settings,
+            entrypoint: reference.entrypoint,
+            universe,
+            outputId: output.id
+          }
+        : undefined,
+    [comparable, settings, reference.entrypoint, universe, output.id]
+  );
+  const { versions, settled } = useCardVersions(target);
   const state = cardVersionState(version, versions);
+  const recorded =
+    state === 'superseded' && versions
+      ? findCardVersion(version, versions)
+      : undefined;
   const detail = CARD_VERSION_TEXT[state];
+  const renderVersioned: ArtifactRenderer = (item, options) => {
+    if (!target || item.canonicalPath !== output.canonicalPath)
+      return renderArtifact?.(item, options) ?? null;
+    if (!settled) {
+      return (
+        <ArtifactPreview
+          output={item}
+          preview={{ kind: 'loading' }}
+          compact={options.compact}
+          caption={null}
+        />
+      );
+    }
+    return recorded ? (
+      <OlderVersionPreview
+        target={target}
+        output={item}
+        version={recorded}
+        compact={options.compact}
+      />
+    ) : (
+      (renderArtifact?.(item, options) ?? null)
+    );
+  };
   return (
-    <button
-      type="button"
-      className="jp-jupyterlab-lightcone-card-version"
-      data-state={state}
-      title={`Open ${output.label ?? output.id} as it was at ${version.commit}`}
-      onClick={onOpen}
-    >
-      <span>Version {version.commit.slice(0, 7)}</span>
-      {detail && (
-        <>
-          <span aria-hidden="true"> · </span>
-          <span>{detail}</span>
-        </>
-      )}
-    </button>
+    <>
+      {renderPreview(renderVersioned)}
+      <button
+        type="button"
+        className="jp-jupyterlab-lightcone-card-version"
+        data-state={state}
+        title={`Open ${output.label ?? output.id} as it was at ${version.commit}`}
+        onClick={onOpen}
+      >
+        <span>Version {version.commit.slice(0, 7)}</span>
+        {detail && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <span>{detail}</span>
+          </>
+        )}
+      </button>
+    </>
   );
 }
 
@@ -192,68 +285,66 @@ function CardBody({
         showErrorMessage('Could not open ASTRA element', reason)
       );
   };
-  const versioned =
-    outputVersion && resolved.record?.kind === 'output'
-      ? { version: outputVersion, output: resolved.record }
-      : undefined;
+  const preview = (renderArtifact: ArtifactRenderer | undefined) => (
+    <RecordPreview
+      className="jp-jupyterlab-lightcone-card-preview"
+      role="link"
+      tabIndex={0}
+      aria-label={`Open ${resolved.record?.label || reference.target || 'analysis'} in a tab`}
+      onClick={event => {
+        if (
+          isCardContentEvent(event) &&
+          !event.currentTarget.ownerDocument.getSelection()?.toString()
+        )
+          navigate(reference.target);
+      }}
+      onDoubleClick={event => {
+        if (isCardContentEvent(event)) navigate(reference.target, true);
+      }}
+      onKeyDown={event => {
+        if (
+          event.target === event.currentTarget &&
+          (event.key === 'Enter' || event.key === ' ')
+        ) {
+          event.preventDefault();
+          navigate(reference.target);
+        }
+      }}
+      entry={
+        resolved.record
+          ? {
+              kind: 'record',
+              record: resolved.record,
+              analysis: resolved.analysis
+            }
+          : { kind: 'analysis', analysis: resolved.analysis }
+      }
+      document={data.document}
+      index={data.index}
+      renderArtifact={renderArtifact}
+      onOpenRecord={record => navigate(record.canonicalPath)}
+      onOpenAnalysis={() =>
+        navigate(
+          resolved.analysis.canonicalPath === '$'
+            ? ''
+            : resolved.analysis.canonicalPath
+        )
+      }
+    />
+  );
+  if (!outputVersion || resolved.record?.kind !== 'output')
+    return preview(renderers.renderArtifact);
   return (
-    <>
-      <RecordPreview
-        className="jp-jupyterlab-lightcone-card-preview"
-        role="link"
-        tabIndex={0}
-        aria-label={`Open ${resolved.record?.label || reference.target || 'analysis'} in a tab`}
-        onClick={event => {
-          if (
-            isCardContentEvent(event) &&
-            !event.currentTarget.ownerDocument.getSelection()?.toString()
-          )
-            navigate(reference.target);
-        }}
-        onDoubleClick={event => {
-          if (isCardContentEvent(event)) navigate(reference.target, true);
-        }}
-        onKeyDown={event => {
-          if (
-            event.target === event.currentTarget &&
-            (event.key === 'Enter' || event.key === ' ')
-          ) {
-            event.preventDefault();
-            navigate(reference.target);
-          }
-        }}
-        entry={
-          resolved.record
-            ? {
-                kind: 'record',
-                record: resolved.record,
-                analysis: resolved.analysis
-              }
-            : { kind: 'analysis', analysis: resolved.analysis }
-        }
-        document={data.document}
-        index={data.index}
-        renderArtifact={renderers.renderArtifact}
-        onOpenRecord={record => navigate(record.canonicalPath)}
-        onOpenAnalysis={() =>
-          navigate(
-            resolved.analysis.canonicalPath === '$'
-              ? ''
-              : resolved.analysis.canonicalPath
-          )
-        }
-      />
-      {versioned && (
-        <CardVersionChip
-          app={app}
-          reference={reference}
-          version={versioned.version}
-          data={data}
-          output={versioned.output}
-          onOpen={() => navigate(reference.target)}
-        />
-      )}
-    </>
+    <VersionedCard
+      app={app}
+      reference={reference}
+      version={outputVersion}
+      data={data}
+      output={resolved.record}
+      renderArtifact={renderers.renderArtifact}
+      renderPreview={preview}
+      onOpen={() => navigate(reference.target)}
+    />
   );
 }
 

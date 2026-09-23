@@ -102,7 +102,7 @@ function activate(
         return;
       }
       sessions = service;
-      personas = new PersonaDirectory(app.serviceManager.events);
+      personas = new PersonaDirectory(app.serviceManager.events, state);
       tracker.forEach(tab => tab.content.setSessions(sessions, personas));
     })
     .catch(error => {
@@ -183,7 +183,6 @@ function activate(
         cwd,
         commands,
         contents,
-        shell,
         themes,
         current,
         callback,

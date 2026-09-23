@@ -17,7 +17,7 @@ import type { CommandRegistry } from '@lumino/commands';
 import type { IDisposable } from '@lumino/disposable';
 import { Poll } from '@lumino/polling';
 import { Signal, type ISignal } from '@lumino/signaling';
-import { Widget } from '@lumino/widgets';
+import { Widget, type DockLayout } from '@lumino/widgets';
 import { isRecord } from '../api';
 import { projectDirectory } from '../project-data';
 import { findProjectRoot } from '../project-root';
@@ -59,7 +59,11 @@ const DEFAULT_PERSONA_OPTION = 'jupyter_ai_default_persona';
 
 /** A listing this recent is reused instead of fetched again. */
 const LISTING_TTL = 2000;
-/** Listings requested this recently are refreshed on every poll tick. */
+/**
+ * Listings a caller of `list()` asked for this recently are refreshed on
+ * every poll tick; older ones are forgotten. The poll's own refreshes do not
+ * count as requests.
+ */
 const ACTIVE_WINDOW = 10 * 60 * 1000;
 const POLL_INTERVAL = 15000;
 /** How long the first message waits for the composer to choose a persona. */
@@ -86,18 +90,28 @@ export interface ISessionManagerOptions {
 interface ICachedListing {
   listing: ISessionListing;
   fetchedAt: number;
+  /** When a caller of `list()` last asked for this listing. */
   requestedAt: number;
   signature: string;
 }
 
+/** Where `docmanager:open` puts a session in the main area. */
+interface ISessionPlacement {
+  mode?: DockLayout.InsertMode;
+  ref?: string;
+}
+
+/**
+ * The live state of one open chat. When the same chat is open twice (in the
+ * main area and in Jupyter Chat's side panel), one panel carries it: the
+ * main-area session when there is one.
+ */
 interface ILiveSession {
   panel: IChatPanel;
   /** Local Contents path of the chat file, the key of `_live`. */
   path: string;
   chatId: string | null;
   entrypoint: Promise<string | null>;
-  /** Personas that currently report processing a message in this chat. */
-  processing: Set<string>;
   state: SessionState;
   initialized: boolean;
   disconnect: () => void;
@@ -129,9 +143,17 @@ export function isSessionWidget(value: unknown): value is IChatPanel {
   return isChatPanel(value) && value.area === 'main';
 }
 
-/** Whether a widget is a record tab, which results open beside sessions in. */
+/** Whether a widget is a record tab: results form their own column. */
 export function isRecordTab(widget: Widget): boolean {
   return widget.title.dataset[RECORD_TAB_DATASET_KEY] !== undefined;
+}
+
+/**
+ * Whether input metadata carries the persona picker's stamp, which always
+ * includes `to_persona` (null for "No one").
+ */
+export function isComposerStamp(metadata: unknown): boolean {
+  return isRecord(metadata) && 'to_persona' in metadata;
 }
 
 /** The persona the composer would stamp on the next message, if it chose one. */
@@ -267,6 +289,7 @@ export class SessionManager implements ISessionService, IDisposable {
     }
     this._live.clear();
     this._byChatId.clear();
+    this._processing.clear();
     this._listings.clear();
     Signal.clearData(this);
   }
@@ -279,13 +302,12 @@ export class SessionManager implements ISessionService, IDisposable {
       existing.model.input.focus();
       return existing;
     }
-    const ref = this._placementRef();
     const opened: unknown = await this._commands.execute(
       OPEN_DOCUMENT_COMMAND,
       {
         path,
         factory: CHAT_FACTORY,
-        options: { mode: 'tab-after', activate: true, ...(ref ? { ref } : {}) }
+        options: { ...this._placement(), activate: true }
       }
     );
     const panel = isSessionWidget(opened) ? opened : this._findPanel(path);
@@ -300,23 +322,47 @@ export class SessionManager implements ISessionService, IDisposable {
   }
 
   /**
-   * Sessions join the group of the current document, so they take the main
-   * stage while Home or the previous session stays one tab away. From a
-   * result tab, they join the session the result was opened beside instead of
-   * the result column.
+   * Keep sessions and results in columns: sessions in one tab group, their results split
+   * to its right. A session joins the open session's group. Without one, it
+   * takes the main stage in the current widget's group (Home or a document
+   * stays one tab away), except from a result: there it splits to the left,
+   * so the result column stays beside it and later results never cover it.
+   * An empty main area opens it plainly.
    */
-  private _placementRef(): string | undefined {
+  private _placement(): ISessionPlacement {
+    const session = this._sessionColumn();
+    if (session) {
+      return { mode: 'tab-after', ref: session.id };
+    }
     const current = this._shell.currentWidget;
     if (!current) {
-      return undefined;
+      return {};
     }
-    if (isRecordTab(current)) {
-      const session = this._lastSession;
-      if (session && !session.isDisposed && this._inMainArea(session)) {
-        return session.id;
-      }
+    return {
+      mode: isRecordTab(current) ? 'split-left' : 'tab-after',
+      ref: current.id
+    };
+  }
+
+  /**
+   * The session whose tab group new sessions join: the current widget when it
+   * is a session, else the session the user last worked in, else any session
+   * open in the main area.
+   */
+  private _sessionColumn(): IChatPanel | undefined {
+    const usable = (panel: IChatPanel | null | undefined) =>
+      !!panel &&
+      !panel.isDisposed &&
+      isSessionWidget(panel) &&
+      this._inMainArea(panel);
+    const current = this._shell.currentWidget;
+    if (isSessionWidget(current) && usable(current)) {
+      return current;
     }
-    return current.id;
+    if (usable(this._lastSession)) {
+      return this._lastSession ?? undefined;
+    }
+    return this._tracker?.find(panel => usable(panel));
   }
 
   private _inMainArea(widget: Widget): boolean {
@@ -353,7 +399,7 @@ export class SessionManager implements ISessionService, IDisposable {
     if (panel.isDisposed) {
       return;
     }
-    const stamped = await this._awaitPersonaSelection(model);
+    const stamped = await this._awaitPersonaSelection(model, !!persona);
     if (panel.isDisposed) {
       return;
     }
@@ -381,11 +427,28 @@ export class SessionManager implements ISessionService, IDisposable {
     model.input.focus();
   }
 
-  /** The persona the composer stamps once its toolbar mounts, or null after a timeout. */
-  private _awaitPersonaSelection(model: IChatModel): Promise<string | null> {
-    const current = selectedPersona(model.input.getMetadata());
-    if (current) {
-      return Promise.resolve(current);
+  /**
+   * Wait for the persona picker to stamp its selection on the composer, and
+   * resolve with the persona it chose (null for "No one", or after a timeout
+   * when no picker is mounted).
+   *
+   * The picker stamps `to_persona` as soon as its toolbar mounts. With an
+   * `explicit` persona that first stamp is all we wait for: it guarantees the
+   * mount stamp cannot overwrite the persona we set next. Without one, a
+   * `to_persona: null` stamp is not final yet, because the picker still
+   * selects a chat's sole persona once its persona list arrives; only a chosen
+   * persona ends that wait early.
+   */
+  private _awaitPersonaSelection(
+    model: IChatModel,
+    explicit: boolean
+  ): Promise<string | null> {
+    const decided = (metadata: unknown): boolean =>
+      isComposerStamp(metadata) &&
+      (explicit || selectedPersona(metadata) !== null);
+    const current = model.input.getMetadata();
+    if (decided(current)) {
+      return Promise.resolve(selectedPersona(current));
     }
     const signal = model.input.metadataChanged;
     if (!signal) {
@@ -398,9 +461,9 @@ export class SessionManager implements ISessionService, IDisposable {
         resolve(value);
       };
       const onChange = () => {
-        const selected = selectedPersona(model.input.getMetadata());
-        if (selected) {
-          finish(selected);
+        const metadata = model.input.getMetadata();
+        if (decided(metadata)) {
+          finish(selectedPersona(metadata));
         }
       };
       const timer = window.setTimeout(() => finish(null), COMPOSER_TIMEOUT);
@@ -408,19 +471,25 @@ export class SessionManager implements ISessionService, IDisposable {
     });
   }
 
-  private async _listing(
-    entrypoint: string,
-    force = false
-  ): Promise<ISessionListing> {
+  /** A caller's request for a listing: counts as activity, reuses a fresh one. */
+  private async _listing(entrypoint: string): Promise<ISessionListing> {
     const key = this._contents.normalize(entrypoint);
     const cached = this._listings.get(key);
     const now = Date.now();
     if (cached) {
       cached.requestedAt = now;
-      if (!force && now - cached.fetchedAt < LISTING_TTL) {
+      if (now - cached.fetchedAt < LISTING_TTL) {
         return cached.listing;
       }
     }
+    return this._refresh(key);
+  }
+
+  /**
+   * Fetch a listing, sharing a request already in flight. It leaves
+   * `requestedAt` alone, so the poll's refreshes never keep a listing alive.
+   */
+  private _refresh(key: string): Promise<ISessionListing> {
     let pending = this._fetches.get(key);
     if (!pending) {
       pending = this._fetch(key).finally(() => {
@@ -467,7 +536,7 @@ export class SessionManager implements ISessionService, IDisposable {
         continue;
       }
       try {
-        await this._listing(key, true);
+        await this._refresh(key);
       } catch (error) {
         console.warn('Could not refresh the Lightcone sessions.', error);
       }
@@ -478,13 +547,29 @@ export class SessionManager implements ISessionService, IDisposable {
     this._track(panel);
   }
 
-  private _track(panel: IChatPanel): void {
+  /**
+   * Follow the activity of an open chat. A chat already followed through
+   * another panel keeps that panel, unless this one is a main-area session
+   * and the other is not: then this one takes over. `inherited` is the live
+   * state of the panel being replaced; the new panel starts from it, so the
+   * handover itself raises no notification.
+   */
+  private _track(panel: IChatPanel, inherited?: ILiveSession): void {
     if (panel.isDisposed || !isChatPanel(panel)) {
       return;
     }
     const path = this._contents.localPath(panel.model.name);
-    if (this._live.has(path)) {
-      return;
+    const existing = this._live.get(path);
+    if (existing) {
+      if (
+        existing.panel === panel ||
+        isSessionWidget(existing.panel) ||
+        !isSessionWidget(panel)
+      ) {
+        return;
+      }
+      this._release(existing);
+      inherited = existing;
     }
     const model = panel.model;
     const update = () => this._update(live);
@@ -492,11 +577,10 @@ export class SessionManager implements ISessionService, IDisposable {
     const live: ILiveSession = {
       panel,
       path,
-      chatId: null,
-      entrypoint: this._resolveEntrypoint(path),
-      processing: new Set(),
-      state: 'idle',
-      initialized: false,
+      chatId: inherited?.chatId ?? null,
+      entrypoint: inherited?.entrypoint ?? this._resolveEntrypoint(path),
+      state: inherited?.state ?? 'idle',
+      initialized: inherited?.initialized ?? false,
       disconnect: () => {
         model.writersChanged?.disconnect(update);
         model.messagesUpdated.disconnect(update);
@@ -509,18 +593,36 @@ export class SessionManager implements ISessionService, IDisposable {
     model.messageChanged.connect(update);
     panel.disposed.connect(onDisposed);
     this._live.set(path, live);
+    if (live.chatId !== null) {
+      this._byChatId.set(live.chatId, live);
+    }
     model.ready
       .then(id => {
-        if (!this._isDisposed && this._live.get(live.path) === live) {
-          live.chatId = id;
-          this._byChatId.set(id, live);
+        if (this._isDisposed || this._live.get(live.path) !== live) {
+          return;
         }
+        if (
+          live.chatId !== null &&
+          live.chatId !== id &&
+          this._byChatId.get(live.chatId) === live
+        ) {
+          this._byChatId.delete(live.chatId);
+        }
+        live.chatId = id;
+        this._byChatId.set(id, live);
+        // Apply persona activity reported before the chat was ready.
+        this._update(live);
       })
       .catch(() => undefined);
-    this._update(live);
+    // A panel taking over keeps the state it inherited until its own model
+    // has loaded the chat: an empty model would read as a finished session.
+    if (!inherited) {
+      this._update(live);
+    }
   }
 
-  private _untrack(live: ILiveSession): void {
+  /** Stop following a panel, without announcing anything. */
+  private _release(live: ILiveSession): void {
     live.disconnect();
     if (this._live.get(live.path) === live) {
       this._live.delete(live.path);
@@ -531,15 +633,48 @@ export class SessionManager implements ISessionService, IDisposable {
     if (this._lastSession === live.panel) {
       this._lastSession = null;
     }
-    this._announce(live);
+  }
+
+  /**
+   * A followed panel closed. Another open panel of the same chat, e.g. the
+   * main-area document Jupyter Chat's "move to the main area" opens before
+   * closing the side panel, takes over its state; otherwise the listings fall
+   * back to the server's view.
+   */
+  private _untrack(live: ILiveSession): void {
+    this._release(live);
+    const successor = this._successor(live);
+    if (successor) {
+      this._track(successor, live);
+    } else {
+      this._announce(live);
+    }
+  }
+
+  /** Another open panel of the chat `live` followed, preferring the main area. */
+  private _successor(live: ILiveSession): IChatPanel | undefined {
+    const candidates: IChatPanel[] = [];
+    this._tracker?.forEach(panel => {
+      if (
+        panel !== live.panel &&
+        !panel.isDisposed &&
+        isChatPanel(panel) &&
+        this._contents.localPath(panel.model.name) === live.path
+      ) {
+        candidates.push(panel);
+      }
+    });
+    return candidates.find(panel => isSessionWidget(panel)) ?? candidates[0];
   }
 
   private _update(live: ILiveSession): void {
     const model = live.panel.model;
+    const personas =
+      live.chatId === null ? undefined : this._processing.get(live.chatId);
     const next = deriveSessionState({
       messages: model.messages,
       writers: model.writers,
-      processing: live.processing.size > 0
+      processing: !!personas?.size
     });
     if (live.initialized && next === live.state) {
       return;
@@ -629,21 +764,34 @@ export class SessionManager implements ISessionService, IDisposable {
       .catch(() => null);
   }
 
+  /**
+   * Record which personas report processing a message, per chat id, whether
+   * or not a panel of that chat is ready yet: the persona manager re-emits its
+   * state when a client connects to a chat, which can arrive before the
+   * chat's `ready` resolves.
+   */
   private _onEvent(_manager: Event.IManager, emission: Event.Emission): void {
     const event = readPersonaStateEvent(emission);
     if (!event || event.processing === undefined) {
       return;
     }
-    const live = this._byChatId.get(event.chatId);
-    if (!live) {
-      return;
-    }
+    let personas = this._processing.get(event.chatId);
     if (event.processing) {
-      live.processing.add(event.personaId);
-    } else {
-      live.processing.delete(event.personaId);
+      if (!personas) {
+        personas = new Set();
+        this._processing.set(event.chatId, personas);
+      }
+      personas.add(event.personaId);
+    } else if (personas) {
+      personas.delete(event.personaId);
+      if (!personas.size) {
+        this._processing.delete(event.chatId);
+      }
     }
-    this._update(live);
+    const live = this._byChatId.get(event.chatId);
+    if (live) {
+      this._update(live);
+    }
   }
 
   /**
@@ -669,6 +817,12 @@ export class SessionManager implements ISessionService, IDisposable {
     }
   }
 
+  /**
+   * Follow chat files through the Contents API: a renamed open chat keeps
+   * its live state under its new path, and every cached listing of a project
+   * whose folder holds the changed file (on the same drive) is marked stale
+   * and announced through `changed`.
+   */
   private _onFileChanged(
     _contents: Contents.IManager,
     change: Contents.IChangedArgs
@@ -722,6 +876,8 @@ export class SessionManager implements ISessionService, IDisposable {
   private readonly _fetches = new Map<string, Promise<ISessionListing>>();
   private readonly _live = new Map<string, ILiveSession>();
   private readonly _byChatId = new Map<string, ILiveSession>();
+  /** Personas reporting that they process a message, by chat id. */
+  private readonly _processing = new Map<string, Set<string>>();
   private _lastSession: IChatPanel | null = null;
   private _isDisposed = false;
 }

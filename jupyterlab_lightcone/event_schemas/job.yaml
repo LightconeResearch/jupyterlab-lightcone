@@ -21,7 +21,9 @@ properties:
     description: The job identifier, as the runs API reports it.
   project:
     type: string
-    description: The Jupyter Contents path of the project directory.
+    description: >-
+      The Jupyter Contents path of the project directory, as the browser named
+      it when it started the job.
   state:
     enum:
       - running
@@ -33,4 +35,6 @@ properties:
     type:
       - string
       - "null"
-    description: One line the engine printed, or null when the job starts or finishes.
+    description: >-
+      One line the engine printed, as a terminal would leave it visible and
+      cut to a bounded length, or null when the job starts or finishes.

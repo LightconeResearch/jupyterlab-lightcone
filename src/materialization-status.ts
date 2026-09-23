@@ -65,6 +65,25 @@ export function outputMaterializationStatus(
   return statuses?.[`${data.document.universe.universeId}/${output.id}`];
 }
 
+/**
+ * Ask the server for `lc status` of a project. Only local projects have one:
+ * the command runs in the project's folder on the server.
+ */
+export async function fetchMaterializationStatuses(
+  contents: Contents.IManager,
+  entrypoint: string
+): Promise<MaterializationStatuses> {
+  if (contents.driveName(entrypoint)) {
+    throw new Error('Materialization status requires local files.');
+  }
+  const query = new URLSearchParams({ path: entrypoint });
+  const payload = await requestAPI(
+    `api/materialization?${query}`,
+    contents.serverSettings
+  );
+  return parseMaterializationStatuses(payload);
+}
+
 /** Poll only while the inventory is mounted and visible; failures clear old checks. */
 export function useMaterializationStatus(
   contents: Contents.IManager,
@@ -95,15 +114,9 @@ export function useMaterializationStatus(
       standby: 'when-hidden',
       factory: async () => {
         try {
-          if (contents.driveName(entrypoint)) {
-            throw new Error('Materialization status requires local files.');
-          }
-          const query = new URLSearchParams({ path: entrypoint });
-          const payload = await requestAPI(
-            `api/materialization?${query}`,
-            contents.serverSettings
-          );
-          publish({ statuses: parseMaterializationStatuses(payload) });
+          publish({
+            statuses: await fetchMaterializationStatuses(contents, entrypoint)
+          });
         } catch (error) {
           publish({
             error: new RequestError('Materialization status', error).message

@@ -9,7 +9,7 @@ the event loop.
 """
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 import importlib.util
 import json
 import os
@@ -76,16 +76,28 @@ SPECIAL_ANNEX_REPOSITORIES = {
 
 ANNEX_TRUST_LEVELS = ("trusted repositories", "semitrusted repositories", "untrusted repositories")
 
+MISSING_TOOL = {"found": False, "path": None, "version": None}
+"""The row of a tool the server cannot find."""
+
+MARKETPLACE_FOLDER = "marketplaces"
+"""Where Claude Code clones plugin marketplaces: sources on offer, never installs."""
+
 _VERSION = re.compile(r"\d+(?:\.\d+)+")
 _REMOTE_NAME = re.compile(r"\[([^\]]+)\]\s*$")
 
 
 def run_command(argv: Sequence[str], cwd: Path | None = None, timeout: float = PROBE_TIMEOUT):
-    """Run a tool without a shell; None when it is missing, hangs or cannot start."""
+    """Run a tool without a shell; None when it is missing, hangs or cannot start.
+
+    The tool reads end of input rather than the server's terminal, so a
+    configured wrapper that asks a question (npx offering to install) cannot
+    wait on, or consume, what the user types there.
+    """
     try:
         return subprocess.run(
             list(argv),
             cwd=cwd,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             errors="replace",
@@ -106,7 +118,7 @@ def probe_tool(executable: str, *arguments: str) -> dict:
     """Locate one tool on the server's PATH and ask it for its version."""
     path = shutil.which(executable)
     if path is None:
-        return {"found": False, "path": None, "version": None}
+        return dict(MISSING_TOOL)
     completed = run_command([path, *arguments])
     version = None
     if completed is not None and completed.returncode == 0:
@@ -114,13 +126,18 @@ def probe_tool(executable: str, *arguments: str) -> dict:
     return {"found": True, "path": path, "version": version}
 
 
-def probe_tools(myst: str = "myst") -> dict:
-    """The command-line tools Lightcone relies on, as the server sees them."""
+def probe_tools(myst: Sequence[str] = ("myst",)) -> dict:
+    """The command-line tools Lightcone relies on, as the server sees them.
+
+    `myst` is the whole MyST command the viewer runs, executable and fixed
+    arguments, so a wrapper such as `npx mystmd` reports MyST's own version
+    and an empty command reports MyST as missing, as the viewer finds it.
+    """
     return {
         "uv": probe_tool("uv", "--version"),
         "git": probe_tool("git", "--version"),
         "git-annex": probe_tool("git-annex", "version", "--raw"),
-        "myst": probe_tool(myst, "--version"),
+        "myst": probe_tool(myst[0], *myst[1:], "--version") if myst and myst[0] else dict(MISSING_TOOL),
     }
 
 
@@ -160,9 +177,13 @@ def read_json(path: Path):
 
 
 def version_key(version: str) -> tuple:
-    """Order versions numerically where they are numeric, so 0.0.10 follows 0.0.9."""
+    """Order versions numerically where they are numeric, so 0.0.10 follows 0.0.9.
+
+    `isdecimal` accepts exactly the digits `int` parses; `isdigit` would also
+    accept superscripts such as "²", which `int` rejects.
+    """
     return tuple(
-        (0, int(part)) if part.isdigit() else (1, part)
+        (0, int(part)) if part.isdecimal() else (1, part)
         for part in re.split(r"[.\-+_]", version)
     )
 
@@ -177,8 +198,13 @@ def subdirectories(directory: Path) -> list[Path]:
     return sorted(children, key=lambda child: child.name)
 
 
-def named_directories(root: Path, name: str, depth: int = SKILL_DEPTH) -> list[Path]:
-    """Directories at most `depth` levels below `root` whose names start with `name`."""
+def named_directories(
+    root: Path, name: str, depth: int = SKILL_DEPTH, skip: Collection[str] = ()
+) -> list[Path]:
+    """Directories at most `depth` levels below `root` whose names start with `name`.
+
+    Children of `root` named in `skip` are neither matched nor searched.
+    """
     matches = []
     pending = [(root, 0)]
     visited = 0
@@ -186,6 +212,8 @@ def named_directories(root: Path, name: str, depth: int = SKILL_DEPTH) -> list[P
         directory, level = pending.pop()
         visited += 1
         for child in subdirectories(directory):
+            if level == 0 and child.name in skip:
+                continue
             if child.name.lower().startswith(name):
                 matches.append(child)
             if level + 1 < depth:
@@ -214,13 +242,15 @@ def plugin_directories(harness: str, candidate: Path) -> list[Path]:
     return [child for child in subdirectories(candidate) if plugin_manifest(harness, child) is not None]
 
 
-def installed_plugin(harness: str, root: Path, name: str) -> tuple[Path, str | None] | None:
-    """The plugin the harness's own install record names, when it keeps one.
+def install_entries(harness: str, root: Path, name: str) -> list | None:
+    """What the harness's own install record lists for a plugin, when it keeps one.
 
-    Claude Code records installed plugins in `installed_plugins.json`; its
-    cache may hold other versions beside the installed one, so the record is
-    consulted first. Codex keeps only an enabled flag in its config, so its
-    skills are located by walking the cache.
+    Claude Code records installed plugins in `installed_plugins.json`, keyed
+    `<plugin>@<marketplace>`, each holding a list of installs (a single
+    install in older records). Its cache keeps versions that are not, or no
+    longer, installed, so a readable record is authoritative: an empty list
+    means the plugin is not installed. None means there is no readable
+    record, as for Codex, which keeps only an enabled flag in its config.
     """
     if harness != "claude":
         return None
@@ -228,18 +258,24 @@ def installed_plugin(harness: str, root: Path, name: str) -> tuple[Path, str | N
     plugins = record.get("plugins") if isinstance(record, dict) else None
     if not isinstance(plugins, dict):
         return None
-    for key, entries in plugins.items():
-        if key.split("@", 1)[0].lower() != name or not isinstance(entries, list):
+    entries = []
+    for key, installs in plugins.items():
+        if key.split("@", 1)[0].lower() == name:
+            entries.extend(installs if isinstance(installs, list) else [installs])
+    return entries
+
+
+def recorded_plugin(harness: str, entries: list) -> tuple[Path, str | None] | None:
+    """The first recorded install whose directory still exists, with its version."""
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("installPath"), str):
             continue
-        for entry in entries:
-            if not isinstance(entry, dict) or not isinstance(entry.get("installPath"), str):
-                continue
-            path = Path(entry["installPath"])
-            if not path.is_dir():
-                continue
-            recorded = entry.get("version")
-            version = manifest_version(plugin_manifest(harness, path))
-            return path, version or (recorded if isinstance(recorded, str) and recorded else None)
+        path = Path(entry["installPath"])
+        if not path.is_dir():
+            continue
+        recorded = entry.get("version")
+        version = manifest_version(plugin_manifest(harness, path))
+        return path, version or (recorded if isinstance(recorded, str) and recorded else None)
     return None
 
 
@@ -249,10 +285,11 @@ def best_plugin(harness: str, root: Path, name: str) -> tuple[Path, str | None] 
     A directory counts only when a plugin manifest is found in it or in one of
     its version folders, so a marketplace folder that happens to share the
     skill's name prefix is passed over; a manifest naming another plugin is
-    passed over too.
+    passed over too. Marketplace clones hold every plugin on offer, installed
+    or not, so they are not searched.
     """
     best = None
-    for candidate in named_directories(root, name):
+    for candidate in named_directories(root, name, skip=(MARKETPLACE_FOLDER,)):
         for directory in plugin_directories(harness, candidate):
             manifest = plugin_manifest(harness, directory)
             declared = manifest.get("name")
@@ -266,19 +303,41 @@ def best_plugin(harness: str, root: Path, name: str) -> tuple[Path, str | None] 
 
 
 def locate_skill(harness: str, root: Path, name: str) -> dict:
-    """One row per harness and skill: where it is, or where it was looked for."""
-    found = installed_plugin(harness, root, name) or best_plugin(harness, root, name)
+    """One row per harness and skill: where it is, or where it was looked for.
+
+    A plugin the install record lists is looked for where the record says,
+    then in the cache when that directory is gone; one the record leaves out
+    is not installed. Without a record the cache decides.
+    """
+    entries = install_entries(harness, root, name)
+    if entries is None:
+        found = best_plugin(harness, root, name)
+    elif entries:
+        found = recorded_plugin(harness, entries) or best_plugin(harness, root, name)
+    else:
+        found = None
     if found is None:
-        return {"harness": harness, "name": name, "version": None, "path": str(root), "found": False}
+        return missing_skill(harness, name, str(root))
     path, version = found
     return {"harness": harness, "name": name, "version": version, "path": str(path), "found": True}
 
 
+def missing_skill(harness: str, name: str, searched: str) -> dict:
+    """The row of a skill that is not installed, naming where it was looked for."""
+    return {"harness": harness, "name": name, "version": None, "path": searched, "found": False}
+
+
 def find_skills(home: Path | None) -> list[dict]:
-    """Lightcone and ASTRA skills per agent harness, found or not."""
-    base = home if home is not None else Path("~")
+    """Lightcone and ASTRA skills per agent harness, found or not.
+
+    Without a home there is nowhere to look, so every skill is reported
+    missing under its conventional `~/.<harness>/plugins` folder and the
+    filesystem is not touched.
+    """
     return [
-        locate_skill(harness, base / f".{harness}" / "plugins", name)
+        locate_skill(harness, home / f".{harness}" / "plugins", name)
+        if home is not None
+        else missing_skill(harness, name, f"~/.{harness}/plugins")
         for harness in SKILL_HARNESSES
         for name in SKILL_NAMES
     ]
@@ -332,8 +391,25 @@ def remote_name(description: str) -> str:
     return match.group(1) if match else description
 
 
+def annex_initialized(project: Path) -> bool:
+    """Whether the project's repository has an annex, asked the way the engine asks.
+
+    `annex.uuid` is what `git annex init` writes. It is read before any
+    git-annex command runs because git-annex initializes a clone of an annexed
+    repository on first use, writing its config, hooks and `.git/annex`.
+    """
+    completed = run_command(["git", "config", "--get", "annex.uuid"], cwd=project, timeout=ANNEX_TIMEOUT)
+    return completed is not None and completed.returncode == 0 and bool(completed.stdout.strip())
+
+
 def describe_storage(project: Path) -> dict:
-    """git-annex's view of the project: whether it is an annex and which remotes it knows."""
+    """git-annex's view of the project: whether it is an annex and which remotes it knows.
+
+    A repository nobody has annexed here is reported as such without asking
+    git-annex, so reading the report never initializes an annex.
+    """
+    if not annex_initialized(project):
+        return {"annex": False, "remotes": []}
     completed = run_command(["git", "annex", "info", "--fast", "--json"], cwd=project, timeout=ANNEX_TIMEOUT)
     if completed is None or completed.returncode != 0:
         return {"annex": False, "remotes": []}
@@ -368,7 +444,12 @@ def describe_project_setup(project: Path, entrypoint: str) -> dict:
     }
 
 
-async def build_report(project: Path | None, entrypoint: str = "", myst: str = "myst") -> dict:
+def find_home_skills() -> list[dict]:
+    """The skills installed in the server user's home."""
+    return find_skills(home_directory())
+
+
+async def build_report(project: Path | None, entrypoint: str = "", myst: Sequence[str] = ("myst",)) -> dict:
     """Gather every probe off the event loop, concurrently.
 
     Without a project the three project sections are null, so the Customize
@@ -376,17 +457,18 @@ async def build_report(project: Path | None, entrypoint: str = "", myst: str = "
     """
     expose_engine_tools()
     probes = [
+        asyncio.to_thread(module_installed, JUPYTER_AI_MODULE),
         asyncio.to_thread(probe_tools, myst),
         asyncio.to_thread(probe_agents),
-        asyncio.to_thread(find_skills, home_directory()),
+        asyncio.to_thread(find_home_skills),
         asyncio.to_thread(detect_sandbox),
     ]
     if project is not None:
         probes.append(asyncio.to_thread(describe_project_setup, project, entrypoint))
-    tools, agents, skills, sandbox, *project_setup = await asyncio.gather(*probes)
+    jupyter_ai, tools, agents, skills, sandbox, *project_setup = await asyncio.gather(*probes)
     setup = project_setup[0] if project_setup else {"environment": None, "instructions": None, "storage": None}
     return {
-        "jupyterAi": module_installed(JUPYTER_AI_MODULE),
+        "jupyterAi": jupyter_ai,
         "agents": agents,
         "skills": skills,
         "tools": tools,
@@ -401,7 +483,8 @@ class SetupHandler(ProjectAPIHandler):
     unavailable_message = "Setup diagnostics require local files"
 
     def initialize(self, myst_command: Sequence[str] = ("myst",)):
-        self.myst = myst_command[0] if myst_command else "myst"
+        """Keep the whole MyST command the viewer runs, fixed arguments included."""
+        self.myst = list(myst_command)
 
     @web.authenticated
     @authorized
@@ -417,7 +500,7 @@ def setup_setup_handlers(web_app, myst_command: Sequence[str] = ("myst",)):
     """Register `api/setup` under the server base URL, including JupyterHub prefixes.
 
     `myst_command` is the app's `mystra_command` traitlet, so the MyST row
-    reports the executable the viewer would actually run.
+    reports the command the viewer would actually run.
     """
     route = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "setup")
     web_app.add_handlers(".*$", [(route, SetupHandler, {"myst_command": list(myst_command)})])

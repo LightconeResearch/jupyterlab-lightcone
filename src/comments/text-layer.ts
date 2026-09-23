@@ -2,8 +2,21 @@ import type { IDisposable } from '@lumino/disposable';
 import type { IComment } from './comments-api';
 import { labelGlyph } from './comment-model';
 import { flashElement } from './editor-comments';
-import { findQuote, type ITextSpan } from './text-anchor';
-import { COMMENT_HOST_CLASS, COMMENT_LAYER_CLASS } from './image-layer';
+import {
+  findQuoteIn,
+  normalizeForSearch,
+  SEARCH_LIMIT,
+  type INormalizedText,
+  type ITextSpan
+} from './text-anchor';
+import {
+  anchorLayer,
+  COMMENT_HOST_CLASS,
+  COMMENT_LAYER_CLASS,
+  inCommentLayer,
+  setAttribute,
+  setText
+} from './image-layer';
 
 const BADGE_CLASS = 'jp-jupyterlab-lightcone-CommentBadge';
 const HIGHLIGHT_CLASS = 'jp-jupyterlab-lightcone-CommentHighlight';
@@ -21,9 +34,35 @@ export interface ITextLayerOptions {
   ): void;
 }
 
-interface ITextIndex {
+/** The text of an element, and where each of its text nodes starts in it. */
+export interface ITextIndex {
   text: string;
   nodes: { node: Text; start: number }[];
+}
+
+/** The nodes drawn for one comment: its badge and one box per line. */
+interface IBadgeNodes {
+  badge: HTMLElement;
+  highlights: HTMLElement[];
+}
+
+/**
+ * Where a quote occurs in an indexed text, normalizing the text at most once
+ * however many quotes are looked up in it. Texts beyond the search limit are
+ * not searched, as in the editor.
+ */
+class QuoteSearch {
+  constructor(readonly index: ITextIndex) {}
+
+  find(quote: string, prefix: string | null): ITextSpan | null {
+    if (this.index.text.length > SEARCH_LIMIT) {
+      return null;
+    }
+    this._normalized ??= normalizeForSearch(this.index.text);
+    return findQuoteIn(this._normalized, quote, prefix);
+  }
+
+  private _normalized: INormalizedText | null = null;
 }
 
 /** The text of an element as the browser lays it out, with node offsets. */
@@ -47,7 +86,12 @@ export function indexText(
   return { text, nodes };
 }
 
-/** A DOM range over raw offsets of an indexed text. */
+/**
+ * A DOM range over raw offsets of an indexed text. The start lands in the
+ * text node holding its first character; the end in the node holding the
+ * last character, so a span ending exactly where a node ends stays in that
+ * node rather than collapsing onto the start of the next one.
+ */
 export function rangeForSpan(index: ITextIndex, span: ITextSpan): Range | null {
   const locate = (offset: number, end: boolean) => {
     let low = 0;
@@ -95,7 +139,7 @@ export class TextCommentLayer implements IDisposable {
     this._resizes = new ResizeObserver(this.reposition);
     this._resizes.observe(host);
     this._mutations = new MutationObserver(records => {
-      if (records.some(record => !this._layer.contains(record.target))) {
+      if (records.some(record => !inCommentLayer(record.target))) {
         this.schedule();
       }
     });
@@ -169,29 +213,35 @@ export class TextCommentLayer implements IDisposable {
     if (!root || !this._comments.length) {
       return;
     }
+    // Pins and badges are drawn over the content, not part of it.
     const skip = (node: Node) =>
-      this._layer.contains(node) ||
+      inCommentLayer(node) ||
       !!node.parentElement?.closest('.cm-editor, script, style');
-    const whole = indexText(root, skip);
-    const pages = new Map<number, ITextIndex>();
+    // The whole text is indexed only when a comment is not tied to a page
+    // found on screen: a paper's page comments search their page alone.
+    let whole: QuoteSearch | null = null;
+    const pages = new Map<number, QuoteSearch>();
     for (const comment of this._comments) {
       const { anchor } = comment;
-      let index = whole;
+      let search: QuoteSearch | undefined;
       if (anchor.type === 'pdf' && anchor.page !== null) {
-        const page = root.querySelector<HTMLElement>(
-          `[data-page="${anchor.page}"], [data-page-number="${anchor.page}"]`
-        );
-        if (page) {
-          let cached = pages.get(anchor.page);
-          if (!cached) {
-            cached = indexText(page, skip);
-            pages.set(anchor.page, cached);
+        search = pages.get(anchor.page);
+        if (!search) {
+          const page = root.querySelector<HTMLElement>(
+            `[data-page="${anchor.page}"], [data-page-number="${anchor.page}"]`
+          );
+          if (page) {
+            search = new QuoteSearch(indexText(page, skip));
+            pages.set(anchor.page, search);
           }
-          index = cached;
         }
       }
-      const span = findQuote(index.text, anchor.quote ?? '', anchor.prefix);
-      const range = span ? rangeForSpan(index, span) : null;
+      if (!search) {
+        whole ??= new QuoteSearch(indexText(root, skip));
+        search = whole;
+      }
+      const span = search.find(anchor.quote ?? '', anchor.prefix);
+      const range = span ? rangeForSpan(search.index, span) : null;
       if (range) {
         this._ranges.set(comment.id, range);
       }
@@ -199,12 +249,7 @@ export class TextCommentLayer implements IDisposable {
   }
 
   private render(): void {
-    // React clears the host's children on its first render, taking the layer
-    // with it; put it back beside the rendered content.
-    if (!this._layer.isConnected) {
-      this.options.host.appendChild(this._layer);
-    }
-    const hostRect = this.options.host.getBoundingClientRect();
+    const origin = anchorLayer(this.options.host, this._layer);
     const live = new Set<string>();
     for (const comment of this._comments) {
       const range = this._ranges.get(comment.id);
@@ -218,47 +263,32 @@ export class TextCommentLayer implements IDisposable {
         continue;
       }
       live.add(comment.id);
-      let entry = this._nodes.get(comment.id);
-      if (!entry) {
-        const badge = document.createElement('button');
-        badge.type = 'button';
-        badge.className = BADGE_CLASS;
-        badge.dataset.commentId = comment.id;
-        badge.addEventListener('click', event => {
-          event.preventDefault();
-          event.stopPropagation();
-          const current = this._comments.find(item => item.id === comment.id);
-          if (current) {
-            this.options.onBadgeClick(current, badge, event);
-          }
-        });
-        this._layer.appendChild(badge);
-        entry = { badge, highlights: [] };
-        this._nodes.set(comment.id, entry);
-      }
-      entry.badge.textContent = labelGlyph(comment.label);
-      entry.badge.title = comment.text;
-      entry.badge.setAttribute(
+      const { badge, highlights } =
+        this._nodes.get(comment.id) ?? this.createEntry(comment.id);
+      setText(badge, labelGlyph(comment.label));
+      setAttribute(badge, 'title', comment.text);
+      setAttribute(
+        badge,
         'aria-label',
         `Comment ${comment.label}: ${comment.text}`
       );
       const first = rects[0];
-      entry.badge.style.left = `${first.left - hostRect.left}px`;
-      entry.badge.style.top = `${first.top - hostRect.top}px`;
-      entry.badge.style.height = `${first.height}px`;
-      while (entry.highlights.length > rects.length) {
-        entry.highlights.pop()?.remove();
+      badge.style.left = `${first.left - origin.left}px`;
+      badge.style.top = `${first.top - origin.top}px`;
+      badge.style.height = `${first.height}px`;
+      while (highlights.length > rects.length) {
+        highlights.pop()?.remove();
       }
       rects.forEach((rect, position) => {
-        let box = entry!.highlights[position];
+        let box = highlights[position];
         if (!box) {
           box = document.createElement('div');
           box.className = HIGHLIGHT_CLASS;
-          this._layer.insertBefore(box, entry!.badge);
-          entry!.highlights.push(box);
+          this._layer.insertBefore(box, badge);
+          highlights.push(box);
         }
-        box.style.left = `${rect.left - hostRect.left}px`;
-        box.style.top = `${rect.top - hostRect.top}px`;
+        box.style.left = `${rect.left - origin.left}px`;
+        box.style.top = `${rect.top - origin.top}px`;
         box.style.width = `${rect.width}px`;
         box.style.height = `${rect.height}px`;
       });
@@ -267,7 +297,7 @@ export class TextCommentLayer implements IDisposable {
         range.startContainer.parentElement?.scrollIntoView({
           block: 'center'
         });
-        flashElement(entry.badge);
+        flashElement(badge);
         this.reposition();
       }
     }
@@ -282,15 +312,32 @@ export class TextCommentLayer implements IDisposable {
     }
   }
 
+  /** A comment's badge, which opens it, and its (still empty) highlights. */
+  private createEntry(id: string): IBadgeNodes {
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = BADGE_CLASS;
+    badge.dataset.commentId = id;
+    badge.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const current = this._comments.find(item => item.id === id);
+      if (current) {
+        this.options.onBadgeClick(current, badge, event);
+      }
+    });
+    this._layer.appendChild(badge);
+    const entry: IBadgeNodes = { badge, highlights: [] };
+    this._nodes.set(id, entry);
+    return entry;
+  }
+
   private _layer: HTMLElement;
   private _resizes: ResizeObserver;
   private _mutations: MutationObserver;
   private _comments: readonly IComment[] = [];
   private _ranges = new Map<string, Range>();
-  private _nodes = new Map<
-    string,
-    { badge: HTMLElement; highlights: HTMLElement[] }
-  >();
+  private _nodes = new Map<string, IBadgeNodes>();
   private _flash: string | null = null;
   private _frame: number | null = null;
   private _dirty = true;

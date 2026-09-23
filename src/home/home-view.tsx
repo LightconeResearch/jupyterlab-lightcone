@@ -1,6 +1,5 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import { analysisTitle, collectInventoryPapers } from '@astra-spec/ui/model';
-import type { JupyterFrontEnd } from '@jupyterlab/application';
 import {
   ReactWidget,
   showErrorMessage,
@@ -14,8 +13,9 @@ import {
   type TranslationBundle
 } from '@jupyterlab/translation';
 import type { CommandRegistry } from '@lumino/commands';
+import type { Message } from '@lumino/messaging';
 import { Poll } from '@lumino/polling';
-import type { Widget } from '@lumino/widgets';
+import { Signal, type ISignal } from '@lumino/signaling';
 import React, {
   createContext,
   useCallback,
@@ -39,10 +39,11 @@ import {
   acquireProjectDataService,
   type IProjectDataState
 } from '../project-data-service';
-import { findModel, type IProjectRoot } from '../project-root';
+import type { IProjectRoot } from '../project-root';
 import { listRuns } from '../runs/runs-api';
 import type { ISessionService } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
+import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { lightconeIcon } from './icons';
 import {
@@ -54,38 +55,35 @@ import {
   sessionSubtitle,
   summarizeFreshness
 } from './home-model';
-import type { IPersonaOption, PersonaDirectory } from './personas';
+import {
+  knownPersona,
+  type IPersonaOption,
+  type PersonaDirectory
+} from './personas';
 
 const CLASS = 'jp-jupyterlab-lightcone-Home';
-const SESSION_POLL_INTERVAL = 15000;
+/** How often Home re-reads the sessions and the report's presence while visible. */
+const REFRESH_INTERVAL = 15000;
 const DRAFT_SAVE_DELAY = 300;
 const REPORT_FILES = ['myst.yml', 'myst.yaml'];
+/**
+ * Jupyter Chat's command creating a chat. Sessions are chats, so without it
+ * no session can start or open and Home leaves out its desk.
+ */
+export const CREATE_CHAT_COMMAND = 'jupyterlab-chat:create';
 
 const TransContext = createContext<TranslationBundle>(
   nullTranslator.load('jupyterlab_lightcone')
 );
 
-/** The Lightcone sidebar (area I), when it is installed. */
-export function findLightconeSidebar(
-  shell: JupyterFrontEnd.IShell
-): Widget | undefined {
-  for (const widget of shell.widgets('left')) {
-    if (
-      widget.id === 'lightcone-sidebar' ||
-      widget.title.caption === 'Lightcone'
-    ) {
-      return widget;
-    }
-  }
-  return undefined;
-}
-
 export interface IHomeViewOptions {
   contents: Contents.IManager;
   commands: CommandRegistry;
-  shell: JupyterFrontEnd.IShell;
   themes: IThemeManager;
-  /** Sessions and the composer are omitted without the sessions service. */
+  /**
+   * The desk (composer and sessions) needs the sessions service and Jupyter
+   * Chat's `jupyterlab-chat:create` command; Home omits it otherwise.
+   */
   sessions: ISessionService | null;
   personas: PersonaDirectory | null;
   /** Keeps an unsent composer draft across reloads. */
@@ -139,6 +137,7 @@ export class HomeView extends ReactWidget {
           key={this._project.entrypoint}
           project={this._project}
           isVisible={this._isVisible}
+          shown={this._shown}
           options={this._options}
         />
       </TransContext.Provider>
@@ -153,29 +152,69 @@ export class HomeView extends ReactWidget {
     super.dispose();
   }
 
+  /**
+   * Tell the page it is on screen again. Its polls stand by while the tab is
+   * hidden, so what changed meanwhile is read now rather than a poll later.
+   */
+  protected onAfterShow(msg: Message): void {
+    super.onAfterShow(msg);
+    this._shown.emit();
+  }
+
   private _options: IHomeViewOptions;
   private _project: IProjectRoot | null = null;
   private _theme: LightconeThemeBinding;
   private _trans: TranslationBundle;
   private _isVisible: () => boolean;
+  private _shown = new Signal<this, void>(this);
 }
 
 interface IHomeRootProps {
   project: IProjectRoot;
   isVisible: () => boolean;
+  /** Emitted each time the page becomes visible. */
+  shown: ISignal<HomeView, void>;
   options: IHomeViewOptions;
+}
+
+/** Whether a command is registered, following commands added or removed later. */
+function useHasCommand(commands: CommandRegistry, id: string): boolean {
+  const [registered, setRegistered] = useState(() => commands.hasCommand(id));
+  useEffect(() => {
+    const update = (
+      _sender: CommandRegistry,
+      change: CommandRegistry.ICommandChangedArgs
+    ) => {
+      if (change.type !== 'changed') {
+        setRegistered(commands.hasCommand(id));
+      }
+    };
+    setRegistered(commands.hasCommand(id));
+    commands.commandChanged.connect(update);
+    return () => {
+      commands.commandChanged.disconnect(update);
+    };
+  }, [commands, id]);
+  return registered;
 }
 
 function HomeRoot({
   project,
   isVisible,
+  shown,
   options
 }: IHomeRootProps): React.ReactElement {
   const trans = useContext(TransContext);
-  const { contents, commands, shell, sessions } = options;
+  const { contents, commands, sessions } = options;
   const state = useProjectData(contents, project.entrypoint);
   const data = state.data;
-  const reportAvailable = useReportAvailable(contents, project.path);
+  const reportAvailable = useReportAvailable(
+    contents,
+    project.path,
+    isVisible,
+    shown
+  );
+  const chatAvailable = useHasCommand(commands, CREATE_CHAT_COMMAND);
   const openInventory = useCallback(() => {
     void commands
       .execute(CommandIDs.openInventory, { path: project.entrypoint })
@@ -263,14 +302,15 @@ function HomeRoot({
             <AnalysisSection data={data} onOpenInventory={openInventory} />
           ) : null}
         </section>
-        {sessions ? (
+        {sessions && chatAvailable ? (
           <Desk
             sessions={sessions}
             personas={options.personas}
             state={options.state}
-            shell={shell}
+            commands={commands}
             entrypoint={project.entrypoint}
             isVisible={isVisible}
+            shown={shown}
           />
         ) : null}
       </div>
@@ -310,10 +350,34 @@ function useProjectData(
   return state;
 }
 
-/** Whether the project has a MyST configuration, rechecked when it changes. */
+/** Whether a folder listing holds a MyST configuration file. */
+function listsReport(folder: Contents.IModel): boolean {
+  const children: unknown = folder.content;
+  return (
+    Array.isArray(children) &&
+    children.some(
+      child =>
+        isRecord(child) &&
+        child.type === 'file' &&
+        typeof child.name === 'string' &&
+        REPORT_FILES.includes(child.name)
+    )
+  );
+}
+
+/**
+ * Whether the project has a MyST configuration. Agents, `lc` and Git write it
+ * without going through the Contents manager, so besides Contents events the
+ * check runs whenever the page is shown and on a slow poll while it is
+ * visible. Each run lists the project folder once: asking for each candidate
+ * file would answer 404 on every tick in the many projects without a report,
+ * and the server logs every 404 as a warning.
+ */
 function useReportAvailable(
   contents: Contents.IManager,
-  projectPath: string
+  projectPath: string,
+  isVisible: () => boolean,
+  shown: ISignal<HomeView, void>
 ): boolean {
   const [available, setAvailable] = useState(false);
   useEffect(() => {
@@ -321,22 +385,25 @@ function useReportAvailable(
     const candidates = REPORT_FILES.map(name =>
       contents.resolvePath(projectPath, name)
     );
-    const check = async () => {
-      try {
-        const models = await Promise.all(
-          candidates.map(path => findModel(contents, path))
-        );
-        if (active) {
-          setAvailable(models.some(model => model?.type === 'file'));
-        }
-      } catch (error) {
-        if (active) {
-          console.warn('Could not check for a MyST report.', error);
-          setAvailable(false);
+    const poll = new Poll({
+      name: `jupyterlab_lightcone:home:report:${projectPath}`,
+      frequency: { interval: REFRESH_INTERVAL, backoff: false },
+      standby: () => !isVisible(),
+      factory: async () => {
+        try {
+          const folder = await contents.get(projectPath, { content: true });
+          if (active) {
+            setAvailable(listsReport(folder));
+          }
+        } catch (error) {
+          if (active) {
+            console.warn('Could not check for a MyST report.', error);
+            setAvailable(false);
+          }
         }
       }
-    };
-    void check();
+    });
+    const refresh = () => void poll.refresh();
     const changed = (
       _sender: Contents.IManager,
       change: Contents.IChangedArgs
@@ -345,15 +412,18 @@ function useReportAvailable(
         path => path !== undefined && candidates.includes(path)
       );
       if (touched) {
-        void check();
+        refresh();
       }
     };
     contents.fileChanged.connect(changed);
+    shown.connect(refresh);
     return () => {
       active = false;
       contents.fileChanged.disconnect(changed);
+      shown.disconnect(refresh);
+      poll.dispose();
     };
-  }, [contents, projectPath]);
+  }, [contents, projectPath, isVisible, shown]);
   return available;
 }
 
@@ -587,18 +657,20 @@ interface IDeskProps {
   sessions: ISessionService;
   personas: PersonaDirectory | null;
   state: IStateDB | null;
-  shell: JupyterFrontEnd.IShell;
+  commands: CommandRegistry;
   entrypoint: string;
   isVisible: () => boolean;
+  shown: ISignal<HomeView, void>;
 }
 
 function Desk({
   sessions,
   personas,
   state,
-  shell,
+  commands,
   entrypoint,
-  isVisible
+  isVisible,
+  shown
 }: IDeskProps): React.ReactElement {
   const trans = useContext(TransContext);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -613,9 +685,10 @@ function Desk({
       />
       <SessionsList
         sessions={sessions}
-        shell={shell}
+        commands={commands}
         entrypoint={entrypoint}
         isVisible={isVisible}
+        shown={shown}
         refreshKey={refreshKey}
       />
     </aside>
@@ -732,6 +805,9 @@ function Composer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const message = draft.text.trim();
+  // A restored choice counts only while the directory advertises it, so the
+  // picker and the message address the same agent.
+  const persona = knownPersona(options, draft.persona);
   const start = async () => {
     if (!message || busy) {
       return;
@@ -741,7 +817,7 @@ function Composer({
     try {
       await sessions.createAndOpen(entrypoint, {
         firstMessage: message,
-        ...(draft.persona ? { persona: draft.persona } : {})
+        ...(persona ? { persona } : {})
       });
       setDraft({ text: '', persona: draft.persona });
       onStarted();
@@ -782,7 +858,7 @@ function Composer({
           <select
             className={`${CLASS}-agent`}
             aria-label={trans.__('Agent')}
-            value={draft.persona}
+            value={persona}
             disabled={busy}
             onChange={event =>
               setDraft({ ...draft, persona: event.target.value })
@@ -820,11 +896,17 @@ interface ISessionListState {
   error?: string;
 }
 
-/** Poll the project's sessions while Home is visible and on service changes. */
+/**
+ * Poll the project's sessions while Home is visible, on service changes and
+ * whenever Home is shown again: changes that arrive while the tab is hidden
+ * (a session started from Home itself opens over it) find the poll standing
+ * by, so showing the page is what brings the list up to date.
+ */
 function useSessions(
   service: ISessionService,
   entrypoint: string,
   isVisible: () => boolean,
+  shown: ISignal<HomeView, void>,
   refreshKey: number
 ): ISessionListState {
   const [result, setResult] = useState<ISessionListState>({ sessions: [] });
@@ -834,7 +916,7 @@ function useSessions(
     let active = true;
     const poll = new Poll({
       name: `jupyterlab_lightcone:home:sessions:${entrypoint}`,
-      frequency: { interval: SESSION_POLL_INTERVAL, backoff: false },
+      frequency: { interval: REFRESH_INTERVAL, backoff: false },
       standby: () => !isVisible(),
       factory: async () => {
         try {
@@ -858,37 +940,60 @@ function useSessions(
         void poll.refresh();
       }
     };
+    const refresh = () => void poll.refresh();
     service.changed.connect(changed);
+    shown.connect(refresh);
     return () => {
       active = false;
       service.changed.disconnect(changed);
+      shown.disconnect(refresh);
       poll.dispose();
     };
-  }, [service, entrypoint, isVisible, refreshKey]);
+  }, [service, entrypoint, isVisible, shown, refreshKey]);
   return result;
 }
 
 interface ISessionsListProps {
   sessions: ISessionService;
-  shell: JupyterFrontEnd.IShell;
+  commands: CommandRegistry;
   entrypoint: string;
   isVisible: () => boolean;
+  shown: ISignal<HomeView, void>;
   refreshKey: number;
 }
 
 function SessionsList({
   sessions,
-  shell,
+  commands,
   entrypoint,
   isVisible,
+  shown,
   refreshKey
 }: ISessionsListProps): React.ReactElement | null {
   const trans = useContext(TransContext);
-  const listing = useSessions(sessions, entrypoint, isVisible, refreshKey);
+  const listing = useSessions(
+    sessions,
+    entrypoint,
+    isVisible,
+    shown,
+    refreshKey
+  );
+  // The sidebar lists every session; its command is how Home reaches it.
+  const sidebarAvailable = useHasCommand(
+    commands,
+    SidebarCommandIDs.showSidebar
+  );
   if (!listing.sessions.length) {
     return null;
   }
-  const sidebar = findLightconeSidebar(shell);
+  const showSidebar = () => {
+    void commands.execute(SidebarCommandIDs.showSidebar).catch(reason => {
+      void showErrorMessage(
+        trans.__('Could not show the Lightcone sidebar'),
+        reason instanceof Error ? reason : String(reason)
+      );
+    });
+  };
   const open = (path: string) => {
     void sessions.openSession(path).catch(reason => {
       void showErrorMessage(
@@ -906,11 +1011,11 @@ function SessionsList({
             {trans.__('List may be out of date')}
           </span>
         ) : null}
-        {sidebar ? (
+        {sidebarAvailable ? (
           <button
             type="button"
             className={`${CLASS}-link`}
-            onClick={() => shell.activateById(sidebar.id)}
+            onClick={showSidebar}
           >
             {trans.__('All %1 →', listing.sessions.length)}
           </button>

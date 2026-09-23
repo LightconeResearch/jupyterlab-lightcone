@@ -2,11 +2,42 @@ import { Text } from '@codemirror/state';
 import { emptyAnchor } from '../comment-model';
 import {
   findQuote,
+  findQuoteIn,
   locateAnchor,
   normalizeForSearch,
-  stringDocument,
-  textAnchorFromRange
+  textAnchorFromRange,
+  type ITextDocument
 } from '../text-anchor';
+
+/** A document over a plain string, to check anchors without CodeMirror. */
+function stringDocument(text: string): ITextDocument {
+  const starts = [0];
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === '\n') {
+      starts.push(index + 1);
+    }
+  }
+  return {
+    length: text.length,
+    lineAt(pos) {
+      const clamped = Math.max(0, Math.min(text.length, pos));
+      let low = 0;
+      let high = starts.length - 1;
+      while (low < high) {
+        const middle = (low + high + 1) >> 1;
+        if (starts[middle] <= clamped) {
+          low = middle;
+        } else {
+          high = middle - 1;
+        }
+      }
+      return { number: low + 1, from: starts[low] };
+    },
+    sliceString(from, to) {
+      return text.slice(Math.max(0, from), Math.min(text.length, to));
+    }
+  };
+}
 
 const source = [
   '# Title',
@@ -108,6 +139,19 @@ describe('quote search', () => {
   it('gives up on missing or empty quotes', () => {
     expect(findQuote('some text', 'absent', null)).toBeNull();
     expect(findQuote('some text', '   ', null)).toBeNull();
+  });
+
+  it('searches one normalized text for several quotes', () => {
+    const raw = 'alpha  value\nbeta value';
+    const normalized = normalizeForSearch(raw);
+    expect(findQuoteIn(normalized, 'alpha value', null)).toEqual({
+      from: 0,
+      to: raw.indexOf('value') + 'value'.length
+    });
+    expect(findQuoteIn(normalized, 'value', 'beta ')).toEqual({
+      from: raw.lastIndexOf('value'),
+      to: raw.length
+    });
   });
 });
 

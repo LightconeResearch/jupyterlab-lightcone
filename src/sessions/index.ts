@@ -34,6 +34,7 @@ export {
 export {
   SessionManager,
   isChatPanel,
+  isComposerStamp,
   isRecordTab,
   isSessionWidget,
   personaMetadata,
@@ -92,25 +93,48 @@ function optionalString(
   return typeof value === 'string' ? value : undefined;
 }
 
-/** Provide `ISessionService` and the commands Home, the sidebar and search call. */
+/** Read `new-session` arguments; a value of the wrong type counts as absent. */
+export function readNewSessionArgs(
+  args: ReadonlyPartialJSONObject
+): SessionsCommandArguments.INewSession {
+  return {
+    entrypoint: optionalString(args, 'entrypoint'),
+    cwd: optionalString(args, 'cwd'),
+    title: optionalString(args, 'title'),
+    firstMessage: optionalString(args, 'firstMessage'),
+    persona: optionalString(args, 'persona')
+  };
+}
+
+/** Read `open-session` arguments, or null without a usable chat path. */
+export function readOpenSessionArgs(
+  args: ReadonlyPartialJSONObject
+): SessionsCommandArguments.IOpenSession | null {
+  const path = optionalString(args, 'path');
+  return path ? { path } : null;
+}
+
+/**
+ * Provide `ISessionService` and the commands Home, the sidebar and search call.
+ *
+ * Sessions are Jupyter Chat documents, so the plugin requires Jupyter Chat's
+ * tracker: without Jupyter Chat the service is not provided, and the
+ * surfaces that take it optionally (Home's composer, the sidebar's sessions,
+ * search's sessions) hide their session features instead of offering actions
+ * that can only fail.
+ */
 export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
   id: 'jupyterlab_lightcone:sessions',
   description:
     'Project-scoped Jupyter AI sessions: list, create and open them in the main area.',
   autoStart: true,
   provides: ISessionService,
-  requires: [ICurrentProject],
-  optional: [
-    IChatTracker,
-    IChatCommandRegistry,
-    ILabShell,
-    ICommandPalette,
-    ITranslator
-  ],
+  requires: [ICurrentProject, IChatTracker],
+  optional: [IChatCommandRegistry, ILabShell, ICommandPalette, ITranslator],
   activate: (
     app: JupyterFrontEnd,
     current: ICurrentProject,
-    tracker: IChatTracker | null,
+    tracker: IChatTracker,
     chatCommands: IChatCommandRegistry | null,
     labShell: ILabShell | null,
     palette: ICommandPalette | null,
@@ -149,8 +173,8 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
       },
       execute: async args => {
         try {
-          const entrypoint = optionalString(args, 'entrypoint');
-          const cwd = optionalString(args, 'cwd');
+          const { entrypoint, cwd, title, firstMessage, persona } =
+            readNewSessionArgs(args);
           let root: IProjectRoot | undefined;
           if (entrypoint) {
             root = await requireProject(app, { entrypoint });
@@ -173,9 +197,9 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
             return null;
           }
           return await sessions.createAndOpen(root.entrypoint, {
-            title: optionalString(args, 'title'),
-            firstMessage: optionalString(args, 'firstMessage'),
-            persona: optionalString(args, 'persona')
+            title,
+            firstMessage,
+            persona
           });
         } catch (error) {
           await showErrorMessage(
@@ -198,12 +222,12 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
         }
       },
       execute: async args => {
-        const path = optionalString(args, 'path');
-        if (!path) {
+        const target = readOpenSessionArgs(args);
+        if (!target) {
           throw new Error('A session path is required.');
         }
         try {
-          await sessions.openSession(path);
+          await sessions.openSession(target.path);
         } catch (error) {
           await showErrorMessage(
             trans.__('Could not open the session'),

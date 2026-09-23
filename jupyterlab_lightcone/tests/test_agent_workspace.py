@@ -10,7 +10,7 @@ from jupyter_ai_persona_manager.base_persona import BasePersona, PersonaDefaults
 from jupyterlab_chat.models import Message
 import pytest
 
-from jupyterlab_lightcone import agent_workspace, comments
+from jupyterlab_lightcone import agent_workspace, comments, sessions
 from jupyterlab_lightcone.agent_workspace import (
     PersonaManager,
     comment_ids,
@@ -393,3 +393,5 @@ def test_session_activity_is_one_shared_map():
     assert activity == {}
     activity["a.chat"] = {"state": "idle", "persona": "p", "since": "now"}
     assert session_activity(web_app) is activity
+    # The session listing reads the very map the manager writes.
+    assert web_app.settings[sessions.SESSION_ACTIVITY] is activity

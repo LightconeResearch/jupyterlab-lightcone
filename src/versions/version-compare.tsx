@@ -9,13 +9,13 @@ import {
   type IVersionTarget
 } from './version-content';
 import {
-  delimiterFor,
   formatNumber,
+  METRIC_LEAF_LIMIT,
   metricDeltas,
   outputFormat,
   relativeTime,
   tableShapeDiff,
-  type IMetricDelta,
+  type IMetricComparison,
   type ITableShapeDiff
 } from './version-model';
 
@@ -193,7 +193,7 @@ function MetricCompare({
   newer,
   older
 }: IVersionCompareProps): React.ReactElement {
-  const { result, error } = useComparison<IMetricDelta[]>(
+  const { result, error } = useComparison<IMetricComparison>(
     async signal => {
       const [before, after] = await Promise.all([
         readVersionJson(target, older.commit, signal),
@@ -215,8 +215,30 @@ function MetricCompare({
   if (!newer.present) return <p role="status">{absentSide(newer, 'shown')}</p>;
   if (error) return <p role="status">Comparison failed: {error}</p>;
   if (!result) return <p role="status">Comparing values…</p>;
-  if (!result.length)
+  if (!result.deltas.length)
     return <p role="status">Neither version holds numeric values.</p>;
+  return (
+    <>
+      {result.truncated && (
+        <p role="status">
+          Showing the first {METRIC_LEAF_LIMIT.toLocaleString()} values of each
+          version.
+        </p>
+      )}
+      <MetricDeltaTable result={result} newer={newer} older={older} />
+    </>
+  );
+}
+
+function MetricDeltaTable({
+  result,
+  newer,
+  older
+}: {
+  result: IMetricComparison;
+  newer: IOutputVersion;
+  older: IOutputVersion;
+}): React.ReactElement {
   return (
     <table className="jp-jupyterlab-lightcone-VersionCompare-deltas">
       <thead>
@@ -228,7 +250,7 @@ function MetricCompare({
         </tr>
       </thead>
       <tbody>
-        {result.map(delta => (
+        {result.deltas.map(delta => (
           <tr key={delta.key} data-changed={delta.delta ? '' : undefined}>
             <th scope="row">
               <code>{delta.key}</code>
@@ -257,12 +279,12 @@ function TableCompare({
   newer,
   older
 }: IVersionCompareProps): React.ReactElement {
-  const delimiter = delimiterFor(outputFormat(output)) ?? ',';
+  const format = outputFormat(output);
   const { result, error } = useComparison<ITableShapeDiff>(
     async signal => {
       const [before, after] = await Promise.all([
-        readVersionTableShape(target, older.commit, delimiter, signal),
-        readVersionTableShape(target, newer.commit, delimiter, signal)
+        readVersionTableShape(target, older.commit, format, signal),
+        readVersionTableShape(target, newer.commit, format, signal)
       ]);
       return tableShapeDiff(before, after);
     },
@@ -273,7 +295,7 @@ function TableCompare({
       target.outputId,
       older.commit,
       newer.commit,
-      delimiter
+      format
     ]
   );
   if (!older.present)

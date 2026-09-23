@@ -31,6 +31,7 @@ import {
   groupRunsByDay,
   isFinished,
   jobTitle,
+  lastEndKey,
   outputTargetPath,
   parseTargets,
   refusalText,
@@ -105,21 +106,56 @@ function useProjectData(
   return data;
 }
 
-/** A clock that ticks every second only while something is running. */
+/** Elapsed times tick every second while a job runs. */
+const RUNNING_TICK = 1000;
+
+/** Relative times and day labels keep aging while nothing runs. */
+const IDLE_TICK = 60_000;
+
+/** A clock for relative times: every second while running, every minute otherwise. */
 function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());
-    if (!active) {
-      return undefined;
-    }
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const timer = setInterval(
+      () => setNow(Date.now()),
+      active ? RUNNING_TICK : IDLE_TICK
+    );
     return () => clearInterval(timer);
   }, [active]);
   return now;
 }
 
 type Start = (targets: string[], refresh: boolean) => Promise<unknown>;
+
+/** Start jobs from one control, keeping why its last start failed. */
+function useStarter(onStart: Start): {
+  starting: boolean;
+  error: string;
+  setError: (error: string) => void;
+  /** Resolves whether the job started; a refusal becomes `error`. */
+  start: (targets: string[], refresh: boolean) => Promise<boolean>;
+} {
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState('');
+  const start = async (
+    targets: string[],
+    refresh: boolean
+  ): Promise<boolean> => {
+    setError('');
+    setStarting(true);
+    try {
+      await onStart(targets, refresh);
+      return true;
+    } catch (reason) {
+      setError(startErrorMessage(reason));
+      return false;
+    } finally {
+      setStarting(false);
+    }
+  };
+  return { starting, error, setError, start };
+}
 
 /** `<universe>/<output>` as the engine spells it. */
 function splitKey(key: string): { universe: string; output: string } {
@@ -158,23 +194,15 @@ function MaterializeForm({
   const id = useId();
   const [text, setText] = useState('');
   const [refresh, setRefresh] = useState(false);
-  const [error, setError] = useState('');
-  const [starting, setStarting] = useState(false);
+  const { starting, error, setError, start } = useStarter(onStart);
   const submit = async () => {
     const parsed = parseTargets(text);
     if (parsed.invalid.length > 0) {
       setError(trans.__('Not an output name: %1', parsed.invalid.join(', ')));
       return;
     }
-    setError('');
-    setStarting(true);
-    try {
-      await onStart(parsed.targets, refresh);
+    if (await start(parsed.targets, refresh)) {
       setText('');
-    } catch (reason) {
-      setError(startErrorMessage(reason));
-    } finally {
-      setStarting(false);
     }
   };
   const disabled = blocked || starting;
@@ -247,6 +275,7 @@ function StatusActions({
 }): React.ReactElement | null {
   const trans = useTrans();
   const status = useMaterializationStatus(contents, entrypoint, data.document);
+  const { starting, error, start } = useStarter(onStart);
   if (status.error) {
     return (
       <p className={`${CLASS}-hint`}>
@@ -263,35 +292,43 @@ function StatusActions({
       <p className={`${CLASS}-hint`}>{trans.__('Every output is current.')}</p>
     );
   }
+  const disabled = blocked || starting;
   return (
-    <div className={`${CLASS}-quick`}>
-      {stale.length > 0 ? (
-        <button
-          type="button"
-          className="jp-mod-styled"
-          disabled={blocked}
-          title={stale.join('\n')}
-          onClick={() => {
-            void onStart(stale, false).catch(() => undefined);
-          }}
-        >
-          {trans.__('Rematerialize stale (%1)', stale.length)}
-        </button>
+    <>
+      <div className={`${CLASS}-quick`}>
+        {stale.length > 0 ? (
+          <button
+            type="button"
+            className="jp-mod-styled"
+            disabled={disabled}
+            title={stale.join('\n')}
+            onClick={() => {
+              void start(stale, false);
+            }}
+          >
+            {trans.__('Rematerialize stale (%1)', stale.length)}
+          </button>
+        ) : null}
+        {behind.length > 0 ? (
+          <button
+            type="button"
+            className="jp-mod-styled"
+            disabled={disabled}
+            title={behind.join('\n')}
+            onClick={() => {
+              void start(behind, true);
+            }}
+          >
+            {trans.__('Refresh behind (%1)', behind.length)}
+          </button>
+        ) : null}
+      </div>
+      {error ? (
+        <p className={`${CLASS}-error`} role="alert">
+          {error}
+        </p>
       ) : null}
-      {behind.length > 0 ? (
-        <button
-          type="button"
-          className="jp-mod-styled"
-          disabled={blocked}
-          title={behind.join('\n')}
-          onClick={() => {
-            void onStart(behind, true).catch(() => undefined);
-          }}
-        >
-          {trans.__('Refresh behind (%1)', behind.length)}
-        </button>
-      ) : null}
-    </div>
+    </>
   );
 }
 
@@ -586,7 +623,6 @@ function RunsView({
   }, [name, onProjectName]);
   const running = runs.jobs.some(job => !isFinished(job));
   const now = useNow(running);
-  const finishedCount = runs.jobs.filter(isFinished).length;
   // A universe is named only when the project declares universes; a project
   // without them has no universe files to pin a record tab to.
   const universes =
@@ -667,8 +703,8 @@ function RunsView({
         <MaterializeForm blocked={running} onStart={start} />
         {data ? (
           <StatusActions
-            // Remount after each finished job so the status is re-read at once.
-            key={`${entrypoint}:${finishedCount}`}
+            // Remount after each job ends so the status is re-read at once.
+            key={`${entrypoint}:${lastEndKey(runs.jobs)}`}
             contents={contents}
             entrypoint={entrypoint}
             data={data}

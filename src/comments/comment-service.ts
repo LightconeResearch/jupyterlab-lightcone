@@ -128,8 +128,15 @@ export class CommentService implements ICommentService, IDisposable {
       key,
       current.filter(item => item.id !== id)
     );
-    // The server renumbers the remaining labels of that target.
-    await this.refresh(key);
+    // The server renumbers the remaining labels of that target. The delete
+    // itself succeeded: a failed refresh only leaves the old labels showing
+    // until the next one, and must not report the delete as failed.
+    await this.refresh(key).catch(error => {
+      console.warn(
+        'Could not fetch the renumbered pending comments after a delete.',
+        error
+      );
+    });
   }
 
   /** Every comment of the project, sent ones included, reused for a while. */

@@ -7,6 +7,7 @@ import type { OutputRun, OutputStatus } from '@astra-spec/ui/model';
 import { showErrorMessage } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import type { CommandRegistry } from '@lumino/commands';
+import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchRunRecord } from './api';
 import { resolveOutputCode, type ICodeReference } from './code-access';
@@ -20,6 +21,12 @@ import {
 } from './versions/provenance-tabs';
 import { runView, sessionsActiveAround } from './versions/version-model';
 import type { IOutputVersion } from './versions/versions-api';
+
+/**
+ * `SessionsCommandIDs.openSession`, named here rather than imported so that
+ * record views do not load the sessions plugin module and Jupyter Chat.
+ */
+const OPEN_SESSION_COMMAND = 'jupyterlab_lightcone:open-session';
 
 export interface IJupyterOutputProvenanceProps {
   contents: Contents.IManager;
@@ -96,7 +103,7 @@ export function JupyterOutputProvenance({
 
   // A version knows its own run; the sidecar only describes the current one.
   const view = useMemo(() => {
-    if (version) return runView(result?.record, version);
+    if (version) return runView(undefined, version);
     if (result?.record === undefined) return undefined;
     return result.record === null ? null : runView(result.record, undefined);
   }, [result, version]);
@@ -169,10 +176,10 @@ export function JupyterOutputProvenance({
     };
   }, [wantSessions, runTime, contents, entrypoint]);
 
-  const openDocument = commands
-    ? (path: string, factory: string, subject: string) => {
+  const openWith = commands
+    ? (command: string, args: ReadonlyPartialJSONObject, subject: string) => {
         void commands
-          .execute('docmanager:open', { path, factory })
+          .execute(command, args)
           .catch(reason =>
             showErrorMessage(`Could not open ${subject}`, String(reason))
           );
@@ -186,14 +193,17 @@ export function JupyterOutputProvenance({
       error={result?.error}
       code={code}
       onOpenCode={
-        openDocument
+        openWith
           ? relativePath =>
-              openDocument(
-                contents.resolvePath(
-                  projectDirectory(entrypoint),
-                  relativePath
-                ),
-                'Editor',
+              openWith(
+                'docmanager:open',
+                {
+                  path: contents.resolvePath(
+                    projectDirectory(entrypoint),
+                    relativePath
+                  ),
+                  factory: 'Editor'
+                },
                 'code'
               )
           : undefined
@@ -201,7 +211,11 @@ export function JupyterOutputProvenance({
       inputs={inputs}
       sessions={sessions}
       onOpenSession={
-        openDocument ? path => openDocument(path, 'Chat', 'session') : undefined
+        // The sessions service places the chat where every other entry point
+        // does, beside the results rather than among them.
+        openWith && commands?.hasCommand(OPEN_SESSION_COMMAND)
+          ? path => openWith(OPEN_SESSION_COMMAND, { path }, 'session')
+          : undefined
       }
       onShowConversation={() => setWantSessions(true)}
     />

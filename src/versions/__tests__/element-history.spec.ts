@@ -9,6 +9,7 @@ import {
   HISTORY_LIMIT,
   pushHistory,
   rememberScroll,
+  selectEntryVersion,
   stepHistory,
   type IElementHistory,
   type IHistoryEntry
@@ -144,4 +145,31 @@ test('papers are identified by DOI and the root analysis by name', () => {
   });
   expect(historyCaption(paper)).toBe('doi:10.1234/example');
   expect(historyCaption(trail(''))).toBe('analysis');
+});
+
+test('the current entry keeps the version it shows through moves and reopens', () => {
+  const history = trail('outputs.a', 'decisions.b');
+  const back = stepHistory(history, -1)!;
+  const stepped = selectEntryVersion(back, 'a889877');
+  expect(currentEntry(stepped)?.versionCommit).toBe('a889877');
+  // The other entries and the original history are untouched.
+  expect(currentEntry(back)?.versionCommit).toBeUndefined();
+  expect(stepped.entries[1].versionCommit).toBeUndefined();
+  expect(selectEntryVersion(stepped, 'a889877')).toBe(stepped);
+  // Forward and back again return to the stepped version.
+  const returned = stepHistory(stepHistory(stepped, +1)!, -1)!;
+  expect(currentEntry(returned)?.versionCommit).toBe('a889877');
+  // A reopen without a version keeps it; one naming a version replaces it.
+  expect(
+    currentEntry(pushHistory(returned, entry('outputs.a')))?.versionCommit
+  ).toBe('a889877');
+  expect(
+    currentEntry(pushHistory(returned, entry('outputs.a', 'b'.repeat(40))))
+      ?.versionCommit
+  ).toBe('b'.repeat(40));
+  // Returning to the newest version clears it.
+  expect(
+    currentEntry(selectEntryVersion(returned, undefined))?.versionCommit
+  ).toBeUndefined();
+  expect(selectEntryVersion(EMPTY_HISTORY, 'a889877')).toBe(EMPTY_HISTORY);
 });

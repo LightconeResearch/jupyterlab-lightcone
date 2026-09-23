@@ -1,11 +1,15 @@
 """Run history read from Git, and materialization jobs supervised as process groups."""
 
 import asyncio
+import inspect
 import json
 import os
+from pathlib import Path
+import signal
 import subprocess
 import sys
 import textwrap
+import time
 import warnings
 
 from jupyter_events.logger import EventLogger
@@ -55,6 +59,7 @@ def git(repo, *args):
 
 
 def commit(repo, name, message):
+    (repo / name).parent.mkdir(parents=True, exist_ok=True)
     (repo / name).write_text(name)
     git(repo, "add", name)
     subprocess.run(["git", "commit", "-q", "-F", "-"], cwd=repo, env=GIT_ENV, check=True, input=message, text=True)
@@ -104,9 +109,9 @@ def test_record_fields_are_typed():
 
 def test_history_lists_only_run_commits_newest_first(repo):
     commit(repo, "astra.yaml", "Initial analysis\n")
-    first = commit(repo, "fit.json", "[DATALAD RUNCMD] fit [baseline]\n\n=== Do not change lines below ===\n" + json.dumps({"cmd": "make fit", "exit": 0, "inputs": [], "outputs": ["results/baseline/fit.json"]}) + "\n^^^ Do not change lines above ^^^\n")
-    commit(repo, "notes.md", "Notes mentioning [DATALAD RUNCMD] in the body\n\nNot a run.\n")
-    second = commit(repo, "contours.png", RECORD_BODY)
+    first = commit(repo, "results/baseline/fit.json", "[DATALAD RUNCMD] fit [baseline]\n\n=== Do not change lines below ===\n" + json.dumps({"cmd": "make fit", "exit": 0, "inputs": [], "outputs": ["results/baseline/fit.json"]}) + "\n^^^ Do not change lines above ^^^\n")
+    commit(repo, "results/notes.md", "Notes mentioning [DATALAD RUNCMD] in the body\n\nNot a run.\n")
+    second = commit(repo, "results/baseline/cosmology_contours.png", RECORD_BODY)
     history = runs.run_history(repo)
     assert [run["commit"] for run in history] == [second, first]
     assert history[0]["output"] == "cosmology_contours"
@@ -124,6 +129,19 @@ def test_history_lists_only_run_commits_newest_first(repo):
     }
     assert history[1]["time"].startswith("20")
     assert runs.run_history(repo, limit=1) == [history[0]]
+
+
+def test_history_counts_only_runs_of_the_projects_own_results(repo):
+    # One repository holding a project, a project nested in it, a sibling
+    # project and other work: the engine adopts enclosing work trees.
+    message = "[DATALAD RUNCMD] {} [baseline]\n"
+    own = commit(repo, "a/results/baseline/fit.json", message.format("fit"))
+    commit(repo, "a/b/results/baseline/nested.json", message.format("nested"))
+    commit(repo, "c/results/baseline/sibling.json", message.format("sibling"))
+    commit(repo, "private.json", message.format("private_output"))
+    commit(repo, "a/notes.json", message.format("not_a_result"))
+    assert [run["commit"] for run in runs.run_history(repo / "a")] == [own]
+    assert runs.run_history(repo) == []
 
 
 def test_history_is_empty_outside_git_and_in_an_empty_repository(tmp_path, monkeypatch):
@@ -162,18 +180,76 @@ def test_rejects_targets_that_are_not_output_ids(targets):
     assert error.value.status_code == 400
 
 
-def test_the_report_is_the_last_json_document_on_stdout():
-    report = {"ok": True, "made": ["baseline/fit"], "nested": {"a": [1, {"b": "}"}]}}
-    text = "image absent\n{\"draft\": 1}\n" + json.dumps(report, indent=2) + "\ntrailing text\n"
-    assert runs.parse_last_json(text) == report
-    assert runs.parse_last_json("no json here\n{ broken\n") is None
-    assert runs.parse_last_json("") is None
-    assert runs.parse_last_json("[1, 2]\n") is None
+def test_the_report_is_the_engines_json_ending_stdout():
+    report = {"ok": True, "up_to_date": False, "made": ["baseline/fit"], "nested": {"a": [1, {"b": "}\n{"}]}}
+    text = "image absent\n{\"draft\": 1}\n" + json.dumps(report, indent=2) + "\n\n"
+    assert runs.parse_report(text) == report
+    assert runs.parse_report("recipe output\n" + json.dumps(report)) == report
+    # Printed without indentation, nested objects start lines too.
+    assert runs.parse_report("x\n" + json.dumps(report, indent=0)) == report
 
 
-def test_contents_paths_of_projects(tmp_path):
-    assert runs.contents_path(tmp_path, tmp_path) == ""
-    assert runs.contents_path(tmp_path, tmp_path / "a" / "b") == "a/b"
+@pytest.mark.parametrize("text", [
+    "",
+    "no json here\n{ broken\n",
+    "[1, 2]\n",
+    json.dumps({"ok": True, "up_to_date": True}) + "\ntrailing text\n",
+    # Report-shaped JSON counts only when nothing follows it.
+    json.dumps({"ok": True, "up_to_date": True}) + "\n" + json.dumps({"progress": 1}) + "\n",
+    # A recipe's own JSON is not the report, even when it ends the output.
+    json.dumps({"ok": True, "made": ["baseline/fit"]}) + "\n",
+    json.dumps({"ok": "yes", "up_to_date": True}) + "\n",
+    "{broken}\n",
+    '{"a":' * 20000 + "1" + "}" * 20000,
+])
+def test_anything_else_on_stdout_is_no_report(text):
+    assert runs.parse_report(text) is None
+
+
+def test_hostile_stdout_cannot_stall_the_report_search():
+    # Every line opens a document that runs to the end: tried one by one,
+    # these took seconds to reject.
+    text = ('{"a": [' + "1," * 500 + "\n") * 1000 + "1" + "]}" * 1000 + "\n"
+    started = time.monotonic()
+    assert runs.parse_report(text) is None
+    assert time.monotonic() - started < 1
+
+
+@pytest.mark.parametrize("chunks, lines", [
+    (["a\nb", "c\n", "d"], ["a", "bc", "d"]),
+    (["crlf\r", "\n"], ["crlf"]),
+    (["\x1b[32mgreen\x1b[0m\n"], ["green"]),
+    # A carriage return redraws the line: a progress bar keeps its last state.
+    (["\r 10%", "\r 50%\r", "100%\n"], ["100%"]),
+    (["\r 10%\r 20%\r\n"], [" 20%"]),
+    # An overlong line is cut once, and the rest of it dropped.
+    (["x" * 5000, "y\nz\n"], ["x" * runs.MAX_LINE_CHARS + runs.LINE_CUT, "z"]),
+    (["x" * 5000], ["x" * runs.MAX_LINE_CHARS + runs.LINE_CUT]),
+    (["tail\r"], ["tail"]),
+    (["\r"], []),
+])
+def test_output_is_cut_into_display_lines(chunks, lines):
+    splitter = runs.LineSplitter()
+    received = [line for chunk in chunks for line in splitter.feed(chunk)]
+    assert received + splitter.close() == lines
+
+
+def test_an_unfinished_line_is_held_in_bounded_memory():
+    splitter = runs.LineSplitter()
+    for percent in range(100000):
+        assert splitter.feed(f"\rfitting {percent}%") == []
+    assert splitter.pending == "fitting 99999%"
+    assert splitter.close() == ["fitting 99999%"]
+
+
+def test_only_the_end_of_stdout_is_kept():
+    tail = runs.OutputTail(10)
+    for chunk in ("abc", "", "defgh", "ijklmnop", "q"):
+        tail.append(chunk)
+    assert tail.text() == "hijklmnopq"
+    assert [*tail.chunks] == ["defgh", "ijklmnop", "q"]
+    tail.clear()
+    assert tail.text() == "" and tail.size == 0
 
 
 def test_the_event_schema_accepts_exactly_the_job_events():
@@ -192,12 +268,27 @@ def test_registering_the_schema_twice_is_harmless(jp_serverapp):
     assert runs.JOB_SCHEMA_ID in jp_serverapp.event_logger.schemas
 
 
-def test_every_route_verb_requires_authentication(jp_serverapp):
-    with warnings.catch_warnings(record=True) as records:
-        warnings.simplefilter("always")
-        runs.setup_runs_handlers(jp_serverapp.web_app)
-        runs.setup_runs_handlers(jp_serverapp.web_app)
-    assert not [record for record in records if issubclass(record.category, JupyterServerAuthWarning)]
+def test_routes_are_registered_once_and_every_verb_requires_authentication(jp_serverapp, monkeypatch):
+    web_app = jp_serverapp.web_app
+    # The extension registered the routes when it loaded: start over, so that
+    # they really are added, and checked, here.
+    monkeypatch.delitem(web_app.settings, runs.HANDLERS_SETTING)
+    rules = len(web_app.default_router.rules)
+
+    def register():
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            runs.setup_runs_handlers(web_app)
+        return [record for record in records if issubclass(record.category, JupyterServerAuthWarning)]
+
+    assert register() == []
+    assert len(web_app.default_router.rules) == rules + 1
+    assert register() == []
+    assert len(web_app.default_router.rules) == rules + 1
+    # The check is live: a verb without its decorators is reported.
+    monkeypatch.setattr(runs.RunHandler, "delete", inspect.unwrap(runs.RunHandler.delete))
+    del web_app.settings[runs.HANDLERS_SETTING]
+    assert register() != []
 
 
 # =============================================================================
@@ -337,15 +428,88 @@ async def test_the_line_log_is_bounded_and_the_report_still_parsed(app, jp_fetch
         """
         for i in range(500):
             sys.stdout.write(f"line {i}\\n")
-        sys.stdout.write(json.dumps({"ok": True}) + "\\n")
+        sys.stdout.write(json.dumps({"ok": True, "up_to_date": True}) + "\\n")
         """
     )
     job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
     record = await finished(app, job["id"])
     assert len(record.lines) == runs.MAX_LINES
     assert record.lines[0] == f"line {500 - runs.MAX_LINES + 1}"
-    assert record.lines[-1] == '{"ok": true}'
-    assert record.report == {"ok": True}
+    assert record.lines[-1] == '{"ok": true, "up_to_date": true}'
+    assert record.report == {"ok": True, "up_to_date": True}
+    # The output the report came from is not kept once the job finished.
+    assert record.stdout.text() == ""
+
+
+async def test_characters_split_across_reads_stay_whole(app, jp_fetch, project, engine):
+    engine(
+        """
+        sys.stdout.buffer.write(b"caf\\xc3")
+        sys.stdout.buffer.flush()
+        time.sleep(0.3)
+        sys.stdout.buffer.write(b"\\xa9\\r\\n")
+        sys.stdout.buffer.flush()
+        """
+    )
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
+    record = await finished(app, job["id"])
+    assert list(record.lines) == ["café"]
+
+
+async def test_long_lines_are_cut_and_progress_bars_keep_their_last_state(app, jp_fetch, project, engine, events):
+    engine(
+        """
+        for percent in range(0, 101, 10):
+            sys.stderr.write(f"\\rfitting {percent:3d}%")
+            sys.stderr.flush()
+        sys.stderr.write("\\n")
+        sys.stdout.write("x" * 70000)
+        sys.stdout.flush()
+        time.sleep(0.2)
+        sys.stdout.write("y" * 10 + "\\n")
+        sys.stdout.write(json.dumps({"ok": True, "up_to_date": True}) + "\\n")
+        """
+    )
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
+    record = await finished(app, job["id"])
+    cut = "x" * runs.MAX_LINE_CHARS + runs.LINE_CUT
+    assert sorted(record.lines) == sorted(["fitting 100%", cut, '{"ok": true, "up_to_date": true}'])
+    assert record.report == {"ok": True, "up_to_date": True}
+    await settled(events, job["id"], "succeeded")
+    assert max(len(event["line"] or "") for event in events) == len(cut)
+
+
+async def test_hostile_json_on_stdout_neither_breaks_the_job_nor_locks_the_project(app, jp_fetch, project, engine, events):
+    engine(
+        """
+        depth = 20000
+        sys.stdout.write('{"a":' * depth + "1" + "}" * depth + "\\n")
+        """
+    )
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
+    record = await finished(app, job["id"])
+    assert record.state == "succeeded"
+    assert record.report is None
+    await settled(events, job["id"], "succeeded")
+    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))
+    assert response.code == 202
+    await finished(app, json.loads(response.body)["id"])
+
+
+async def test_a_recipes_json_is_never_taken_for_the_report(app, jp_fetch, project, engine):
+    engine(
+        """
+        sys.stdout.write(json.dumps({"ok": True, "made": ["baseline/fit"]}) + "\\n")
+        sys.stdout.flush()
+        sys.stderr.write("Traceback (most recent call last):\\nRuntimeError: the engine crashed\\n")
+        sys.exit(1)
+        """
+    )
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
+    record = await finished(app, job["id"])
+    assert record.state == "failed"
+    assert record.report is None
+    assert "RuntimeError: the engine crashed" in record.lines
 
 
 async def test_cancelling_terminates_the_process_group(app, jp_fetch, project, engine, events):
@@ -382,6 +546,75 @@ async def test_cancelling_terminates_the_process_group(app, jp_fetch, project, e
     # Cancelling again changes nothing.
     again = json.loads((await jp_fetch(*ENDPOINT, job["id"], method="DELETE", params={"path": project})).body)
     assert again == cancelled
+
+
+async def test_a_job_cancelled_while_its_engine_spawns_never_runs(app, jp_fetch, project, engine, monkeypatch, events):
+    engine("time.sleep(120)\n")
+    spawning = asyncio.Event()
+    release = asyncio.Event()
+    spawn = asyncio.create_subprocess_exec
+
+    async def held_spawn(*args, **kwargs):
+        spawning.set()
+        await release.wait()
+        return await spawn(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", held_spawn)
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
+    await asyncio.wait_for(spawning.wait(), 5)
+    record = runs.job_registry(app.web_app.settings).jobs[job["id"]]
+    deleting = asyncio.ensure_future(jp_fetch(*ENDPOINT, job["id"], method="DELETE", params={"path": project}))
+    for _ in range(500):
+        if record.state == "cancelled":
+            break
+        await asyncio.sleep(0.01)
+    assert record.state == "cancelled" and record.process is None
+    release.set()
+    cancelled = json.loads((await asyncio.wait_for(deleting, 10)).body)
+    assert cancelled["state"] == "cancelled"
+    assert cancelled["finished"] is not None
+    assert cancelled["exit"] in (-signal.SIGTERM, -signal.SIGKILL)
+    with pytest.raises(ProcessLookupError):
+        os.kill(record.process.pid, 0)
+    # No start event: listeners hear of the job once, when it is final.
+    await settled(events, job["id"], "cancelled")
+    assert [event for event in events if event["id"] == job["id"]] == [
+        {"id": job["id"], "project": "project", "state": "cancelled", "line": None}
+    ]
+
+
+async def test_cancelling_after_the_engine_exited_keeps_its_outcome(app, jp_fetch, project, engine, events):
+    engine(
+        """
+        import subprocess
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        sys.stdout.write(f"child {child.pid}\\n")
+        sys.stdout.write(json.dumps({"ok": True, "up_to_date": False, "made": ["baseline/fit"]}, indent=2) + "\\n")
+        """
+    )
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": project}))).body)
+    record = runs.job_registry(app.web_app.settings).jobs[job["id"]]
+    for _ in range(500):
+        if record.lines and record.process is not None and record.process.returncode is not None:
+            break
+        await asyncio.sleep(0.01)
+    # The engine is done; the grandchild still holds its pipes.
+    assert record.process.returncode == 0
+    assert record.state == "running"
+    child_pid = int(record.lines[0].split()[1])
+    final = json.loads((await jp_fetch(*ENDPOINT, job["id"], method="DELETE", params={"path": project})).body)
+    assert final["state"] == "succeeded"
+    assert final["exit"] == 0
+    assert final["report"]["made"] == ["baseline/fit"]
+    assert not [event for event in events if event["state"] == "cancelled"]
+    for _ in range(100):
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        await asyncio.sleep(0.05)
+    else:
+        raise AssertionError("the grandchild survived the cancellation")
 
 
 async def test_an_engine_ignoring_sigterm_is_killed_after_the_grace_period(app, jp_fetch, project, engine):
@@ -428,6 +661,29 @@ async def test_one_running_job_per_project(app, jp_fetch, jp_root_dir, project, 
     await runs.close_jobs(app.web_app)
 
 
+async def test_jobs_keep_the_project_path_the_browser_uses(app, jp_fetch, jp_root_dir, engine, events):
+    engine("time.sleep(120)\n")
+    real = jp_root_dir / "projects" / "2026" / "proj"
+    real.mkdir(parents=True)
+    (real / "astra.yaml").write_text("name: proj\n")
+    (jp_root_dir / "current").symlink_to(Path("projects") / "2026" / "proj", target_is_directory=True)
+    job = json.loads((await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "current/astra.yaml"}))).body)
+    assert job["project"] == "current"
+    for _ in range(500):
+        if events:
+            break
+        await asyncio.sleep(0.01)
+    assert events[0] == {"id": job["id"], "project": "current", "state": "running", "line": None}
+    # Every path to the directory sees the job and shares its one-job limit.
+    real_entrypoint = "projects/2026/proj/astra.yaml"
+    listing = json.loads((await jp_fetch(*ENDPOINT, params={"path": real_entrypoint})).body)
+    assert [item["id"] for item in listing["jobs"]] == [job["id"]]
+    assert (await jp_fetch(*ENDPOINT, job["id"], params={"path": real_entrypoint})).code == 200
+    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": real_entrypoint}), raise_error=False)
+    assert response.code == 409
+    await runs.close_jobs(app.web_app)
+
+
 async def test_the_listing_keeps_the_newest_jobs_first_and_bounded(app, jp_fetch, project, engine):
     engine("pass\n")
     ids = []
@@ -443,7 +699,7 @@ async def test_the_listing_keeps_the_newest_jobs_first_and_bounded(app, jp_fetch
 async def test_history_and_jobs_are_served_together(app, jp_fetch, jp_root_dir, project):
     repo = jp_root_dir / "project"
     git(repo, "init", "-q")
-    sha = commit(repo, "contours.png", RECORD_BODY)
+    sha = commit(repo, "results/baseline/cosmology_contours.png", RECORD_BODY)
     listing = json.loads((await jp_fetch(*ENDPOINT, params={"path": project})).body)
     assert listing["jobs"] == []
     assert [run["commit"] for run in listing["runs"]] == [sha]

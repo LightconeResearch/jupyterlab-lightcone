@@ -61,13 +61,18 @@ function isEditorView(value: unknown): value is EditorView {
 const TEXT_HOST_SELECTOR =
   '.jp-jupyterlab-lightcone-ElementWidget, .jp-MarkdownViewer';
 
-/** The newest committed version of an output record, or nulls. */
+/**
+ * The committed version of an output record a comment is pinned to: the one
+ * `shownCommit` names (a record tab showing an older version), else the
+ * newest; nulls when there is none.
+ */
 export async function recordVersion(
   contents: Contents.IManager,
   settings: ServerConnection.ISettings,
   entrypoint: string,
   record: string,
-  universeId: string | null | undefined
+  universeId: string | null | undefined,
+  shownCommit?: string
 ): Promise<ICommentTarget['version']> {
   const lease = acquireProjectDataService(contents, entrypoint, universeId);
   try {
@@ -82,13 +87,19 @@ export async function recordVersion(
       data.document.universe.universeId,
       resolved.id
     );
-    const newest = listing.versions[0];
-    return newest
+    // The version the record tab shows, when it steps back; else the newest.
+    const pinned =
+      (shownCommit
+        ? listing.versions.find(version =>
+            version.commit.startsWith(shownCommit)
+          )
+        : undefined) ?? listing.versions[0];
+    return pinned
       ? {
-          commit: newest.commit,
-          key: newest.key,
+          commit: pinned.commit,
+          key: pinned.key,
           hash: null,
-          label: newest.short
+          label: pinned.short
         }
       : NULL_VERSION;
   } catch (error) {
@@ -144,15 +155,29 @@ abstract class CommentHost implements IDisposable {
     this.image?.setComments(comments);
     this.text?.setComments(comments);
     this.view?.dispatch({ effects: setEditorComments.of(comments) });
+    this.revealEditorFlash();
   }
 
-  /** Scroll to a comment's pin or badge and flash it. */
+  /**
+   * Scroll to a comment's pin or badge and flash it. The layers remember the
+   * request until the pin exists; an editor's badges exist only once its
+   * project, its pending comments and its text are known, so the host keeps
+   * the request and tries again on each refresh until then.
+   */
   flash(id: string): void {
     this.image?.flash(id);
     this.text?.flash(id);
-    if (this.view) {
-      revealEditorComment(this.view, id);
-    }
+    this._editorFlash = id;
+    this.revealEditorFlash();
+  }
+
+  /**
+   * Whether this host shows every editor badge it is going to show, so that
+   * a comment it cannot reveal now will not appear later. Hosts without an
+   * editor are always settled.
+   */
+  protected get settled(): boolean {
+    return true;
   }
 
   dispose(): void {
@@ -167,6 +192,19 @@ abstract class CommentHost implements IDisposable {
     this.view = null;
   }
 
+  /** Reveal the comment the editor was asked to flash; give up once settled. */
+  private revealEditorFlash(): void {
+    const id = this._editorFlash;
+    if (id === null) {
+      return;
+    }
+    const revealed = !!this.view && revealEditorComment(this.view, id);
+    if (revealed || this.settled) {
+      this._editorFlash = null;
+    }
+  }
+
+  private _editorFlash: string | null = null;
   private _isDisposed = false;
 }
 
@@ -220,7 +258,8 @@ class ElementHost extends CommentHost {
       this.hosts.settings,
       target.path,
       target.record,
-      this.element.reference.universeId
+      this.element.reference.universeId,
+      this.element.selectedVersion
     );
   }
 
@@ -248,7 +287,7 @@ class FileHost extends CommentHost {
     widget: Widget,
     private context: DocumentRegistry.Context,
     hosts: CommentHosts,
-    kind: FileHostKind,
+    private kind: FileHostKind,
     view: EditorView | null
   ) {
     super(widget, hosts);
@@ -273,6 +312,10 @@ class FileHost extends CommentHost {
     }
     this.view = view;
     context.pathChanged.connect(this._pathChanged, this);
+    // Hosts are made while the document loads. An editor builds its badges
+    // when comments arrive, and comments that arrive before its text find
+    // nothing to mark: push them again once the text is there.
+    void context.ready.then(() => this.refresh());
     void this.resolve();
   }
 
@@ -282,11 +325,6 @@ class FileHost extends CommentHost {
 
   get entrypoint(): string | null {
     return this._entrypoint;
-  }
-
-  /** The document's path, for matching editors to hosts. */
-  get path(): string {
-    return this.context.path;
   }
 
   target(): ICommentTarget {
@@ -302,6 +340,23 @@ class FileHost extends CommentHost {
 
   async version(): Promise<ICommentTarget['version']> {
     return { ...NULL_VERSION, hash: this.context.contentsModel?.hash ?? null };
+  }
+
+  /**
+   * An editor is settled once it is attached, its text is loaded, its project
+   * is known and that project's pending comments were fetched.
+   */
+  protected get settled(): boolean {
+    if (this.kind !== 'editor') {
+      return true;
+    }
+    const entrypoint = this._entrypoint;
+    return (
+      !!this.view &&
+      this.context.isReady &&
+      this._resolved &&
+      (entrypoint === null || this.hosts.service.known(entrypoint))
+    );
   }
 
   dispose(): void {
@@ -328,16 +383,19 @@ class FileHost extends CommentHost {
       return;
     }
     this._entrypoint = entrypoint;
+    this._resolved = true;
     this.refresh();
   }
 
   private _pathChanged(): void {
     this._entrypoint = null;
+    this._resolved = false;
     void this.resolve();
   }
 
   private _node: HTMLElement;
   private _entrypoint: string | null = null;
+  private _resolved = false;
 }
 
 export interface ICommentHostsOptions {

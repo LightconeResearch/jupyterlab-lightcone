@@ -3,6 +3,7 @@ import type { ILauncher } from '@jupyterlab/launcher';
 import { CommandIDs } from './commands';
 import type { ICurrentProject } from './current-project';
 import { HomeCommandIDs } from './home/home-commands';
+import { launcherCategory } from './home/home-model';
 
 /**
  * Keep launcher cards aligned with the current project.
@@ -49,9 +50,7 @@ export function configureProjectLauncher(
     entries = available.map((command, rank) =>
       launcher.add({
         command,
-        category: project
-          ? `Lightcone Lab · ${project.path || '/'}`
-          : 'Lightcone Lab',
+        category: launcherCategory(project ? project.path : null),
         // Native launchers inject their own cwd; never pin a shared card to a root.
         args: {},
         categoryRank: -10,

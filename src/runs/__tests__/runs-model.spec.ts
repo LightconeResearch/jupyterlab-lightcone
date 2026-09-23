@@ -13,6 +13,7 @@ import {
   jobOutcome,
   jobRunningItems,
   jobTitle,
+  lastEndKey,
   mergeJob,
   parseTargets,
   refusalText,
@@ -23,7 +24,8 @@ import {
   JOB_LINE_LIMIT
 } from '../runs-model';
 
-const NOW = Date.parse('2026-09-23T12:00:00.000Z');
+const NOW_ISO = '2026-09-23T12:00:00.000Z';
+const NOW = Date.parse(NOW_ISO);
 
 function job(overrides: Partial<IJob> = {}): IJob {
   return {
@@ -95,18 +97,21 @@ describe('time formatting', () => {
   });
 
   it('labels today and yesterday and groups consecutive runs by day', () => {
-    expect(dayLabel('2026-09-23T11:00:00.000Z', NOW)).toBe('Today');
-    expect(dayLabel('2026-09-22T11:00:00.000Z', NOW)).toBe('Yesterday');
-    expect(dayLabel('2026-09-01T11:00:00.000Z', NOW)).not.toMatch(
-      /Today|Yesterday/
-    );
+    // Days are the viewer's, so the fixtures are local times: the labels
+    // must not depend on the zone the tests run in.
+    const at = (day: number, hour: number) =>
+      new Date(2026, 8, day, hour).toISOString();
+    const noon = new Date(2026, 8, 23, 12).getTime();
+    expect(dayLabel(at(23, 0), noon)).toBe('Today');
+    expect(dayLabel(at(22, 23), noon)).toBe('Yesterday');
+    expect(dayLabel(at(1, 11), noon)).not.toMatch(/Today|Yesterday/);
     const groups = groupRunsByDay(
       [
-        run({ commit: '1', time: '2026-09-23T11:00:00.000Z' }),
-        run({ commit: '2', time: '2026-09-23T10:00:00.000Z' }),
-        run({ commit: '3', time: '2026-09-22T10:00:00.000Z' })
+        run({ commit: '1', time: at(23, 11) }),
+        run({ commit: '2', time: at(23, 0) }),
+        run({ commit: '3', time: at(22, 23) })
       ],
-      NOW
+      noon
     );
     expect(groups.map(group => [group.label, group.runs.length])).toEqual([
       ['Today', 2],
@@ -126,8 +131,9 @@ describe('job titles and targets', () => {
     expect(
       jobTitle({ targets: ['a', 'b', 'c', 'd', 'e'], refresh: false })
     ).toBe('Materialize a, b, c and 2 more');
-    expect(describeTargets(['baseline/x'], false)).toBe('baseline/x');
-    expect(describeTargets([], true)).toBe('everything');
+    expect(describeTargets(['baseline/x'])).toBe('baseline/x');
+    expect(describeTargets([])).toBe('everything');
+    expect(describeTargets(['a', 'b', 'c', 'd'])).toBe('a, b, c and 1 more');
   });
 
   it('parses typed targets and refuses what the engine would misread', () => {
@@ -211,6 +217,38 @@ describe('job updates', () => {
       })
     );
     expect(many.reduce(upsertJob, [] as IJob[])).toHaveLength(20);
+  });
+
+  it('keys the last end so it changes even when the list is full', () => {
+    const ended = (i: number, finished: string | null = 'done') =>
+      job({
+        id: `j${i}`,
+        state: 'succeeded',
+        finished,
+        started: `2026-09-23T10:${String(i).padStart(2, '0')}:00.000Z`
+      });
+    const full = Array.from({ length: 20 }, (_, i) => ended(i)).reduce(
+      upsertJob,
+      [] as IJob[]
+    );
+    expect(lastEndKey(full)).toBe('j19:done');
+    // A job first seen already ended replaces the oldest: the list keeps
+    // its length and number of finished jobs, but the key moves.
+    const next = upsertJob(full, ended(20));
+    expect(next.filter(item => item.state !== 'running')).toHaveLength(20);
+    expect(lastEndKey(next)).toBe('j20:done');
+    // A running job has not ended; its end, then its final record, move it.
+    const started = upsertJob(next, job({ id: 'j21', started: NOW_ISO }));
+    expect(lastEndKey(started)).toBe('j20:done');
+    const stopped = upsertJob(started, {
+      ...started[0],
+      state: 'cancelled'
+    });
+    expect(lastEndKey(stopped)).toBe('j21:');
+    expect(
+      lastEndKey(upsertJob(stopped, { ...stopped[0], finished: 'later' }))
+    ).toBe('j21:later');
+    expect(lastEndKey([job()])).toBe('');
   });
 });
 

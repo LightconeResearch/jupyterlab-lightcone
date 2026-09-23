@@ -4,8 +4,16 @@ import { listRuns, type IRunListing } from '../runs/runs-api';
 /** How long a run listing serves footers before it is fetched again. */
 export const RUNS_CACHE_TTL = 30_000;
 
+/**
+ * How far the browser's clock may be from the server's, in seconds. Turn
+ * times are stamped by the server and listing times by the browser, so a
+ * listing proves it saw a turn's commits only when it was requested this
+ * long after the turn ended.
+ */
+export const CLOCK_SKEW_ALLOWANCE = 60;
+
 interface ICachedListing {
-  /** When the listing was requested, seconds since the epoch. */
+  /** When the listing was requested, browser time in seconds since the epoch. */
   at: number;
   listing: Promise<IRunListing>;
 }
@@ -13,9 +21,13 @@ interface ICachedListing {
 const listings = new Map<string, ICachedListing>();
 
 /**
- * The project's run listing, shared by every footer for up to 30 s. A listing
- * fetched before `notBefore` (seconds since the epoch) cannot know runs made
- * after it, so a caller whose turn ended later forces a fresh request.
+ * The project's run listing, shared by every footer for up to 30 s.
+ *
+ * `notBefore` is the server time (seconds since the epoch) of the end of the
+ * turn the caller shows. A cached listing is reused only when it was requested
+ * at least `CLOCK_SKEW_ALLOWANCE` after that, by the browser's clock; a
+ * recent turn therefore always gets a fresh listing, which contains every
+ * commit the turn made, while footers of older turns share one request.
  */
 export function cachedRuns(
   settings: ServerConnection.ISettings,
@@ -27,7 +39,7 @@ export function cachedRuns(
   if (
     cached &&
     now - cached.at < RUNS_CACHE_TTL / 1000 &&
-    cached.at >= notBefore
+    cached.at >= notBefore + CLOCK_SKEW_ALLOWANCE
   ) {
     return cached.listing;
   }

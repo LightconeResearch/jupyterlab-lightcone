@@ -1,5 +1,7 @@
 """Jupyter lifecycle integration for Lightcone's managed resources."""
 
+import os
+
 from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
@@ -44,6 +46,18 @@ class LightconeApp(ExtensionApp):
         """Prepare the environment the in-process Lightcone engine relies on."""
         expose_engine_tools()
         self._root_agents_in_projects()
+        self._publish_server_root()
+
+    def _publish_server_root(self):
+        """Give the frontend the absolute contents root agents write paths under.
+
+        JupyterLab's `serverRoot` shortens a root inside the home directory to
+        `~/...`, which no absolute path in a chat can be matched against.
+        """
+        root = getattr(self.serverapp.contents_manager, "root_dir", None)
+        if isinstance(root, str) and root:
+            page_config = self.serverapp.web_app.settings.setdefault("page_config_data", {})
+            page_config["lightconeServerRoot"] = os.path.abspath(root)
 
     def _root_agents_in_projects(self):
         """Start Jupyter AI agents at their project root; a no-op without Jupyter AI.
@@ -94,7 +108,18 @@ class LightconeApp(ExtensionApp):
         setup_mystra_handlers(app, self.manager)
 
     async def stop_extension(self):
-        """Stop all CLI and materialization processes before Jupyter exits."""
-        await close_jobs(self.serverapp.web_app)
+        """Stop all CLI and materialization processes before Jupyter exits.
+
+        Each shutdown is isolated: Jupyter Server awaits this hook without a
+        guard before shutting kernels down, so a failure here must neither
+        orphan the other process groups nor skip the server's own cleanup.
+        """
+        try:
+            await close_jobs(self.serverapp.web_app)
+        except Exception:
+            self.log.warning("Could not stop Lightcone materialization jobs.", exc_info=True)
         if hasattr(self, "manager"):
-            await self.manager.close()
+            try:
+                await self.manager.close()
+            except Exception:
+                self.log.warning("Could not stop the MySTRA viewer.", exc_info=True)

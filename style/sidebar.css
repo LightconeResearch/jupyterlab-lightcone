@@ -183,6 +183,14 @@
   color: var(--jp-error-color1);
 }
 
+/* A quiet line whose detail is in its tooltip, as in the inventory's bar. */
+.jp-jupyterlab-lightcone-Sidebar-note {
+  margin: 0;
+  padding: 4px 12px 0;
+  color: var(--jp-warn-color1);
+  font-size: var(--jp-ui-font-size0);
+}
+
 .jp-jupyterlab-lightcone-Sidebar-list,
 .jp-jupyterlab-lightcone-Sidebar-tree {
   margin: 0;
@@ -227,6 +235,47 @@
   background: var(--jp-layout-color2);
 }
 
+/* A session row: the open button, with a rename button over its end on hover. */
+.jp-jupyterlab-lightcone-Sidebar-row {
+  position: relative;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rowAction {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color2);
+  opacity: 0;
+  cursor: pointer;
+  transform: translateY(-50%);
+  inset-inline-end: 6px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rowAction:hover,
+.jp-jupyterlab-lightcone-Sidebar-rowAction:focus-visible {
+  background: var(--jp-layout-color3);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-row:hover
+  .jp-jupyterlab-lightcone-Sidebar-rowAction,
+.jp-jupyterlab-lightcone-Sidebar-row:focus-within
+  .jp-jupyterlab-lightcone-Sidebar-rowAction {
+  opacity: 1;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rowAction svg {
+  width: 14px;
+  height: 14px;
+}
+
 .jp-jupyterlab-lightcone-Sidebar-item .jp-icon3[fill] {
   fill: var(--jp-inverse-layout-color3);
 }
@@ -268,7 +317,7 @@
 
 .jp-jupyterlab-lightcone-Sidebar-marker[data-state='working'] {
   background: var(--jp-brand-color1);
-  animation: jp-lightcone-sidebar-pulse 1.6s ease-in-out infinite;
+  animation: jp-jupyterlab-lightcone-sidebar-pulse 1.6s ease-in-out infinite;
 }
 
 .jp-jupyterlab-lightcone-Sidebar-marker[data-state='attention'] {
@@ -276,7 +325,7 @@
   background: var(--jp-warn-color1);
 }
 
-@keyframes jp-lightcone-sidebar-pulse {
+@keyframes jp-jupyterlab-lightcone-sidebar-pulse {
   0%,
   100% {
     opacity: 1;

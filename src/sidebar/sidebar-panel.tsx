@@ -1,5 +1,9 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import { showErrorMessage, type IThemeManager } from '@jupyterlab/apputils';
+import {
+  InputDialog,
+  showErrorMessage,
+  type IThemeManager
+} from '@jupyterlab/apputils';
 import {
   nullTranslator,
   type ITranslator,
@@ -16,6 +20,13 @@ import { PanelLayout, Widget } from '@lumino/widgets';
 import React from 'react';
 import { CommandIDs } from '../commands';
 import { outputMaterializationStatus } from '../materialization-status';
+import { RunsCommandIDs } from '../runs/runs-commands';
+import { SearchCommandIDs } from '../search';
+import {
+  SESSION_FILE_EXTENSION,
+  sessionStem
+} from '../sessions/session-titles';
+import type { ISessionInfo } from '../sessions/sessions-api';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { lightconeIcon } from './icons';
 import { WorkbenchCommandIDs } from './sidebar-commands';
@@ -140,7 +151,13 @@ export class LightconeSidebar extends SidePanel {
     );
     this._footer = new ModelView(model, state => this._renderFooter(state));
     this._footer.addClass('jp-jupyterlab-lightcone-Sidebar-footerHost');
-    (this.layout as PanelLayout).addWidget(this._footer);
+    // SidePanel stacks its header and content in a PanelLayout; the footer
+    // goes below them.
+    const layout = this.layout;
+    if (!(layout instanceof PanelLayout)) {
+      throw new Error('The Lightcone sidebar needs a PanelLayout.');
+    }
+    layout.addWidget(this._footer);
 
     model.changed.connect(this._onModelChanged, this);
     this._commands.commandChanged.connect(this._onCommandsChanged, this);
@@ -218,7 +235,7 @@ export class LightconeSidebar extends SidePanel {
       : '';
     if (state.data) {
       const data = state.data;
-      const outputs = listOutputs(data.index);
+      const outputs = listOutputs(data);
       this._resultsSection.count = resultsSummaryLabel(
         summarizeResults(outputs, output =>
           outputMaterializationStatus(state.statuses, data, output)
@@ -295,17 +312,14 @@ export class LightconeSidebar extends SidePanel {
             : undefined
         }
         onSearch={
-          this._commands.hasCommand(WorkbenchCommandIDs.search)
+          this._commands.hasCommand(SearchCommandIDs.search)
             ? () =>
                 this._run(trans.__('Could not open search'), () =>
-                  this._commands.execute(WorkbenchCommandIDs.search)
+                  this._commands.execute(SearchCommandIDs.search)
                 )
             : undefined
         }
-        searchShortcut={shortcutLabel(
-          this._commands,
-          WorkbenchCommandIDs.search
-        )}
+        searchShortcut={shortcutLabel(this._commands, SearchCommandIDs.search)}
       />
     );
   }
@@ -332,8 +346,33 @@ export class LightconeSidebar extends SidePanel {
             sessions.openSession(path)
           );
         }}
+        onRename={session =>
+          this._run(trans.__('Could not rename the session'), () =>
+            this._renameSession(session)
+          )
+        }
       />
     );
+  }
+
+  /**
+   * Ask for a new file name and rename the session's chat file. The list
+   * refreshes from the rename's file change; an open chat follows the file.
+   */
+  private async _renameSession(session: ISessionInfo): Promise<void> {
+    const trans = this._bundle;
+    const result = await InputDialog.getText({
+      title: trans.__('Rename session'),
+      label: trans.__('File name'),
+      text: sessionStem(session.path),
+      suffix: SESSION_FILE_EXTENSION,
+      required: true,
+      okLabel: trans.__('Rename')
+    });
+    if (!result.button.accept || result.value === null) {
+      return;
+    }
+    await this._model.renameSession(session.path, result.value);
   }
 
   private _renderResults(state: ISidebarState): React.ReactElement {
@@ -343,7 +382,7 @@ export class LightconeSidebar extends SidePanel {
     return (
       <ResultsList
         state={state}
-        outputs={data ? listOutputs(data.index) : []}
+        outputs={data ? listOutputs(data) : []}
         statusFor={output =>
           data
             ? outputMaterializationStatus(state.statuses, data, output)
@@ -426,10 +465,10 @@ export class LightconeSidebar extends SidePanel {
             : undefined
         }
         onRuns={
-          this._commands.hasCommand(WorkbenchCommandIDs.openRuns)
+          this._commands.hasCommand(RunsCommandIDs.openRuns)
             ? () =>
                 this._run(trans.__('Could not open the runs'), () =>
-                  this._commands.execute(WorkbenchCommandIDs.openRuns, {
+                  this._commands.execute(RunsCommandIDs.openRuns, {
                     entrypoint: project.entrypoint
                   })
                 )

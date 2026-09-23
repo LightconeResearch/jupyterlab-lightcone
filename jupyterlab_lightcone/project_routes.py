@@ -53,9 +53,18 @@ class ProjectAPIHandler(APIHandler):
 
     async def project(self) -> Path:
         """Resolve and authorize the project directory named by an entrypoint query."""
-        root = self.contents_root
-        path = self.get_query_argument("path")
-        project = project_root(root, path)
+        return await self.project_named(self.get_query_argument("path"))
+
+    async def project_named(self, path) -> Path:
+        """Resolve and authorize the project directory named by an entrypoint.
+
+        The one authorization preamble for every project route, whether the
+        entrypoint arrives as the `path` query or in a request body, where it
+        may not even be a string.
+        """
+        if not isinstance(path, str):
+            raise web.HTTPError(400, "A local astra.yaml path is required")
+        project = project_root(self.contents_root, path)
         # Apply the contents manager's read and hidden-file rules too.
         await contents_call(self.contents_manager.get, path, content=False, type="file")
         self.set_header("Cache-Control", "no-store")

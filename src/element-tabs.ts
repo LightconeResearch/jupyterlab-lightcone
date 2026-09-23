@@ -82,12 +82,12 @@ export class ElementTabs {
         execute: args => {
           const tab = this.target(args);
           if (!tab) return undefined;
-          const { reference, requestedVersion } = tab.content;
+          const { reference, selectedVersion } = tab.content;
           return app.commands.execute(CommandIDs.openElement, {
             ...reference,
             sourceWidgetId: tab.id,
             newTab: true,
-            ...(requestedVersion ? { versionCommit: requestedVersion } : {})
+            ...(selectedVersion ? { versionCommit: selectedVersion } : {})
           });
         }
       })

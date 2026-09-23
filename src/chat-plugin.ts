@@ -70,22 +70,31 @@ async function findProjectSession(
   );
 }
 
-/** Optional integration with Jupyter AI's chat UI; inventory and record tabs work independently. */
+/**
+ * Optional integration with Jupyter AI's chat UI; inventory and record tabs
+ * work independently. Without Jupyter Chat there is neither a tracker nor a
+ * session service, and `discuss` is not registered.
+ */
 export const chatPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:chat',
   description: 'ASTRA preview cards and agent navigation in Jupyter AI chats.',
   autoStart: true,
-  requires: [ISessionService],
-  optional: [IChatTracker, ICommandPalette, IFileBrowserFactory, ITranslator],
+  optional: [
+    ISessionService,
+    IChatTracker,
+    ICommandPalette,
+    IFileBrowserFactory,
+    ITranslator
+  ],
   activate: (
     app: JupyterFrontEnd,
-    sessions: ISessionService,
+    sessions: ISessionService | null,
     tracker: IChatTracker | null,
     palette: ICommandPalette | null,
     browser: IFileBrowserFactory | null,
     translator: ITranslator | null
   ) => {
-    if (!tracker) {
+    if (!sessions || !tracker) {
       return;
     }
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');

@@ -20,6 +20,8 @@ export namespace RunsCommandArguments {
   export interface IMaterialize {
     /** Contents path of the project's `astra.yaml`; the current project otherwise. */
     entrypoint?: string;
+    /** A folder to search for the project when no entrypoint is given. */
+    cwd?: string;
     /** Output ids, or `<universe>/<output>`; everything when empty. */
     targets?: string[];
     /** Also remake outputs made under an earlier environment. */

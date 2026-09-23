@@ -1,4 +1,5 @@
 import type { IRunRecord } from '../runs/runs-api';
+import { isPersonaUser } from '../sessions/session-activity';
 
 /** The part of a chat message that turn detection reads. */
 export interface ITurnMessage {
@@ -27,14 +28,12 @@ export interface IMaterializedOutput {
   run: IRunRecord;
 }
 
-const PERSONA_PREFIX = 'jupyter-ai-personas::';
-
-/** Whether a message was written by an agent persona rather than a person. */
+/**
+ * Whether a message was written by an agent persona rather than a person, by
+ * the rule sessions use for their activity.
+ */
 export function isAgentMessage(message: Pick<ITurnMessage, 'sender'>): boolean {
-  return (
-    message.sender.bot === true ||
-    message.sender.username.startsWith(PERSONA_PREFIX)
-  );
+  return isPersonaUser(message.sender);
 }
 
 function ordered(messages: readonly ITurnMessage[]): ITurnMessage[] {

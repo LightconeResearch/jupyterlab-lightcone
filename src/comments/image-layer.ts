@@ -14,6 +14,71 @@ const COMMENTABLE_CLASS = 'jp-jupyterlab-lightcone-Commentable';
 /** Pointer travel below which a press counts as a click, in pixels. */
 const CLICK_SLOP = 4;
 
+/** Marks a layer anchored at the scroll origin of a host that scrolls. */
+const HOST_SCROLLS_ATTRIBUTE = 'data-host-scrolls';
+
+/**
+ * Whether a node is, or lies inside, a comment layer. Layers observe their
+ * host's content; their own nodes and those of a sibling layer on the same
+ * host are not content, and reacting to them would have two layers redraw
+ * each other on every frame.
+ */
+export function inCommentLayer(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return !!element?.closest(`.${COMMENT_LAYER_CLASS}`);
+}
+
+/** Set an element's text only when it differs, sparing a DOM mutation. */
+export function setText(element: HTMLElement, text: string): void {
+  if (element.textContent !== text) {
+    element.textContent = text;
+  }
+}
+
+/** Set an attribute only when it differs, sparing a DOM mutation. */
+export function setAttribute(
+  element: HTMLElement,
+  name: string,
+  value: string
+): void {
+  if (element.getAttribute(name) !== value) {
+    element.setAttribute(name, value);
+  }
+}
+
+/**
+ * Keep a layer in its host and return the viewport point its children are
+ * positioned from.
+ *
+ * Most hosts do not scroll themselves (a record tab or a Markdown preview
+ * scrolls an inner element), so the layer covers the host's box and clips to
+ * it. A host that scrolls its own content, like the image viewer, carries an
+ * absolutely positioned child along with that content: the layer is then a
+ * zero-size anchor at the scroll origin, and the host clips what it holds.
+ * Measuring from the layer itself is right in both cases.
+ */
+export function anchorLayer(
+  host: HTMLElement,
+  layer: HTMLElement
+): { left: number; top: number } {
+  // React clears the host's children on its first render, taking the layer
+  // with it; put it back beside the rendered content.
+  if (layer.parentElement !== host) {
+    host.appendChild(layer);
+  }
+  const style = window.getComputedStyle(host);
+  const scrolls = /\b(auto|scroll)\b/.test(
+    `${style.overflow} ${style.overflowX} ${style.overflowY}`
+  );
+  if (scrolls) {
+    setAttribute(layer, HOST_SCROLLS_ATTRIBUTE, '');
+  } else {
+    layer.removeAttribute(HOST_SCROLLS_ATTRIBUTE);
+  }
+  const origin = layer.getBoundingClientRect();
+  return { left: origin.left, top: origin.top };
+}
+
 export interface IImageLayerOptions {
   /** The widget node the layer covers; it becomes a positioned container. */
   host: HTMLElement;
@@ -55,7 +120,7 @@ export class ImageCommentLayer implements IDisposable {
     this._resizes = new ResizeObserver(this.schedule);
     this._resizes.observe(host);
     this._mutations = new MutationObserver(records => {
-      if (records.some(record => !this._layer.contains(record.target))) {
+      if (records.some(record => !inCommentLayer(record.target))) {
         this.schedule();
       }
     });
@@ -129,14 +194,8 @@ export class ImageCommentLayer implements IDisposable {
   }
 
   private render(): void {
-    const { host } = this.options;
-    // React clears the host's children on its first render, taking the layer
-    // with it; put it back beside the rendered content.
-    if (!this._layer.isConnected) {
-      host.appendChild(this._layer);
-    }
+    const origin = anchorLayer(this.options.host, this._layer);
     const images = Array.from(this.options.selectImages());
-    const hostRect = host.getBoundingClientRect();
     const seen = new Set<HTMLImageElement>();
     for (const image of images) {
       seen.add(image);
@@ -159,8 +218,8 @@ export class ImageCommentLayer implements IDisposable {
       if (!visible) {
         continue;
       }
-      frame.style.left = `${rect.left - hostRect.left}px`;
-      frame.style.top = `${rect.top - hostRect.top}px`;
+      frame.style.left = `${rect.left - origin.left}px`;
+      frame.style.top = `${rect.top - origin.top}px`;
       frame.style.width = `${rect.width}px`;
       frame.style.height = `${rect.height}px`;
       this.renderPins(image, frame);
@@ -193,9 +252,10 @@ export class ImageCommentLayer implements IDisposable {
         pin.style.left = `${comment.anchor.x}%`;
         pin.style.top = `${comment.anchor.y}%`;
       }
-      pin.textContent = labelGlyph(comment.label);
-      pin.title = comment.text;
-      pin.setAttribute(
+      setText(pin, labelGlyph(comment.label));
+      setAttribute(pin, 'title', comment.text);
+      setAttribute(
+        pin,
         'aria-label',
         `Comment ${comment.label}: ${comment.text}`
       );
@@ -289,6 +349,14 @@ export class ImageCommentLayer implements IDisposable {
       const current = this._comments.find(item => item.id === comment.id);
       if (drag.moved) {
         if (current) {
+          // Keep the pin where it was dropped while the move is saved: a
+          // redraw before then would otherwise put it back. A failed save
+          // hands the layer the stored comments again.
+          this._comments = this._comments.map(item =>
+            item.id === current.id
+              ? { ...item, anchor: { ...item.anchor, x: drag.x, y: drag.y } }
+              : item
+          );
           this.options.onPinMoved(current, drag.x, drag.y);
         }
       } else if (current) {

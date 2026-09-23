@@ -1,4 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react';
 import {
   showErrorMessage,
   ReactWidget,
@@ -6,6 +12,7 @@ import {
 } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import type { CommandRegistry } from '@lumino/commands';
+import type { Message } from '@lumino/messaging';
 import { Signal, type ISignal } from '@lumino/signaling';
 import {
   PaperDetail,
@@ -65,9 +72,11 @@ import {
   historyTrail,
   pushHistory,
   rememberScroll,
+  selectEntryVersion,
   stepHistory,
   type IElementHistory
 } from './versions/element-history';
+import { renderKeepingFocus } from './versions/focus-restore';
 import { restoreScrollOffset } from './versions/scroll-restore';
 import {
   useOutputVersioning,
@@ -291,13 +300,20 @@ function OutputRecordDetail({
     data,
     record
   );
+  // The tab owns the selected version: an open naming a version, the
+  // stepper and the history all move the same selection.
+  const selectVersion = useCallback(
+    (commit: string | undefined) => widget.selectVersion(commit),
+    [widget]
+  );
   const versioning = useOutputVersioning(
     contents,
     entrypoint,
     data,
     record,
     status,
-    widget.requestedVersion
+    widget.selectedVersion,
+    selectVersion
   );
   const universe = data.document.universe.universeId;
   return (
@@ -596,7 +612,11 @@ function DetailBody({
 
 /** What `display` may say beyond the reference itself. */
 export interface IDisplayOptions {
-  /** Show this committed version of an output first. */
+  /**
+   * Show this committed version of the output, replacing the version the tab
+   * showed for it; without one, a tab already showing the record keeps its
+   * selection.
+   */
   versionCommit?: string;
 }
 
@@ -634,7 +654,10 @@ export class ElementWidget extends ReactWidget {
     return this._history;
   }
 
-  /** Emitted after the tab moves to another reference. */
+  /**
+   * Emitted after the tab's current entry changes: the tab moved to another
+   * reference, or the output it shows moved to another committed version.
+   */
   get historyChanged(): ISignal<this, void> {
     return this._historyChanged;
   }
@@ -647,9 +670,25 @@ export class ElementWidget extends ReactWidget {
     return canGoForward(this._history);
   }
 
-  /** The output version the current entry asked to show first, if any. */
-  get requestedVersion(): string | undefined {
+  /**
+   * The committed output version this tab shows (a full or abbreviated
+   * commit); undefined while it follows the newest version.
+   */
+  get selectedVersion(): string | undefined {
     return currentEntry(this._history)?.versionCommit;
+  }
+
+  /**
+   * Show another committed version of the current output; undefined returns
+   * to the newest. The choice belongs to the current history entry, so Back,
+   * Forward, "Open in new tab" and a restored layout keep it.
+   */
+  selectVersion(commit: string | undefined): void {
+    const next = selectEntryVersion(this._history, commit);
+    if (next === this._history) return;
+    this._history = next;
+    this.update();
+    this._historyChanged.emit();
   }
 
   /** Update retention without changing the displayed record or its live data. */
@@ -723,8 +762,20 @@ export class ElementWidget extends ReactWidget {
   dispose(): void {
     if (this.isDisposed) return;
     this._theme.dispose();
-    Signal.clearData(this);
+    // Widget.dispose emits `disposed` before it clears this widget's signals.
     super.dispose();
+  }
+
+  /**
+   * Showing another record replaces the body that held focus (the followed
+   * link, or the Back button); keep focus in the tab so that Alt+←/→ still
+   * reach it.
+   */
+  protected onUpdateRequest(msg: Message): void {
+    renderKeepingFocus(this.node, () => {
+      super.onUpdateRequest(msg);
+      return this.renderPromise;
+    });
   }
 
   private _navigate(

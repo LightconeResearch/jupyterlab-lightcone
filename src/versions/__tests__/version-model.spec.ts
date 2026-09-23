@@ -6,6 +6,7 @@ import {
   formatBytes,
   formatNumber,
   isImageFormat,
+  METRIC_LEAF_LIMIT,
   metricDeltas,
   outputFormat,
   relativeTime,
@@ -16,6 +17,7 @@ import {
   stepVersion,
   tableShape,
   tableShapeDiff,
+  tableShapeFromRows,
   versionPosition
 } from '../version-model';
 import type { IOutputVersion } from '../versions-api';
@@ -97,14 +99,15 @@ describe('version stepper', () => {
 
 describe('metric deltas', () => {
   it('compares numeric leaves of scalars and nested documents', () => {
-    expect(metricDeltas(1, 1.5)).toEqual([
-      { key: 'value', older: 1, newer: 1.5, delta: 0.5 }
-    ]);
+    expect(metricDeltas(1, 1.5)).toEqual({
+      deltas: [{ key: 'value', older: 1, newer: 1.5, delta: 0.5 }],
+      truncated: false
+    });
     expect(
       metricDeltas(
         { value: 0.3, uncertainty: 0.05, unit: 'mag', nested: { a: 1 } },
         { value: 0.31, uncertainty: 0.05, nested: { a: 2, b: 3 }, list: [4] }
-      )
+      ).deltas
     ).toEqual([
       { key: 'value', older: 0.3, newer: 0.31, delta: expect.closeTo(0.01) },
       { key: 'uncertainty', older: 0.05, newer: 0.05, delta: 0 },
@@ -112,10 +115,30 @@ describe('metric deltas', () => {
       { key: 'nested.b', older: undefined, newer: 3, delta: undefined },
       { key: 'list.0', older: undefined, newer: 4, delta: undefined }
     ]);
-    expect(metricDeltas({ value: '12.5' }, { value: 'text' })).toEqual([
+    expect(metricDeltas({ value: '12.5' }, { value: 'text' }).deltas).toEqual([
       { key: 'value', older: 12.5, newer: undefined, delta: undefined }
     ]);
-    expect(metricDeltas(null, 'abc')).toEqual([]);
+    expect(metricDeltas(null, 'abc')).toEqual({ deltas: [], truncated: false });
+  });
+
+  it('reads a bounded number of leaves from a large document, promptly', () => {
+    // A JSON artifact near the 2 MB preview limit holds ~100k numbers.
+    const older = Array.from({ length: 100_000 }, (_, index) => index);
+    const newer = { rows: older.map(value => ({ x: value + 1 })) };
+    const started = Date.now();
+    const result = metricDeltas(older, newer);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result.truncated).toBe(true);
+    expect(result.deltas).toHaveLength(2 * METRIC_LEAF_LIMIT);
+    expect(result.deltas[0]).toEqual({
+      key: 'rows.0.x',
+      older: undefined,
+      newer: 1,
+      delta: undefined
+    });
+    const small = metricDeltas([1, 2, 3], [1, 2, 4], 2);
+    expect(small.truncated).toBe(true);
+    expect(small.deltas.map(delta => delta.key)).toEqual(['0', '1']);
   });
 
   it('formats numbers for reading', () => {
@@ -141,6 +164,22 @@ describe('table shapes', () => {
       rows: 0,
       truncated: false
     });
+  });
+
+  it('reads the shape of a JSON array of rows', () => {
+    expect(
+      tableShapeFromRows([
+        { z: 1, redshift: 0.1 },
+        { z: 2, mu: 35.2 }
+      ])
+    ).toEqual({ headers: ['z', 'redshift', 'mu'], rows: 2, truncated: false });
+    expect(tableShapeFromRows([])).toEqual({
+      headers: [],
+      rows: 0,
+      truncated: false
+    });
+    expect(tableShapeFromRows({ value: 1 })).toBeUndefined();
+    expect(tableShapeFromRows([1, 2])).toBeUndefined();
   });
 
   it('reports added, removed and reordered columns and the row delta', () => {
@@ -222,6 +261,36 @@ describe('run view', () => {
     expect(runView(null, undefined)).toBeUndefined();
     expect(sandboxLine({ hermeticity: 'seatbelt' })).toBe('seatbelt');
     expect(sandboxLine({})).toBeUndefined();
+  });
+
+  it('never attributes the current sidecar to a version without a manifest', () => {
+    const older = version('a'.repeat(40), '2026-09-01T10:00:00Z', {
+      run: {
+        cmd: 'python fit_v1.py',
+        exit: 0,
+        inputs: ['data/x.csv'],
+        outputs: []
+      }
+    });
+    const view = runView(record, older)!;
+    expect(view).toMatchObject({
+      source: 'version',
+      short: 'aaaaaaa',
+      time: '2026-09-01T10:00:00Z',
+      command: 'python fit_v1.py',
+      exit: 0,
+      inputVersions: {},
+      inputs: ['data/x.csv']
+    });
+    expect(view.gitRevision).toBeUndefined();
+    expect(view.engineVersion).toBeUndefined();
+    expect(view.environmentVersion).toBeUndefined();
+    const bare = runView(
+      record,
+      version('b'.repeat(40), '2026-09-02T10:00:00Z')
+    )!;
+    expect(bare.command).toBeUndefined();
+    expect(bare.time).toBe('2026-09-02T10:00:00Z');
   });
 });
 

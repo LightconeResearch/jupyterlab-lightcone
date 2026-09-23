@@ -17,9 +17,8 @@ from jupyter_ai_persona_manager.persona_manager import _safe_process as process_
 
 from .comments import COMMENT_LOCKS, deliver_comments, project_directory, timestamp
 from .projects import CURRENT_PROJECT, chat_project, project_entrypoint
-
-SESSION_ACTIVITY = "lightcone_session_activity"
-"""The web application setting recording, per chat Contents path, whether an agent is busy."""
+# The session listing reads this setting; one constant keeps writer and reader agreed.
+from .sessions import SESSION_ACTIVITY
 
 COMMENTS_METADATA_KEY = "lightcone"
 """The message metadata entry under which the composer lists the comments it sends."""

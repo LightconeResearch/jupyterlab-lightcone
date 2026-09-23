@@ -4,12 +4,20 @@ import {
   formatRelativeTime,
   groupLauncherItems,
   homeMode,
+  isLightconeCategory,
+  LAUNCHER_CATEGORY,
+  launcherCategory,
   outputKindLabel,
   sessionActivity,
   sessionSubtitle,
   summarizeFreshness
 } from '../home-model';
-import { mergePersonas, PERSONAS_EVENT_SCHEMA_ID } from '../personas';
+import {
+  knownPersona,
+  mergePersonas,
+  parsePersonas,
+  PERSONAS_EVENT_SCHEMA_ID
+} from '../personas';
 
 const NOW = new Date('2026-09-23T12:00:00Z');
 
@@ -119,19 +127,37 @@ describe('groupLauncherItems', () => {
         { command: 'terminal:create-new' },
         {
           command: 'jupyterlab_lightcone:open-inventory',
-          category: 'Lightcone Lab · p'
+          category: launcherCategory('p')
         }
       ],
       registry(),
       '',
       {
         labels: { notebook: 'Cahier', console: 'Console', other: 'Autre' },
-        exclude: item => (item.category ?? '').startsWith('Lightcone Lab')
+        exclude: item => isLightconeCategory(item.category)
       }
     );
     expect(groups).toEqual([
       { category: 'Autre', items: [{ command: 'terminal:create-new' }] }
     ]);
+  });
+});
+
+describe('launcher categories', () => {
+  it('names the cards outside and inside a project', () => {
+    expect(launcherCategory(null)).toBe(LAUNCHER_CATEGORY);
+    expect(launcherCategory('')).toBe('Lightcone Lab · /');
+    expect(launcherCategory('work/hubble')).toBe('Lightcone Lab · work/hubble');
+  });
+
+  it('recognizes exactly the categories Lightcone produces', () => {
+    expect(isLightconeCategory(launcherCategory(null))).toBe(true);
+    expect(isLightconeCategory(launcherCategory(''))).toBe(true);
+    expect(isLightconeCategory(launcherCategory('p'))).toBe(true);
+    expect(isLightconeCategory('Lightcone Labs Extras')).toBe(false);
+    expect(isLightconeCategory('Lightcone Laboratory')).toBe(false);
+    expect(isLightconeCategory('Other')).toBe(false);
+    expect(isLightconeCategory(undefined)).toBe(false);
   });
 });
 
@@ -298,5 +324,41 @@ describe('mergePersonas', () => {
         personas: [{ id: 'jupyter-ai-personas::claude', name: 'Claude' }]
       })
     ).toBeUndefined();
+  });
+});
+
+describe('parsePersonas', () => {
+  it('keeps well-formed entries once, in order', () => {
+    expect(
+      parsePersonas([
+        { id: 'jupyter-ai-personas::codex', name: 'Codex' },
+        { id: '', name: 'Nameless' },
+        { id: 'jupyter-ai-personas::claude' },
+        'text',
+        { id: 'jupyter-ai-personas::claude', name: 'Claude' },
+        { id: 'jupyter-ai-personas::codex', name: 'Codex again' }
+      ])
+    ).toEqual([
+      { id: 'jupyter-ai-personas::codex', name: 'Codex' },
+      { id: 'jupyter-ai-personas::claude', name: 'Claude' }
+    ]);
+  });
+
+  it('reads anything else as no personas', () => {
+    expect(parsePersonas(undefined)).toEqual([]);
+    expect(parsePersonas({ id: 'x', name: 'X' })).toEqual([]);
+  });
+});
+
+describe('knownPersona', () => {
+  const personas = [{ id: 'jupyter-ai-personas::codex', name: 'Codex' }];
+
+  it('keeps an advertised persona and falls back to the default otherwise', () => {
+    expect(knownPersona(personas, 'jupyter-ai-personas::codex')).toBe(
+      'jupyter-ai-personas::codex'
+    );
+    expect(knownPersona(personas, 'jupyter-ai-personas::gone')).toBe('');
+    expect(knownPersona([], 'jupyter-ai-personas::codex')).toBe('');
+    expect(knownPersona(personas, '')).toBe('');
   });
 });

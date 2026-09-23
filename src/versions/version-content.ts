@@ -6,13 +6,14 @@ import {
   type ArtifactPreviewData
 } from '@astra-spec/ui/lib';
 import { ServerConnection } from '@jupyterlab/services';
-import { RequestError } from '../api';
+import { isRecord, RequestError } from '../api';
 import { readBoundedText } from '../artifact-access';
 import {
   delimiterFor,
   isImageFormat,
   outputFormat,
   tableShape,
+  tableShapeFromRows,
   type ITableShape
 } from './version-model';
 import { versionContentUrl, type IOutputVersion } from './versions-api';
@@ -30,10 +31,6 @@ export interface IVersionTarget {
   entrypoint: string;
   universe: string;
   outputId: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** Read up to `maxBytes` of a version's content as text. */
@@ -76,13 +73,26 @@ export async function readVersionJson(
   return JSON.parse(sample.text) as unknown;
 }
 
-/** The shape of a delimited table version, read whole when small enough. */
+/**
+ * The shape of a table version: a delimited file read whole when small
+ * enough, or a JSON array of rows within the JSON preview limit.
+ */
 export async function readVersionTableShape(
   target: IVersionTarget,
   commit: string,
-  delimiter: string,
+  format: string,
   signal?: AbortSignal
 ): Promise<ITableShape> {
+  if (format === 'json') {
+    const shape = tableShapeFromRows(
+      await readVersionJson(target, commit, signal)
+    );
+    if (!shape) throw new Error('The file is not a JSON table.');
+    return shape;
+  }
+  const delimiter = delimiterFor(format);
+  if (delimiter === undefined)
+    throw new Error(`No table shape is available for .${format} artifacts.`);
   const sample = await readVersionText(
     target,
     commit,
@@ -151,7 +161,9 @@ export async function previewForVersion(
     try {
       value = await readVersionJson(target, version.commit, signal);
     } catch (error) {
-      if (error instanceof RequestError) throw error;
+      // Only a parse failure means the bytes are not JSON; a request error or
+      // a file past the limit (its size unknown until read) says so itself.
+      if (!(error instanceof SyntaxError)) throw error;
       return {
         kind: 'unavailable',
         reason: `The file is not a JSON ${output.type}.`
@@ -184,15 +196,18 @@ export async function previewForVersion(
 /** How two versions of an output can be compared. */
 export type CompareMode = 'image' | 'metric' | 'table' | 'none';
 
+/**
+ * Figures compare as images, JSON metrics by numeric deltas, and tables
+ * (CSV, TSV or a JSON array of rows) by shape: rows and changed columns.
+ */
 export function compareModeFor(output: ResolvedOutput): CompareMode {
   const format = outputFormat(output);
   if (output.type === 'figure' && isImageFormat(format)) return 'image';
+  if (output.type === 'metric' && format === 'json') return 'metric';
   if (
-    format === 'json' &&
-    (output.type === 'metric' || output.type === 'table')
+    output.type === 'table' &&
+    (format === 'json' || delimiterFor(format) !== undefined)
   )
-    return 'metric';
-  if (output.type === 'table' && delimiterFor(format) !== undefined)
     return 'table';
   return 'none';
 }

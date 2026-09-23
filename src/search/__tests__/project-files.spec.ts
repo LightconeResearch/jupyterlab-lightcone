@@ -50,11 +50,10 @@ describe('walkProjectFiles', () => {
       expect(files[2]).toEqual({
         path: 'work/src/plot.py',
         name: 'plot.py',
-        directory: 'src',
-        depth: 2
+        directory: 'src'
       });
       expect(files[3].directory).toBe('results/baseline');
-      expect(files[4].depth).toBe(4);
+      expect(files[4].directory).toBe('a/b/c');
       const listed = get.mock.calls.map(([path]) => path);
       expect(listed).not.toContain('work/.venv');
       expect(listed).not.toContain('work/_build');
@@ -85,6 +84,27 @@ describe('walkProjectFiles', () => {
           file => file.name
         )
       ).toEqual(['one.txt', 'three.txt', 'two.txt']);
+    } finally {
+      contents.dispose();
+    }
+  });
+
+  it('lists a bounded number of folders however many the project holds', async () => {
+    const { contents, get } = project([
+      'p/top.txt',
+      ...Array.from({ length: 10 }, (_value, index) => `p/d${index}/sub/f.txt`)
+    ]);
+    try {
+      const files = await walkProjectFiles(contents, 'p', { maxListings: 5 });
+      expect(files.map(file => file.path)).toEqual(['p/top.txt']);
+      // The root and the first four folders: without the budget, all 21.
+      expect(get.mock.calls.map(([path]) => path)).toEqual([
+        'p',
+        'p/d0',
+        'p/d1',
+        'p/d2',
+        'p/d3'
+      ]);
     } finally {
       contents.dispose();
     }

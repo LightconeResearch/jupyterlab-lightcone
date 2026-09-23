@@ -7,9 +7,7 @@ import {
   fileCandidates,
   isSurfaceKind,
   recordCandidates,
-  relativeTime,
-  sessionCandidates,
-  sessionCaption
+  sessionCandidates
 } from '../search-candidates';
 
 const NOW = Date.parse('2026-09-23T12:00:00Z');
@@ -60,27 +58,9 @@ function session(overrides: Partial<ISessionInfo> = {}): ISessionInfo {
   };
 }
 
-describe('relativeTime', () => {
-  it.each([
-    ['2026-09-23T11:59:30Z', 'just now'],
-    ['2026-09-23T11:35:00Z', '25 min ago'],
-    ['2026-09-23T09:00:00Z', '3 h ago'],
-    ['2026-09-22T09:00:00Z', 'yesterday'],
-    ['2026-09-20T09:00:00Z', '3 days ago'],
-    ['2026-09-01T09:00:00Z', '2026-09-01']
-  ])('describes %s as %s', (iso, expected) => {
-    expect(relativeTime(iso, NOW)).toBe(expected);
-  });
-
-  it('is empty for an unreadable date and never negative', () => {
-    expect(relativeTime('later', NOW)).toBe('');
-    expect(relativeTime('2026-09-23T13:00:00Z', NOW)).toBe('just now');
-  });
-});
-
 describe('sessionCandidates', () => {
-  it('labels sessions by title with activity, agent and age in the caption', () => {
-    const [idle, working, anonymous] = sessionCandidates(
+  it('labels sessions by title with the subtitle Home shows as the caption', () => {
+    const [idle, working, anonymous, undated] = sessionCandidates(
       [
         session(),
         session({
@@ -89,7 +69,8 @@ describe('sessionCandidates', () => {
           activity: 'working',
           modified: '2026-09-23T11:59:40Z'
         }),
-        session({ path: 'work/chats/untitled.chat', lastAgent: null })
+        session({ path: 'work/chats/untitled.chat', lastAgent: null }),
+        session({ path: 'work/chats/undated.chat', modified: 'unknown' })
       ],
       { now: NOW }
     );
@@ -102,10 +83,26 @@ describe('sessionCandidates', () => {
       rank: 0,
       action: { type: 'session', path: 'work/chats/hubble.chat' }
     });
-    expect(working.caption).toBe('working · Codex · just now');
+    expect(working.caption).toBe('Codex · working · just now');
     expect(working.rank).toBe(1);
     expect(anonymous.caption).toBe('2 h ago');
-    expect(sessionCaption(session({ modified: 'unknown' }), NOW)).toBe('Codex');
+    expect(undated.caption).toBe('Codex');
+  });
+
+  it("prefers the workbench's live activity, including a session waiting for input", () => {
+    const live: Record<string, 'working' | 'idle' | 'attention'> = {
+      'work/chats/hubble.chat': 'attention',
+      'work/chats/done.chat': 'idle'
+    };
+    const [waiting, finished] = sessionCandidates(
+      [
+        session(),
+        session({ path: 'work/chats/done.chat', activity: 'working' })
+      ],
+      { now: NOW, activity: path => live[path] }
+    );
+    expect(waiting.caption).toBe('Codex · needs your input · 2 h ago');
+    expect(finished.caption).toBe('Codex · 2 h ago');
   });
 
   it('keeps only the newest sessions up to the limit', () => {
@@ -179,13 +176,8 @@ describe('fileCandidates', () => {
     const icon = { render: () => undefined };
     const [root, nested] = fileCandidates(
       [
-        { path: 'work/README.md', name: 'README.md', directory: '', depth: 1 },
-        {
-          path: 'work/src/plot.py',
-          name: 'plot.py',
-          directory: 'src',
-          depth: 2
-        }
+        { path: 'work/README.md', name: 'README.md', directory: '' },
+        { path: 'work/src/plot.py', name: 'plot.py', directory: 'src' }
       ],
       path => (path.endsWith('.py') ? icon : undefined)
     );
@@ -277,13 +269,5 @@ describe('commandCandidates', () => {
     expect(pin.isEnabled?.()).toBe(true);
     disable();
     expect(pin.isEnabled?.()).toBe(false);
-  });
-
-  it('honours a different prefix', async () => {
-    const { commands } = registry();
-    const candidates = await commandCandidates(commands, {
-      prefix: 'docmanager:'
-    });
-    expect(candidates.map(candidate => candidate.label)).toEqual(['Open']);
   });
 });

@@ -13,12 +13,12 @@ const RENDERED_MESSAGE_SELECTOR = '.jp-chat-rendered-message';
 
 /** What the link fixer needs from its host. */
 export interface IChatLinkHost {
-  /** Absolute filesystem path of the server root, '' when unknown. */
-  serverRoot: string;
+  /** Absolute filesystem paths naming the server root; empty when unknown. */
+  serverRoots: readonly string[];
   /** The URL every `files/` route hangs off. */
   baseUrl: string;
   /** The Contents directory relative links in this chat resolve against. */
-  baseDirectory(chatPath: string): Promise<string>;
+  baseDirectory(panel: IChatPanel): Promise<string>;
   /** Open a Contents path beside the chat. */
   open(path: string, panel: IChatPanel): Promise<void>;
 }
@@ -34,9 +34,9 @@ export function attachChatLinks(
 ): IDisposable {
   let disposed = false;
   const context = async (): Promise<IChatPathContext> => ({
-    serverRoot: host.serverRoot,
+    serverRoots: host.serverRoots,
     baseDirectory: await host
-      .baseDirectory(panel.model.name)
+      .baseDirectory(panel)
       .catch(() => PathExt.dirname(panel.model.name))
   });
 
@@ -58,7 +58,7 @@ export function attachChatLinks(
     const reference = anchor.getAttribute('href') ?? '';
     // Decide synchronously from the link alone whether it is ours; the
     // browser must not navigate away while the project is being resolved.
-    if (!isFileLink(reference, host.serverRoot)) {
+    if (!isFileLink(reference, host.serverRoots)) {
       return;
     }
     event.preventDefault();
@@ -103,7 +103,7 @@ export function attachChatLinks(
     const inMessages = images.filter(
       image =>
         image.closest(RENDERED_MESSAGE_SELECTOR) &&
-        isFileLink(image.getAttribute('src') ?? '', host.serverRoot)
+        isFileLink(image.getAttribute('src') ?? '', host.serverRoots)
     );
     if (!inMessages.length) {
       return;

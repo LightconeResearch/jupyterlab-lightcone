@@ -4,13 +4,38 @@ import type { IDisposable } from '@lumino/disposable';
 import { Signal, type ISignal } from '@lumino/signaling';
 import { h, type VirtualElement } from '@lumino/virtualdom';
 import { CommandPalette } from '@lumino/widgets';
-import { isSurfaceKind, type ISearchCandidate } from './search-candidates';
+import {
+  isSurfaceKind,
+  SEARCH_SECTION_ORDER,
+  type ISearchCandidate
+} from './search-candidates';
 
 /** The candidate groups, each replaced as a whole when its source answers. */
 export type SearchGroup = 'sessions' | 'records' | 'files' | 'commands';
 
 /** Root class of the palette; the modal wrapper adds `-Modal`. */
 export const SEARCH_CLASS = 'jp-jupyterlab-lightcone-Search';
+
+/** U+2460 CIRCLED DIGIT ONE; section `n` is marked with the n-th circled digit. */
+const CIRCLED_ONE = 0x2460;
+
+/** A section marker and its separating space at the start of a category. */
+const SECTION_MARKER = /^[\u2460-\u2473] /;
+
+/**
+ * The category a candidate's palette item is filed under. Lumino sorts the
+ * empty-query overview, and equally good matches, by comparing category text
+ * before rank, which would list Commands first and Sessions last. A leading
+ * circled digit collates as its digit, so sections follow
+ * `SEARCH_SECTION_ORDER`; it is never typed, so it matches no query, and the
+ * renderer drops it from headers.
+ */
+function sectionCategory(candidate: ISearchCandidate): string {
+  const marker = String.fromCodePoint(
+    CIRCLED_ONE + SEARCH_SECTION_ORDER[candidate.kind] - 1
+  );
+  return `${marker} ${candidate.category}`;
+}
 
 /**
  * Lumino's renderer with the caption inline after the label (JupyterLab hides
@@ -45,6 +70,18 @@ export class SearchRenderer extends CommandPalette.Renderer {
     );
   }
 
+  /** The section name without the ordering marker `sectionCategory` adds. */
+  formatHeader(data: CommandPalette.IHeaderRenderData): h.Child {
+    const offset = SECTION_MARKER.exec(data.category)?.[0].length ?? 0;
+    return super.formatHeader({
+      category: data.category.slice(offset),
+      indices:
+        data.indices
+          ?.map(index => index - offset)
+          .filter(index => index >= 0) ?? null
+    });
+  }
+
   formatEmptyMessage(data: CommandPalette.IEmptyMessageRenderData): h.Child {
     return `Nothing matches '${data.query}'`;
   }
@@ -53,13 +90,13 @@ export class SearchRenderer extends CommandPalette.Renderer {
 interface IGroupRegistration {
   registrations: IDisposable[];
   items: CommandPalette.IItem[];
-  candidates: ISearchCandidate[];
 }
 
 /**
  * A command palette over a private registry, populated with bounded candidate
  * groups. Lumino filters them by category and label as the user types; files
- * only appear once there is a query, so an empty palette reads as an overview.
+ * only appear once there is a query, so an empty palette reads as an overview,
+ * and a disabled command stays out of the results altogether.
  */
 export class SearchPalette extends CommandPalette {
   constructor(options: SearchPalette.IOptions = {}) {
@@ -86,11 +123,6 @@ export class SearchPalette extends CommandPalette {
     this.inputNode.placeholder = value;
   }
 
-  /** The candidates currently offered for a group. */
-  candidates(group: SearchGroup): readonly ISearchCandidate[] {
-    return this._groups.get(group)?.candidates ?? [];
-  }
-
   /** Replace a group's candidates; identical IDs within the group collapse. */
   setCandidates(
     group: SearchGroup,
@@ -99,7 +131,6 @@ export class SearchPalette extends CommandPalette {
     this._clearGroup(group);
     const registrations: IDisposable[] = [];
     const options: CommandPalette.IItemOptions[] = [];
-    const kept: ISearchCandidate[] = [];
     for (const candidate of candidates) {
       const command = `${group}:${candidate.id}`;
       if (this.commands.hasCommand(command)) {
@@ -113,7 +144,12 @@ export class SearchPalette extends CommandPalette {
           dataset: { kind: candidate.kind },
           describedBy: { args: { type: 'object', properties: {} } },
           isEnabled: () => candidate.isEnabled?.() ?? true,
-          isVisible: () => candidate.kind !== 'file' || this.query.length > 0,
+          // Hidden rather than greyed: a disabled row would still count as a
+          // hit, so a query matching only it would show neither rows nor the
+          // empty message (JupyterLab's modal hides disabled rows).
+          isVisible: () =>
+            (candidate.kind !== 'file' || this.query.length > 0) &&
+            (candidate.isEnabled?.() ?? true),
           execute: () => {
             this._selected.emit(candidate);
           }
@@ -121,13 +157,12 @@ export class SearchPalette extends CommandPalette {
       );
       options.push({
         command,
-        category: candidate.category,
+        category: sectionCategory(candidate),
         rank: candidate.rank
       });
-      kept.push(candidate);
     }
     const items = this.addItems(options);
-    this._groups.set(group, { registrations, items, candidates: kept });
+    this._groups.set(group, { registrations, items });
   }
 
   /** Drop every candidate, for a change of project. */

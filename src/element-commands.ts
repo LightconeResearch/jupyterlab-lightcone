@@ -66,6 +66,12 @@ export function registerElementCommands(
       /^[0-9a-f]{7,40}$/i.test(args.versionCommit)
         ? args.versionCommit
         : undefined;
+    const restoredId =
+      restoring &&
+      typeof args.widgetId === 'string' &&
+      /^lightcone-element-[a-zA-Z0-9-]+$/.test(args.widgetId)
+        ? args.widgetId
+        : undefined;
     const destination = tabs.destination(reference, sourceId);
     // A link followed inside a record navigates that tab and extends its
     // history, pinned or not; every other open looks for the record first,
@@ -74,18 +80,15 @@ export function registerElementCommands(
       sourceId && !newTab && !restoring
         ? tabs.navigable(sourceId, reference)
         : undefined;
-    if (!widget && !newTab) widget = tabs.existing(key);
-    // Restored tabs keep their own stable IDs, even when more than one was a preview.
+    // Restored tabs keep their own stable IDs, even when more than one was a
+    // preview or showed the same record ("Open in new tab").
+    if (!widget && restoredId) widget = tabs.find(restoredId);
+    if (!widget && !newTab && !restoring) widget = tabs.existing(key);
     const reused = !!widget;
     if (!widget && !restoring && !newTab)
       widget = tabs.preview(reference, destination);
     if (!widget) {
-      const id =
-        restoring &&
-        typeof args.widgetId === 'string' &&
-        /^lightcone-element-[a-zA-Z0-9-]+$/.test(args.widgetId)
-          ? args.widgetId
-          : `lightcone-element-${UUID.uuid4()}`;
+      const id = restoredId ?? `lightcone-element-${UUID.uuid4()}`;
       widget = new MainAreaWidget({
         content: new ElementWidget(
           reference,
@@ -101,6 +104,10 @@ export function registerElementCommands(
       widget.content.display(reference, key, label, { versionCommit });
       tabs.add(widget, destination, restoring);
       await tracker.add(widget);
+      const tab = widget;
+      // Back, Forward and the stepper change what the tab shows without an
+      // open; save each change so that a reload restores that record.
+      tab.content.historyChanged.connect(() => tabs.save(tab));
       widget.disposed.connect(() => tabs.sync());
     } else {
       widget.content.display(reference, key, label, { versionCommit });
@@ -248,7 +255,10 @@ export function registerElementCommands(
         ...widget.content.reference,
         widgetId: widget.id,
         pinned: widget.content.isPinned,
-        label: widget.title.label
+        label: widget.title.label,
+        ...(widget.content.selectedVersion
+          ? { versionCommit: widget.content.selectedVersion }
+          : {})
       }),
       name: widget => widget.id
     });

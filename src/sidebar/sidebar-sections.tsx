@@ -3,6 +3,7 @@ import { recordTitle, type OutputStatus } from '@astra-spec/ui/model';
 import type { TranslationBundle } from '@jupyterlab/translation';
 import {
   addIcon,
+  editIcon,
   fileIcon,
   homeIcon,
   imageIcon,
@@ -185,11 +186,14 @@ export interface ISessionsListProps {
   expanded: boolean;
   onToggle: () => void;
   onOpen: (path: string) => void;
-  /** The reference time for ages; defaults to now. */
-  now?: number;
+  /** Rename the session's chat file. */
+  onRename: (session: ISessionInfo) => void;
 }
 
-/** The project's sessions, newest first, with working and attention markers. */
+/**
+ * The project's sessions, newest first, with working and attention markers.
+ * Each row opens its session and offers a rename of its chat file.
+ */
 export function SessionsList({
   state,
   activity,
@@ -198,7 +202,7 @@ export function SessionsList({
   expanded,
   onToggle,
   onOpen,
-  now
+  onRename
 }: ISessionsListProps): React.ReactElement {
   if (!state.sessionsLoaded) {
     return <Message>{trans.__('Loading sessions…')}</Message>;
@@ -217,7 +221,7 @@ export function SessionsList({
           const marker = activity(session);
           const active = state.view.session === session.path;
           return (
-            <li key={session.path}>
+            <li key={session.path} className={`${BASE}-row`}>
               <button
                 type="button"
                 className={`${BASE}-item${active ? ' jp-mod-active' : ''}`}
@@ -241,8 +245,17 @@ export function SessionsList({
                 </span>
                 <span className={`${BASE}-title`}>{session.title}</span>
                 <span className={`${BASE}-meta`}>
-                  {relativeTime(session.modified, now)}
+                  {relativeTime(session.modified)}
                 </span>
+              </button>
+              <button
+                type="button"
+                className={`${BASE}-rowAction jp-Button`}
+                title={trans.__('Rename session')}
+                aria-label={trans.__('Rename %1', session.title)}
+                onClick={() => onRename(session)}
+              >
+                <editIcon.react tag="span" elementPosition="center" />
               </button>
             </li>
           );
@@ -306,6 +319,11 @@ export function ResultsList({
   return (
     <>
       {state.error ? <Message error>{state.error}</Message> : null}
+      {state.statusError ? (
+        <p className={`${BASE}-note`} role="status" title={state.statusError}>
+          {trans.__('Materialization status unavailable')}
+        </p>
+      ) : null}
       <ul className={`${BASE}-list`}>
         {outputs.map(output => {
           const status = statusFor(output);
@@ -334,7 +352,7 @@ export function ResultsList({
                   title={
                     status
                       ? `${status.state}${status.detail ? `: ${status.detail}` : ''}`
-                      : undefined
+                      : (state.statusError ?? trans.__('No status reported'))
                   }
                   aria-label={status?.state}
                 />
@@ -357,7 +375,10 @@ export interface IAnalysisListProps {
   onOpen: (canonicalPath: string) => void;
 }
 
-/** The analysis tree with record counts; each row opens the inventory scoped. */
+/**
+ * The analysis tree with record counts; each row opens the inventory scoped.
+ * The row the current inventory shows is marked.
+ */
 export function AnalysisList({
   state,
   rows,
@@ -371,11 +392,14 @@ export function AnalysisList({
       </Message>
     );
   }
-  const inventoryOpen = state.view.inventory === state.project?.entrypoint;
+  const scope =
+    state.view.inventory === state.project?.entrypoint
+      ? state.view.analysisPath
+      : undefined;
   return (
     <ul className={`${BASE}-tree`}>
       {rows.map(row => {
-        const active = inventoryOpen && row.depth === 0;
+        const active = row.canonicalPath === scope;
         return (
           <li key={row.canonicalPath}>
             <button

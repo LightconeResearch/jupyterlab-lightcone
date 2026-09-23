@@ -9,11 +9,13 @@ import {
   type Event
 } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
+import { PromiseDelegate } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { fileModel } from '../../__tests__/project-fixtures';
 import {
   SessionManager,
+  isComposerStamp,
   isRecordTab,
   isSessionWidget,
   personaMetadata,
@@ -59,12 +61,12 @@ class FakeInput {
 class FakeModel {
   constructor(
     public name: string,
-    readonly id = `id-${name}`
+    readonly id = `id-${name}`,
+    readonly ready = Promise.resolve(id)
   ) {}
   input = new FakeInput();
   messages: IFakeMessage[] = [];
   writers: { user: { username: string } }[] = [];
-  ready = Promise.resolve(this.id);
   writersChanged = new Signal<this, unknown>(this);
   messagesUpdated = new Signal<this, void>(this);
   messageChanged = new Signal<this, unknown>(this);
@@ -145,8 +147,15 @@ function host() {
     events: events as unknown as Event.IManager,
     translator: undefined
   });
-  const addPanel = (name: string, area: 'main' | 'sidebar' = 'main') => {
-    const panel = new FakePanel(new FakeModel(name), area);
+  const addPanel = (
+    name: string,
+    area: 'main' | 'sidebar' = 'main',
+    ready?: Promise<string>
+  ) => {
+    const model = ready
+      ? new FakeModel(name, `id-${name}`, ready)
+      : new FakeModel(name);
+    const panel = new FakePanel(model, area);
     panels.push(panel as unknown as IChatPanel);
     if (area === 'main') {
       mainWidgets.push(panel);
@@ -166,6 +175,7 @@ function host() {
     commands,
     contents,
     files,
+    tracker,
     shell,
     labShell,
     events,
@@ -205,6 +215,14 @@ beforeEach(() => {
   }
 });
 
+/** A record tab, as `element-widget.tsx` marks them. */
+function recordTab(id: string): Widget {
+  const record = new Widget();
+  record.id = id;
+  record.title.dataset = { 'lightcone-element': id };
+  return record;
+}
+
 describe('type guards', () => {
   it('recognizes main-area chat panels and record tabs', () => {
     const main = new FakePanel(new FakeModel('a.chat'));
@@ -214,8 +232,7 @@ describe('type guards', () => {
     expect(isSessionWidget(side)).toBe(false);
     expect(isSessionWidget(plain)).toBe(false);
     expect(isSessionWidget(null)).toBe(false);
-    plain.title.dataset = { 'lightcone-element': 'x' };
-    expect(isRecordTab(plain)).toBe(true);
+    expect(isRecordTab(recordTab('x'))).toBe(true);
     expect(isRecordTab(main)).toBe(false);
   });
 
@@ -223,6 +240,9 @@ describe('type guards', () => {
     expect(selectedPersona({ to_persona: 'p' })).toBe('p');
     expect(selectedPersona({ to_persona: null })).toBeNull();
     expect(selectedPersona({})).toBeNull();
+    expect(isComposerStamp({ to_persona: null })).toBe(true);
+    expect(isComposerStamp({ lightcone: { comments: [] } })).toBe(false);
+    expect(isComposerStamp(null)).toBe(false);
     expect(personaMetadata('p')).toEqual({
       to_persona: 'p',
       model: { id: null, settings: {} },
@@ -232,8 +252,9 @@ describe('type guards', () => {
 });
 
 describe('SessionManager.createAndOpen', () => {
-  it('names the chat from the first message, opens it beside the current work and sends', async () => {
+  it('names the chat from the first message, opens it in the current group and sends', async () => {
     const h = host();
+    jest.useFakeTimers();
     try {
       const home = new Widget();
       home.id = 'home';
@@ -242,7 +263,7 @@ describe('SessionManager.createAndOpen', () => {
         firstMessage: 'Plot the Hubble diagram\nwith error bars',
         persona: 'jupyter-ai-personas::pkg::Persona'
       });
-      await flush();
+      await jest.advanceTimersByTimeAsync(10);
       expect(h.created).toEqual([
         { path: 'p/chats', name: 'plot-the-hubble-diagram' }
       ]);
@@ -250,22 +271,26 @@ describe('SessionManager.createAndOpen', () => {
         {
           path: 'p/chats/plot-the-hubble-diagram.chat',
           factory: 'Chat',
-          options: { mode: 'tab-after', activate: true, ref: 'home' }
+          options: { mode: 'tab-after', ref: 'home', activate: true }
         }
       ]);
       const panel = h.panels[0] as unknown as FakePanel;
-      // The persona picker stamps its default once its toolbar mounts.
+      expect(panel.model.input.send).not.toHaveBeenCalled();
+      // The persona picker stamps "No one" once its toolbar mounts; with an
+      // explicit persona that stamp is all the wait needs.
       panel.model.input.updateMetadata({ to_persona: null });
+      await jest.advanceTimersByTimeAsync(10);
+      expect(panel.model.input.send).toHaveBeenCalledWith(
+        'Plot the Hubble diagram\nwith error bars'
+      );
       expect(await pending).toBe('p/chats/plot-the-hubble-diagram.chat');
       expect(panel.model.input.metadata).toEqual(
         personaMetadata('jupyter-ai-personas::pkg::Persona')
       );
       expect(h.chatCommands.onSubmit).toHaveBeenCalledWith(panel.model.input);
-      expect(panel.model.input.send).toHaveBeenCalledWith(
-        'Plot the Hubble diagram\nwith error bars'
-      );
       expect(panel.model.input.focus).toHaveBeenCalled();
     } finally {
+      jest.useRealTimers();
       h.dispose();
     }
   });
@@ -286,15 +311,44 @@ describe('SessionManager.createAndOpen', () => {
         to_persona: 'default-persona'
       });
       expect(panel.model.input.send).toHaveBeenCalledWith('Continue the plan');
-      expect(h.opened[0]).toMatchObject({
-        options: { mode: 'tab-after', activate: true }
-      });
+      // An empty main area opens the session plainly.
+      expect(h.opened[0]).toMatchObject({ options: { activate: true } });
+      expect(h.opened[0]).not.toHaveProperty('options.mode');
 
+      // The next session joins the open session's tab group.
       await h.manager.createAndOpen('p/astra.yaml');
       expect(h.created[1]).toEqual({ path: 'p/chats', name: 'untitled' });
+      expect(h.opened[1]).toMatchObject({
+        options: { mode: 'tab-after', ref: panel.id, activate: true }
+      });
       const empty = h.panels[1] as unknown as FakePanel;
       expect(empty.model.input.send).not.toHaveBeenCalled();
     } finally {
+      h.dispose();
+    }
+  });
+
+  it('waits past a "No one" stamp for the picker to choose a sole persona', async () => {
+    const h = host();
+    jest.useFakeTimers();
+    try {
+      const pending = h.manager.createAndOpen('p/astra.yaml', {
+        firstMessage: 'Hello'
+      });
+      await jest.advanceTimersByTimeAsync(10);
+      const panel = h.panels[0] as unknown as FakePanel;
+      panel.model.input.updateMetadata({ to_persona: null });
+      await jest.advanceTimersByTimeAsync(300);
+      expect(panel.model.input.send).not.toHaveBeenCalled();
+      // The persona list arrives and the picker selects the only persona.
+      panel.model.input.updateMetadata(personaMetadata('sole'));
+      await jest.advanceTimersByTimeAsync(10);
+      await pending;
+      expect(panel.model.input.metadata).toEqual(personaMetadata('sole'));
+      expect(panel.model.input.send).toHaveBeenCalledWith('Hello');
+      expect(Notification.manager.notifications).toHaveLength(0);
+    } finally {
+      jest.useRealTimers();
       h.dispose();
     }
   });
@@ -346,6 +400,41 @@ describe('SessionManager.createAndOpen', () => {
     }
   });
 
+  it('reports a chat file that was not created, and a session that did not open', async () => {
+    const h = host();
+    const commands = new CommandRegistry();
+    const opened: unknown[] = [];
+    commands.addCommand('jupyterlab-chat:create', { execute: () => null });
+    commands.addCommand('docmanager:open', {
+      execute: args => {
+        opened.push(args);
+        return undefined;
+      }
+    });
+    const manager = new SessionManager({
+      commands,
+      shell: h.shell as unknown as JupyterFrontEnd.IShell,
+      contents: h.contents,
+      tracker: h.tracker,
+      chatCommands: null,
+      labShell: null,
+      events: null
+    });
+    try {
+      await expect(manager.createAndOpen('p/astra.yaml')).rejects.toThrow(
+        'The session file could not be created.'
+      );
+      expect(opened).toEqual([]);
+      await expect(manager.openSession('p/chats/plan.chat')).rejects.toThrow(
+        'The session did not open. Check that Jupyter AI is enabled.'
+      );
+      expect(opened).toHaveLength(1);
+    } finally {
+      manager.dispose();
+      h.dispose();
+    }
+  });
+
   it('refuses without Jupyter Chat', async () => {
     const h = host();
     try {
@@ -381,12 +470,38 @@ describe('SessionManager.openSession', () => {
       expect(session.model.input.focus).toHaveBeenCalled();
       expect(h.opened).toEqual([]);
 
-      const record = new Widget();
-      record.id = 'record';
-      record.title.dataset = { 'lightcone-element': record.id };
-      h.shell.currentWidget = record;
+      h.shell.currentWidget = recordTab('record');
       await h.manager.openSession('p/chats/other.chat');
-      expect(h.opened[0]).toMatchObject({ options: { ref: session.id } });
+      expect(h.opened[0]).toMatchObject({
+        options: { mode: 'tab-after', ref: session.id }
+      });
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('opens the first session left of a result instead of among the results', async () => {
+    const h = host();
+    try {
+      h.shell.currentWidget = recordTab('record');
+      await h.manager.openSession('p/chats/plan.chat');
+      expect(h.opened).toEqual([
+        {
+          path: 'p/chats/plan.chat',
+          factory: 'Chat',
+          options: { mode: 'split-left', ref: 'record', activate: true }
+        }
+      ]);
+
+      // A closed session no longer anchors new ones.
+      const first = h.panels[0] as unknown as FakePanel;
+      first.dispose();
+      h.panels.splice(0, 1);
+      h.mainWidgets.splice(h.mainWidgets.indexOf(first), 1);
+      await h.manager.openSession('p/chats/other.chat');
+      expect(h.opened[1]).toMatchObject({
+        options: { mode: 'split-left', ref: 'record' }
+      });
     } finally {
       h.dispose();
     }
@@ -448,7 +563,9 @@ describe('SessionManager activity', () => {
 
   it('asks for attention on a pending permission unless the user is watching', async () => {
     const h = host();
+    const hasFocus = jest.spyOn(document, 'hasFocus').mockReturnValue(true);
     try {
+      expect(document.visibilityState).toBe('visible');
       const session = h.addPanel('p/chats/plan.chat');
       session.model.messages = [
         { id: '1', body: 'Fit the model', sender: human, time: 1 },
@@ -463,10 +580,27 @@ describe('SessionManager activity', () => {
       h.shell.currentWidget = session;
       session.model.messagesUpdated.emit();
       expect(h.manager.activity('p/chats/plan.chat')).toBe('attention');
-      // While the session is the current widget, the card itself is enough.
-      const watching = document.hasFocus();
-      expect(Notification.manager.notifications.length).toBe(watching ? 0 : 1);
+      // While the user looks at the session, the permission card is enough.
+      expect(Notification.manager.notifications).toHaveLength(0);
 
+      // The same tab in a window without focus is not being watched.
+      hasFocus.mockReturnValue(false);
+      session.model.messages = [
+        ...session.model.messages.slice(0, 1),
+        { id: '2', body: 'done', sender: agent, time: 2 }
+      ];
+      session.model.messagesUpdated.emit();
+      expect(
+        Notification.manager.notifications.map(item => [
+          item.type,
+          item.message
+        ])
+      ).toEqual([['info', 'Fit the model finished']]);
+      for (const notification of [...Notification.manager.notifications]) {
+        Notification.manager.dismiss(notification.id);
+      }
+
+      hasFocus.mockReturnValue(true);
       h.shell.currentWidget = null;
       session.model.messages = [
         ...session.model.messages,
@@ -481,6 +615,8 @@ describe('SessionManager activity', () => {
       ];
       session.model.messagesUpdated.emit();
       // Attention persists: no second notification for the same state.
+      session.model.messageChanged.emit(undefined);
+      expect(Notification.manager.notifications).toHaveLength(1);
       session.model.messages = [
         ...session.model.messages.slice(0, 3),
         { id: '5', body: 'done', sender: agent, time: 5 }
@@ -498,15 +634,130 @@ describe('SessionManager activity', () => {
         }
       ];
       session.model.messagesUpdated.emit();
+      // Newest first.
       const types = Notification.manager.notifications.map(item => [
         item.type,
         item.message
       ]);
-      expect(types).toContainEqual([
-        'warning',
-        'Fit the model needs your input'
+      expect(types).toEqual([
+        ['warning', 'Fit the model needs your input'],
+        ['info', 'Fit the model finished'],
+        ['warning', 'Fit the model needs your input']
       ]);
-      expect(types).toContainEqual(['info', 'Fit the model finished']);
+    } finally {
+      hasFocus.mockRestore();
+      h.dispose();
+    }
+  });
+
+  it('keeps following a chat moved from the side panel to the main area', async () => {
+    const h = host();
+    try {
+      const path = 'p/chats/plan.chat';
+      const processing = (value: boolean) =>
+        h.events.stream.emit({
+          schema_id: PERSONA_STATE,
+          version: '1',
+          chat_id: `id-${path}`,
+          persona_id: 'p',
+          processing: value
+        });
+      const side = h.addPanel(path, 'sidebar');
+      await flush();
+      processing(true);
+      expect(h.manager.activity(path)).toBe('working');
+
+      // Jupyter Chat opens the main-area document, then closes the side panel.
+      const main = h.addPanel(path);
+      await flush();
+      side.dispose();
+      await flush();
+      expect(h.manager.activity(path)).toBe('working');
+      expect(Notification.manager.notifications).toHaveLength(0);
+
+      // The main-area session now carries the chat's activity.
+      main.model.writers = [{ user: agent }];
+      main.model.writersChanged.emit(undefined);
+      processing(false);
+      expect(h.manager.activity(path)).toBe('working');
+      main.model.writers = [];
+      main.model.writersChanged.emit(undefined);
+      expect(h.manager.activity(path)).toBe('idle');
+      expect(
+        Notification.manager.notifications.map(item => item.message)
+      ).toEqual(['plan finished']);
+
+      // Moving back: the side panel opened after the document closes is
+      // followed on its own.
+      main.dispose();
+      expect(h.manager.activity(path)).toBeUndefined();
+      h.addPanel(path, 'sidebar');
+      expect(h.manager.activity(path)).toBe('idle');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('follows the main-area session while the side panel of its chat stays open', async () => {
+    const h = host();
+    try {
+      const path = 'p/chats/plan.chat';
+      const side = h.addPanel(path, 'sidebar');
+      const main = h.addPanel(path);
+      await flush();
+      // The side panel no longer drives the chat's activity...
+      side.model.writers = [{ user: agent }];
+      side.model.writersChanged.emit(undefined);
+      expect(h.manager.activity(path)).toBe('idle');
+      // ...the session does.
+      main.model.writers = [{ user: agent }];
+      main.model.writersChanged.emit(undefined);
+      expect(h.manager.activity(path)).toBe('working');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('adopts another open panel of the chat when the followed one closes', async () => {
+    const h = host();
+    try {
+      const path = 'p/chats/plan.chat';
+      const main = h.addPanel(path);
+      // A second view in the side panel does not take over the session.
+      const side = h.addPanel(path, 'sidebar');
+      await flush();
+      side.model.writers = [{ user: agent }];
+      side.model.writersChanged.emit(undefined);
+      expect(h.manager.activity(path)).toBe('idle');
+
+      main.dispose();
+      h.panels.splice(h.panels.indexOf(main as unknown as IChatPanel), 1);
+      await flush();
+      expect(h.manager.activity(path)).toBe('working');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('applies persona activity reported before the chat is ready', async () => {
+    const h = host();
+    try {
+      const ready = new PromiseDelegate<string>();
+      h.addPanel('p/chats/plan.chat', 'main', ready.promise);
+      await flush();
+      // The persona manager re-emits its state when the client connects,
+      // which can arrive before the chat's connection frame.
+      h.events.stream.emit({
+        schema_id: PERSONA_STATE,
+        version: '1',
+        chat_id: 'chat-1',
+        persona_id: 'p',
+        processing: true
+      });
+      expect(h.manager.activity('p/chats/plan.chat')).toBe('idle');
+      ready.resolve('chat-1');
+      await flush();
+      expect(h.manager.activity('p/chats/plan.chat')).toBe('working');
     } finally {
       h.dispose();
     }
@@ -563,6 +814,43 @@ describe('SessionManager listings', () => {
       expect(changes).toEqual(['p/astra.yaml', 'p/astra.yaml']);
     } finally {
       h.dispose();
+    }
+  });
+});
+
+describe('SessionManager polling', () => {
+  it('refreshes listings someone asked for and forgets the ones nobody reads', async () => {
+    jest.useFakeTimers();
+    const h = host();
+    try {
+      const changes: string[] = [];
+      h.manager.changed.connect((_, entrypoint) => changes.push(entrypoint));
+      await h.manager.list('p/astra.yaml');
+      expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(1);
+
+      jest
+        .mocked(listSessions)
+        .mockResolvedValue({ directory: 'p/chats', sessions: [] });
+      await jest.advanceTimersByTimeAsync(15000);
+      expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(2);
+      expect(changes).toEqual(['p/astra.yaml']);
+
+      // The poll's own refreshes do not keep a listing alive: ten minutes
+      // after the last request it stops refreshing it.
+      await jest.advanceTimersByTimeAsync(11 * 60 * 1000);
+      const calls = jest.mocked(listSessions).mock.calls.length;
+      expect(calls).toBeLessThanOrEqual(2 + (10 * 60) / 15 + 1);
+      await jest.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(calls);
+
+      // Asking again fetches afresh and resumes the refreshes.
+      expect(await h.manager.list('p/astra.yaml')).toEqual([]);
+      expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(calls + 1);
+      await jest.advanceTimersByTimeAsync(15000);
+      expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(calls + 2);
+    } finally {
+      h.dispose();
+      jest.useRealTimers();
     }
   });
 });

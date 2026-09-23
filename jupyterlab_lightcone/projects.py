@@ -26,8 +26,13 @@ def inside_root(root: Path, candidate: Path, message: str) -> Path:
 
 
 def project_root(root: Path, path: str) -> Path:
-    """Resolve only a local ASTRA entrypoint within the contents root."""
-    if not path or path.startswith("/") or "\\" in path or ":" in path:
+    """Resolve only a local ASTRA entrypoint within the contents root.
+
+    Refuses what `spec_project` refuses before touching the filesystem: an
+    entrypoint read from a JSON body may hold a NUL, which tornado strips
+    from query arguments only and `Path.resolve` rejects with a ValueError.
+    """
+    if not path or path.startswith("/") or any(character in path for character in "\\:\x00"):
         raise HTTPError(400, "A local astra.yaml path is required")
     if ".." in path.split("/") or Path(path).name != "astra.yaml":
         raise HTTPError(400, "A local astra.yaml path is required")

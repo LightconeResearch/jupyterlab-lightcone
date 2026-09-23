@@ -1,4 +1,4 @@
-import type { IThemeManager } from '@jupyterlab/apputils';
+import { Dialog, InputDialog, type IThemeManager } from '@jupyterlab/apputils';
 import type { IChangedArgs } from '@jupyterlab/coreutils';
 import { CommandRegistry } from '@lumino/commands';
 import { DisposableDelegate } from '@lumino/disposable';
@@ -6,6 +6,8 @@ import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../../commands';
 import { requestAPI } from '../../request';
+import { RunsCommandIDs } from '../../runs/runs-commands';
+import { SearchCommandIDs } from '../../search';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { SidebarCommandIDs, WorkbenchCommandIDs, sidebarPlugin } from '..';
 import { SidebarModel } from '../sidebar-model';
@@ -21,15 +23,23 @@ import {
 } from './sidebar-fixtures';
 
 jest.mock('../../pdf-runtime', () => ({}));
+// The sidebar takes the search command's ID from the search plugin module,
+// whose sources use Jupyter Chat's icon (an ES module Jest does not transform).
+jest.mock('@jupyter/chat', () => ({ chatIcon: { name: 'chat' } }));
 jest.mock('../../request', () => ({
   ...jest.requireActual('../../request'),
   requestAPI: jest.fn()
 }));
-jest.mock('@jupyterlab/apputils', () => ({
-  ...jest.requireActual('@jupyterlab/apputils'),
-  showErrorMessage: jest.fn().mockResolvedValue(undefined)
-}));
+jest.mock('@jupyterlab/apputils', () => {
+  const actual = jest.requireActual('@jupyterlab/apputils');
+  return {
+    ...actual,
+    showErrorMessage: jest.fn().mockResolvedValue(undefined),
+    InputDialog: { ...actual.InputDialog, getText: jest.fn() }
+  };
+});
 const request = jest.mocked(requestAPI);
+const getText = jest.mocked(InputDialog.getText);
 
 class FakeThemeManager implements IThemeManager {
   theme: string | null = 'JupyterLab Light';
@@ -70,7 +80,7 @@ function host(options: { project?: boolean; sessions?: boolean } = {}) {
     CommandIDs.createProject,
     WorkbenchCommandIDs.createLauncher,
     WorkbenchCommandIDs.goToPath,
-    WorkbenchCommandIDs.search
+    SearchCommandIDs.search
   ]) {
     commands.addCommand(command, {
       execute: args => {
@@ -79,7 +89,7 @@ function host(options: { project?: boolean; sessions?: boolean } = {}) {
     });
   }
   commands.addKeyBinding({
-    command: WorkbenchCommandIDs.search,
+    command: SearchCommandIDs.search,
     keys: ['Accel K'],
     selector: 'body'
   });
@@ -187,12 +197,18 @@ describe('LightconeSidebar', () => {
 
   it('routes every action to the right command or service', async () => {
     const h = host();
+    h.commands.addCommand(RunsCommandIDs.openRuns, {
+      execute: args => {
+        h.executed.push([RunsCommandIDs.openRuns, args]);
+      }
+    });
     try {
       await until(
         () =>
           h.text().includes('Contour styling') &&
           h.text().includes('hubble_diagram') &&
-          h.text().includes('Report')
+          h.text().includes('Report') &&
+          h.text().includes('Runs')
       );
       await until(
         () =>
@@ -209,6 +225,7 @@ describe('LightconeSidebar', () => {
       h.click(`.${BASE}-node`, 1);
       h.click(`.${BASE}-link`, 0);
       h.click(`.${BASE}-link`, 1);
+      h.click(`.${BASE}-link`, 2);
       await flush();
       expect(h.sessions!.createAndOpen).toHaveBeenCalledWith(
         'project/astra.yaml'
@@ -221,7 +238,7 @@ describe('LightconeSidebar', () => {
           WorkbenchCommandIDs.createLauncher,
           { cwd: 'project', activate: true }
         ],
-        [WorkbenchCommandIDs.search, {}],
+        [SearchCommandIDs.search, {}],
         [
           CommandIDs.openElement,
           { entrypoint: 'project/astra.yaml', target: 'outputs.hubble_diagram' }
@@ -232,7 +249,8 @@ describe('LightconeSidebar', () => {
           { path: 'project/astra.yaml', analysisPath: 'systematics' }
         ],
         [WorkbenchCommandIDs.goToPath, { path: 'project' }],
-        [CommandIDs.openMySTRA, { cwd: 'project' }]
+        [CommandIDs.openMySTRA, { cwd: 'project' }],
+        [RunsCommandIDs.openRuns, { entrypoint: 'project/astra.yaml' }]
       ]);
     } finally {
       h.dispose();
@@ -316,14 +334,120 @@ describe('LightconeSidebar', () => {
     }
   });
 
-  it('pauses polling while hidden', async () => {
+  it('fetches nothing while hidden and refreshes once shown again', async () => {
     const h = host();
     try {
       await until(() => h.model.state.sessionsLoaded);
       h.panel.hide();
       expect(h.model.visible).toBe(false);
+      const listed = h.sessions!.list.mock.calls.length;
+      const requested = request.mock.calls.length;
+      // Changes that would refresh a visible sidebar wait until it shows.
+      h.sessions!.changed.emit('project/astra.yaml');
+      if (!(h.contents.fileChanged instanceof Signal)) {
+        throw new Error('The contents manager has no emitting fileChanged.');
+      }
+      h.contents.fileChanged.emit({
+        type: 'new',
+        oldValue: null,
+        newValue: { path: 'project/chats/new.chat' }
+      });
+      await flush();
+      await flush();
+      expect(h.sessions!.list.mock.calls.length).toBe(listed);
+      expect(request.mock.calls.length).toBe(requested);
       h.panel.show();
       expect(h.model.visible).toBe(true);
+      await until(() => h.sessions!.list.mock.calls.length > listed);
+      expect(request.mock.calls.length).toBeGreaterThan(requested);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('says when materialization status is unavailable', async () => {
+    const h = host();
+    request.mockImplementation(async (endpoint: string) => {
+      if (endpoint.startsWith('api/materialization')) {
+        throw new Error('lc is not installed');
+      }
+      return { papers: {} };
+    });
+    try {
+      await until(() =>
+        h.text().includes('Materialization status unavailable')
+      );
+      const note = h.panel.node.querySelector(`.${BASE}-note`);
+      expect(note?.getAttribute('title')).toContain('lc is not installed');
+      const dot = h.panel.node.querySelector(
+        `.${BASE}-status[data-state='unknown']`
+      );
+      expect(dot?.getAttribute('title')).toContain('lc is not installed');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('marks the analysis the current inventory shows', async () => {
+    const h = host();
+    try {
+      await until(() => h.text().includes('Systematics'));
+      const scopeChanged = new Signal<object, void>({});
+      const inventory = Object.assign(new Widget(), {
+        context: { path: 'project/astra.yaml' },
+        content: { analysisPath: 'systematics', scopeChanged }
+      });
+      inventory.addClass('jp-jupyterlab-lightcone-Document');
+      h.shell.currentWidget = inventory;
+      h.shell.currentChanged.emit({});
+      const active = () =>
+        Array.from(
+          h.panel.node.querySelectorAll(`.${BASE}-node.jp-mod-active`),
+          node => node.getAttribute('title')
+        );
+      await until(() => active().length === 1);
+      expect(active()).toEqual(['systematics']);
+      inventory.content.analysisPath = '$';
+      scopeChanged.emit();
+      await until(() => active()[0] === '$');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('renames a session from its row', async () => {
+    const h = host();
+    const rename = jest
+      .spyOn(h.contents, 'rename')
+      .mockImplementation(async (path, newPath) =>
+        fileModel('', { path: newPath })
+      );
+    try {
+      await until(() => h.text().includes('Contour styling'));
+      getText.mockResolvedValueOnce({
+        button: Dialog.okButton(),
+        isChecked: null,
+        value: 'Contour plots'
+      });
+      h.click(`.${BASE}-rowAction`, 1);
+      await until(() => rename.mock.calls.length === 1);
+      expect(getText).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'contours', suffix: '.chat' })
+      );
+      expect(rename).toHaveBeenCalledWith(
+        'project/chats/contours.chat',
+        'project/chats/contour-plots.chat'
+      );
+      // Cancelling renames nothing.
+      getText.mockResolvedValueOnce({
+        button: Dialog.cancelButton(),
+        isChecked: null,
+        value: null
+      });
+      h.click(`.${BASE}-rowAction`, 0);
+      await flush();
+      await flush();
+      expect(rename).toHaveBeenCalledTimes(1);
     } finally {
       h.dispose();
     }

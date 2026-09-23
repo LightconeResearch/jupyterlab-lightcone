@@ -1,16 +1,7 @@
-import type { Event } from '@jupyterlab/services';
-import { ServerConnection } from '@jupyterlab/services';
-import { Stream } from '@lumino/signaling';
-import {
-  cancelRun,
-  getRun,
-  JOB_EVENT_SCHEMA,
-  listRuns,
-  startRun,
-  type IJob,
-  type IRunRecord
-} from '../runs-api';
-import { RunsService } from '../runs-service';
+import { cancelRun, getRun, listRuns, startRun } from '../runs-api';
+import { jobOutcome, refusalText } from '../runs-model';
+import { FORGOTTEN_JOB_MESSAGE } from '../runs-service';
+import { flush, job, refused, run, runsHost as host } from './runs-fixtures';
 
 jest.mock('../runs-api', () => ({
   ...jest.requireActual('../runs-api'),
@@ -21,76 +12,6 @@ jest.mock('../runs-api', () => ({
 }));
 
 const ENTRYPOINT = 'proj/astra.yaml';
-const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-
-/** The server's event bus, as the frontend sees it. */
-class FakeEvents implements Event.IManager {
-  readonly serverSettings = ServerConnection.makeSettings();
-  readonly stream: Stream<Event.IManager, Event.Emission>;
-  isDisposed = false;
-
-  constructor() {
-    this.stream = new Stream<Event.IManager, Event.Emission>(this);
-  }
-
-  dispose(): void {
-    this.isDisposed = true;
-    this.stream.stop();
-  }
-
-  emit(): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function job(overrides: Partial<IJob> = {}): IJob {
-  return {
-    id: 'job-1',
-    project: 'proj',
-    targets: [],
-    refresh: false,
-    state: 'running',
-    started: '2026-09-23T11:58:30.000Z',
-    finished: null,
-    exit: null,
-    lines: [],
-    report: null,
-    ...overrides
-  };
-}
-
-function run(overrides: Partial<IRunRecord> = {}): IRunRecord {
-  return {
-    commit: 'a889877deadbeef',
-    short: 'a889877',
-    time: '2026-09-23T09:00:00.000Z',
-    output: 'hubble_diagram',
-    universe: 'baseline',
-    exit: 0,
-    cmd: 'python src/plot.py',
-    inputs: [],
-    outputs: [],
-    ...overrides
-  };
-}
-
-function host() {
-  const events = new FakeEvents();
-  const service = new RunsService(events.serverSettings, events);
-  const changes: string[] = [];
-  service.changed.connect((_, entrypoint) => changes.push(entrypoint));
-  const emit = (data: Record<string, string | null>) =>
-    events.stream.emit({ schema_id: JOB_EVENT_SCHEMA, ...data });
-  return {
-    service,
-    changes,
-    emit,
-    dispose: () => {
-      service.dispose();
-      events.dispose();
-    }
-  };
-}
 
 beforeEach(() => {
   jest.mocked(listRuns).mockReset();
@@ -150,7 +71,12 @@ it('applies job events, then reads the finished job and the new history', async 
     jest.mocked(getRun).mockResolvedValue(done);
     jest.mocked(listRuns).mockResolvedValue({ runs: [run()], jobs: [done] });
     h.emit({ id: 'job-1', project: 'proj', state: 'succeeded', line: null });
-    expect((await finished).state).toBe('succeeded');
+    // The event has no exit code or report: the job ends with its record.
+    expect(h.service.runs(ENTRYPOINT).jobs[0].state).toBe('running');
+    expect(await finished).toEqual(done);
+    expect(jobOutcome(await finished)).toBe(
+      'Materialized 1 output: baseline/hubble_diagram'
+    );
     expect(h.service.runningJobs()).toEqual([]);
     await flush();
     expect(getRun).toHaveBeenCalledWith(expect.anything(), ENTRYPOINT, 'job-1');
@@ -160,6 +86,148 @@ it('applies job events, then reads the finished job and the new history', async 
     expect(state.runs).toHaveLength(1);
     // Already finished: resolves at once.
     expect((await h.service.whenFinished(ENTRYPOINT, 'job-1')).exit).toBe(0);
+  } finally {
+    h.dispose();
+  }
+});
+
+it('ends a failed job with its report, never as a refusal', async () => {
+  const h = host();
+  try {
+    jest.mocked(listRuns).mockResolvedValue({ runs: [], jobs: [job()] });
+    await h.service.refresh(ENTRYPOINT);
+    const finished = h.service.whenFinished(ENTRYPOINT, 'job-1');
+    const report = { ok: false, failed: ['baseline/table'] };
+    const lines = ['materializing baseline/table', JSON.stringify(report)];
+    const failed = job({
+      state: 'failed',
+      exit: 1,
+      finished: '2026-09-23T12:00:00.000Z',
+      lines,
+      report
+    });
+    jest.mocked(getRun).mockResolvedValue(failed);
+    const seen: string[] = [];
+    h.service.changed.connect(() => {
+      const current = h.service.runs(ENTRYPOINT).jobs[0];
+      if (refusalText(current) !== null) {
+        seen.push(current.state);
+      }
+    });
+    for (const line of lines) {
+      h.emit({ id: 'job-1', project: 'proj', state: 'running', line });
+    }
+    h.emit({ id: 'job-1', project: 'proj', state: 'failed', line: null });
+    const outcome = await finished;
+    expect(outcome.report).toEqual(report);
+    expect(jobOutcome(outcome)).toBe('1 output failed: baseline/table');
+    // The job never looked like a refusal on its way to its record.
+    expect(seen).toEqual([]);
+  } finally {
+    h.dispose();
+  }
+});
+
+it('ends a job from its event alone when its record cannot be read', async () => {
+  const h = host();
+  try {
+    jest.mocked(listRuns).mockResolvedValue({ runs: [], jobs: [job()] });
+    await h.service.refresh(ENTRYPOINT);
+    const finished = h.service.whenFinished(ENTRYPOINT, 'job-1');
+    jest.mocked(getRun).mockRejectedValue(new Error('offline'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    h.emit({ id: 'job-1', project: 'proj', state: 'cancelled', line: null });
+    const outcome = await finished;
+    expect(outcome.state).toBe('cancelled');
+    expect(outcome.finished).not.toBeNull();
+    expect(getRun).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  } finally {
+    h.dispose();
+  }
+});
+
+it('reads the history when the first event it hears of a job is its end', async () => {
+  const h = host();
+  try {
+    const done = job({ id: 'job-7', state: 'succeeded', exit: 0 });
+    jest.mocked(getRun).mockResolvedValue(done);
+    jest.mocked(listRuns).mockResolvedValue({ runs: [run()], jobs: [done] });
+    h.emit({ id: 'job-7', project: 'proj', state: 'succeeded', line: null });
+    await flush();
+    await flush();
+    expect(getRun).toHaveBeenCalledWith(expect.anything(), ENTRYPOINT, 'job-7');
+    expect(listRuns).toHaveBeenCalledTimes(1);
+    expect(h.service.runs(ENTRYPOINT).runs).toHaveLength(1);
+  } finally {
+    h.dispose();
+  }
+});
+
+it('forgets a running job the server no longer knows', async () => {
+  const h = host();
+  try {
+    // The server restarted after this listing: it knows no job any more.
+    jest
+      .mocked(listRuns)
+      .mockResolvedValueOnce({ runs: [], jobs: [job()] })
+      .mockResolvedValue({ runs: [run()], jobs: [] });
+    jest.mocked(getRun).mockRejectedValue(refused(404));
+    await h.service.refresh(ENTRYPOINT);
+    const finished = h.service.whenFinished(ENTRYPOINT, 'job-1');
+    // The poll's first read, as soon as the running job appears, is a 404.
+    await expect(finished).rejects.toThrow(FORGOTTEN_JOB_MESSAGE);
+    expect(h.service.runs(ENTRYPOINT).jobs).toEqual([]);
+    expect(h.service.runningJobs()).toEqual([]);
+    await flush();
+    expect(listRuns).toHaveBeenCalledTimes(2);
+    expect(h.service.runs(ENTRYPOINT).runs).toHaveLength(1);
+    const reads = jest.mocked(getRun).mock.calls.length;
+    await new Promise(resolve => setTimeout(resolve, 60));
+    expect(getRun).toHaveBeenCalledTimes(reads);
+  } finally {
+    h.dispose();
+  }
+});
+
+it('drops a job it is asked to stop that the server no longer knows', async () => {
+  const h = host();
+  try {
+    jest.mocked(startRun).mockResolvedValue(job({ id: 'job-3' }));
+    jest.mocked(getRun).mockImplementation(() => new Promise(() => {}));
+    await h.service.start(ENTRYPOINT);
+    const finished = h.service.whenFinished(ENTRYPOINT, 'job-3');
+    jest.mocked(cancelRun).mockRejectedValue(refused(404));
+    jest.mocked(listRuns).mockResolvedValue({ runs: [], jobs: [] });
+    await h.service.cancel(ENTRYPOINT, 'job-3');
+    await expect(finished).rejects.toThrow(FORGOTTEN_JOB_MESSAGE);
+    expect(h.service.runningJobs()).toEqual([]);
+    expect(listRuns).toHaveBeenCalledTimes(1);
+    jest.mocked(cancelRun).mockRejectedValue(refused(403));
+    await expect(h.service.cancel(ENTRYPOINT, 'job-3')).rejects.toThrow('403');
+  } finally {
+    h.dispose();
+  }
+});
+
+it('reads the listing when the server says a job already runs', async () => {
+  const h = host();
+  try {
+    const elsewhere = job({ id: 'job-4' });
+    jest.mocked(startRun).mockRejectedValue(refused(409));
+    jest.mocked(listRuns).mockResolvedValue({ runs: [], jobs: [elsewhere] });
+    jest.mocked(getRun).mockImplementation(() => new Promise(() => {}));
+    await expect(h.service.start(ENTRYPOINT)).rejects.toThrow('409');
+    await flush();
+    expect(listRuns).toHaveBeenCalledTimes(1);
+    expect(h.service.runningJobs()).toEqual([
+      { entrypoint: ENTRYPOINT, job: elsewhere }
+    ]);
+    jest.mocked(startRun).mockRejectedValue(refused(403));
+    await expect(h.service.start(ENTRYPOINT)).rejects.toThrow('403');
+    await flush();
+    expect(listRuns).toHaveBeenCalledTimes(1);
   } finally {
     h.dispose();
   }
@@ -187,6 +255,8 @@ it('reads jobs it first hears of through events and ignores other schemas', asyn
     // The poll ticks once as soon as a running job appears, then every 5 s.
     await new Promise(resolve => setTimeout(resolve, 60));
     const reads = jest.mocked(getRun).mock.calls.length;
+    // One read for the events, one for the poll's first tick.
+    expect(reads).toBe(2);
     expect(
       jest
         .mocked(getRun)

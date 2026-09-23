@@ -84,7 +84,7 @@ export const customizePlugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export { CustomizeWidget, CHANGE_THEME_COMMAND } from './customize-widget';
+export { CustomizeWidget } from './customize-widget';
 export {
   attentionCount,
   attentionSummary,

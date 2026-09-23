@@ -473,6 +473,82 @@ test('an explicit scope changes the analysis in a reused inventory document', as
   }
 });
 
+test('the inventory keeps its tab and analysis while records and artifacts open from it', async ({
+  page,
+  tmpPath
+}) => {
+  const directory = `${tmpPath}/project`;
+  await createProject(page, `${directory}/child`, 'Child analysis');
+  const path = `${directory}/astra.yaml`;
+  await page.contents.uploadContent(
+    `${analysis('Parent analysis')}analyses:\n  child:\n    path: child\n`,
+    'text',
+    path
+  );
+  const id = await openInventory(page, path);
+  const selected = page.locator(CURRENT_ANALYSIS);
+  await page
+    .locator(ANALYSIS_TREE)
+    .getByRole('button', { name: 'Child analysis', exact: true })
+    .click();
+  await expect(selected).toHaveText('Child analysis');
+  const inventoryIsOpen = () =>
+    page.evaluate(
+      id =>
+        Array.from(window.jupyterapp.shell.widgets('main')).some(
+          widget => widget.id === id
+        ),
+      id
+    );
+
+  // A record opened from the inventory hands its artifact to a tab of its own.
+  await page.getByRole('button', { name: /^Open table:/ }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Open artifact', exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const widget = window.jupyterapp.shell.currentWidget as {
+          context?: { path: string };
+        } | null;
+        return widget?.context?.path;
+      })
+    )
+    .toBe(`${directory}/child/results/default/sample.csv`);
+  expect(await inventoryIsOpen()).toBe(true);
+
+  // A record tab opened while the inventory is current goes beside it.
+  await page.activity.activateTab('astra.yaml');
+  await page.evaluate(async path => {
+    await window.jupyterapp.commands.execute(
+      'jupyterlab_lightcone:open-element',
+      { entrypoint: path, target: 'outputs.sample' }
+    );
+  }, path);
+  await expect(
+    page.locator('.lm-TabBar-tab[data-lightcone-element]')
+  ).toHaveCount(1);
+  expect(
+    await page.evaluate(() => window.jupyterapp.shell.currentWidget?.id)
+  ).not.toBe(id);
+  expect(await inventoryIsOpen()).toBe(true);
+
+  // Returning to the inventory shows the analysis it was left on.
+  await page.activity.activateTab('astra.yaml');
+  expect(
+    await page.evaluate(() => window.jupyterapp.shell.currentWidget?.id)
+  ).toBe(id);
+  await expect(selected).toHaveText('Child analysis');
+  await expect(
+    page.getByRole('heading', { name: 'Child analysis', exact: true })
+  ).toBeVisible();
+  // Opening the same project again reuses that tab and keeps its analysis.
+  expect(await openInventory(page, path)).toBe(id);
+  await expect(selected).toHaveText('Child analysis');
+});
+
 for (const edit of ['remove', 'rename']) {
   test(`recovers the analysis selection and closes obsolete details after ${edit}`, async ({
     page,

@@ -2,43 +2,13 @@ import type { ICommentAnchor } from './comments-api';
 import { emptyAnchor, PREFIX_LIMIT, QUOTE_LIMIT } from './comment-model';
 
 /**
- * The part of a document a text anchor needs. CodeMirror's `Text` satisfies
- * it directly; `stringDocument` adapts a plain string.
+ * The part of a document a text anchor needs; CodeMirror's `Text` satisfies
+ * it directly.
  */
 export interface ITextDocument {
   readonly length: number;
   lineAt(pos: number): { number: number; from: number };
   sliceString(from: number, to: number): string;
-}
-
-/** A document over a plain string, for rendered views and tests. */
-export function stringDocument(text: string): ITextDocument {
-  const starts = [0];
-  for (let index = 0; index < text.length; index++) {
-    if (text[index] === '\n') {
-      starts.push(index + 1);
-    }
-  }
-  return {
-    length: text.length,
-    lineAt(pos) {
-      const clamped = Math.max(0, Math.min(text.length, pos));
-      let low = 0;
-      let high = starts.length - 1;
-      while (low < high) {
-        const middle = (low + high + 1) >> 1;
-        if (starts[middle] <= clamped) {
-          low = middle;
-        } else {
-          high = middle - 1;
-        }
-      }
-      return { number: low + 1, from: starts[low] };
-    },
-    sliceString(from, to) {
-      return text.slice(Math.max(0, from), Math.min(text.length, to));
-    }
-  };
 }
 
 /** A span of raw character offsets, end exclusive. */
@@ -126,11 +96,23 @@ export function findQuote(
   quote: string,
   prefix: string | null
 ): ITextSpan | null {
+  return findQuoteIn(normalizeForSearch(raw), quote, prefix);
+}
+
+/**
+ * `findQuote` over text normalized once by the caller, so that several
+ * quotes can be looked up in one long text without normalizing it again.
+ */
+export function findQuoteIn(
+  normalized: INormalizedText,
+  quote: string,
+  prefix: string | null
+): ITextSpan | null {
   const needle = normalizeForSearch(quote).text.trim();
   if (!needle) {
     return null;
   }
-  const { text, map } = normalizeForSearch(raw);
+  const { text, map } = normalized;
   const occurrences: number[] = [];
   let index = text.indexOf(needle);
   while (index >= 0 && occurrences.length < 200) {
@@ -156,8 +138,8 @@ export function findQuote(
   return { from: map[best], to: map[last] + 1 };
 }
 
-/** Documents longer than this are not searched for quotes. */
-const SEARCH_LIMIT = 2_000_000;
+/** Texts longer than this are not searched for quotes. */
+export const SEARCH_LIMIT = 2_000_000;
 
 /**
  * Where a text anchor sits in a document now: its recorded position when the

@@ -1,8 +1,4 @@
-import type {
-  AnalysisIndex,
-  ResolvedAnalysisNode,
-  ResolvedOutput
-} from '@astra-spec/sdk';
+import type { ResolvedAnalysisNode, ResolvedOutput } from '@astra-spec/sdk';
 import {
   analysisTitle,
   collectInventoryPapers,
@@ -17,6 +13,11 @@ import type { ILoadedProjectData } from '../project-data';
 import type { IProjectRoot } from '../project-root';
 import type { SessionState } from '../sessions/session-service';
 import type { SessionActivity } from '../sessions/sessions-api';
+import {
+  SESSION_FILE_EXTENSION,
+  sessionStem,
+  slugForTitle
+} from '../sessions/session-titles';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -65,11 +66,14 @@ export function sessionMarker(
   return live ?? reported;
 }
 
-/** Every output of the project in document order: the root analysis first. */
-export function listOutputs(index: AnalysisIndex): ResolvedOutput[] {
-  return [...index.recordByPath.values()].filter(
-    (record): record is ResolvedOutput => record.kind === 'output'
-  );
+/**
+ * The project's results: the root analysis's outputs that the selected
+ * universe makes, in document order. This is the set Home shows and the only
+ * one `lc status` reports on; nested analyses' outputs stay in their
+ * inventory scope, which the Analysis section opens.
+ */
+export function listOutputs(data: ILoadedProjectData): ResolvedOutput[] {
+  return data.document.analysis.outputs.filter(output => output.active);
 }
 
 /** How the Results header names an output type. */
@@ -181,9 +185,15 @@ export function analysisRows(data: ILoadedProjectData): IAnalysisRow[] {
   return rows;
 }
 
-/** "Decisions 5 · Inputs 7 · Findings 2 · Papers 3", omitting empty kinds. */
+/**
+ * "Outputs 2 · Decisions 5 · Inputs 7 · Findings 2 · Papers 3", in the
+ * inventory's section order, omitting empty kinds.
+ */
 export function analysisCountsLabel(row: IAnalysisRow): string {
   const parts: string[] = [];
+  if (row.outputs) {
+    parts.push(`Outputs ${row.outputs}`);
+  }
   if (row.decisions) {
     parts.push(`Decisions ${row.decisions}`);
   }
@@ -220,9 +230,21 @@ export interface ICurrentView {
   record?: { entrypoint: string; target: string; doi?: string };
   /** The inventory document that is current, as its entrypoint. */
   inventory?: string;
+  /** The analysis that inventory shows, once it has loaded. */
+  analysisPath?: string;
 }
 
 const INVENTORY_CLASS = 'jp-jupyterlab-lightcone-Document';
+/** The title dataset key every record tab carries (see `ElementWidget`). */
+const RECORD_TAB_KEY = 'lightcone-element';
+
+function isSignal(value: unknown): value is ISignal<unknown, unknown> {
+  return (
+    isRecord(value) &&
+    typeof value.connect === 'function' &&
+    typeof value.disconnect === 'function'
+  );
+}
 
 function documentPath(widget: Widget): string | undefined {
   const candidate: unknown = widget;
@@ -233,9 +255,19 @@ function documentPath(widget: Widget): string | undefined {
     : undefined;
 }
 
+/** The inside of a main-area widget (`MainAreaWidget.content`), if any. */
+function widgetContent(widget: Widget): Record<string, unknown> | undefined {
+  const candidate: unknown = widget;
+  return isRecord(candidate) && isRecord(candidate.content)
+    ? candidate.content
+    : undefined;
+}
+
 /**
  * Describe the current widget structurally, so the sidebar can highlight a
- * session, a record tab or the inventory without importing their classes.
+ * session, a record tab or the inventory and its scope without importing
+ * their classes: chats by their document path, record tabs by the title
+ * dataset key `ElementWidget` sets, inventories by their class.
  */
 export function describeWidget(widget: Widget | null): ICurrentView {
   if (!widget) {
@@ -243,23 +275,25 @@ export function describeWidget(widget: Widget | null): ICurrentView {
   }
   const path = documentPath(widget);
   if (path !== undefined) {
-    if (path.endsWith('.chat')) {
+    if (path.endsWith(SESSION_FILE_EXTENSION)) {
       return { session: path };
     }
     if (widget.hasClass(INVENTORY_CLASS)) {
-      return { inventory: path };
+      const scope = widgetContent(widget)?.analysisPath;
+      return {
+        inventory: path,
+        ...(typeof scope === 'string' ? { analysisPath: scope } : {})
+      };
     }
   }
-  if (widget.title.dataset['lightcone-element'] !== undefined) {
-    const candidate: unknown = widget;
+  if (widget.title.dataset[RECORD_TAB_KEY] !== undefined) {
+    const reference = widgetContent(widget)?.reference;
     if (
-      isRecord(candidate) &&
-      isRecord(candidate.content) &&
-      isRecord(candidate.content.reference) &&
-      typeof candidate.content.reference.entrypoint === 'string' &&
-      typeof candidate.content.reference.target === 'string'
+      isRecord(reference) &&
+      typeof reference.entrypoint === 'string' &&
+      typeof reference.target === 'string'
     ) {
-      const { entrypoint, target, doi } = candidate.content.reference;
+      const { entrypoint, target, doi } = reference;
       return {
         record: {
           entrypoint,
@@ -272,30 +306,58 @@ export function describeWidget(widget: Widget | null): ICurrentView {
   return {};
 }
 
-function isSignal(value: unknown): value is ISignal<unknown, unknown> {
-  return (
-    isRecord(value) &&
-    typeof value.connect === 'function' &&
-    typeof value.disconnect === 'function'
-  );
+/**
+ * The signals after which a widget shows another view while it stays the
+ * current widget: a document renamed under it (its context's
+ * `pathChanged`), a record tab following a link (`historyChanged`) and an
+ * inventory moving to another analysis (`scopeChanged`).
+ */
+export function viewChanges(
+  widget: Widget | null
+): ISignal<unknown, unknown>[] {
+  if (!widget) {
+    return [];
+  }
+  const candidate: unknown = widget;
+  const signals: unknown[] = [];
+  if (isRecord(candidate) && isRecord(candidate.context)) {
+    signals.push(candidate.context.pathChanged);
+  }
+  const content = widgetContent(widget);
+  if (content && widget.title.dataset[RECORD_TAB_KEY] !== undefined) {
+    signals.push(content.historyChanged);
+  }
+  if (content && widget.hasClass(INVENTORY_CLASS)) {
+    signals.push(content.scopeChanged);
+  }
+  return signals.filter(isSignal);
 }
 
 /**
- * The signal a record tab emits after showing another record in place, which
- * keeps the widget current. Undefined for every other widget.
+ * Where a session's chat file moves when it is renamed to `name`: the same
+ * folder (and drive), with the name made a slug the way new sessions are
+ * named. Undefined when the name is blank or leaves the path unchanged.
  */
-export function recordNavigation(
-  widget: Widget | null
-): ISignal<unknown, unknown> | undefined {
-  if (!widget || widget.title.dataset['lightcone-element'] === undefined) {
+export function renamedSessionPath(
+  path: string,
+  name: string
+): string | undefined {
+  let stem = name.trim();
+  if (stem.toLowerCase().endsWith(SESSION_FILE_EXTENSION)) {
+    stem = stem.slice(0, -SESSION_FILE_EXTENSION.length).trim();
+  }
+  if (!stem) {
     return undefined;
   }
-  const candidate: unknown = widget;
-  if (!isRecord(candidate) || !isRecord(candidate.content)) {
+  const slug = slugForTitle(stem);
+  if (slug === sessionStem(path)) {
     return undefined;
   }
-  const signal = candidate.content.historyChanged;
-  return isSignal(signal) ? signal : undefined;
+  const slash = path.lastIndexOf('/');
+  // A chat at a drive root keeps its `drive:` prefix.
+  const folder =
+    slash < 0 ? path.slice(0, path.indexOf(':') + 1) : path.slice(0, slash + 1);
+  return `${folder}${slug}${SESSION_FILE_EXTENSION}`;
 }
 
 /** The first key binding of a command, formatted for a hint such as "Ctrl K". */

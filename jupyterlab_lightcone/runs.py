@@ -27,8 +27,8 @@ from jupyter_server.auth import authorized
 from jupyter_server.utils import ensure_async, url_path_join
 from tornado import web
 
-from .project_routes import ProjectAPIHandler, contents_call
-from .projects import project_root
+from .project_routes import ProjectAPIHandler
+from .sessions import project_contents_path
 
 JOB_SCHEMA_ID = "https://events.lightcone.dev/jupyterlab_lightcone/job/v1"
 JOB_SCHEMA_PATH = Path(__file__).parent / "event_schemas" / "job.yaml"
@@ -39,11 +39,19 @@ HANDLERS_SETTING = "lightcone_runs_handlers"
 MAX_RUNS = 200
 MAX_JOBS = 20
 MAX_LINES = 200
-MAX_REPORT_LINES = 5000
-MAX_LINE_CHARS = 65536
+MAX_LINE_CHARS = 4096
+"""A longer line is shown cut, so a job's lines and events stay small whatever a recipe prints."""
+LINE_CUT = " …"
+MAX_REPORT_CHARS = 1 << 20
+"""How much of the end of stdout a job keeps to find the report the engine prints last."""
+MAX_REPORT_ATTEMPTS = 8
 MAX_TARGETS = 100
 KILL_GRACE_SECONDS = 10
+DRAIN_SECONDS = 5
+"""How long a job waits for pipes that outlive the engine before reaping what holds them."""
 GIT_TIMEOUT = 30
+RESULTS_DIRECTORY = "results"
+"""Where every materialization writes its output and manifest, relative to the project."""
 
 RUN_SUBJECT = re.compile(r"^\[DATALAD RUNCMD\] (\S+) \[(\S+)\]$")
 RECORD_START = "=== Do not change lines below ==="
@@ -113,15 +121,25 @@ def parse_run(entry: str) -> dict | None:
 
 
 def run_history(project: Path, limit: int = MAX_RUNS) -> list[dict]:
-    """The project's materialization commits, newest first; empty outside Git."""
+    """The project's materialization commits, newest first; empty outside Git.
+
+    Only commits that touch the project's own `results/` count, since every
+    materialization commits its output and manifest there. The repository may
+    hold other projects, or be a larger work tree the engine adopted around
+    this one, and their runs are not this project's. `--full-history` keeps
+    runs that history simplification would hide behind a merge.
+    """
     try:
         result = subprocess.run(
             [
                 "git",
                 "log",
                 f"--max-count={limit}",
+                "--full-history",
                 "--format=%H%x1f%cI%x1f%s%x1f%B%x1e",
                 "--grep=^\\[DATALAD RUNCMD\\]",
+                "--",
+                RESULTS_DIRECTORY,
             ],
             cwd=project,
             capture_output=True,
@@ -175,27 +193,124 @@ def validate_targets(value) -> list[str]:
     return list(value)
 
 
-def parse_last_json(text: str) -> dict | None:
-    """The last JSON object starting at a line start, as `lc --json` prints its report."""
+def is_report(value) -> bool:
+    """Whether a JSON value carries the engine report's `ok` and `up_to_date` flags."""
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get("ok"), bool)
+        and isinstance(value.get("up_to_date"), bool)
+    )
+
+
+def parse_report(text: str) -> dict | None:
+    """The report `lc materialize --json` prints as the last thing on stdout.
+
+    Recipes write to the same stdout, so only a JSON object that starts a
+    line, runs to the end of the output and carries the report's flags
+    counts: an engine that stopped before reporting must not lend a recipe's
+    own JSON the report's authority.
+
+    Candidates are tried from the end, a bounded number of times. A raw
+    newline never occurs inside a JSON string, so a line-start `{` inside a
+    document always opens a nested value that decodes on its own: once one
+    fails to decode, no earlier line can start a document reaching the end,
+    and the search stops. Deep nesting fails too, as a `RecursionError`.
+    """
+    body = text.rstrip()
+    if not body.endswith("}"):
+        return None
     decoder = json.JSONDecoder()
-    for match in reversed(list(JSON_LINE.finditer(text))):
+    starts = [match.start() for match in JSON_LINE.finditer(body)]
+    for start in reversed(starts[-MAX_REPORT_ATTEMPTS:]):
         try:
-            value, _ = decoder.raw_decode(text, match.start())
-        except ValueError:
-            continue
-        if isinstance(value, dict):
-            return value
+            value, end = decoder.raw_decode(body, start)
+        except (ValueError, RecursionError):
+            return None
+        if end == len(body):
+            return value if is_report(value) else None
     return None
+
+
+def display_line(text: str) -> str:
+    """One line as a terminal leaves it visible, cut to `MAX_LINE_CHARS`.
+
+    A carriage return rewrites the line from its start, so a progress bar
+    redrawn in place shows its final state; escape sequences only style it.
+    """
+    text = text.rstrip("\r")
+    text = ANSI_ESCAPE.sub("", text[text.rfind("\r") + 1:])
+    return text if len(text) <= MAX_LINE_CHARS else text[:MAX_LINE_CHARS] + LINE_CUT
+
+
+class LineSplitter:
+    """Cut a stream's decoded text into display lines as it arrives, in bounded memory.
+
+    A chunk may end mid-line, so the unfinished line is held for the next
+    one. Only what follows its last carriage return is held, as a terminal
+    would have overwritten the rest, so a progress bar redrawn for hours
+    stays one short line. A line still longer than `MAX_LINE_CHARS` is shown
+    cut as soon as it gets that long, and the rest of it is dropped.
+    """
+
+    def __init__(self) -> None:
+        self.pending = ""
+        self.dropping = False
+
+    def feed(self, text: str) -> list[str]:
+        """The display lines `text` completes; its unfinished last line is held."""
+        lines = []
+        *complete, rest = text.split("\n")
+        for part in complete:
+            if not self.dropping:
+                lines.append(display_line(self.pending + part))
+            self.pending = ""
+            self.dropping = False
+        if not self.dropping:
+            pending = self.pending + rest
+            # A trailing carriage return may open a CRLF, so it is kept.
+            pending = pending[pending.rfind("\r", 0, len(pending) - 1) + 1:]
+            if len(pending) > MAX_LINE_CHARS:
+                lines.append(display_line(pending))
+                pending = ""
+                self.dropping = True
+            self.pending = pending
+        return lines
+
+    def close(self) -> list[str]:
+        """The unfinished last line, once the stream has ended."""
+        line, self.pending = self.pending, ""
+        return [display_line(line)] if line.rstrip("\r") else []
+
+
+class OutputTail:
+    """The last `limit` characters of a stream, kept as chunks so appending stays cheap."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.chunks: deque[str] = deque()
+        self.size = 0
+
+    def append(self, text: str) -> None:
+        """Add text, forgetting the oldest chunks once they lie wholly before the tail."""
+        if not text:
+            return
+        self.chunks.append(text)
+        self.size += len(text)
+        while self.size - len(self.chunks[0]) >= self.limit:
+            self.size -= len(self.chunks.popleft())
+
+    def text(self) -> str:
+        """The tail itself, at most `limit` characters."""
+        return "".join(self.chunks)[-self.limit:]
+
+    def clear(self) -> None:
+        """Forget everything."""
+        self.chunks.clear()
+        self.size = 0
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-
-def contents_path(root: Path, project: Path) -> str:
-    """The Jupyter Contents path of a project directory; empty for the root itself."""
-    relative = project.relative_to(root).as_posix()
-    return "" if relative == "." else relative
 
 
 @dataclass
@@ -204,7 +319,9 @@ class Job:
 
     id: str
     project: str
+    """The project directory's Contents path, as the browser named it when starting the job."""
     directory: Path
+    """The resolved project directory the engine runs in, which identifies the project."""
     targets: list[str]
     refresh: bool
     started: str
@@ -213,7 +330,8 @@ class Job:
     exit: int | None = None
     lines: deque = field(default_factory=lambda: deque(maxlen=MAX_LINES))
     report: dict | None = None
-    stdout: deque = field(default_factory=lambda: deque(maxlen=MAX_REPORT_LINES))
+    stdout: OutputTail = field(default_factory=lambda: OutputTail(MAX_REPORT_CHARS))
+    """The end of stdout, where the report is; dropped once the job finished."""
     process: asyncio.subprocess.Process | None = None
     task: asyncio.Task | None = None
 
@@ -272,7 +390,12 @@ def _kill_group(process) -> None:
 
 
 class JobRegistry:
-    """This server's materialization jobs, in memory, supervised as process groups."""
+    """This server's materialization jobs, in memory, supervised as process groups.
+
+    Jobs are found by their resolved project directory, so every path that
+    reaches a project, through a symlink or not, sees the same jobs and
+    shares its limit of one running job.
+    """
 
     def __init__(self, log, event_logger=None):
         self.jobs: dict[str, Job] = {}
@@ -280,19 +403,19 @@ class JobRegistry:
         self.event_logger = event_logger
         self.grace = KILL_GRACE_SECONDS
 
-    def listing(self, project: str) -> list[dict]:
+    def listing(self, directory: Path) -> list[dict]:
         """The project's jobs in every state, newest first, capped."""
-        jobs = [job for job in reversed(self.jobs.values()) if job.project == project]
+        jobs = [job for job in reversed(self.jobs.values()) if job.directory == directory]
         return [job.payload() for job in jobs[:MAX_JOBS]]
 
-    def running(self, project: str) -> Job | None:
+    def running(self, directory: Path) -> Job | None:
         """The project's running job, if any: there is at most one."""
-        return next((job for job in self.jobs.values() if job.project == project and job.state == "running"), None)
+        return next((job for job in self.jobs.values() if job.directory == directory and job.state == "running"), None)
 
-    def get(self, job_id: str, project: str) -> Job | None:
+    def get(self, job_id: str, directory: Path) -> Job | None:
         """A job by id, only within the project the request was authorized for."""
         job = self.jobs.get(job_id)
-        return job if job is not None and job.project == project else None
+        return job if job is not None and job.directory == directory else None
 
     def start(self, directory: Path, project: str, targets: list[str], refresh: bool) -> Job:
         """Register a job and start supervising it; the caller ensured none is running."""
@@ -305,24 +428,33 @@ class JobRegistry:
             started=_now(),
         )
         self.jobs[job.id] = job
-        self._prune(project)
+        self._prune(directory)
         job.task = asyncio.create_task(self._run(job))
         return job
 
-    def _prune(self, project: str) -> None:
+    def _prune(self, directory: Path) -> None:
         """Forget the oldest finished jobs of a project beyond the listing cap."""
-        finished = [job for job in self.jobs.values() if job.project == project and job.state != "running"]
+        finished = [job for job in self.jobs.values() if job.directory == directory and job.state != "running"]
         for job in finished[: max(0, len(finished) - MAX_JOBS)]:
             del self.jobs[job.id]
 
     async def cancel(self, job: Job, grace: float | None = None) -> None:
-        """Terminate a running job and wait for its record to be final."""
+        """Terminate a running job and wait for its record to be final.
+
+        An engine that has already exited keeps its outcome, since what it
+        committed stands: only descendants still holding its pipes are
+        stopped, so that the record becomes final sooner.
+        """
         if job.state != "running":
             return
-        job.state = "cancelled"
-        self.log.info("Cancelling Lightcone materialization %s in %s", job.id, job.directory)
-        if job.process is not None:
-            await _terminate(job.process, self.grace if grace is None else grace)
+        process = job.process
+        if process is not None and process.returncode is not None:
+            _kill_group(process)
+        else:
+            job.state = "cancelled"
+            self.log.info("Cancelling Lightcone materialization %s in %s", job.id, job.directory)
+            if process is not None:
+                await _terminate(process, self.grace if grace is None else grace)
         if job.task is not None:
             try:
                 await asyncio.wait_for(asyncio.shield(job.task), 15)
@@ -352,25 +484,25 @@ class JobRegistry:
                     start_new_session=True,
                 )
             except OSError as error:
-                self._record(job, f"Could not start the Lightcone engine: {error}", False)
+                self._record(job, display_line(f"Could not start the Lightcone engine: {error}"))
                 return
-            self._emit(job, None)
             if job.state != "running":
                 # Cancelled while spawning: nothing must run.
                 await _terminate(job.process, 0)
+            else:
+                self._emit(job, None)
             readers = [
                 asyncio.create_task(self._read(job, job.process.stdout, True)),
                 asyncio.create_task(self._read(job, job.process.stderr, False)),
             ]
             await _exited(job.process)
-            deadline = time.monotonic() + 5
-            for reader in readers:
-                try:
-                    await asyncio.wait_for(asyncio.shield(reader), max(0.0, deadline - time.monotonic()))
-                except asyncio.TimeoutError:
-                    break
-            # Grandchildren may still hold the pipes; the engine is gone, so reap them.
+            # The engine's last output may still be in the pipes, which grandchildren
+            # can hold open: give the readers a moment, then reap those.
+            await asyncio.wait(readers, timeout=DRAIN_SECONDS)
             _kill_group(job.process)
+            # Recipes share the engine's stdout; however bounded, the search for
+            # its report stays off the event loop.
+            job.report = await asyncio.to_thread(parse_report, job.stdout.text())
         except asyncio.CancelledError:
             if job.process is not None:
                 _kill_group(job.process)
@@ -388,36 +520,38 @@ class JobRegistry:
             return
         process = job.process
         job.exit = None if process is None else process.returncode
-        job.finished = _now()
-        job.report = parse_last_json("\n".join(job.stdout))
         if job.state == "running":
             job.state = "succeeded" if job.exit == 0 else "failed"
+        job.finished = _now()
+        # The report has been read from it; a finished job keeps only its last lines.
+        job.stdout.clear()
         self.log.info("Lightcone materialization %s %s (exit %s)", job.id, job.state, job.exit)
         self._emit(job, None)
 
     async def _read(self, job: Job, stream, is_stdout: bool) -> None:
-        """Turn a pipe into lines as they arrive; a chunk may end mid-character or mid-line."""
+        """Turn a pipe into lines as they arrive; a chunk may end mid-character or mid-line.
+
+        Stdout is also kept verbatim, up to its bounded tail, for the report.
+        """
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        pending = ""
+        splitter = LineSplitter()
         while True:
             chunk = await stream.read(4096)
-            pending += decoder.decode(chunk, final=not chunk)
-            *lines, pending = pending.split("\n")
-            if len(pending) > MAX_LINE_CHARS or (not chunk and pending):
-                lines.append(pending)
-                pending = ""
+            text = decoder.decode(chunk, final=not chunk)
+            if is_stdout:
+                job.stdout.append(text)
+            lines = splitter.feed(text)
+            if not chunk:
+                lines.extend(splitter.close())
             for line in lines:
-                self._record(job, line.rstrip("\r"), is_stdout)
+                self._record(job, line)
             if not chunk:
                 return
 
-    def _record(self, job: Job, line: str, is_stdout: bool) -> None:
-        """Keep the bounded log, the stdout the report is parsed from, and tell listeners."""
-        clean = ANSI_ESCAPE.sub("", line)
-        job.lines.append(clean)
-        if is_stdout:
-            job.stdout.append(line)
-        self._emit(job, clean)
+    def _record(self, job: Job, line: str) -> None:
+        """Keep a display line in the bounded log and tell listeners."""
+        job.lines.append(line)
+        self._emit(job, line)
 
     def _emit(self, job: Job, line: str | None) -> None:
         """Publish on the event bus when the schema is registered; never fail the job."""
@@ -461,18 +595,6 @@ async def close_jobs(web_app) -> None:
 # =============================================================================
 
 
-async def authorized_project(handler: ProjectAPIHandler, path) -> Path:
-    """Resolve and authorize an entrypoint given in a request body, as `project()` does for queries."""
-    if not isinstance(path, str):
-        raise web.HTTPError(400, "A project entrypoint path is required.")
-    root = handler.contents_root
-    project = project_root(root, path)
-    # Apply the contents manager's read and hidden-file rules too.
-    await contents_call(handler.contents_manager.get, path, content=False, type="file")
-    handler.set_header("Cache-Control", "no-store")
-    return project
-
-
 class RunsHandler(ProjectAPIHandler):
     """The run history and jobs of a project, and starting a new job."""
 
@@ -485,7 +607,7 @@ class RunsHandler(ProjectAPIHandler):
         project = await self.project()
         # Git walks the history on disk, so it runs off the event loop.
         runs = await asyncio.to_thread(run_history, project)
-        jobs = job_registry(self.settings).listing(contents_path(self.contents_root, project))
+        jobs = job_registry(self.settings).listing(project)
         self.finish({"runs": runs, "jobs": jobs})
 
     @web.authenticated
@@ -504,12 +626,13 @@ class RunsHandler(ProjectAPIHandler):
         refresh = body.get("refresh", False)
         if not isinstance(refresh, bool):
             raise web.HTTPError(400, "refresh must be a boolean.")
-        project = await authorized_project(self, body.get("path"))
+        entrypoint = body.get("path")
+        project = await self.project_named(entrypoint)
         registry = job_registry(self.settings)
-        path = contents_path(self.contents_root, project)
-        if registry.running(path) is not None:
+        if registry.running(project) is not None:
             raise web.HTTPError(409, "A materialization is already running in this project.")
-        job = registry.start(project, path, targets, refresh)
+        # Jobs name their project as the browser does, symlinks included.
+        job = registry.start(project, project_contents_path(entrypoint), targets, refresh)
         self.set_status(202)
         self.finish(job.payload())
 
@@ -520,7 +643,7 @@ class RunHandler(ProjectAPIHandler):
     unavailable_message = "Materialization runs require local files"
 
     def _job(self, job_id: str, project: Path) -> Job:
-        job = job_registry(self.settings).get(job_id, contents_path(self.contents_root, project))
+        job = job_registry(self.settings).get(job_id, project)
         if job is None:
             raise web.HTTPError(404, "No such materialization job in this project.")
         return job

@@ -2,10 +2,11 @@
 
 import json
 import os
-from pathlib import Path
 import subprocess
+import sys
+import threading
 
-from lightcone.engine.sandbox import Capability, Unavailable
+from lightcone.engine.sandbox import Capability, Unavailable, detect
 import pytest
 
 from jupyterlab_lightcone import setup_routes
@@ -102,6 +103,23 @@ def test_a_version_printed_on_stderr_is_read_too(monkeypatch):
     assert setup_routes.probe_tool("tool", "--version")["version"] == "4.5"
 
 
+def test_a_probe_never_waits_on_the_server_terminal():
+    # A wrapper that asks before installing (npx does on a terminal) must read end of input, not the server's stdin.
+    read, write = os.pipe()
+    saved = os.dup(0)
+    try:
+        os.dup2(read, 0)
+        completed = setup_routes.run_command(
+            [sys.executable, "-c", "import sys; print(repr(sys.stdin.read()))"], timeout=3
+        )
+    finally:
+        os.dup2(saved, 0)
+        for descriptor in (saved, read, write):
+            os.close(descriptor)
+    assert completed is not None
+    assert completed.stdout.strip() == "''"
+
+
 def test_git_is_probed_for_real():
     tool = setup_routes.probe_tool("git", "--version")
     assert tool["found"] is True
@@ -109,12 +127,31 @@ def test_git_is_probed_for_real():
     assert setup_routes.parse_version(tool["version"]) == tool["version"]
 
 
-def test_the_myst_row_uses_the_configured_executable(monkeypatch):
+def test_the_myst_row_runs_the_configured_command(monkeypatch):
     asked = []
-    monkeypatch.setattr(setup_routes.shutil, "which", lambda name: asked.append(name))
-    tools = setup_routes.probe_tools("/opt/myst/bin/myst")
+    ran = []
+    monkeypatch.setattr(setup_routes.shutil, "which", lambda name: asked.append(name) or f"/resolved/{name}")
+
+    def run(argv, **kwargs):
+        ran.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "v1.8.0\n", "")
+
+    monkeypatch.setattr(setup_routes.subprocess, "run", run)
+    tools = setup_routes.probe_tools(["npx", "mystmd"])
     assert set(tools) == TOOL_KEYS
-    assert asked == ["uv", "git", "git-annex", "/opt/myst/bin/myst"]
+    assert asked == ["uv", "git", "git-annex", "npx"]
+    # The version comes from MyST behind the wrapper, not from the wrapper itself.
+    assert ran[-1] == ["/resolved/npx", "mystmd", "--version"]
+    assert tools["myst"] == {"found": True, "path": "/resolved/npx", "version": "1.8.0"}
+
+
+@pytest.mark.parametrize("command", [[], [""]])
+def test_an_empty_myst_command_reports_myst_missing(monkeypatch, command):
+    monkeypatch.setattr(setup_routes.shutil, "which", lambda name: f"/resolved/{name}")
+    monkeypatch.setattr(
+        setup_routes.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "1.0\n", "")
+    )
+    assert setup_routes.probe_tools(command)["myst"] == {"found": False, "path": None, "version": None}
 
 
 # Agents
@@ -242,6 +279,40 @@ def test_an_install_record_without_a_manifest_keeps_its_own_version(tmp_path):
     }
 
 
+def test_a_plugin_the_install_record_leaves_out_is_not_installed(home):
+    claude = home / ".claude" / "plugins"
+    # The marketplace clone offers both plugins; neither is installed from it.
+    plugin(
+        claude, "marketplaces", "lightcone-research", "plugins", "lightcone", name="lightcone", version="0.0.9",
+    )
+    plugin(claude, "marketplaces", "lightcone-research", "plugins", "astra", name="astra", version="0.0.9")
+    record = {"version": 2, "plugins": {"other@market": [{"installPath": str(claude), "version": "1.0"}]}}
+    (claude / "installed_plugins.json").write_text(json.dumps(record))
+    found = rows(setup_routes.find_skills(home))
+    # The cache still holds lightcone 0.0.1 and 0.0.2 and astra 0.0.3, but the record says neither is installed.
+    assert found[("claude", "lightcone")] == {
+        "harness": "claude", "name": "lightcone", "version": None, "path": str(claude), "found": False,
+    }
+    assert found[("claude", "astra")]["found"] is False
+
+
+def test_an_older_install_record_holding_one_install_per_plugin_is_read(home):
+    claude = home / ".claude" / "plugins"
+    installed = claude / "cache" / "lightcone-research" / "lightcone" / "0.0.1"
+    record = {"version": 1, "plugins": {"lightcone@lightcone-research": {"installPath": str(installed)}}}
+    (claude / "installed_plugins.json").write_text(json.dumps(record))
+    found = rows(setup_routes.find_skills(home))
+    assert found[("claude", "lightcone")]["path"] == str(installed)
+    assert found[("claude", "lightcone")]["version"] == "0.0.1"
+    assert found[("claude", "astra")]["found"] is False
+
+
+def test_marketplace_clones_are_not_installed_skills(tmp_path):
+    claude = tmp_path / ".claude" / "plugins"
+    plugin(claude, "marketplaces", "lightcone-research", "plugins", "lightcone", name="lightcone", version="0.0.9")
+    assert rows(setup_routes.find_skills(tmp_path))[("claude", "lightcone")]["found"] is False
+
+
 def test_folders_that_merely_share_the_prefix_are_not_skills(tmp_path):
     claude = tmp_path / ".claude" / "plugins"
     # A marketplace folder named after the publisher holds no manifest of its own.
@@ -288,10 +359,22 @@ def test_versions_order_numerically():
     assert setup_routes.version_key("10.20260901-g29d2") > setup_routes.version_key("10.20250101")
 
 
-def test_without_a_home_every_skill_is_missing():
+def test_versions_with_digits_int_cannot_parse_are_ordered_as_text(tmp_path):
+    assert setup_routes.version_key("1²") == ((1, "1²"),)
+    plugin(tmp_path / ".claude" / "plugins", "lightcone", "v2²", name="lightcone", version="2²")
+    plugin(tmp_path / ".claude" / "plugins", "lightcone", "1.0", name="lightcone", version="1.0")
+    found = rows(setup_routes.find_skills(tmp_path))
+    assert found[("claude", "lightcone")]["found"] is True
+
+
+def test_without_a_home_every_skill_is_missing(tmp_path, monkeypatch):
+    # A folder literally named `~` in the server's working directory is not a home.
+    plugin(tmp_path / "~" / ".claude" / "plugins", "lightcone", name="lightcone", version="1.0")
+    monkeypatch.chdir(tmp_path)
     skills = setup_routes.find_skills(None)
     assert {(skill["harness"], skill["name"]) for skill in skills} == SKILL_ROWS
     assert all(skill["found"] is False for skill in skills)
+    assert {skill["path"] for skill in skills} == {"~/.claude/plugins", "~/.codex/plugins"}
 
 
 # Sandbox
@@ -315,9 +398,10 @@ def test_a_failing_sandbox_probe_means_no_boundary(monkeypatch):
     assert setup_routes.detect_sandbox() == {"backend": None, "available": False}
 
 
-def test_the_real_sandbox_probe_matches_the_contract():
-    sandbox = setup_routes.detect_sandbox()
-    assert sandbox["available"] == (sandbox["backend"] is not None)
+def test_the_real_sandbox_probe_reports_what_the_engine_detects():
+    kind = detect().capability.kind
+    expected = {"backend": None, "available": False} if kind == "none" else {"backend": kind, "available": True}
+    assert setup_routes.detect_sandbox() == expected
 
 
 # Project
@@ -357,8 +441,8 @@ def git(*args, cwd):
 
 
 @pytest.fixture
-def annex(tmp_path):
-    """A git-annex repository cloned from another, so it knows one remote."""
+def clone(tmp_path):
+    """A plain clone of a git-annex repository, not yet annexed itself."""
     origin = tmp_path / "origin"
     origin.mkdir()
     git("init", "-q", cwd=origin)
@@ -368,13 +452,27 @@ def annex(tmp_path):
     git("commit", "-qm", "init", cwd=origin)
     work = tmp_path / "work"
     git("clone", "-q", str(origin), str(work), cwd=tmp_path)
-    git("annex", "init", "work-repo", cwd=work)
-    git("fetch", "-q", "origin", cwd=work)
     return work
+
+
+@pytest.fixture
+def annex(clone):
+    """A git-annex repository cloned from another, so it knows one remote."""
+    git("annex", "init", "work-repo", cwd=clone)
+    git("fetch", "-q", "origin", cwd=clone)
+    return clone
 
 
 def test_storage_reads_a_real_annex_repository(annex):
     assert setup_routes.describe_storage(annex) == {"annex": True, "remotes": ["origin"]}
+
+
+def test_reading_storage_never_initializes_an_annex(clone):
+    assert setup_routes.describe_storage(clone) == {"annex": False, "remotes": []}
+    uuid = subprocess.run(["git", "config", "--get", "annex.uuid"], cwd=clone, capture_output=True, text=True)
+    assert uuid.returncode != 0
+    assert not (clone / ".git" / "annex").exists()
+    assert not (clone / ".git" / "hooks" / "pre-commit").exists()
 
 
 def test_a_plain_repository_or_folder_is_not_an_annex(tmp_path):
@@ -383,19 +481,33 @@ def test_a_plain_repository_or_folder_is_not_an_annex(tmp_path):
     assert setup_routes.describe_storage(tmp_path / "missing") == {"annex": False, "remotes": []}
 
 
-def test_storage_degrades_when_git_annex_hangs(tmp_path, monkeypatch):
+@pytest.mark.parametrize("hung", ["config", "annex"])
+def test_storage_degrades_when_git_or_git_annex_hangs(tmp_path, monkeypatch, hung):
+    answer = annex_answers(json.dumps({"success": True}))
+
     def run(argv, **kwargs):
-        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+        if argv[1] == hung:
+            raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
+        return answer(argv, **kwargs)
 
     monkeypatch.setattr(setup_routes.subprocess, "run", run)
     assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": []}
 
 
+def annex_answers(info_output):
+    """A `subprocess.run` for an annexed repository whose `git annex info` prints `info_output`."""
+
+    def run(argv, **kwargs):
+        if argv[:2] == ["git", "config"]:
+            return subprocess.CompletedProcess(argv, 0, "d0c1e2f3-uuid\n", "")
+        return subprocess.CompletedProcess(argv, 0, info_output, "")
+
+    return run
+
+
 @pytest.mark.parametrize("output", ["not json", json.dumps([]), json.dumps({"success": False})])
 def test_unexpected_annex_output_is_not_an_annex(tmp_path, monkeypatch, output):
-    monkeypatch.setattr(
-        setup_routes.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, output, "")
-    )
+    monkeypatch.setattr(setup_routes.subprocess, "run", annex_answers(output))
     assert setup_routes.describe_storage(tmp_path) == {"annex": False, "remotes": []}
 
 
@@ -421,11 +533,7 @@ def test_storage_ignores_special_remotes_and_this_repository(tmp_path, monkeypat
         ],
         "untrusted repositories": "not a list",
     }
-    monkeypatch.setattr(
-        setup_routes.subprocess,
-        "run",
-        lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, json.dumps(info), ""),
-    )
+    monkeypatch.setattr(setup_routes.subprocess, "run", annex_answers(json.dumps(info)))
     assert setup_routes.describe_storage(tmp_path) == {"annex": True, "remotes": ["archive", "nas"]}
 
 
@@ -455,13 +563,32 @@ async def test_the_report_describes_the_project(tmp_path, monkeypatch):
     assert report["storage"] == {"annex": False, "remotes": []}
 
 
+async def test_every_probe_runs_off_the_event_loop(tmp_path, monkeypatch):
+    threads = []
+
+    def module_installed(name):
+        threads.append(threading.get_ident())
+        return False
+
+    def home_directory():
+        threads.append(threading.get_ident())
+        return tmp_path
+
+    monkeypatch.setattr(setup_routes, "module_installed", module_installed)
+    monkeypatch.setattr(setup_routes, "home_directory", home_directory)
+    report = await setup_routes.build_report(None)
+    assert report["jupyterAi"] is False
+    # Jupyter AI, the ACP client and the home lookup were all asked, none of them on the loop's thread.
+    assert len(threads) == 3
+    assert threading.get_ident() not in threads
+
+
 # The route
 
 
 @pytest.fixture
-def api(jp_serverapp, jp_fetch):
-    """The route, registered on the test server the way the application registers it."""
-    setup_routes.setup_setup_handlers(jp_serverapp.web_app, ["myst"])
+def api(jp_fetch):
+    """The route as the extension, loaded by the test server, registers it."""
 
     def fetch(**kwargs):
         return jp_fetch(*ENDPOINT, **kwargs)
@@ -537,7 +664,7 @@ class TestConfiguredMySTCommand:
         monkeypatch.setattr(setup_routes, "probe_tools", probe_tools)
         response = await jp_fetch(*ENDPOINT)
         assert response.code == 200
-        assert asked == ["/opt/myst/bin/myst"]
+        assert asked == [["/opt/myst/bin/myst", "--fixed-argument"]]
 
 
 async def test_probe_failures_never_fail_the_request(api, monkeypatch):
@@ -561,6 +688,13 @@ async def test_requires_authentication(api):
 
 
 async def test_requires_contents_read_authorization(api, jp_serverapp, monkeypatch):
-    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda *args, **kwargs: False)
+    asked = []
+
+    def is_authorized(handler, user, action, resource):
+        asked.append((action, resource))
+        return (action, resource) != ("read", "contents")
+
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", is_authorized)
     response = await api(raise_error=False)
     assert response.code == 403
+    assert ("read", "contents") in asked

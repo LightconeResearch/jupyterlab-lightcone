@@ -52,7 +52,7 @@ export async function startMaterialization(
   ];
   Notification.promise(settled, {
     pending: {
-      message: toast(`Materializing ${describeTargets(targets, refresh)}…`),
+      message: toast(`Materializing ${describeTargets(targets)}…`),
       options: { actions }
     },
     success: {

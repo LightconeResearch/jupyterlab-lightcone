@@ -1,5 +1,7 @@
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import type { JupyterFrontEnd } from '@jupyterlab/application';
-import type { IThemeManager } from '@jupyterlab/apputils';
+import { IThemeManager } from '@jupyterlab/apputils';
 import {
   LIGHTCONE_DARK_THEME,
   LIGHTCONE_LIGHT_THEME,
@@ -21,6 +23,31 @@ function manager() {
 
 const app = {} as JupyterFrontEnd;
 
+/** The fields of package.json that decide where the theme is served. */
+interface IThemedPackage {
+  name: string;
+  jupyterlab: { themePath: string };
+}
+
+/**
+ * Whether a parsed package.json names the package and its theme stylesheet.
+ * @param value - The parsed manifest
+ * @returns True when `name` and `jupyterlab.themePath` are strings
+ */
+function isThemedPackage(value: unknown): value is IThemedPackage {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    typeof value.name === 'string' &&
+    'jupyterlab' in value &&
+    typeof value.jupyterlab === 'object' &&
+    value.jupyterlab !== null &&
+    'themePath' in value.jupyterlab &&
+    typeof value.jupyterlab.themePath === 'string'
+  );
+}
+
 describe('Lightcone theme plugins', () => {
   it('declare distinct ids and require the theme manager', () => {
     expect(lightconeLightThemePlugin.id).toBe(
@@ -29,8 +56,8 @@ describe('Lightcone theme plugins', () => {
     expect(lightconeDarkThemePlugin.id).toBe('jupyterlab_lightcone:theme-dark');
     expect(lightconeLightThemePlugin.autoStart).toBe(true);
     expect(lightconeDarkThemePlugin.autoStart).toBe(true);
-    expect(lightconeLightThemePlugin.requires).toHaveLength(1);
-    expect(lightconeDarkThemePlugin.requires).toHaveLength(1);
+    expect(lightconeLightThemePlugin.requires).toEqual([IThemeManager]);
+    expect(lightconeDarkThemePlugin.requires).toEqual([IThemeManager]);
   });
 
   it('register a light and a dark theme sharing one stylesheet', async () => {
@@ -62,6 +89,17 @@ describe('Lightcone theme plugins', () => {
   });
 
   it('point at the stylesheet the builder emits for this package', () => {
-    expect(LIGHTCONE_THEME_STYLE).toBe('jupyterlab-lightcone/index.css');
+    const root = join(__dirname, '..', '..', '..');
+    const manifest: unknown = JSON.parse(
+      readFileSync(join(root, 'package.json'), { encoding: 'utf8' })
+    );
+    if (!isThemedPackage(manifest)) {
+      throw new Error('package.json declares no jupyterlab.themePath');
+    }
+    // The builder emits `themePath` as `themes/<package name>/index.css`,
+    // which the server publishes under the themes URL `loadCSS` joins.
+    expect(LIGHTCONE_THEME_STYLE).toBe(`${manifest.name}/index.css`);
+    expect(manifest.jupyterlab.themePath).toBe('style/themes/index.css');
+    expect(existsSync(join(root, manifest.jupyterlab.themePath))).toBe(true);
   });
 });

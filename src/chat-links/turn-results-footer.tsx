@@ -19,6 +19,7 @@ import type { ILoadedProjectData } from '../project-data';
 import type { IProjectRoot } from '../project-root';
 import type { IRunRecord } from '../runs/runs-api';
 import { displayPath, serverRelativePath } from './chat-paths';
+import { recordedChatProject } from './chat-project';
 import { cachedRuns } from './runs-cache';
 import {
   filesEditedIn,
@@ -33,9 +34,13 @@ export interface ITurnResultsHost {
   app: JupyterFrontEnd;
   tracker: IChatTracker | null;
   trans: TranslationBundle;
-  /** Absolute filesystem path of the server root, '' when unknown. */
-  serverRoot: string;
-  resolveProject(chatPath: string): Promise<IProjectRoot | undefined>;
+  /** Absolute filesystem paths naming the server root; empty when unknown. */
+  serverRoots: readonly string[];
+  /** The project of the chat at `chatPath`, given the project `recorded` in it. */
+  resolveProject(
+    chatPath: string,
+    recorded: string | undefined
+  ): Promise<IProjectRoot | undefined>;
   openFile(path: string, panel: IChatPanel | undefined): Promise<void>;
 }
 
@@ -46,6 +51,13 @@ const KIND_LABELS: Record<ResolvedOutput['type'], string> = {
   data: 'Data',
   report: 'Report'
 };
+
+/**
+ * How long, in milliseconds, a reply's end time must hold still before the
+ * footer lists the project's runs again: the agent restamps its message with
+ * every streamed chunk, and each listing is a `git log` on the server.
+ */
+export const TURN_SETTLE_DELAY = 2000;
 
 /** A counter that advances whenever `signal` emits; constant without a signal. */
 function useSignalRevision(
@@ -65,10 +77,35 @@ function useSignalRevision(
   return revision;
 }
 
+/**
+ * `value` once it has held still for `delay` milliseconds. A value that
+ * appears or disappears passes at once, so a footer lists runs as soon as it
+ * mounts; changes to a defined value wait until they stop.
+ */
+function useSettled(
+  value: number | undefined,
+  delay: number
+): number | undefined {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    if (value === settled) {
+      return;
+    }
+    if (value === undefined || settled === undefined) {
+      setSettled(value);
+      return;
+    }
+    const timer = window.setTimeout(() => setSettled(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, settled, delay]);
+  return settled;
+}
+
 /** The project a chat belongs to; undefined while unknown, null when none. */
 function useChatProject(
   host: ITurnResultsHost,
-  chatPath: string | undefined
+  chatPath: string | undefined,
+  recorded: string | undefined
 ): IProjectRoot | null | undefined {
   const [project, setProject] = useState<IProjectRoot | null | undefined>(
     undefined
@@ -78,19 +115,30 @@ function useChatProject(
       return;
     }
     let active = true;
-    void host.resolveProject(chatPath).then(found => {
-      if (active) {
-        setProject(found ?? null);
+    void host.resolveProject(chatPath, recorded).then(
+      found => {
+        if (active) {
+          setProject(found ?? null);
+        }
+      },
+      error => {
+        if (active) {
+          console.warn(`Could not find the project of ${chatPath}.`, error);
+          setProject(null);
+        }
       }
-    });
+    );
     return () => {
       active = false;
     };
-  }, [host, chatPath]);
+  }, [host, chatPath, recorded]);
   return chatPath === undefined ? undefined : project;
 }
 
-/** The project's runs, fetched after the turn ended so its commits are in. */
+/**
+ * The project's runs, fetched after the turn ended so its commits are in.
+ * `notBefore` is the turn's end, server time in seconds since the epoch.
+ */
 function useRuns(
   host: ITurnResultsHost,
   entrypoint: string | undefined,
@@ -323,7 +371,7 @@ function EditedFiles({
   return (
     <ul className="jp-jupyterlab-lightcone-TurnResults-files">
       {files.map(file => {
-        const relative = serverRelativePath(file, host.serverRoot);
+        const relative = serverRelativePath(file, host.serverRoots);
         const label =
           relative === undefined
             ? file
@@ -368,26 +416,39 @@ export function createTurnResultsFooter(
     message
   }: MessageFooterSectionProps): React.ReactElement | null {
     // The message list is mutated in place; revisions track its changes.
-    // Whether this message ends a turn depends on the list alone, while the
-    // files edited arrive as tool-call metadata on messages already listed,
-    // so only a turn-end footer follows individual message changes.
+    // Whether this message ends a turn depends on the list alone. Only a
+    // turn-end footer follows individual message changes: the agent restamps
+    // its message's time with every chunk it streams, which moves the end of
+    // the turn, and the files edited arrive as tool-call metadata on messages
+    // already listed. A turn that ends on a tool call keeps that message's
+    // creation time as its end, since tool-call updates leave the time alone.
     const listRevision = useSignalRevision(model.messagesUpdated);
-    const turn = useMemo<ITurnWindow | undefined>(
-      () => turnEndingAt(model.messages, message.id),
+    const endsTurn = useMemo(
+      () => turnEndingAt(model.messages, message.id) !== undefined,
       [model, message.id, listRevision]
     );
     const changeRevision = useSignalRevision(
-      turn ? model.messageChanged : undefined
+      endsTurn ? model.messageChanged : undefined
     );
-    const project = useChatProject(host, turn ? model.name : undefined);
-    const runs = useRuns(host, project?.entrypoint, turn?.end);
+    const turn = useMemo<ITurnWindow | undefined>(
+      () => (endsTurn ? turnEndingAt(model.messages, message.id) : undefined),
+      [model, message.id, endsTurn, listRevision, changeRevision]
+    );
+    // Fetch once the reply has stopped moving, not for every chunk.
+    const settledEnd = useSettled(turn?.end, TURN_SETTLE_DELAY);
+    const project = useChatProject(
+      host,
+      turn ? model.name : undefined,
+      turn ? recordedChatProject(model) : undefined
+    );
+    const runs = useRuns(host, project?.entrypoint, settledEnd);
     const outputs = useMemo(
       () => (turn && runs ? materializedDuring(runs, turn) : []),
       [turn, runs]
     );
     const files = useMemo(
       () => (turn ? filesEditedIn(model.messages, turn) : []),
-      [model, turn, changeRevision]
+      [model, turn]
     );
     if (!turn || !project || (!outputs.length && !files.length)) {
       return null;

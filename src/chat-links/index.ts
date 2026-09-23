@@ -13,38 +13,11 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { ICurrentProject } from '../current-project';
 import { projectDirectory } from '../project-data';
-import { normalizeServerRoot } from './chat-paths';
-import { createChatProjectResolver } from './chat-project';
+import { serverRoots } from './chat-paths';
+import { createChatProjectResolver, recordedChatProject } from './chat-project';
 import { attachChatLinks } from './link-fixer';
 import { BesideOpener } from './open-beside';
 import { createTurnResultsFooter } from './turn-results-footer';
-
-export { isFileLink, resolveChatLink, rewriteImageSource } from './chat-paths';
-export {
-  filesEditedIn,
-  isAgentMessage,
-  materializedDuring,
-  turnEndingAt
-} from './turn-results';
-
-/**
- * The server's root directory as an absolute filesystem path. The ACP client
- * publishes `rootUri` on some deployments; JupyterLab always sets `serverRoot`.
- */
-export function serverRootPath(): string {
-  const rootUri = PageConfig.getOption('rootUri');
-  if (rootUri) {
-    try {
-      const url = new URL(rootUri);
-      if (url.protocol === 'file:') {
-        return normalizeServerRoot(decodeURIComponent(url.pathname));
-      }
-    } catch {
-      // Fall through to the plain server root below.
-    }
-  }
-  return normalizeServerRoot(PageConfig.getOption('serverRoot'));
-}
 
 /**
  * Working links and turn results in sessions: file links and images an agent
@@ -75,7 +48,13 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
   ): void => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const contents = app.serviceManager.contents;
-    const serverRoot = serverRootPath();
+    // `lightconeServerRoot` is published by this extension's server side,
+    // `rootUri` by jupyter-lsp and `serverRoot` by JupyterLab.
+    const roots = serverRoots({
+      lightconeServerRoot: PageConfig.getOption('lightconeServerRoot'),
+      rootUri: PageConfig.getOption('rootUri'),
+      serverRoot: PageConfig.getOption('serverRoot')
+    });
     const opener = new BesideOpener(app, documents, labShell, trans);
     const projects = createChatProjectResolver(
       contents,
@@ -90,10 +69,14 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
           return;
         }
         const links = attachChatLinks(panel, {
-          serverRoot,
+          serverRoots: roots,
           baseUrl: app.serviceManager.serverSettings.baseUrl,
-          baseDirectory: async chatPath => {
-            const project = await projects.resolve(chatPath);
+          baseDirectory: async chat => {
+            const chatPath = chat.model.name;
+            const project = await projects.resolve(
+              chatPath,
+              recordedChatProject(chat.model)
+            );
             return project
               ? contents.localPath(project.path)
               : contents.localPath(projectDirectory(chatPath));
@@ -113,8 +96,9 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
           app,
           tracker,
           trans,
-          serverRoot,
-          resolveProject: chatPath => projects.resolve(chatPath),
+          serverRoots: roots,
+          resolveProject: (chatPath, recorded) =>
+            projects.resolve(chatPath, recorded),
           openFile
         })
       });

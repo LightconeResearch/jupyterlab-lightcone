@@ -1,9 +1,14 @@
+import { TextDecoder } from 'node:util';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import type { ResolvedOutput } from '@astra-spec/sdk';
+import { ServerConnection } from '@jupyterlab/services';
 import { ProvenanceTabs } from '../provenance-tabs';
+import { VersionCompare } from '../version-compare';
+import type { IVersionTarget } from '../version-content';
 import { VersionStepper } from '../version-stepper';
 import type { IOutputVersion } from '../versions-api';
-import type { IRunView } from '../version-model';
+import { METRIC_LEAF_LIMIT, type IRunView } from '../version-model';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -130,8 +135,7 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
     sandbox: 'backend: landlock',
     inputVersions: { catalog: 'sha256:input' },
     decisions: { method: 'robust' },
-    inputs: ['data/catalog.csv'],
-    outputs: []
+    inputs: ['data/catalog.csv']
   };
   const onShowConversation = jest.fn();
   const onOpenCode = jest.fn();
@@ -219,4 +223,162 @@ test('provenance tabs explain a missing or unreadable record', () => {
     root.render(<ProvenanceTabs run={undefined} error="nope" inputs={[]} />);
   });
   expect(container.textContent).toContain('nope');
+});
+
+describe('version comparison', () => {
+  const target: IVersionTarget = {
+    settings: ServerConnection.makeSettings({
+      baseUrl: 'http://localhost:8888/lab/'
+    }),
+    entrypoint: 'project/astra.yaml',
+    universe: 'baseline',
+    outputId: 'fit'
+  };
+  const [newer, older] = versions;
+  const output = (type: string, format: string) =>
+    ({
+      kind: 'output',
+      id: 'fit',
+      canonicalPath: 'outputs.fit',
+      label: 'Fit',
+      type,
+      format
+    }) as unknown as ResolvedOutput;
+
+  beforeAll(() => {
+    Object.defineProperty(globalThis, 'TextDecoder', {
+      value: TextDecoder,
+      configurable: true
+    });
+  });
+
+  /** Serve each commit's bytes from the versions content route. */
+  function serve(bodies: Record<string, string>): void {
+    jest
+      .spyOn(ServerConnection, 'makeRequest')
+      .mockImplementation(async url => {
+        const commit = new URL(url).searchParams.get('commit') ?? '';
+        const body = bodies[commit];
+        return body === undefined
+          ? new Response('{"reason": "absent"}', { status: 404 })
+          : new Response(body);
+      });
+  }
+
+  async function compare(type: string, format: string): Promise<void> {
+    await act(async () => {
+      root.render(
+        <VersionCompare
+          target={target}
+          output={output(type, format)}
+          newer={newer}
+          older={older}
+        />
+      );
+    });
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (!/Comparing (values|tables)…/.test(container.textContent ?? ''))
+        return;
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+    }
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('JSON metrics compare value by value', async () => {
+    serve({
+      [older.commit]: '{"value": 0.3, "unit": "mag", "gone": 1}',
+      [newer.commit]: '{"value": 0.31, "extra": 2, "gone": 1}'
+    });
+    await compare('metric', 'json');
+    const rows = Array.from(container.querySelectorAll('tbody tr')).map(row =>
+      Array.from(row.children).map(cell => cell.textContent)
+    );
+    expect(rows).toEqual([
+      ['value', '0.3', '0.31', '+0.01'],
+      ['extra', '—', '2', 'added'],
+      ['gone', '1', '1', 'unchanged']
+    ]);
+    expect(container.querySelector('h4')?.textContent).toBe(
+      'Comparing ccccccc with the previous version bbbbbbb'
+    );
+  });
+
+  test('a large JSON metric compares a bounded number of values', async () => {
+    const values = JSON.stringify(
+      Array.from({ length: METRIC_LEAF_LIMIT + 100 }, (_, index) => index)
+    );
+    serve({ [older.commit]: values, [newer.commit]: values });
+    await compare('metric', 'json');
+    expect(container.textContent).toContain(
+      `Showing the first ${METRIC_LEAF_LIMIT} values of each version.`
+    );
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(
+      METRIC_LEAF_LIMIT
+    );
+  });
+
+  test('JSON and delimited tables compare by shape', async () => {
+    serve({
+      [older.commit]: '[{"a": 1, "b": 2}]',
+      [newer.commit]: '[{"b": 1, "a": 2}, {"b": 3, "a": 4}]'
+    });
+    await compare('table', 'json');
+    expect(container.textContent).toContain('same columns in another order');
+    expect(container.textContent).toContain('+1');
+    jest.restoreAllMocks();
+    serve({
+      [older.commit]: 'a,b\n1,2\n',
+      [newer.commit]: 'a,c\n1,2\n3,4\n'
+    });
+    await compare('table', 'csv');
+    expect(container.textContent).toContain('added c');
+    expect(container.textContent).toContain('removed b');
+  });
+
+  test('images offer a swipe only when both versions are present', async () => {
+    await act(async () => {
+      root.render(
+        <VersionCompare
+          target={target}
+          output={output('figure', 'png')}
+          newer={newer}
+          older={{ ...older, present: false }}
+        />
+      );
+    });
+    expect(button('Swipe').disabled).toBe(true);
+    expect(container.textContent).toContain('Content not available locally');
+    act(() => {
+      root.render(
+        <VersionCompare
+          target={target}
+          output={output('figure', 'png')}
+          newer={newer}
+          older={older}
+        />
+      );
+    });
+    act(() => button('Swipe').click());
+    const slider = container.querySelector<HTMLInputElement>(
+      'input[type="range"]'
+    )!;
+    expect(slider).not.toBeNull();
+    const images = container.querySelectorAll('img');
+    expect(images).toHaveLength(2);
+    expect(new URL(images[0].src).searchParams.get('commit')).toBe(
+      older.commit
+    );
+  });
+
+  test('formats without a comparison say so', async () => {
+    await compare('data', 'npz');
+    expect(container.textContent).toContain(
+      'No comparison is available for .npz artifacts.'
+    );
+  });
 });

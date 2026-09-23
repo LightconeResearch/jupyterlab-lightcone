@@ -1,7 +1,9 @@
 import type { ResolvedRecord } from '@astra-spec/sdk';
 import { collectInventoryPapers, recordTitle } from '@astra-spec/ui/model';
 import type { CommandRegistry } from '@lumino/commands';
+import { sessionActivity, sessionSubtitle } from '../home/home-model';
 import type { ILoadedProjectData } from '../project-data';
+import type { SessionState } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import type { IProjectFile } from './project-files';
 
@@ -18,7 +20,7 @@ export type SearchSurfaceKind = Exclude<
   'session' | 'file' | 'command'
 >;
 
-/** What Enter does for a hit; the plugin dispatches on `type`. */
+/** What Enter does for a hit; `SearchController` dispatches on `type`. */
 export type SearchAction =
   | { type: 'session'; path: string }
   | { type: 'record'; entrypoint: string; target: string }
@@ -58,6 +60,22 @@ export const SEARCH_CATEGORIES: Readonly<Record<SearchKind, string>> = {
   command: 'Commands'
 };
 
+/**
+ * Where each kind's section sits, in display order: sessions, the
+ * ASTRA records, files, then commands.
+ */
+export const SEARCH_SECTION_ORDER: Readonly<Record<SearchKind, number>> = {
+  session: 1,
+  output: 2,
+  decision: 3,
+  input: 4,
+  finding: 5,
+  prior_insight: 5,
+  paper: 6,
+  file: 7,
+  command: 8
+};
+
 /** Every Lightcone command ID starts with this. */
 export const LIGHTCONE_COMMAND_PREFIX = 'jupyterlab_lightcone:';
 
@@ -80,59 +98,24 @@ export function isSurfaceKind(
   return kind !== undefined && SURFACE_KINDS.has(kind);
 }
 
+export interface ISessionCandidateOptions {
+  now?: number;
+  /** Newest sessions kept (`SESSION_LIMIT` by default). */
+  limit?: number;
+  icon?: SearchIcon;
+  /** The workbench's live activity of a session, which wins over the server's. */
+  activity?: (path: string) => SessionState | undefined;
+}
+
 /**
- * A short "how long ago" for session captions; dates older than a week are
- * shown as ISO dates so the palette stays sortable by eye.
+ * Sessions newest first, as the server lists them, cut to `limit`. The caption
+ * is the subtitle Home shows for the same session: agent, activity, age.
  */
-export function relativeTime(iso: string, now = Date.now()): string {
-  const time = Date.parse(iso);
-  if (Number.isNaN(time)) {
-    return '';
-  }
-  const seconds = Math.max(0, Math.floor((now - time) / 1000));
-  if (seconds < 60) {
-    return 'just now';
-  }
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) {
-    return `${minutes} min ago`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours} h ago`;
-  }
-  const days = Math.floor(hours / 24);
-  if (days < 7) {
-    return days === 1 ? 'yesterday' : `${days} days ago`;
-  }
-  return new Date(time).toISOString().slice(0, 10);
-}
-
-/** "working · Codex · 2 h ago": activity, last agent and age, omitting unknowns. */
-export function sessionCaption(
-  session: ISessionInfo,
-  now = Date.now()
-): string {
-  const parts: string[] = [];
-  if (session.activity === 'working') {
-    parts.push('working');
-  }
-  if (session.lastAgent) {
-    parts.push(session.lastAgent);
-  }
-  const age = relativeTime(session.modified, now);
-  if (age) {
-    parts.push(age);
-  }
-  return parts.join(' · ');
-}
-
-/** Sessions newest first, as the server lists them, cut to `limit`. */
 export function sessionCandidates(
   sessions: readonly ISessionInfo[],
-  options: { now?: number; limit?: number; icon?: SearchIcon } = {}
+  options: ISessionCandidateOptions = {}
 ): ISearchCandidate[] {
-  const now = options.now ?? Date.now();
+  const now = new Date(options.now ?? Date.now());
   return sessions
     .slice(0, options.limit ?? SESSION_LIMIT)
     .map((session, index) => ({
@@ -140,7 +123,11 @@ export function sessionCandidates(
       kind: 'session',
       category: SEARCH_CATEGORIES.session,
       label: session.title,
-      caption: sessionCaption(session, now),
+      caption: sessionSubtitle(
+        session,
+        sessionActivity(session, options.activity?.(session.path)),
+        now
+      ),
       rank: index,
       action: { type: 'session', path: session.path },
       ...(options.icon ? { icon: options.icon } : {})
@@ -208,8 +195,6 @@ export function fileCandidates(
 }
 
 export interface ICommandCandidateOptions {
-  /** Only commands whose ID starts with this; Lightcone's own by default. */
-  prefix?: string;
   /** IDs never listed, such as the search command itself. */
   exclude?: readonly string[];
 }
@@ -224,19 +209,20 @@ function requiresArguments(description: CommandRegistry.Description): boolean {
 }
 
 /**
- * Lightcone's user-facing commands: those with a label that can run without
- * arguments (commands that describe required arguments are internal), sorted
- * by label. Enablement stays live so context-bound commands hide themselves.
+ * Lightcone's user-facing commands (IDs under `LIGHTCONE_COMMAND_PREFIX`):
+ * those with a label that can run without arguments (commands that describe
+ * required arguments are internal), sorted by label. Enablement stays live, and
+ * the palette hides a command while it is disabled, so commands bound to
+ * another kind of tab only show up where they apply.
  */
 export async function commandCandidates(
   commands: CommandRegistry,
   options: ICommandCandidateOptions = {}
 ): Promise<ISearchCandidate[]> {
-  const prefix = options.prefix ?? LIGHTCONE_COMMAND_PREFIX;
   const excluded = new Set(options.exclude ?? []);
   const ids = commands
     .listCommands()
-    .filter(id => id.startsWith(prefix) && !excluded.has(id));
+    .filter(id => id.startsWith(LIGHTCONE_COMMAND_PREFIX) && !excluded.has(id));
   const described = await Promise.all(
     ids.map(async id => {
       try {

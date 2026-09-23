@@ -7,16 +7,14 @@ import { ServerConnection } from '@jupyterlab/services';
 import type { TranslationBundle } from '@jupyterlab/translation';
 import { Widget } from '@lumino/widgets';
 
-/** Sources narrower than this get a tab beside them rather than a split. */
-const SPLIT_MIN_WIDTH = 1000;
-
 /** Element tabs carry this id prefix (see `element-commands.ts`). */
 const ELEMENT_TAB_PREFIX = 'lightcone-element-';
 
 /**
  * Open files a session links to beside the session, so the conversation stays
- * where it is: the first file splits to the right, later ones join the group
- * that results already use, and an open file is revealed rather than reopened.
+ * where it is: the first file splits to the right, however narrow the session
+ * (as results do in `element-tabs.ts`), later ones join the group that files
+ * or results already use, and an open file is revealed rather than reopened.
  */
 export class BesideOpener {
   constructor(
@@ -64,25 +62,33 @@ export class BesideOpener {
     }
   }
 
-  /** Where the next file from `panel` goes. */
+  /**
+   * Where the next file from `panel` goes: after the last file it opened, else
+   * after a record tab, else split to its right. A tab is never added to the
+   * session's own tab area, where it would cover the conversation.
+   */
   placement(panel: IChatPanel | undefined): DocumentRegistry.IOpenOptions {
     if (!panel || panel.area !== 'main' || panel.isDisposed) {
       return { activate: true };
     }
     const last = this._lastOpened.get(panel);
-    if (last && !last.isDisposed) {
+    if (last && !last.isDisposed && this.besideSession(panel, last)) {
       return { mode: 'tab-after', ref: last.id, activate: true };
     }
     const group = this.resultGroupWidget(panel);
     if (group) {
       return { mode: 'tab-after', ref: group.id, activate: true };
     }
-    return {
-      mode:
-        panel.node.clientWidth >= SPLIT_MIN_WIDTH ? 'split-right' : 'tab-after',
-      ref: panel.id,
-      activate: true
-    };
+    return { mode: 'split-right', ref: panel.id, activate: true };
+  }
+
+  /** Whether `widget` lives in another main-area tab area than `panel`. */
+  private besideSession(panel: IChatPanel, widget: Widget): boolean {
+    return (
+      !this.labShell ||
+      this.labShell.getMainAreaTabBar(widget) !==
+        this.labShell.getMainAreaTabBar(panel)
+    );
   }
 
   /** A record tab living in another tab area than the session, when one exists. */
@@ -90,12 +96,11 @@ export class BesideOpener {
     if (!this.labShell) {
       return undefined;
     }
-    const own = this.labShell.getMainAreaTabBar(panel);
     for (const widget of this.app.shell.widgets('main')) {
       if (
         widget.id.startsWith(ELEMENT_TAB_PREFIX) &&
         !widget.isDisposed &&
-        this.labShell.getMainAreaTabBar(widget) !== own
+        this.besideSession(panel, widget)
       ) {
         return widget;
       }

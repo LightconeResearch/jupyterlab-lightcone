@@ -1,3 +1,5 @@
+import { MessageLoop } from '@lumino/messaging';
+import { Widget } from '@lumino/widgets';
 import type { ISearchCandidate } from '../search-candidates';
 import { SearchPalette } from '../search-palette';
 
@@ -11,6 +13,28 @@ function candidate(overrides: Partial<ISearchCandidate>): ISearchCandidate {
     rank: 0,
     action: { type: 'record', entrypoint: 'astra.yaml', target: 'outputs.fit' },
     ...overrides
+  };
+}
+
+/** Render the palette for `query` and read its headers and rows in order. */
+function render(
+  palette: SearchPalette,
+  query = ''
+): { headers: string[]; rows: string[]; marks: string[] } {
+  if (!palette.isAttached) {
+    Widget.attach(palette, document.body);
+  }
+  palette.inputNode.value = query;
+  palette.refresh();
+  MessageLoop.sendMessage(palette, Widget.Msg.UpdateRequest);
+  const text = (selector: string) =>
+    Array.from(palette.contentNode.querySelectorAll(selector)).map(
+      node => node.textContent ?? ''
+    );
+  return {
+    headers: text('.lm-CommandPalette-header'),
+    rows: text('.lm-CommandPalette-itemLabel'),
+    marks: text('.lm-CommandPalette-header mark')
   };
 }
 
@@ -38,15 +62,82 @@ describe('SearchPalette', () => {
       })
     ]);
     expect(palette.inputNode.placeholder).toBe('Search the project');
-    expect(palette.items.map(item => [item.category, item.label])).toEqual([
-      ['Results', 'Cosmology fit'],
-      ['Decisions', 'Fitting range']
+    expect(palette.items.map(item => item.label)).toEqual([
+      'Cosmology fit',
+      'Fitting range'
     ]);
     const item = palette.items[0];
     expect(item.caption).toBe('outputs.fit');
     expect(item.dataset).toEqual({ kind: 'output' });
-    expect(palette.candidates('records')).toHaveLength(2);
-    expect(palette.candidates('files')).toHaveLength(0);
+    expect(render(palette)).toMatchObject({
+      headers: ['Results', 'Decisions'],
+      rows: ['Cosmology fit', 'Fitting range']
+    });
+  });
+
+  it('lists sections in display order, not alphabetically', () => {
+    palette.setCandidates('commands', [
+      candidate({
+        id: 'command:jupyterlab_lightcone:create-project',
+        kind: 'command',
+        category: 'Commands',
+        label: 'Create project',
+        action: { type: 'command', id: 'jupyterlab_lightcone:create-project' }
+      })
+    ]);
+    palette.setCandidates('records', [
+      candidate({ label: 'Hubble diagram' }),
+      candidate({
+        id: 'record:decisions.range',
+        kind: 'decision',
+        category: 'Decisions',
+        label: 'Fitting range',
+        rank: 1
+      }),
+      candidate({
+        id: 'record:findings.result',
+        kind: 'finding',
+        category: 'Findings',
+        label: 'Our result',
+        rank: 2
+      }),
+      candidate({
+        id: 'paper:10.1/x',
+        kind: 'paper',
+        category: 'Papers',
+        label: 'Hubble 1929',
+        rank: 3,
+        action: { type: 'paper', entrypoint: 'astra.yaml', doi: '10.1/x' }
+      })
+    ]);
+    palette.setCandidates('sessions', [
+      candidate({
+        id: 'session:chats/hubble.chat',
+        kind: 'session',
+        category: 'Sessions',
+        label: 'Hubble fit',
+        action: { type: 'session', path: 'chats/hubble.chat' }
+      })
+    ]);
+    expect(render(palette).headers).toEqual([
+      'Sessions',
+      'Results',
+      'Decisions',
+      'Findings',
+      'Papers',
+      'Commands'
+    ]);
+    // Equally good matches follow the same order.
+    expect(render(palette, 'hubble').rows).toEqual([
+      'Hubble fit',
+      'Hubble diagram',
+      'Hubble 1929'
+    ]);
+    // A query naming a section highlights its plain name.
+    expect(render(palette, 'decisions')).toMatchObject({
+      headers: ['Decisions'],
+      marks: ['Decisions']
+    });
   });
 
   it('emits the chosen candidate when its command runs', async () => {
@@ -66,7 +157,7 @@ describe('SearchPalette', () => {
     expect(chosen).toEqual([session]);
   });
 
-  it('hides files until there is a query and follows live enablement', () => {
+  it('hides files until there is a query and disabled commands altogether', () => {
     let enabled = true;
     palette.setCandidates('files', [
       candidate({
@@ -98,6 +189,16 @@ describe('SearchPalette', () => {
     expect(command.isEnabled).toBe(true);
     enabled = false;
     expect(command.isEnabled).toBe(false);
+    expect(command.isVisible).toBe(false);
+    // A query matching only a disabled command reads as no match.
+    expect(
+      palette.contentNode.querySelector('.lm-CommandPalette-emptyMessage')
+    ).toBeNull();
+    render(palette, 'pin');
+    expect(
+      palette.contentNode.querySelector('.lm-CommandPalette-emptyMessage')
+        ?.textContent
+    ).toBe("Nothing matches 'pin'");
   });
 
   it('replaces a group without touching the others, collapses duplicate IDs and clears', () => {

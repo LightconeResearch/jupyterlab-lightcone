@@ -27,14 +27,30 @@ describe('slugForTitle', () => {
 });
 
 describe('titleFromMessage', () => {
-  it('takes the first non-empty line, trimmed to 80 characters', () => {
+  it('takes the first non-empty line', () => {
     expect(titleFromMessage('\n\n  Plot the Hubble diagram  \nwith bars')).toBe(
       'Plot the Hubble diagram'
     );
-    const long = 'word '.repeat(30);
-    expect(titleFromMessage(long).length).toBeLessThanOrEqual(80);
-    expect(titleFromMessage(long).endsWith(' ')).toBe(false);
+    expect(titleFromMessage('\r\n\u2028Fit the model\rthen plot')).toBe(
+      'Fit the model'
+    );
     expect(titleFromMessage('   ')).toBe('');
+  });
+
+  it('shortens long lines the way the server titles stored chats', () => {
+    // `session_title` in sessions.py: the first 79 characters, trimmed, and `…`.
+    const exact = 'x'.repeat(80);
+    expect(titleFromMessage(exact)).toBe(exact);
+    expect(titleFromMessage('word '.repeat(30))).toBe(
+      `${'word '.repeat(16).trimEnd()}…`
+    );
+    expect(titleFromMessage(`${'y'.repeat(78)} z tail`)).toBe(
+      `${'y'.repeat(78)}…`
+    );
+    // Characters, not UTF-16 units, as Python counts them.
+    const stars = '✨'.repeat(40) + '🔭'.repeat(40);
+    expect(titleFromMessage(stars)).toBe(stars);
+    expect(Array.from(titleFromMessage(`${stars}!`))).toHaveLength(80);
   });
 });
 
@@ -54,9 +70,21 @@ describe('titleForSession', () => {
     );
   });
 
-  it('strips drives and extensions from stems', () => {
+  it('strips directories, drives and extensions from stems', () => {
     expect(sessionStem('RTC:project/chats/plan.chat')).toBe('plan');
+    expect(sessionStem('archive:old.chat')).toBe('old');
     expect(sessionStem('plan')).toBe('plan');
+  });
+
+  it('keeps colons in the names of chats inside folders', () => {
+    // Only the first segment of a path can name a drive.
+    expect(sessionStem('p/chats/q: fit the model.chat')).toBe(
+      'q: fit the model'
+    );
+    expect(sessionStem('RTC:p/chats/a:b.chat')).toBe('a:b');
+    expect(
+      titleForSession({ path: 'p/chats/q: fit the model.chat', title: '' })
+    ).toBe('q: fit the model');
   });
 });
 

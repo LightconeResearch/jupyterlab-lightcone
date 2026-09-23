@@ -25,7 +25,7 @@ import { projectDirectory } from '../project-data';
 import { findProjectRoot } from '../project-root';
 import { startMaterialization } from './materialize';
 import { addRunningSection } from './running-section';
-import { RunsCommandIDs } from './runs-commands';
+import { type RunsCommandArguments, RunsCommandIDs } from './runs-commands';
 import { startErrorMessage } from './runs-model';
 import { RunsService } from './runs-service';
 import { RunsWidget } from './runs-widget';
@@ -33,6 +33,38 @@ import { RunsWidget } from './runs-widget';
 export * from './runs-commands';
 
 const CATEGORY = 'Lightcone Lab';
+
+/** A string argument, or undefined when it is absent or not a string. */
+function stringArg(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Read the open-runs arguments; malformed ones count as absent. */
+function openRunsArgs(
+  args: ReadonlyPartialJSONObject
+): RunsCommandArguments.IOpenRuns {
+  return {
+    entrypoint: stringArg(args.entrypoint),
+    cwd: stringArg(args.cwd),
+    activate: typeof args.activate === 'boolean' ? args.activate : undefined
+  };
+}
+
+/** Read the materialize arguments; malformed ones count as absent. */
+function materializeArgs(
+  args: ReadonlyPartialJSONObject
+): RunsCommandArguments.IMaterialize {
+  return {
+    entrypoint: stringArg(args.entrypoint),
+    cwd: stringArg(args.cwd),
+    targets: Array.isArray(args.targets)
+      ? args.targets.filter(
+          (target): target is string => typeof target === 'string'
+        )
+      : [],
+    refresh: args.refresh === true
+  };
+}
 
 /** Materialization jobs, their live output and the project's run history. */
 export const runsPlugin: JupyterFrontEndPlugin<void> = {
@@ -73,12 +105,12 @@ export const runsPlugin: JupyterFrontEndPlugin<void> = {
 
     /** Explicit entrypoint, then folder, then the focused document, then the browser's project. */
     const resolveEntrypoint = async (
-      args: ReadonlyPartialJSONObject
+      args: Pick<RunsCommandArguments.IOpenRuns, 'entrypoint' | 'cwd'>
     ): Promise<string> => {
-      if (typeof args.entrypoint === 'string') {
+      if (args.entrypoint !== undefined) {
         return contents.normalize(args.entrypoint);
       }
-      if (typeof args.cwd === 'string') {
+      if (args.cwd !== undefined) {
         const root = await findProjectRoot(contents, args.cwd);
         if (root) {
           return root.entrypoint;
@@ -186,7 +218,8 @@ export const runsPlugin: JupyterFrontEndPlugin<void> = {
           }
         }
       },
-      execute: async args => {
+      execute: async raw => {
+        const args = openRunsArgs(raw);
         try {
           const entrypoint = await resolveEntrypoint(args);
           return await openRuns(entrypoint, args.activate !== false);
@@ -211,15 +244,21 @@ export const runsPlugin: JupyterFrontEndPlugin<void> = {
           type: 'object',
           properties: {
             entrypoint: { type: 'string' },
+            cwd: { type: 'string' },
             targets: { type: 'array', items: { type: 'string' } },
             refresh: { type: 'boolean' }
           }
         }
       },
-      execute: async args => {
+      execute: async raw => {
+        const {
+          targets = [],
+          refresh = false,
+          ...where
+        } = materializeArgs(raw);
         let entrypoint: string;
         try {
-          entrypoint = await resolveEntrypoint(args);
+          entrypoint = await resolveEntrypoint(where);
         } catch (error) {
           await showErrorMessage(
             trans.__('Could not start materialization'),
@@ -227,12 +266,6 @@ export const runsPlugin: JupyterFrontEndPlugin<void> = {
           );
           return undefined;
         }
-        const targets = Array.isArray(args.targets)
-          ? args.targets.filter(
-              (target): target is string => typeof target === 'string'
-            )
-          : [];
-        const refresh = args.refresh === true;
         try {
           const job = await startMaterialization({
             service,

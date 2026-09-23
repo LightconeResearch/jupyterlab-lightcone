@@ -157,7 +157,7 @@
   padding: 9px 18px;
   border: 0;
   border-radius: var(--jp-border-radius);
-  color: var(--lc-accent-contrast, #fff);
+  color: var(--lc-accent-contrast, var(--jp-ui-inverse-font-color1));
   background: var(--jp-brand-color1);
   font: inherit;
   font-weight: 600;
@@ -175,7 +175,13 @@
 .jp-jupyterlab-lightcone-Home-reportIcon svg {
   width: 16px;
   height: 16px;
-  filter: brightness(0) invert(1);
+}
+
+/* The logo's grey and orange would not read on the action colour: the mark
+ * takes the button's text colour, white on blue ink and dark on the lighter
+ * accent of dark themes. */
+.jp-jupyterlab-lightcone-Home-reportIcon svg path {
+  fill: currentcolor;
 }
 
 .jp-jupyterlab-lightcone-Home-section {

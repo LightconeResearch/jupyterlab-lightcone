@@ -19,6 +19,17 @@
   z-index: 5;
 }
 
+/*
+ * In a host that scrolls its own content (the image viewer), the layer moves
+ * with that content from the scroll origin and the host clips what it holds.
+ */
+.jp-jupyterlab-lightcone-CommentLayer[data-host-scrolls] {
+  inset: 0 auto auto 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+}
+
 .jp-jupyterlab-lightcone-CommentFrame {
   position: absolute;
   pointer-events: none;

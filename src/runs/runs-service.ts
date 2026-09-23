@@ -4,6 +4,7 @@ import { PromiseDelegate } from '@lumino/coreutils';
 import type { IDisposable } from '@lumino/disposable';
 import { Poll } from '@lumino/polling';
 import { Signal, type ISignal } from '@lumino/signaling';
+import { RequestError } from '../api';
 import {
   cancelRun,
   getRun,
@@ -12,6 +13,7 @@ import {
   listRuns,
   startRun,
   type IJob,
+  type IJobEvent,
   type IRunRecord
 } from './runs-api';
 import {
@@ -24,6 +26,15 @@ import {
 
 /** Events are not replayed, so running jobs are re-read at this interval. */
 const POLL_INTERVAL = 5000;
+
+/** Why a job the server forgot, as it does when it restarts, has no outcome. */
+export const FORGOTTEN_JOB_MESSAGE =
+  'The server no longer knows this materialization. It may have restarted.';
+
+/** Whether a request failed with this HTTP status. */
+function failedWith(error: unknown, status: number): boolean {
+  return error instanceof RequestError && error.status === status;
+}
 
 /** What the service knows about one project's runs. */
 export interface IProjectRuns {
@@ -116,23 +127,48 @@ export class RunsService implements IDisposable {
     );
   }
 
-  /** Start `lc materialize`; rejects when the server refuses (409 while one runs). */
+  /**
+   * Start `lc materialize`; rejects when the server refuses (409 while one
+   * runs). On a 409 the listing is re-read, so a job this window has not
+   * heard of appears and the views block further starts until it ends.
+   */
   async start(
     entrypoint: string,
     options: { targets?: string[]; refresh?: boolean } = {}
   ): Promise<IJob> {
     const key = PathExt.normalize(entrypoint);
-    const job = await startRun(this._settings, key, options);
+    let job: IJob;
+    try {
+      job = await startRun(this._settings, key, options);
+    } catch (error) {
+      if (failedWith(error, 409) && !this._isDisposed) {
+        void this._refreshQuietly(key);
+      }
+      throw error;
+    }
     if (!this._isDisposed) {
       this._upsert(key, job);
     }
     return job;
   }
 
-  /** Ask the server to terminate a job; its state arrives through events. */
+  /**
+   * Ask the server to terminate a job; its state arrives through events.
+   * A job the server no longer knows (404) has nothing left to stop, so it is
+   * dropped instead of reported as a failure.
+   */
   async cancel(entrypoint: string, id: string): Promise<void> {
     const key = PathExt.normalize(entrypoint);
-    await cancelRun(this._settings, key, id);
+    try {
+      await cancelRun(this._settings, key, id);
+    } catch (error) {
+      if (failedWith(error, 404) && !this._isDisposed) {
+        this._forget(key, id);
+        void this._refreshQuietly(key);
+        return;
+      }
+      throw error;
+    }
     if (this._isDisposed) {
       return;
     }
@@ -210,6 +246,19 @@ export class RunsService implements IDisposable {
     });
   }
 
+  /**
+   * Drop a job the server no longer knows, as after a server restart, and
+   * reject whoever waits for its end: it will never be reported.
+   */
+  private _forget(entrypoint: string, id: string): void {
+    const waiter = this._waiters.get(id);
+    this._waiters.delete(id);
+    this._set(entrypoint, {
+      jobs: this._entry(entrypoint).jobs.filter(item => item.id !== id)
+    });
+    waiter?.reject(new Error(FORGOTTEN_JOB_MESSAGE));
+  }
+
   /** Resolve waiters for jobs that just finished. */
   private _settle(entrypoint: string): void {
     for (const job of this._entry(entrypoint).jobs) {
@@ -273,18 +322,78 @@ export class RunsService implements IDisposable {
       return;
     }
     const entrypoint = entrypointForProject(emission.project);
-    const entry = this._entry(entrypoint);
-    const job = entry.jobs.find(item => item.id === emission.id);
+    const job = this._entry(entrypoint).jobs.find(
+      item => item.id === emission.id
+    );
+    const ended = isFinished(emission);
     if (!job) {
-      // Started elsewhere, or its start response has not arrived yet.
-      void this._fetchJob(entrypoint, emission.id);
+      // Started elsewhere, or its start response has not arrived yet. Once
+      // it ended, the history gained commits too.
+      void this._fetchJob(entrypoint, emission.id, ended);
+      return;
+    }
+    if (ended && !isFinished(job)) {
+      void this._readEnd(entrypoint, emission);
       return;
     }
     this._upsert(entrypoint, applyJobEvent(job, emission));
-    if (isFinished(emission)) {
-      // The finished job has its exit code and report, and the history gained commits.
+    if (ended) {
+      // A stopped job's last lines, or its final record being announced: the
+      // record has its exit code and report, and the history gained commits.
       void this._fetchJob(entrypoint, emission.id, true);
     }
+  }
+
+  /**
+   * End a running job that an event says has ended. The event carries
+   * neither the exit code nor the engine's report, so the job stays running
+   * here until the server's record is read: views never mistake a failure
+   * whose report is still unknown for a refusal, and `whenFinished` resolves
+   * with how the job really ended. If the record cannot be read, the event
+   * alone ends the job so nothing waits forever. Events of one job share the
+   * read; the history is re-read after it.
+   */
+  private _readEnd(entrypoint: string, event: IJobEvent): Promise<void> {
+    let pending = this._ending.get(event.id);
+    if (!pending) {
+      pending = getRun(this._settings, entrypoint, event.id)
+        .catch((error: unknown) => {
+          console.warn('Could not read a finished Lightcone job.', error);
+          return undefined;
+        })
+        .then(record => {
+          if (this._isDisposed) {
+            return;
+          }
+          if (record && isFinished(record)) {
+            this._upsert(entrypoint, record);
+            return;
+          }
+          const local = this._entry(entrypoint).jobs.find(
+            item => item.id === event.id
+          );
+          if (local) {
+            const known = record ? mergeJob(local, record) : local;
+            this._upsert(entrypoint, applyJobEvent(known, event));
+          }
+        })
+        .finally(() => {
+          this._ending.delete(event.id);
+        });
+      this._ending.set(event.id, pending);
+    }
+    return pending.then(() => this._refreshQuietly(entrypoint));
+  }
+
+  /** Re-read a project's listing, reporting failures only in its state. */
+  private _refreshQuietly(entrypoint: string): Promise<void> {
+    if (this._isDisposed) {
+      return Promise.resolve();
+    }
+    return this.refresh(entrypoint).then(
+      () => undefined,
+      () => undefined
+    );
   }
 
   /** Read one job, sharing an in-flight read, then optionally the listing. */
@@ -312,12 +421,7 @@ export class RunsService implements IDisposable {
     if (!withListing) {
       return pending;
     }
-    return pending.then(() =>
-      this.refresh(entrypoint).then(
-        () => undefined,
-        () => undefined
-      )
-    );
+    return pending.then(() => this._refreshQuietly(entrypoint));
   }
 
   private async _pollRunningJobs(): Promise<void> {
@@ -335,9 +439,16 @@ export class RunsService implements IDisposable {
           }
           this._upsert(entrypoint, latest);
           if (isFinished(latest)) {
-            await this.refresh(entrypoint).catch(() => undefined);
+            await this._refreshQuietly(entrypoint);
           }
         } catch (error) {
+          if (failedWith(error, 404) && !this._isDisposed) {
+            // The server forgot the job, as it does when it restarts: it
+            // would otherwise stay running here, and block new starts.
+            this._forget(entrypoint, job.id);
+            await this._refreshQuietly(entrypoint);
+            return;
+          }
           console.warn('Could not poll a Lightcone job.', error);
         }
       })
@@ -350,6 +461,7 @@ export class RunsService implements IDisposable {
   private readonly _entries = new Map<string, IProjectRuns>();
   private readonly _refreshing = new Map<string, Promise<IProjectRuns>>();
   private readonly _fetching = new Map<string, Promise<void>>();
+  private readonly _ending = new Map<string, Promise<void>>();
   private readonly _waiters = new Map<string, PromiseDelegate<IJob>>();
   private readonly _changed = new Signal<this, string>(this);
   private _isDisposed = false;

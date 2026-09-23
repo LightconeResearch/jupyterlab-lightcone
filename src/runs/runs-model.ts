@@ -138,17 +138,21 @@ export function groupRunsByDay(
   return groups;
 }
 
+/** `everything`, `a, b, c`, or `a, b, c and 2 more`. */
+export function describeTargets(targets: readonly string[]): string {
+  if (targets.length === 0) {
+    return 'everything';
+  }
+  if (targets.length <= 3) {
+    return targets.join(', ');
+  }
+  return `${targets.slice(0, 3).join(', ')} and ${targets.length - 3} more`;
+}
+
 /** `Materialize everything`, `Refresh hubble_diagram, cosmology_fit`. */
 export function jobTitle(job: Pick<IJob, 'targets' | 'refresh'>): string {
   const verb = job.refresh ? 'Refresh' : 'Materialize';
-  const targets = job.targets;
-  if (targets.length === 0) {
-    return `${verb} everything`;
-  }
-  if (targets.length <= 3) {
-    return `${verb} ${targets.join(', ')}`;
-  }
-  return `${verb} ${targets.slice(0, 3).join(', ')} and ${targets.length - 3} more`;
+  return `${verb} ${describeTargets(job.targets)}`;
 }
 
 /** What the engine accepts: an output id, or `<universe>/<output>`. */
@@ -211,6 +215,17 @@ export function mergeJob(existing: IJob, incoming: IJob): IJob {
     report: newer.report ?? older.report,
     finished: newer.finished ?? older.finished
   };
+}
+
+/**
+ * Identifies the last end in a newest-first job list. A project runs one job
+ * at a time, so its newest finished job is the last to end. The key changes
+ * whenever a job ends or its final record arrives, even once the list is at
+ * its cap and the number of finished jobs no longer changes.
+ */
+export function lastEndKey(jobs: readonly IJob[]): string {
+  const ended = jobs.find(isFinished);
+  return ended ? `${ended.id}:${ended.finished ?? ''}` : '';
 }
 
 /** Insert or update a job, newest first, within the server's list cap. */
@@ -397,11 +412,6 @@ export function entrypointForProject(project: string): string {
     return `${project}astra.yaml`;
   }
   return `${project}/astra.yaml`;
-}
-
-/** A toast-sized description of what a job is doing. */
-export function describeTargets(targets: string[], refresh: boolean): string {
-  return jobTitle({ targets, refresh }).replace(/^(Materialize|Refresh) /, '');
 }
 
 /** Why a job could not start, in the user's terms. */

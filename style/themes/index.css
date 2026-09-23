@@ -374,7 +374,9 @@
   --jp-scrollbar-thumb-radius: 0;
 
   /* Lightcone extras read by Home and the sidebar; each has a JupyterLab
-   * fallback in the surfaces that read it. */
+   * fallback in the surfaces that read it. `--lc-paper` is the surface of
+   * documents and panels (Home's desk and result plates), so it matches
+   * `--jp-layout-color0` in both palettes and carries the UI text colors. */
   --lc-font-heading:
     'Lightcone Brand Quattrocento', georgia, 'Times New Roman', serif;
   --lc-eyebrow: #3f7280; /* slate blue */
@@ -602,7 +604,7 @@
   --lc-kind-finding: #80a9a4; /* vert-de-gris 65% / white */
   --lc-kind-paper: #c49485; /* wax red 65% / white */
   --lc-accent-contrast: #221f20;
-  --lc-paper: #f8f7f3; /* parchment */
+  --lc-paper: #221f20; /* charcoal: documents and panels */
 }
 
 /* Default typography for monospace elements, as in JupyterLab's themes. */
@@ -616,12 +618,17 @@
   line-height: var(--jp-code-line-height);
 }
 
-/* Keep exception stack traces legible on the dark yellow ANSI background. */
-:root:has(> body[data-jp-theme-name='Lightcone Dark'])
-  :where(
+/*
+ * Keep exception stack traces legible on the dark yellow ANSI background.
+ * The whole selector, theme scope included, sits in `:where()` so that the
+ * rule has zero specificity, as in JupyterLab's dark theme: it only fills in
+ * a missing foreground and never overrides an explicit `.ansi-*-fg` color.
+ */
+:where(
+  :root:has(> body[data-jp-theme-name='Lightcone Dark'])
     .jp-RenderedText[data-mime-type='application/vnd.jupyter.stderr']
-      pre
-      .ansi-yellow-bg
-  ) {
+    pre
+    .ansi-yellow-bg
+) {
   color: #221f20;
 }
