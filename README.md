@@ -263,7 +263,7 @@ stepper says so).
 status, tracing the record. What the record is made from and what it feeds stay
 lit, the rest dims, and a line says so in words ("made from 5 inputs and 1
 output · feeds 1 output"). A record tab lists what an output depends on; only
-the graph also shows what depends on it, which is what rematerializing it
+the graph also shows what depends on it, which is what remaking it
 touches. The graph takes the column beside the record (a record alone splits
 to its left), so both stay in view: clicking a node traces it and opens its
 record in the record's column. **Show everything** or Escape ends the trace,

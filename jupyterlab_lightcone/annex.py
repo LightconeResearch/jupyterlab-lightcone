@@ -15,6 +15,7 @@ here run with both turned off, and a repository git-annex has not initialized
 
 import json
 from pathlib import Path
+import shutil
 import subprocess
 
 ANNEX_TIMEOUT = 60.0
@@ -25,12 +26,21 @@ READ_ONLY = ("-c", "annex.autoupgraderepository=false", "-c", "annex.merge-annex
 
 
 class AnnexUnavailable(Exception):
-    """git-annex could not be run: git is missing, or a command hung."""
+    """git-annex could not be run: git or git-annex is missing, or a command hung."""
 
 
 def _run(repository: Path, *arguments: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+    """Run one git-annex command in the repository; a nonzero exit is the caller's to read.
+
+    ``git annex`` is git finding a ``git-annex`` executable on ``PATH``, so
+    its absence is checked first: git would otherwise exit with "not a git
+    command" and an empty answer, which no caller may mistake for "nothing
+    annexed".
+    """
+    if shutil.which("git-annex") is None:
+        raise AnnexUnavailable("git-annex is required to read annexed content and is not on the server's PATH")
     try:
-        return subprocess.run(
+        completed = subprocess.run(
             ["git", *READ_ONLY, "annex", *arguments],
             cwd=repository,
             capture_output=True,
@@ -42,6 +52,9 @@ def _run(repository: Path, *arguments: str, stdin: bytes | None = None) -> subpr
         raise AnnexUnavailable("git is required to read annexed content") from error
     except subprocess.TimeoutExpired as error:
         raise AnnexUnavailable("git-annex did not answer in time") from error
+    if b"is not a git command" in completed.stderr:
+        raise AnnexUnavailable("git cannot run git-annex on this server")
+    return completed
 
 
 def _lines(items: list[str]) -> bytes:

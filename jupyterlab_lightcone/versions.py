@@ -467,10 +467,14 @@ def results_commits(project: Path, since: int | None = None, until: int | None =
         return []
     try:
         listed = []
-        prefix = len(repository.path(RESULTS_DIRECTORY)) - len(RESULTS_DIRECTORY.encode())
+        results = repository.path(RESULTS_DIRECTORY)
+        prefix = len(results) - len(RESULTS_DIRECTORY.encode())
         for entry in repository.walk([RESULTS_DIRECTORY], since=since, until=until, max_entries=limit):
             outputs = []
+            # A commit may touch more than this project's results; only those count.
             for path in _changed_paths(entry):
+                if not path.startswith(results + b"/"):
+                    continue
                 identity = output_identity(path[prefix:])
                 if identity is not None and identity not in outputs:
                     outputs.append(identity)
@@ -679,12 +683,12 @@ class ResultsHistoryHandler(ProjectAPIHandler):
 
     unavailable_message = "Result history requires local files"
 
-    def _seconds(self, name: str) -> int | None:
+    def _whole_number(self, name: str, what: str) -> int | None:
         value = self.get_query_argument(name, None)
         if value is None:
             return None
         if not value.isdigit():
-            raise web.HTTPError(400, f"{name} must be a whole number of seconds since the epoch")
+            raise web.HTTPError(400, f"{name} must be a whole number of {what}")
         return int(value)
 
     @web.authenticated
@@ -692,8 +696,9 @@ class ResultsHistoryHandler(ProjectAPIHandler):
     async def get(self):
         """``?path=&since=&until=&limit=`` → ``{"commits": [...]}``, newest first."""
         project = await self.project()
-        since, until = self._seconds("since"), self._seconds("until")
-        limit = self._seconds("limit")
+        since = self._whole_number("since", "seconds since the epoch")
+        until = self._whole_number("until", "seconds since the epoch")
+        limit = self._whole_number("limit", "commits")
         if limit is None:
             limit = MAX_RESULTS_COMMITS
         if not 1 <= limit <= MAX_RESULTS_COMMITS:

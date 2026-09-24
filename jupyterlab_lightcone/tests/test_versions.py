@@ -1,6 +1,7 @@
 """Output versions come from real git and git-annex history, read in process and never written."""
 import json
 import os
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -416,10 +417,29 @@ def test_git_annex_answers_the_three_questions(project):
 
 
 def test_a_missing_git_annex_is_a_service_error(project, monkeypatch):
+    """git without git-annex answers "not a git command" and nothing; that must never read as "not annexed"."""
     root, (second, _) = project
+    git_only = str(Path(shutil.which('git')).parent)
+    assert shutil.which('git-annex', path=git_only) is None
+    monkeypatch.setenv('PATH', git_only)
+    with pytest.raises(annex.AnnexUnavailable):
+        annex.lookup_keys(root, [f'{second}:results/baseline/fig.png'])
+    with pytest.raises(annex.AnnexUnavailable):
+        versions.list_versions(root, 'baseline', 'fig')
     monkeypatch.setenv('PATH', '/nowhere')
     with pytest.raises(annex.AnnexUnavailable):
         annex.lookup_keys(root, [f'{second}:results/baseline/fig.png'])
+
+
+async def test_a_missing_git_annex_is_reported_by_the_routes(jp_fetch, jp_serverapp, monkeypatch):
+    root = init_repo(Path(jp_serverapp.contents_manager.root_dir) / 'project')
+    first = materialize(root, b'\x89PNG one')
+    monkeypatch.setattr(annex.shutil, 'which', lambda name, **kwargs: None)
+    response = await jp_fetch(*ENDPOINT, params={'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig'}, raise_error=False)
+    assert response.code == 503
+    assert 'git-annex' in json.loads(response.body)['message']
+    response = await jp_fetch(*CONTENT, params={'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': first}, raise_error=False)
+    assert response.code == 503
 
 
 @pytest.mark.parametrize('name, expected', [
@@ -459,6 +479,17 @@ def test_content_disposition_names_the_file_safely():
 ])
 def test_output_identities_follow_the_engines_layout(path, expected):
     assert versions.output_identity(path) == expected
+
+
+def test_results_of_a_sibling_project_are_not_this_projects(tmp_path):
+    repository = init_repo(tmp_path / 'repository', annexed=False)
+    for name in ('proj', 'prod'):
+        (repository / name / RESULTS).mkdir(parents=True)
+        (repository / name / RESULTS / f'{name}.csv').write_text('x\n')
+        (repository / name / RESULTS / f'.{name}.manifest.json').write_text('{}')
+    commit_all(repository, 'Both projects at once')
+    assert versions.results_commits(repository / 'proj')[0]['outputs'] == [{'universe': 'baseline', 'output': 'proj'}]
+    assert versions.results_commits(repository / 'prod')[0]['outputs'] == [{'universe': 'baseline', 'output': 'prod'}]
 
 
 def test_lists_the_commits_that_touched_results_with_their_outputs(project):

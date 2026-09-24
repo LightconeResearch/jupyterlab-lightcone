@@ -224,7 +224,6 @@ describe('run view', () => {
       short: 'ccccccc',
       time: '2026-09-20T09:59:00Z',
       started: '2026-09-20T09:58:00Z',
-      command: 'python fit.py --robust',
       recipe: 'python fit.py --robust',
       gitRevision: 'def456',
       engineVersion: '0.6',
@@ -241,7 +240,6 @@ describe('run view', () => {
     expect(runView(record, undefined)).toMatchObject({
       source: 'record',
       time: record.finishedAt,
-      command: record.recipe,
       recipe: record.recipe,
       gitRevision: 'abc123',
       engineVersion: '0.5',
@@ -262,7 +260,6 @@ describe('run view', () => {
       time: '2026-09-01T10:00:00Z',
       inputVersions: {}
     });
-    expect(view.command).toBeUndefined();
     expect(view.gitRevision).toBeUndefined();
     expect(view.recipe).toBeUndefined();
     expect(view.engineVersion).toBeUndefined();
@@ -271,7 +268,7 @@ describe('run view', () => {
       record,
       version('b'.repeat(40), '2026-09-02T10:00:00Z')
     )!;
-    expect(bare.command).toBeUndefined();
+    expect(bare.recipe).toBeUndefined();
     expect(bare.time).toBe('2026-09-02T10:00:00Z');
   });
 });

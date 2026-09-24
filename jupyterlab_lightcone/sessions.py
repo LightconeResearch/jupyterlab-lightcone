@@ -63,8 +63,8 @@ def project_folder(root: Path, project_path: str) -> Path:
     """The folder on disk that a project's Contents path names, within `root`.
 
     The folder holding the entrypoint as the browser named it, never the one a
-    symlinked `astra.yaml` points into, so the chats read and excluded here are
-    those under the paths this module reports.
+    symlinked `astra.yaml` points into, so the chats read here are those under
+    the paths this module reports.
     """
     return inside_root(root, Path(project_path), "Project is outside the contents root")
 

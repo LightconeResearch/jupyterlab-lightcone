@@ -130,7 +130,7 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
     commit: 'c'.repeat(40),
     short: 'ccccccc',
     time: '2026-09-20T10:00:00Z',
-    command: 'uv run plot.py',
+    recipe: 'uv run plot.py',
     gitRevision: 'def456',
     engineVersion: '0.6',
     environmentVersion: 'sha256:env',

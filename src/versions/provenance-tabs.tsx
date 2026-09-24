@@ -135,8 +135,8 @@ function RunTab({
               <Time value={run.started} />
             </Row>
           )}
-          <Row label="Command">
-            {run.command ? <code>{run.command}</code> : undefined}
+          <Row label="Recipe">
+            {run.recipe ? <code>{run.recipe}</code> : undefined}
           </Row>
           <Row label="Commit">
             {run.short ? (
