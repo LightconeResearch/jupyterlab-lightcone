@@ -33,10 +33,11 @@ def test_status_passes_the_engines_states_through(tmp_path, monkeypatch):
     engine.assert_called_once_with(tmp_path)
 
 
-def test_a_folder_the_engine_cannot_read_is_unavailable(tmp_path):
+def test_a_folder_the_engine_cannot_read_is_the_projects_defect(tmp_path):
+    """The spec, universes or lock the engine cannot read are the client's to fix, not an outage."""
     with pytest.raises(HTTPError) as raised:
         materialization.read_status(tmp_path)
-    assert raised.value.status_code == 503
+    assert raised.value.status_code == 422
     # jupyter_server replies with log_message as it stands, never formatted.
     assert not raised.value.args
 

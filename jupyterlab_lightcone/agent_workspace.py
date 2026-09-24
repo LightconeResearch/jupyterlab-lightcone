@@ -1,40 +1,29 @@
 """Root Jupyter AI agents in the ASTRA project their chat belongs to.
 
-Jupyter AI starts each agent session in the chat file's own folder. It exposes
-its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
-`select_project_persona_manager` sets that trait when Jupyter AI is installed.
+Jupyter AI starts each agent session in the chat file's own folder and exposes
+its manager class as the `PersonaManagerExtension.persona_manager_class`
+trait. The extension ships that trait in
+`etc/jupyter/jupyter_jupyter_ai_persona_manager_config.json`, the config file
+Jupyter Server reads for that extension, so this subclass is the manager of
+every chat unless a deployment configures another class.
 
 The same manager is where a message meets its agent, so it also delivers the
-project's pending comments with the message, records which sessions are busy,
-for the session list, and remembers the agent each project uses
-(`agent_defaults`): a message that names no installed agent goes to the one
-the chat, or else its project, last used, instead of being dropped.
+project's pending comments with the message and remembers the agent each
+project uses (`agent_defaults`): a message that names no installed agent goes
+to the one the chat, or else its project, last used, instead of being dropped.
 """
 
 from dataclasses import replace
 from pathlib import Path
 
 from jupyter_ai_persona_manager import PersonaManager as JupyterAIPersonaManager
-from jupyter_ai_persona_manager.persona_manager import _safe_process as process_safely
-from jupyter_ai_persona_manager.persona_manager import is_persona
 
 from .agent_defaults import read_project_agent, remember_agent
-from .comments import COMMENT_LOCKS, deliver_comments, project_directory, timestamp
-from .projects import CURRENT_PROJECT, chat_project, project_entrypoint
-# The session listing reads this setting; one constant keeps writer and reader agreed.
-from .sessions import SESSION_ACTIVITY
+from .comments import COMMENT_LOCKS, deliver_comments
+from .projects import CURRENT_PROJECT, join_project, project_directory, project_entrypoint
 
 COMMENTS_METADATA_KEY = "lightcone"
 """The message metadata entry under which the composer lists the comments it sends."""
-
-
-def session_activity(web_app) -> dict:
-    """Every chat's activity, keyed by the chat's Contents path.
-
-    Each entry is `{"state": "working" | "idle", "persona": <persona id>,
-    "since": <ISO 8601 time>}`; a chat without an entry is idle.
-    """
-    return web_app.settings.setdefault(SESSION_ACTIVITY, {})
 
 
 def comment_ids(metadata) -> list[str]:
@@ -49,9 +38,10 @@ def comment_ids(metadata) -> list[str]:
 class PersonaManager(JupyterAIPersonaManager):
     """Start agent sessions at the project root, wherever the chat is stored.
 
-    Keeps the upstream class name: Jupyter AI reads `default_persona_id` from
-    the config section named after this class, so existing `c.PersonaManager`
-    settings must keep applying.
+    Keeps the upstream class name: Jupyter AI seeds the picker's default
+    persona from the config section named after the manager class
+    (`PersonaManagerExtension._default_persona_id`), so existing
+    `c.PersonaManager` settings must keep applying.
     """
 
     @classmethod
@@ -75,54 +65,46 @@ class PersonaManager(JupyterAIPersonaManager):
         message, so a chat stored outside every project takes the project the
         browser last reported as current.
         """
-        try:
-            project = chat_project(self, self._reported_project())
-        except OSError:
-            # Upstream's version cannot fail, and it is called while a persona
-            # manager is built: an unreadable parent must not leave a chat with
-            # no personas at all.
-            self.log.warning("Could not locate the ASTRA project for this chat.", exc_info=True)
-            project = None
+        project = self._project()
         return str(project) if project else super().get_chat_dir()
 
     def on_chat_message(self, chat_id: str, message):
-        """Route a message as upstream does, after attaching its pending comments.
-
-        Upstream looks the persona up and schedules its processing; this does
-        the same in one task, so the comment store is read on the event loop's
-        terms and the session's activity brackets the persona's work.
+        """Route a message as upstream does, after choosing its agent and attaching its comments.
 
         Jupyter AI's picker forgets its choice whenever a chat's view is
         rebuilt, and upstream drops a message that names no installed persona.
         Here such a message goes to the agent this chat last addressed, else
-        the one its project last used; only a chat with neither drops it.
+        the one its project last used; only a chat with neither drops it. The
+        copy handed to upstream names that agent, so upstream's own routing
+        and processing boundary deliver it.
         """
         persona_id = (message.metadata or {}).get(self.TO_PERSONA_METADATA_KEY)
         persona = self.personas.get(persona_id) if persona_id else None
         if persona is None:
             persona = self._usual_persona()
-            if persona is not None:
-                self.log.info(
-                    "A message named %s, not an agent of this chat; it goes to %s, the agent last used here.",
-                    persona_id or "no agent",
-                    persona.name,
-                )
-        self.log.debug("Routing message to persona: %s", persona.name if persona else None)
-        if persona:
-            self.event_loop.create_task(self._route(persona, message))
+            if persona is None:
+                self.log.debug("A message named %s, not an agent of this chat, and it has no usual agent.", persona_id)
+                return
+            self.log.info(
+                "A message named %s, not an agent of this chat; it goes to %s, the agent last used here.",
+                persona_id or "no agent",
+                persona.name,
+            )
+        self.event_loop.create_task(self._deliver(chat_id, persona, message))
 
     def _usual_persona(self):
         """The persona this chat's messages last named, else its project's recorded one."""
         try:
             messages = self.chat.get_messages()
-        except Exception:
-            self.log.debug("Could not read this chat's messages.", exc_info=True)
+        except TypeError:
+            # Jupyter Chat rebuilds each stored message with Message(**dict); a
+            # chat file another tool wrote may hold fields the model lacks.
+            self.log.warning("Could not read this chat's messages.", exc_info=True)
             messages = []
         for earlier in reversed(messages):
-            sender = getattr(earlier, "sender", "")
-            if isinstance(sender, str) and is_persona(sender):
+            if earlier.sender in self.personas:
                 continue
-            named = (getattr(earlier, "metadata", None) or {}).get(self.TO_PERSONA_METADATA_KEY)
+            named = (earlier.metadata or {}).get(self.TO_PERSONA_METADATA_KEY)
             persona = self.personas.get(named) if isinstance(named, str) else None
             if persona is not None:
                 return persona
@@ -130,46 +112,30 @@ class PersonaManager(JupyterAIPersonaManager):
         recorded = read_project_agent(project) if project is not None else None
         return self.personas.get(recorded) if recorded else None
 
-    def _project(self) -> Path | None:
-        """This chat's ASTRA project, or None without one or when it cannot be read."""
-        try:
-            return chat_project(self, self._reported_project())
-        except OSError:
-            self.log.debug("Could not locate the ASTRA project for this chat.", exc_info=True)
-            return None
-
-    async def _route(self, persona, message) -> None:
-        """Deliver the message, with its comments, and track the session's activity."""
-        remember_agent(self._web_app(), self._project(), persona.id, self.log)
+    async def _deliver(self, chat_id: str, persona, message) -> None:
+        """Hand upstream a copy addressed to `persona`, with the pending comments appended."""
+        remember_agent(self._project(), persona.id, self.log)
         ids = comment_ids(message.metadata)
         if ids:
             message = await self._with_comments(message, ids)
-        activity = self._activity()
-        path = self.get_chat_path(relative=True)
-        self._lightcone_busy = getattr(self, "_lightcone_busy", 0) + 1
-        activity[path] = {"state": "working", "persona": persona.id, "since": timestamp()}
-        try:
-            await process_safely(persona, message)
-        finally:
-            self._lightcone_busy -= 1
-            if self._lightcone_busy == 0:
-                activity[path] = {"state": "idle", "persona": persona.id, "since": timestamp()}
+        addressed = replace(message, metadata={**(message.metadata or {}), self.TO_PERSONA_METADATA_KEY: persona.id})
+        super().on_chat_message(chat_id, addressed)
 
     async def _with_comments(self, message, ids: list[str]):
         """A copy of the message whose body ends with the pending comments' block.
 
         The chat file keeps the user's own text: only the copy handed to the
         persona carries the block. The comments are marked sent with this
-        message; missing or already sent ids are skipped. Any failure leaves
-        the message as it was, so the agent still answers.
+        message; missing or already sent ids are skipped. A store that cannot
+        be read leaves the message as it was, so the agent still answers.
         """
+        project = self._project()
+        if project is None:
+            self.log.warning("Comments were not delivered: this chat belongs to no ASTRA project.")
+            return message
         try:
-            project = chat_project(self, self._reported_project())
-            if project is None:
-                self.log.warning("Comments were not delivered: this chat belongs to no ASTRA project.")
-                return message
             block = await deliver_comments(
-                self._comment_locks(),
+                self._settings.setdefault(COMMENT_LOCKS, {}),
                 project,
                 project_directory(project_entrypoint(Path(self.root_dir), project)),
                 ids,
@@ -183,24 +149,25 @@ class PersonaManager(JupyterAIPersonaManager):
             return message
         return replace(message, body=f"{message.body}\n\n{block}")
 
-    def _web_app(self):
-        """The running server's web application, absent outside a server."""
-        return getattr(getattr(self.parent, "serverapp", None), "web_app", None)
+    def _project(self) -> Path | None:
+        """This chat's ASTRA project, joining the current one when it has none.
 
-    def _reported_project(self) -> str | None:
-        """The workbench's current project entrypoint, as the browser last reported it."""
-        web_app = self._web_app()
-        return web_app.settings.get(CURRENT_PROJECT) if web_app is not None else None
+        The one lookup behind the working directory, the usual agent and the
+        comments. Upstream's `get_chat_dir` cannot fail and is called while a
+        manager is built, so an unreadable parent folder is logged and the
+        chat is treated as belonging to no project rather than losing its
+        personas.
+        """
+        try:
+            return join_project(self, self._settings.get(CURRENT_PROJECT))
+        except OSError:
+            self.log.warning("Could not locate the ASTRA project for this chat.", exc_info=True)
+            return None
 
-    def _activity(self) -> dict:
-        """The server's session activity, or a throwaway map outside a server."""
-        web_app = self._web_app()
-        return session_activity(web_app) if web_app is not None else {}
-
-    def _comment_locks(self) -> dict:
-        """The server's per-project store locks, or fresh ones outside a server."""
-        web_app = self._web_app()
-        return web_app.settings.setdefault(COMMENT_LOCKS, {}) if web_app is not None else {}
+    @property
+    def _settings(self) -> dict:
+        """The running server's web application settings, through the extension app that made this manager."""
+        return self.parent.serverapp.web_app.settings
 
 
 def delivers_comments(serverapp) -> bool:
@@ -214,20 +181,3 @@ def delivers_comments(serverapp) -> bool:
         isinstance(app.persona_manager_class, type) and issubclass(app.persona_manager_class, PersonaManager)
         for app in apps
     )
-
-
-def select_project_persona_manager(serverapp) -> bool:
-    """Use the project-aware manager unless the deployment chose another one.
-
-    `jupyter_server_config.d` only enables extensions, so the trait cannot be
-    shipped as static config. Managers are created per chat, after every server
-    extension has loaded, so setting it while loading is early enough.
-
-    A deployment opts out by configuring any other class, including an explicit
-    subclass of the stock one.
-    """
-    apps = serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
-    stock = [app for app in apps if app.persona_manager_class is JupyterAIPersonaManager]
-    for app in stock:
-        app.persona_manager_class = PersonaManager
-    return bool(stock)

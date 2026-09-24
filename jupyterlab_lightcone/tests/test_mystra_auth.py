@@ -7,11 +7,13 @@ from types import SimpleNamespace
 import pytest
 from jupyter_server.auth import User
 from jupyter_server.base.handlers import JupyterHandler
-from jupyterhub.services.auth import HubOAuth
-from jupyterhub.singleuser.extension import JupyterHubIdentityProvider
 from tornado import httpserver, web
 
-from jupyterlab_lightcone.mystra import ViewerSession
+# The Hub's XSRF patching can only be exercised with the real HubOAuth; an
+# environment without JupyterHub (the `test` extra) skips this module.
+pytest.importorskip("jupyterhub")
+from jupyterhub.services.auth import HubOAuth
+from jupyterhub.singleuser.extension import JupyterHubIdentityProvider
 
 
 @pytest.fixture
@@ -95,7 +97,7 @@ def browser_headers(
 
 
 @pytest.fixture
-def viewer_asset(jp_serverapp, jp_base_url, jp_asyncio_loop):
+def viewer_asset(loopback_server, ready_viewer_session):
     """A real upstream and owner-scoped session, with no process startup."""
     captured = []
 
@@ -108,28 +110,8 @@ def viewer_asset(jp_serverapp, jp_base_url, jp_asyncio_loop):
         def head(self, path):
             self.get(path)
 
-    server = httpserver.HTTPServer(web.Application([(r"/(.*)", Asset)]))
-    server.listen(0, address="127.0.0.1")
-    port = next(iter(server._sockets.values())).getsockname()[1]
-    identifier = "a" * 32
-    session = ViewerSession(
-        identifier,
-        "owner",
-        jp_serverapp.root_dir,
-        "myst.yml",
-        jp_base_url + f"jupyterlab_lightcone/mystra/{identifier}",
-        port,
-        port,
-        state="ready",
-    )
-    manager = jp_serverapp.web_app.settings["jupyterlab_lightcone"].manager
-    manager.sessions[identifier] = session
-    try:
-        yield SimpleNamespace(session=session, captured=captured)
-    finally:
-        manager.sessions.pop(identifier, None)
-        server.stop()
-        jp_asyncio_loop.run_until_complete(server.close_all_connections())
+    _, port = loopback_server([(r"/(.*)", Asset)])
+    return SimpleNamespace(session=ready_viewer_session(port), captured=captured)
 
 
 @pytest.mark.parametrize(

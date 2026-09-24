@@ -11,6 +11,7 @@ from .application import LightconeApp
 
 
 def _jupyter_labextension_paths():
+    """Where the prebuilt frontend extension lives, for `jupyter labextension list`."""
     return [{
         "src": "labextension",
         "dest": "jupyterlab-lightcone"
@@ -18,6 +19,7 @@ def _jupyter_labextension_paths():
 
 
 def _jupyter_server_extension_points():
+    """The server extension Jupyter Server loads for this package."""
     return [{
         "module": "jupyterlab_lightcone", "app": LightconeApp
     }]

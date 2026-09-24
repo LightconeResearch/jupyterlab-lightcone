@@ -18,6 +18,8 @@ from jupyter_server.utils import url_path_join
 from tornado.httpclient import AsyncHTTPClient, HTTPClientError, HTTPRequest
 from tornado.web import HTTPError
 
+from .projects import inside_root
+
 # MyST's theme logger reports the port its application server actually bound.
 THEME_PORT_LINE = re.compile(r"Server started on port (\d+)")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -94,11 +96,7 @@ class MySTRAManager:
                 400,
                 log_message="Use a relative project path inside the Jupyter contents root",
             )
-        target = (self.root / path).resolve()
-        if not target.is_relative_to(self.root):
-            raise HTTPError(
-                403, log_message="The project is outside the Jupyter contents root"
-            )
+        target = inside_root(self.root, Path(path), "The project is outside the Jupyter contents root")
         if not target.exists():
             raise HTTPError(404, log_message="The selected project path does not exist")
         target = target if target.is_dir() else target.parent
@@ -106,11 +104,11 @@ class MySTRAManager:
             for name in ("myst.yml", "myst.yaml"):
                 config = target / name
                 if config.is_file():
-                    if not config.resolve().is_relative_to(self.root):
-                        raise HTTPError(
-                            403,
-                            log_message="The MyST configuration is outside the contents root",
-                        )
+                    inside_root(
+                        self.root,
+                        config.relative_to(self.root),
+                        "The MyST configuration is outside the contents root",
+                    )
                     return target, config.relative_to(self.root).as_posix()
             if target == self.root:
                 break
@@ -218,14 +216,11 @@ class MySTRAManager:
         reader = None
         client = AsyncHTTPClient(force_instance=True)
         try:
-            if not self.command:
-                raise RuntimeError(
-                    "MyST CLI is unavailable. Install Node.js and MyST in the Jupyter server environment, or configure LightconeApp.mystra_command."
-                )
-            executable = shutil.which(self.command[0])
+            executable = shutil.which(self.command[0]) if self.command else None
             if executable is None:
                 raise RuntimeError(
-                    "MyST CLI is unavailable. Install Node.js and MyST in the Jupyter server environment, or configure LightconeApp.mystra_command."
+                    "MyST CLI is unavailable. Install Node.js and MyST in the Jupyter server environment,"
+                    " or configure LightconeApp.mystra_command."
                 )
             env = dict(
                 os.environ,
@@ -309,7 +304,8 @@ class MySTRAManager:
                 )
             if response.code == 404:
                 raise RuntimeError(
-                    "This project needs an ASTRA article or book theme with MySTRA viewer support (mystra-viewer.v1). Update site.template in myst.yml."
+                    "This project needs an ASTRA article or book theme with MySTRA viewer support"
+                    " (mystra-viewer.v1). Update site.template in myst.yml."
                 )
         except (HTTPClientError, OSError, ValueError):
             pass
@@ -333,7 +329,8 @@ class MySTRAManager:
         except (HTTPClientError, OSError, ValueError):
             pass
         raise RuntimeError(
-            f"MyST could not use content port {session.content_port}; another process took it. Restart the viewer to choose new ports."
+            f"MyST could not use content port {session.content_port}; another process took it."
+            " Restart the viewer to choose new ports."
         )
 
     async def _exited(self, process, timeout=None):

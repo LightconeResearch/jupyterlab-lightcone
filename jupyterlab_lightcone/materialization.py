@@ -23,8 +23,10 @@ def read_status(project: Path) -> dict:
     try:
         report = status(current_project(project))
     except ProjectError as error:
-        # The client is sent log_message unformatted, so it carries no arguments.
-        raise web.HTTPError(503, f"Lightcone could not read this project's status:\n{error}") from error
+        # A spec, universe or lock the engine cannot read is the project's
+        # defect, not an outage. The client is sent log_message unformatted,
+        # so it carries no arguments.
+        raise web.HTTPError(422, f"Lightcone could not read this project's status:\n{error}") from error
     return {
         "mode": report.mode,
         "image": report.image,
@@ -39,7 +41,7 @@ def read_status(project: Path) -> dict:
 
 
 class MaterializationStatusHandler(ProjectAPIHandler):
-    """An authenticated status lookup; an unreadable project is an optional-service error."""
+    """An authenticated status lookup; a project the engine cannot read is the client's to fix."""
 
     unavailable_message = "Materialization status requires local files"
 

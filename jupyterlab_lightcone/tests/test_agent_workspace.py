@@ -1,29 +1,33 @@
 """Agents start in the project their chat belongs to, wherever the chat is stored."""
 import asyncio
+import json
 import logging
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 
 from jupyter_ai_persona_manager import PersonaManager as Upstream, extension
 from jupyter_ai_persona_manager.base_persona import BasePersona, PersonaDefaults
 from jupyterlab_chat.models import Message
 import pytest
+from traitlets.config import Config
 
-from jupyterlab_lightcone import agent_defaults, agent_workspace, comments, sessions
-from jupyterlab_lightcone.agent_workspace import (
-    PersonaManager,
-    comment_ids,
-    select_project_persona_manager,
-    session_activity,
-)
+from jupyterlab_lightcone import agent_defaults, comments, projects
+from jupyterlab_lightcone.agent_workspace import PersonaManager, comment_ids, delivers_comments
 from jupyterlab_lightcone.projects import CHAT_PROJECT, CURRENT_PROJECT
+
+SHIPPED_CONFIG = Path(__file__).resolve().parents[2] / "jupyter-config" / "persona-manager"
 
 
 @pytest.fixture
 def root(tmp_path):
     (tmp_path / "project" / "chats").mkdir(parents=True)
-    (tmp_path / "project" / "astra.yaml").write_text("name: test\n")
+    (tmp_path / "project" / "universes").mkdir()
+    # A spec the engine's planner reads: comment delivery names an output's file through it.
+    (tmp_path / "project" / "astra.yaml").write_text(
+        'version: "1.0"\nname: test\ninputs: []\noutputs:\n  - id: hubble_diagram\n    type: figure\n'
+        "    format: png\n    recipe:\n      command: python fig.py --out {{output}}\n"
+    )
+    (tmp_path / "project" / "universes" / "baseline.yaml").write_text("id: baseline\n")
     (tmp_path / "other").mkdir()
     (tmp_path / "other" / "astra.yaml").write_text("name: other\n")
     (tmp_path / "loose").mkdir()
@@ -72,15 +76,21 @@ class Chat:
 
 
 def _manager(root, chat, current=None):
-    """A manager on a server whose browser reported `current`, without loading personas."""
+    """A manager on a server whose browser reported `current`, without loading personas.
+
+    Upstream's constructor loads persona classes and needs a running server,
+    so the manager is built bare and given the upstream attributes it reads:
+    `parent` (the extension app, whose `serverapp` holds the settings),
+    `root_dir`, `chat`, `log`, and the persona map behind `personas`.
+    """
     parent = extension.PersonaManagerExtension()
     parent.serverapp = SimpleNamespace(web_app=SimpleNamespace(settings={CURRENT_PROJECT: current}))
-    # Skip the constructor, which loads personas and needs a running server.
     manager = PersonaManager.__new__(PersonaManager)
     manager.parent = parent
     manager.root_dir = str(root)
     manager.chat = chat if isinstance(chat, Chat) else Chat(chat)
     manager.log = logging.getLogger("test")
+    manager._personas = {}
     return manager
 
 
@@ -128,106 +138,83 @@ def test_a_recorded_project_that_is_gone_is_replaced_by_the_current_one(root):
     assert chat.metadata == {CHAT_PROJECT: "other/astra.yaml"}
 
 
-def test_a_manager_outside_a_running_server_uses_only_the_chat(root):
-    """No parent application means no reported project, not an error."""
-    manager = PersonaManager.__new__(PersonaManager)
-    manager.root_dir = str(root)
-    manager.chat = Chat("talk.chat")
-    assert Path(manager.get_chat_dir()) == root
+def test_the_pure_lookup_never_writes_and_the_join_records_once(root):
+    manager = _manager(root, "loose/talk.chat", current="project/astra.yaml")
+    assert projects.chat_project(manager) is None
+    assert manager.chat.metadata == {}
+    assert projects.join_project(manager, "project/astra.yaml") == root / "project"
+    assert projects.chat_project(manager) == root / "project"
+    assert manager.chat.metadata == {CHAT_PROJECT: "project/astra.yaml"}
 
 
-def test_the_project_manager_is_selected_and_existing_manager_config_still_applies():
-    from traitlets.config import Config
+def test_the_shipped_config_selects_the_manager_and_deployment_config_still_applies():
+    """Jupyter Server reads `jupyter_jupyter_ai_persona_manager_config.json` for Jupyter AI's extension.
 
-    app = extension.PersonaManagerExtension(
-        config=Config({"PersonaManager": {"default_persona_id": "deployment-choice"}})
-    )
-    assert select_project_persona_manager(_server(app)) is True
+    The subclass keeps the upstream class name so that the extension's
+    `default_persona_id` lookup, keyed by the class name, still honours a
+    deployment's `c.PersonaManager` settings.
+    """
+    shipped = json.loads((SHIPPED_CONFIG / "jupyter_jupyter_ai_persona_manager_config.json").read_text())
+    config = Config({**shipped, "PersonaManager": {"default_persona_id": "deployment-choice"}})
+    app = extension.PersonaManagerExtension(config=config)
     assert app.persona_manager_class is PersonaManager
     assert app._default_persona_id() == "deployment-choice"
 
 
 def test_a_deployment_list_setting_is_applied_once(root):
     """The subclass shares the base class's config section name."""
-    from traitlets.config import Config
-
     config = Config()
     config.PersonaManager.builtin_mcp_servers.append(
         {"type": "http", "name": "deployment", "url": "http://localhost/mcp", "headers": []}
     )
-    manager = PersonaManager.__new__(PersonaManager)
-    manager._load_config(config)
+    manager = _manager(root, "project/chats/talk.chat")
+    manager.update_config(config)
     names = [server["name"] for server in manager.builtin_mcp_servers]
     assert names.count("deployment") == 1
 
 
 def test_an_unreadable_parent_still_yields_a_working_directory(root, monkeypatch):
     """Upstream's version cannot fail; a chat must not lose its personas."""
-    from jupyterlab_lightcone import projects
 
-    def denied(*args, **kwargs):
+    def denied(root, directory):
         raise PermissionError("astra.yaml is not readable")
 
-    monkeypatch.setattr(projects.Path, "is_file", denied)
+    monkeypatch.setattr(projects, "owning_project", denied)
     manager = _manager(root, "project/chats/talk.chat", current="project/astra.yaml")
     assert Path(manager.get_chat_dir()) == root / "project" / "chats"
 
 
-def test_a_deployment_configured_manager_is_left_alone():
-    class Custom(Upstream):
-        pass
-
-    app = extension.PersonaManagerExtension(persona_manager_class=Custom)
-    assert select_project_persona_manager(_server(app)) is False
-    assert app.persona_manager_class is Custom
-
-
-def test_a_server_without_the_persona_manager_extension_is_left_alone():
-    server = SimpleNamespace(extension_manager=SimpleNamespace(extension_apps={}))
-    assert select_project_persona_manager(server) is False
-
-
-def test_the_extension_loads_without_jupyter_ai(monkeypatch):
-    from jupyterlab_lightcone.application import LightconeApp
-
-    # A None entry makes the import fail, as it does when Jupyter AI is absent.
-    monkeypatch.setitem(sys.modules, "jupyter_ai_persona_manager", None)
-    monkeypatch.delitem(sys.modules, "jupyterlab_lightcone.agent_workspace", raising=False)
-    server = SimpleNamespace(web_app=SimpleNamespace(settings={}))
-    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=server, log=None))
-    # Without Lightcone's manager, the composer appends comments to the message.
-    assert server.web_app.settings["page_config_data"][comments.COMMENT_DELIVERY] == "message"
-
-
-def _served(*apps):
-    server = _server(*apps)
-    server.web_app = SimpleNamespace(settings={})
-    return server
-
-
 def test_comments_go_in_the_prompt_only_when_every_manager_is_lightcones():
-    from jupyterlab_lightcone.application import LightconeApp
-
-    stock = extension.PersonaManagerExtension()
-    server = _served(stock)
-    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=server, log=logging.getLogger("test")))
-    assert server.web_app.settings["page_config_data"][comments.COMMENT_DELIVERY] == "prompt"
+    assert delivers_comments(_server(extension.PersonaManagerExtension(persona_manager_class=PersonaManager)))
 
     class Derived(PersonaManager):
         pass
 
-    assert agent_workspace.delivers_comments(_server(extension.PersonaManagerExtension(persona_manager_class=Derived)))
+    assert delivers_comments(_server(extension.PersonaManagerExtension(persona_manager_class=Derived)))
 
     class Custom(Upstream):
         pass
 
-    server = _served(extension.PersonaManagerExtension(persona_manager_class=Custom))
-    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=server, log=logging.getLogger("test")))
-    assert server.web_app.settings["page_config_data"][comments.COMMENT_DELIVERY] == "message"
-    assert not agent_workspace.delivers_comments(_server())
+    assert not delivers_comments(_server(extension.PersonaManagerExtension(persona_manager_class=Custom)))
+    assert not delivers_comments(_server(extension.PersonaManagerExtension()))
+    assert not delivers_comments(_server())
 
 
-# --- comments and activity ----------------------------------------------------
+def test_the_extension_tells_the_composer_how_comments_travel(monkeypatch):
+    from jupyterlab_lightcone import application
+    from jupyterlab_lightcone.application import LightconeApp
+
+    listeners = []
+    monkeypatch.setattr(application, "watch_persona_activity", listeners.append)
+    for manager_class, expected in ((PersonaManager, "prompt"), (Upstream, "message")):
+        server = _server(extension.PersonaManagerExtension(persona_manager_class=manager_class))
+        server.web_app = SimpleNamespace(settings={})
+        LightconeApp._configure_agents(SimpleNamespace(serverapp=server, log=logging.getLogger("test")))
+        assert server.web_app.settings["page_config_data"][comments.COMMENT_DELIVERY] == expected
+        assert listeners[-1] is server
+
+
+# --- routing and comments -------------------------------------------------------
 
 
 class EchoPersona(BasePersona):
@@ -238,10 +225,14 @@ class EchoPersona(BasePersona):
         return PersonaDefaults(name="Echo", description="Records its prompts.", avatar_path="", system_prompt="")
 
     async def process_message(self, message):
-        self.prompts.append(message.body)
+        self.received.append(message)
         gate = self.gates.get(message.id)
         if gate is not None:
             await gate.wait()
+
+    @property
+    def prompts(self):
+        return [message.body for message in self.received]
 
 
 def _draft(text, record="outputs.hubble_diagram"):
@@ -270,17 +261,33 @@ def pending(root):
 
 
 def _routing_manager(root, chat, current=None):
-    """A manager whose scheduled tasks the test can await."""
+    """A manager whose scheduled tasks the test can await, with one real persona."""
     manager = _manager(root, chat, current)
     loop = asyncio.get_running_loop()
     manager.tasks = []
     manager.event_loop = SimpleNamespace(
         create_task=lambda coroutine: manager.tasks.append(loop.create_task(coroutine)) or manager.tasks[-1]
     )
-    persona = EchoPersona(parent=manager, chat=manager.chat)
-    persona.prompts, persona.gates = [], {}
+    persona = _persona(manager)
     manager._personas = {persona.id: persona}
     return manager, persona
+
+
+def _persona(manager):
+    persona = EchoPersona(parent=manager, chat=manager.chat)
+    persona.received, persona.gates = [], {}
+    return persona
+
+
+async def _settled(manager):
+    """Await every task the manager scheduled, including those a task scheduled itself."""
+    done = set()
+    while True:
+        pending = [task for task in manager.tasks if task not in done]
+        if not pending:
+            return
+        await asyncio.gather(*pending)
+        done.update(pending)
 
 
 def _message(persona_id, ids=None, body="Fix the legend.", identifier="m1"):
@@ -288,18 +295,6 @@ def _message(persona_id, ids=None, body="Fix the legend.", identifier="m1"):
     if ids is not None:
         metadata["lightcone"] = {"comments": ids}
     return Message(body=body, id=identifier, time=0.0, sender="user", metadata=metadata)
-
-
-def _activity(manager):
-    return session_activity(manager.parent.serverapp.web_app)
-
-
-async def _settled(manager, state):
-    for _ in range(100):
-        if _activity(manager).get("project/chats/talk.chat", {}).get("state") == state:
-            return
-        await asyncio.sleep(0)
-    raise AssertionError(f"The session never became {state}.")
 
 
 @pytest.mark.parametrize("metadata, expected", [
@@ -317,7 +312,7 @@ async def test_pending_comments_reach_the_persona_and_never_the_chat(root, pendi
     manager, persona = _routing_manager(root, "project/chats/talk.chat")
     earlier, first, second = pending
     manager.on_chat_message("chat", _message(persona.id, [first["id"], earlier["id"], "missing"]))
-    await asyncio.gather(*manager.tasks)
+    await _settled(manager)
     assert persona.prompts == ["\n".join([
         "Fix the legend.",
         "",
@@ -336,10 +331,12 @@ async def test_pending_comments_reach_the_persona_and_never_the_chat(root, pendi
 async def test_a_message_without_comments_is_routed_unchanged(root):
     manager, persona = _routing_manager(root, "project/chats/talk.chat")
     manager.on_chat_message("chat", _message(persona.id))
-    await asyncio.gather(*manager.tasks)
+    await _settled(manager)
     assert persona.prompts == ["Fix the legend."]
+    assert persona.received[0].metadata["to_persona"] == persona.id
     # The comment store is untouched; only the project's agent is recorded.
     assert not comments.store_path(root / "project").exists()
+    assert agent_defaults.read_project_agent(root / "project") == persona.id
 
 
 async def test_a_broken_store_still_routes_the_original_message(root, caplog):
@@ -349,7 +346,7 @@ async def test_a_broken_store_still_routes_the_original_message(root, caplog):
     manager, persona = _routing_manager(root, "project/chats/talk.chat")
     with caplog.at_level(logging.WARNING, logger="test"):
         manager.on_chat_message("chat", _message(persona.id, ["x"]))
-        await asyncio.gather(*manager.tasks)
+        await _settled(manager)
     assert persona.prompts == ["Fix the legend."]
     assert "could not be delivered" in caplog.text
     assert store.read_bytes() == b"\xff"
@@ -359,7 +356,7 @@ async def test_comments_need_a_project_to_come_from(root, caplog):
     manager, persona = _routing_manager(root, "loose/talk.chat")
     with caplog.at_level(logging.WARNING, logger="test"):
         manager.on_chat_message("chat", _message(persona.id, ["x"]))
-        await asyncio.gather(*manager.tasks)
+        await _settled(manager)
     assert persona.prompts == ["Fix the legend."]
     assert "no ASTRA project" in caplog.text
 
@@ -369,16 +366,6 @@ async def test_a_message_to_an_unknown_persona_is_not_routed(root):
     manager.on_chat_message("chat", _message("jupyter-ai-personas::other::Persona"))
     manager.on_chat_message("chat", Message(body="?", id="m2", time=0.0, sender="user"))
     assert manager.tasks == []
-    assert _activity(manager) == {}
-
-
-async def test_the_agent_a_message_goes_to_is_remembered_for_the_project_and_the_page(root):
-    manager, persona = _routing_manager(root, "project/chats/talk.chat")
-    manager.on_chat_message("chat", _message(persona.id))
-    await asyncio.gather(*manager.tasks)
-    assert agent_defaults.read_project_agent(root / "project") == persona.id
-    page = manager.parent.serverapp.web_app.settings["page_config_data"]
-    assert page[agent_defaults.DEFAULT_PERSONA_OPTION] == persona.id
 
 
 def _unaddressed(identifier="m9", persona_id=None):
@@ -388,8 +375,7 @@ def _unaddressed(identifier="m9", persona_id=None):
 
 async def test_an_unaddressed_message_goes_to_the_agent_this_chat_last_named(root):
     manager, persona = _routing_manager(root, "project/chats/talk.chat")
-    other = EchoPersona(parent=manager, chat=manager.chat)
-    other.prompts, other.gates = [], {}
+    other = _persona(manager)
     other_id = "jupyter-ai-personas::other::Echo"
     manager._personas[other_id] = other
     # The chat named the first persona last; a reply from a persona does not count.
@@ -400,8 +386,10 @@ async def test_an_unaddressed_message_goes_to_the_agent_this_chat_last_named(roo
     ]
     for identifier, named in (("m4", None), ("m5", "jupyter-ai-personas::gone::Persona")):
         manager.on_chat_message("chat", _unaddressed(identifier, named))
-    await asyncio.gather(*manager.tasks)
+    await _settled(manager)
     assert persona.prompts == ["And the residuals?", "And the residuals?"]
+    # Upstream received copies addressed to the agent that answered.
+    assert [message.metadata["to_persona"] for message in persona.received] == [persona.id, persona.id]
     assert other.prompts == []
 
 
@@ -409,7 +397,7 @@ async def test_an_unaddressed_message_in_a_fresh_chat_goes_to_the_projects_agent
     manager, persona = _routing_manager(root, "project/chats/new.chat")
     agent_defaults.write_project_agent(root / "project", persona.id)
     manager.on_chat_message("chat", _unaddressed())
-    await asyncio.gather(*manager.tasks)
+    await _settled(manager)
     assert persona.prompts == ["And the residuals?"]
 
 
@@ -421,61 +409,14 @@ async def test_a_recorded_agent_this_chat_does_not_have_is_not_used(root):
     assert persona.prompts == []
 
 
-async def test_the_session_is_working_while_the_persona_replies(root):
+async def test_a_failing_persona_does_not_break_routing(root):
+    """Upstream's processing boundary reports the failure; the manager's task completes."""
     manager, persona = _routing_manager(root, "project/chats/talk.chat")
-    persona.gates["m1"] = asyncio.Event()
+
+    async def explode(message):
+        raise RuntimeError("agent gone")
+
+    persona.process_message = explode
     manager.on_chat_message("chat", _message(persona.id))
-    await _settled(manager, "working")
-    working = _activity(manager)["project/chats/talk.chat"]
-    assert working["persona"] == persona.id
-    assert working["since"].endswith("+00:00")
-    persona.gates["m1"].set()
-    await asyncio.gather(*manager.tasks)
-    idle = _activity(manager)["project/chats/talk.chat"]
-    assert idle == {"state": "idle", "persona": persona.id, "since": idle["since"]}
-    assert idle["since"] >= working["since"]
-
-
-async def test_the_session_stays_working_until_every_message_is_answered(root):
-    manager, persona = _routing_manager(root, "project/chats/talk.chat")
-    persona.gates = {"m1": asyncio.Event(), "m2": asyncio.Event()}
-    manager.on_chat_message("chat", _message(persona.id, identifier="m1"))
-    manager.on_chat_message("chat", _message(persona.id, identifier="m2"))
-    await _settled(manager, "working")
-    persona.gates["m1"].set()
-    await manager.tasks[0]
-    assert _activity(manager)["project/chats/talk.chat"]["state"] == "working"
-    persona.gates["m2"].set()
-    await manager.tasks[1]
-    assert _activity(manager)["project/chats/talk.chat"]["state"] == "idle"
-    assert persona.prompts == ["Fix the legend.", "Fix the legend."]
-
-
-async def test_a_crashed_boundary_still_leaves_the_session_idle(root, monkeypatch):
-    async def explode(persona, message):
-        raise RuntimeError("boundary gone")
-
-    monkeypatch.setattr(agent_workspace, "process_safely", explode)
-    manager, persona = _routing_manager(root, "project/chats/talk.chat")
-    manager.on_chat_message("chat", _message(persona.id))
-    with pytest.raises(RuntimeError):
-        await manager.tasks[0]
-    assert _activity(manager)["project/chats/talk.chat"]["state"] == "idle"
-
-
-async def test_a_manager_outside_a_running_server_still_routes(root):
-    manager, persona = _routing_manager(root, "project/chats/talk.chat")
-    manager.parent = None
-    manager.on_chat_message("chat", _message(persona.id))
-    await asyncio.gather(*manager.tasks)
-    assert persona.prompts == ["Fix the legend."]
-
-
-def test_session_activity_is_one_shared_map():
-    web_app = SimpleNamespace(settings={})
-    activity = session_activity(web_app)
-    assert activity == {}
-    activity["a.chat"] = {"state": "idle", "persona": "p", "since": "now"}
-    assert session_activity(web_app) is activity
-    # The session listing reads the very map the manager writes.
-    assert web_app.settings[sessions.SESSION_ACTIVITY] is activity
+    await _settled(manager)
+    assert all(task.exception() is None for task in manager.tasks)

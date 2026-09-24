@@ -1,7 +1,6 @@
 """Output versions come from real git and git-annex history, read in process and never written."""
 import json
 import os
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +23,10 @@ RESULTS = Path('results', 'baseline')
 
 @pytest.fixture(autouse=True)
 def engine_tools():
-    """`git annex` must find the git-annex installed beside the engine, as it does in the server."""
+    """The tests' own `git annex` commands need the wheel's executable on PATH, as the engine does.
+
+    `annex.py` finds the executable itself and never needs this.
+    """
     expose_engine_tools()
 
 
@@ -34,26 +36,36 @@ def jp_base_url():
     return '/user/researcher/'
 
 
-def registered(web_app, handler):
-    return any(rule.target is handler for host in web_app.wildcard_router.rules for rule in getattr(host.target, 'rules', []))
-
-
-@pytest.fixture
-def jp_serverapp(jp_serverapp):
-    """The versions routes, registered as `application.py` registers them; a no-op once it does."""
-    if not registered(jp_serverapp.web_app, versions.OutputVersionsHandler):
-        versions.setup_versions_handlers(jp_serverapp.web_app)
-    return jp_serverapp
-
-
 def git(root, *args, env=None):
     return subprocess.run(['git', *args], cwd=root, capture_output=True, text=True, check=True, env=env).stdout
 
 
 def manifest(output='fig', **changes):
-    record = dict(schema_version=1, universe_id='baseline', output_id=output, finished_at='2026-09-15T10:00:00Z', git_sha='a' * 40, recipe=f'python {output}.py', env_version='sha256:env', lc_version='0.5', input_versions={'data': 'sha256:input'})
+    record = dict(
+        schema_version=1, universe_id='baseline', output_id=output, finished_at='2026-09-15T10:00:00Z',
+        git_sha='a' * 40, recipe=f'python {output}.py', env_version='sha256:env', lc_version='0.5',
+        input_versions={'data': 'sha256:input'},
+    )
     record.update(changes)
     return record
+
+
+def spec(**outputs):
+    """A spec declaring these outputs with their formats, from which the engine names their files."""
+    declared = ''.join(
+        f'  - id: {output}\n    type: data\n    format: {extension}\n'
+        f'    recipe:\n      command: python {output}.py --out {{{{output}}}}\n'
+        for output, extension in outputs.items()
+    )
+    return f'version: "1.0"\nname: test\ninputs: []\noutputs:\n{declared}'
+
+
+def declare(root, **outputs):
+    """Write the project's spec and its baseline universe, declaring these outputs."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / 'universes').mkdir(exist_ok=True)
+    (root / 'astra.yaml').write_text(spec(**outputs))
+    (root / 'universes' / 'baseline.yaml').write_text('id: baseline\n')
 
 
 ATTRIBUTES = """* annex.largefiles=nothing
@@ -64,8 +76,11 @@ results/**/.*.manifest.json annex.largefiles=nothing
 """The engine's storage policy: outputs go to the annex, manifests and everything else stay in git."""
 
 
-def init_repo(root, *options, annexed=True):
-    """A repository with a first commit, as `lc init` leaves one: git, and an annex with the storage policy."""
+def init_repo(root, *options, annexed=True, outputs=None):
+    """A repository with a first commit, as `lc init` leaves one: git, an annex with the storage policy and a spec.
+
+    The spec declares `fig` as a PNG unless `outputs` says otherwise.
+    """
     root.mkdir(parents=True, exist_ok=True)
     git(root, 'init', '-q', *options)
     git(root, 'config', 'user.name', 'Researcher')
@@ -73,7 +88,7 @@ def init_repo(root, *options, annexed=True):
     if annexed:
         git(root, 'annex', 'init', '-q', 'test repository')
         (root / '.gitattributes').write_text(ATTRIBUTES)
-    (root / 'astra.yaml').write_text('version: 0.0.14\n')
+    declare(root, **({'fig': 'png'} if outputs is None else outputs))
     git(root, 'add', '-A', '--', '.')
     git(root, 'commit', '-q', '-m', 'Initial project')
     return root
@@ -101,7 +116,7 @@ def materialize(root, content, message=None, record=None, output='fig', extensio
     file.unlink(missing_ok=True)
     file.write_bytes(content)
     (directory / f'.{output}.manifest.json').write_text(json.dumps(manifest(output) if record is None else record))
-    return commit_all(root, message or f'[DATALAD RUNCMD] {output} [baseline]', when)
+    return commit_all(root, message or f'Materialize {output} in baseline', when)
 
 
 def key_of(root, commit, file='results/baseline/fig.png'):
@@ -110,6 +125,12 @@ def key_of(root, commit, file='results/baseline/fig.png'):
 
 def drop(root, key):
     git(root, 'annex', 'dropkey', '--force', key)
+
+
+def bytes_of(root, universe, output, commit):
+    """The file and bytes `read_version` answers: git's come in memory, git-annex's as the file holding them."""
+    file, content = versions.read_version(root, universe, output, commit)
+    return file, content if isinstance(content, bytes) else content.read_bytes()
 
 
 @pytest.fixture
@@ -129,7 +150,7 @@ def test_lists_engine_versions_newest_first(project):
     assert [version['commit'] for version in listing['versions']] == [second, first]
     newest, oldest = listing['versions']
     assert newest['short'] == second[:7]
-    assert newest['subject'] == '[DATALAD RUNCMD] fig [baseline]'
+    assert newest['subject'] == 'Materialize fig in baseline'
     assert datetime.fromisoformat(newest['time']).timestamp() == 1_700_000_100
     assert newest['manifest'] == manifest()
     assert newest['annex'] == {'key': key_of(root, second), 'here': True, 'remotes': []}
@@ -141,8 +162,10 @@ def test_lists_engine_versions_newest_first(project):
 
 def test_reads_the_annexed_bytes_at_each_commit_by_full_or_short_name(project):
     root, (second, first) = project
-    assert versions.read_version(root, 'baseline', 'fig', first) == ('results/baseline/fig.png', b'\x89PNG one')
-    assert versions.read_version(root, 'baseline', 'fig', second[:7]) == ('results/baseline/fig.png', b'\x89PNG two')
+    # Annexed bytes are answered as the file holding them, for the route to stream.
+    file, content = versions.read_version(root, 'baseline', 'fig', first)
+    assert (file, isinstance(content, Path), content.read_bytes()) == ('results/baseline/fig.png', True, b'\x89PNG one')
+    assert bytes_of(root, 'baseline', 'fig', second[:7]) == ('results/baseline/fig.png', b'\x89PNG two')
 
 
 def test_dropped_content_is_absent_but_still_listed(project):
@@ -169,13 +192,15 @@ def test_absent_bytes_name_the_repositories_that_hold_them(project, tmp_path):
     git(clone, 'annex', 'init', '-q', 'laptop')
     listing = versions.list_versions(clone, 'baseline', 'fig')
     assert listing['annex'] == 'initialized'
-    assert [(version['present'], version['annex']['remotes']) for version in listing['versions']] == [(False, ['test repository [origin]'])] * 2
+    assert [(version['present'], version['annex']['remotes']) for version in listing['versions']] == [
+        (False, ['test repository [origin]'])
+    ] * 2
     with pytest.raises(HTTPError) as raised:
         versions.read_version(clone, 'baseline', 'fig', second)
     assert raised.value.reason == 'absent'
     assert 'test repository [origin] has a copy (git annex get)' in raised.value.log_message
     git(clone, 'annex', 'get', '-q', 'results/baseline/fig.png')
-    assert versions.read_version(clone, 'baseline', 'fig', second)[1] == b'\x89PNG two'
+    assert bytes_of(clone, 'baseline', 'fig', second)[1] == b'\x89PNG two'
 
 
 def test_an_uninitialized_clone_is_never_asked(project, tmp_path):
@@ -185,7 +210,9 @@ def test_an_uninitialized_clone_is_never_asked(project, tmp_path):
     git(tmp_path, 'clone', '-q', str(root), str(clone))
     listing = versions.list_versions(clone, 'baseline', 'fig')
     assert listing['annex'] == 'uninitialized'
-    assert [(version['commit'], version['present'], version['annex']) for version in listing['versions']] == [(second, False, None), (first, False, None)]
+    assert [(version['commit'], version['present'], version['annex']) for version in listing['versions']] == [
+        (second, False, None), (first, False, None)
+    ]
     with pytest.raises(HTTPError) as raised:
         versions.read_version(clone, 'baseline', 'fig', second)
     assert raised.value.reason == 'absent'
@@ -203,16 +230,19 @@ def test_a_locked_version_reads_like_an_unlocked_one(project):
     assert locked['subject'] == 'Lock the figure'
     assert unlocked['commit'] == second
     assert (locked['annex']['key'], locked['size'], locked['present']) == (unlocked['annex']['key'], 8, True)
-    assert versions.read_version(root, 'baseline', 'fig', locked['commit'])[1] == b'\x89PNG two'
+    assert bytes_of(root, 'baseline', 'fig', locked['commit'])[1] == b'\x89PNG two'
 
 
 def test_a_repository_without_an_annex_keeps_its_bytes_in_git(tmp_path):
-    root = init_repo(tmp_path / 'plain', annexed=False)
+    root = init_repo(tmp_path / 'plain', annexed=False, outputs={'table': 'csv'})
     first = materialize(root, b'a,b\n1,2\n', output='table', extension='csv')
     second = materialize(root, b'a,b\n3,4\n', output='table', extension='csv')
     listing = versions.list_versions(root, 'baseline', 'table')
     assert (listing['file'], listing['annex']) == ('results/baseline/table.csv', 'none')
-    assert [(version['commit'], version['size'], version['present'], version['annex']) for version in listing['versions']] == [(second, 8, True, None), (first, 8, True, None)]
+    assert [(version['commit'], version['size'], version['present'], version['annex']) for version in listing['versions']] == [
+        (second, 8, True, None), (first, 8, True, None)
+    ]
+    # Bytes git holds are answered in memory.
     assert versions.read_version(root, 'baseline', 'table', first) == ('results/baseline/table.csv', b'a,b\n1,2\n')
     assert versions.read_version(root, 'baseline', 'table', second[:7]) == ('results/baseline/table.csv', b'a,b\n3,4\n')
 
@@ -243,7 +273,7 @@ def test_a_manifest_failing_the_provenance_checks_is_null(project):
 
 
 def test_a_sha256_repository_serves_every_commit_it_lists(tmp_path):
-    root = init_repo(tmp_path / 'plain', '--object-format=sha256', annexed=False)
+    root = init_repo(tmp_path / 'plain', '--object-format=sha256', annexed=False, outputs={'table': 'csv'})
     commit = materialize(root, b'a,b\n1,2\n', output='table', extension='csv')
     [version] = versions.list_versions(root, 'baseline', 'table')['versions']
     assert (version['commit'], len(commit)) == (commit, 64)
@@ -253,24 +283,23 @@ def test_a_sha256_repository_serves_every_commit_it_lists(tmp_path):
 def test_a_version_where_the_file_was_deleted_has_no_bytes(project):
     root, (second, _) = project
     (root / RESULTS / 'fig.png').unlink()
-    commit_all(root, 'Remove the figure')
-    # Neither the working tree nor the last commit has a file to name the format by.
-    with pytest.raises(HTTPError) as raised:
-        versions.list_versions(root, 'baseline', 'fig')
-    assert raised.value.status_code == 404
-    (root / RESULTS / 'fig.png').write_bytes(b'\x89PNG again')
-    commit_all(root, 'Restore the figure')
+    removed = commit_all(root, 'Remove the figure')
+    # The spec still names the file, so the history stays readable without one.
     listing = versions.list_versions(root, 'baseline', 'fig')
-    removed = next(version for version in listing['versions'] if version['subject'] == 'Remove the figure')
-    assert (removed['size'], removed['present'], removed['annex'], removed['manifest']) == (None, False, None, manifest())
+    assert listing['file'] == 'results/baseline/fig.png'
+    assert [version['commit'] for version in listing['versions']][:2] == [removed, second]
+    gone = listing['versions'][0]
+    assert (gone['size'], gone['present'], gone['annex'], gone['manifest']) == (None, False, None, manifest())
     with pytest.raises(HTTPError) as raised:
-        versions.read_version(root, 'baseline', 'fig', removed['commit'])
+        versions.read_version(root, 'baseline', 'fig', removed)
     assert raised.value.reason == 'missing'
-    assert versions.read_version(root, 'baseline', 'fig', listing['versions'][0]['commit'])[1] == b'\x89PNG again'
+    (root / RESULTS / 'fig.png').write_bytes(b'\x89PNG again')
+    restored = commit_all(root, 'Restore the figure')
+    assert bytes_of(root, 'baseline', 'fig', restored)[1] == b'\x89PNG again'
 
 
 def test_the_history_stays_readable_while_a_run_rebuilds_the_output(project):
-    """The engine deletes the output and its manifest before rebuilding; the last commit still names it."""
+    """The engine deletes the output and its manifest before rebuilding; the spec still names the file."""
     root, (second, first) = project
     (root / RESULTS / 'fig.png').unlink()
     (root / RESULTS / '.fig.manifest.json').unlink()
@@ -279,11 +308,38 @@ def test_the_history_stays_readable_while_a_run_rebuilds_the_output(project):
     assert [version['commit'] for version in listing['versions']] == [second, first]
 
 
+def test_the_spec_names_the_file_when_several_remain(project):
+    """A re-declared format leaves the old file behind; the declared one is the output's, whatever sorts first."""
+    root, _ = project
+    (root / RESULTS / 'fig.jpg').write_bytes(b'stale')
+    located = versions.output_file(root, 'baseline', 'fig', None)
+    assert located == ('results/baseline/fig.png', 'results/baseline/.fig.manifest.json')
+    declare(root, fig='jpg')
+    assert versions.output_file(root, 'baseline', 'fig', None)[0] == 'results/baseline/fig.jpg'
+
+
+def test_an_output_the_spec_no_longer_declares_keeps_its_committed_history(project):
+    root, (second, first) = project
+    declare(root, other='json')
+    listing = versions.list_versions(root, 'baseline', 'fig')
+    assert listing['file'] == 'results/baseline/fig.png'
+    assert [version['commit'] for version in listing['versions']] == [second, first]
+    # So does an output of a spec the engine cannot read any more; one it never committed is that problem.
+    (root / 'astra.yaml').write_text('name: broken\n')
+    assert versions.list_versions(root, 'baseline', 'fig')['file'] == 'results/baseline/fig.png'
+    with pytest.raises(HTTPError) as raised:
+        versions.list_versions(root, 'baseline', 'never')
+    assert raised.value.status_code == 422
+    # jupyter_server replies with log_message as it stands, never formatted.
+    assert not raised.value.args
+
+
 def test_a_renamed_output_keeps_its_history(tmp_path):
-    root = init_repo(tmp_path / 'plain', annexed=False)
+    root = init_repo(tmp_path / 'plain', annexed=False, outputs={'table': 'csv'})
     first = materialize(root, b'a,b\n1,2\n', output='table', extension='csv')
+    # The format is re-declared and the file moves with it.
     git(root, 'mv', 'results/baseline/table.csv', 'results/baseline/table.tsv')
-    (root / RESULTS / '.table.manifest.json').write_text(json.dumps(manifest('table', output_path='results/baseline/table.tsv')))
+    declare(root, table='tsv')
     renamed = commit_all(root, 'Re-declare the format')
     listing = versions.list_versions(root, 'baseline', 'table')
     assert listing['file'] == 'results/baseline/table.tsv'
@@ -294,22 +350,16 @@ def test_a_project_below_the_repository_root_reads_its_own_paths(tmp_path):
     repository = init_repo(tmp_path / 'repository')
     root = repository / 'analysis'
     (root / RESULTS).mkdir(parents=True)
+    declare(root, table='csv')
     # The storage policy is relative to where it is written; the project carries its own.
     (root / '.gitattributes').write_text(ATTRIBUTES)
     commit = materialize(root, b'x,y\n', output='table', extension='csv')
     listing = versions.list_versions(root, 'baseline', 'table')
     [version] = listing['versions']
-    assert (version['commit'], version['present'], version['annex']['key']) == (commit, True, key_of(root, commit, 'analysis/results/baseline/table.csv'))
-    assert versions.read_version(root, 'baseline', 'table', commit)[1] == b'x,y\n'
+    expected_key = key_of(root, commit, 'analysis/results/baseline/table.csv')
+    assert (version['commit'], version['present'], version['annex']['key']) == (commit, True, expected_key)
+    assert bytes_of(root, 'baseline', 'table', commit)[1] == b'x,y\n'
     assert versions.results_commits(root)[0]['outputs'] == [{'universe': 'baseline', 'output': 'table'}]
-
-
-def test_prefers_the_file_the_manifest_names_when_several_remain(project):
-    root, _ = project
-    (root / RESULTS / 'fig.svg').write_text('<svg/>')
-    assert versions.output_file(root, 'baseline', 'fig', None)[0] == 'results/baseline/fig.png'
-    (root / RESULTS / '.fig.manifest.json').write_text(json.dumps(manifest(output_path='results/baseline/fig.svg')))
-    assert versions.output_file(root, 'baseline', 'fig', None) == ('results/baseline/fig.svg', 'results/baseline/.fig.manifest.json')
 
 
 def test_an_output_without_a_file_is_not_found(project):
@@ -321,6 +371,7 @@ def test_an_output_without_a_file_is_not_found(project):
 
 
 def test_a_folder_without_git_has_no_history(tmp_path):
+    declare(tmp_path, fig='png')
     (tmp_path / RESULTS).mkdir(parents=True)
     (tmp_path / RESULTS / 'fig.png').write_bytes(b'\x89PNG')
     assert versions.list_versions(tmp_path, 'baseline', 'fig') == {'file': 'results/baseline/fig.png', 'annex': 'none', 'versions': []}
@@ -330,19 +381,32 @@ def test_a_folder_without_git_has_no_history(tmp_path):
     assert raised.value.reason == 'repository'
 
 
+def test_a_folder_without_a_readable_spec_or_git_has_no_file(tmp_path):
+    (tmp_path / RESULTS).mkdir(parents=True)
+    (tmp_path / RESULTS / 'fig.png').write_bytes(b'\x89PNG')
+    with pytest.raises(HTTPError) as raised:
+        versions.list_versions(tmp_path, 'baseline', 'fig')
+    assert raised.value.status_code == 422
+
+
 def test_a_repository_before_its_first_commit_has_no_history(tmp_path):
     root = tmp_path / 'unborn'
     root.mkdir()
     git(root, 'init', '-q')
+    declare(root, fig='png')
     (root / RESULTS).mkdir(parents=True)
     (root / RESULTS / 'fig.png').write_bytes(b'\x89PNG')
     assert versions.list_versions(root, 'baseline', 'fig')['versions'] == []
     assert versions.results_commits(root) == []
 
 
-def test_an_uncommitted_output_has_no_history(project):
+def test_an_uncommitted_or_unmade_output_has_no_history(project):
     root, _ = project
+    declare(root, fig='png', new='json')
     (root / RESULTS / 'new.json').write_text('{}')
+    listing = versions.list_versions(root, 'baseline', 'new')
+    assert listing == {'file': 'results/baseline/new.json', 'annex': 'initialized', 'versions': []}
+    (root / RESULTS / 'new.json').unlink()
     assert versions.list_versions(root, 'baseline', 'new')['versions'] == []
 
 
@@ -352,7 +416,10 @@ def test_caps_the_history(project, monkeypatch):
     assert [version['commit'] for version in versions.list_versions(root, 'baseline', 'fig')['versions']] == [second]
 
 
-@pytest.mark.parametrize('universe, output', [('../outside', 'fig'), ('/outside', 'fig'), ('baseline', '../fig'), ('baseline', 'fig.png'), ('.hidden', 'fig'), ('baseline', 'a\\b'), ('baseline', '')])
+@pytest.mark.parametrize('universe, output', [
+    ('../outside', 'fig'), ('/outside', 'fig'), ('baseline', '../fig'), ('baseline', 'fig.png'), ('.hidden', 'fig'),
+    ('baseline', 'a\\b'), ('baseline', ''),
+])
 def test_rejects_arbitrary_identities(project, universe, output):
     root, (second, _) = project
     with pytest.raises(HTTPError):
@@ -367,6 +434,12 @@ def test_rejects_malformed_commit_names(project, commit):
     with pytest.raises(HTTPError) as raised:
         versions.read_version(root, 'baseline', 'fig', commit)
     assert raised.value.status_code == 400
+
+
+def test_a_commit_name_is_accepted_in_either_case(project):
+    root, (second, _) = project
+    assert versions.COMMIT_NAME.fullmatch(second.upper().lower())
+    assert bytes_of(root, 'baseline', 'fig', second.upper())[1] == b'\x89PNG two'
 
 
 def test_an_unknown_or_ambiguous_commit_is_not_found(project):
@@ -386,7 +459,7 @@ def test_refuses_oversized_content(project, tmp_path, monkeypatch):
         versions.read_version(root, 'baseline', 'fig', second)
     assert raised.value.status_code == 413
     assert raised.value.log_message == 'This version is larger than the 4 bytes the viewer serves'
-    plain = init_repo(tmp_path / 'plain', annexed=False)
+    plain = init_repo(tmp_path / 'plain', annexed=False, outputs={'big': 'txt'})
     commit = materialize(plain, b'x' * 8, output='big', extension='txt')
     with pytest.raises(HTTPError) as raised:
         versions.read_version(plain, 'baseline', 'big', commit)
@@ -400,11 +473,16 @@ def test_the_refusal_names_the_default_limit():
 def test_git_annex_answers_the_three_questions(project):
     """Keys, sizes and places come from git-annex's own commands, never from a parse of ours."""
     root, (second, first) = project
-    refs = [f'{second}:results/baseline/fig.png', f'{first}:results/baseline/fig.png', f'{second}:astra.yaml', f'{second}:missing.png']
+    refs = [
+        f'{second}:results/baseline/fig.png', f'{first}:results/baseline/fig.png', f'{second}:astra.yaml',
+        f'{second}:missing.png',
+    ]
     keys = annex.lookup_keys(root, refs)
     assert keys[refs[2]] is None and keys[refs[3]] is None
     assert keys[refs[0]] and keys[refs[1]] and keys[refs[0]] != keys[refs[1]]
-    assert annex.sizes(root, [keys[refs[0]], 'SHA256E-s12--nope.png', 'WORM--noname']) == {keys[refs[0]]: 8, 'SHA256E-s12--nope.png': 12, 'WORM--noname': None}
+    assert annex.sizes(root, [keys[refs[0]], 'SHA256E-s12--nope.png', 'WORM--noname']) == {
+        keys[refs[0]]: 8, 'SHA256E-s12--nope.png': 12, 'WORM--noname': None
+    }
     assert annex.whereis(root, [keys[refs[0]], 'SHA256E-s12--nope.png']) == {
         keys[refs[0]]: {'key': keys[refs[0]], 'here': True, 'remotes': []},
         'SHA256E-s12--nope.png': {'key': 'SHA256E-s12--nope.png', 'here': False, 'remotes': []},
@@ -416,37 +494,44 @@ def test_git_annex_answers_the_three_questions(project):
         annex.lookup_keys(root, ['HEAD:a\nb'])
 
 
+def test_git_annex_is_found_beside_the_interpreter_without_any_path(monkeypatch):
+    """The wheel installs the executable in this environment's scripts; PATH is not needed to find it."""
+    monkeypatch.setenv('PATH', '/nowhere')
+    annex.executable.cache_clear()
+    try:
+        assert Path(annex.executable()).is_file()
+    finally:
+        annex.executable.cache_clear()
+
+
 def test_a_missing_git_annex_is_a_service_error(project, monkeypatch):
-    """git without git-annex answers "not a git command" and nothing; that must never read as "not annexed"."""
+    """Without git-annex nothing can be asked; that must never read as "not annexed"."""
     root, (second, _) = project
-    git_only = str(Path(shutil.which('git')).parent)
-    assert shutil.which('git-annex', path=git_only) is None
-    monkeypatch.setenv('PATH', git_only)
+    monkeypatch.setattr(annex, 'executable', lambda: '/nowhere/git-annex')
     with pytest.raises(annex.AnnexUnavailable):
         annex.lookup_keys(root, [f'{second}:results/baseline/fig.png'])
     with pytest.raises(annex.AnnexUnavailable):
         versions.list_versions(root, 'baseline', 'fig')
-    monkeypatch.setenv('PATH', '/nowhere')
-    with pytest.raises(annex.AnnexUnavailable):
-        annex.lookup_keys(root, [f'{second}:results/baseline/fig.png'])
 
 
 async def test_a_missing_git_annex_is_reported_by_the_routes(jp_fetch, jp_serverapp, monkeypatch):
     root = init_repo(Path(jp_serverapp.contents_manager.root_dir) / 'project')
     first = materialize(root, b'\x89PNG one')
-    monkeypatch.setattr(annex.shutil, 'which', lambda name, **kwargs: None)
-    response = await jp_fetch(*ENDPOINT, params={'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig'}, raise_error=False)
+    monkeypatch.setattr(annex, 'executable', lambda: '/nowhere/git-annex')
+    params = {'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig'}
+    response = await jp_fetch(*ENDPOINT, params=params, raise_error=False)
     assert response.code == 503
     assert 'git-annex' in json.loads(response.body)['message']
-    response = await jp_fetch(*CONTENT, params={'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': first}, raise_error=False)
+    response = await jp_fetch(*CONTENT, params={**params, 'commit': first}, raise_error=False)
     assert response.code == 503
 
 
 @pytest.mark.parametrize('name, expected', [
     ('fig.png', 'image/png'), ('photo.JPG', 'image/jpeg'), ('a.jpeg', 'image/jpeg'), ('a.svg', 'image/svg+xml'),
-    ('fit.json', 'application/json'), ('t.csv', 'text/csv; charset=utf-8'), ('t.tsv', 'text/tab-separated-values; charset=utf-8'),
-    ('n.txt', 'text/plain; charset=utf-8'), ('p.pdf', 'application/pdf'), ('g.npz', 'application/octet-stream'),
-    ('a.parquet', 'application/octet-stream'), ('noext', 'application/octet-stream'),
+    ('fit.json', 'application/json'), ('t.csv', 'text/csv; charset=utf-8'),
+    ('t.tsv', 'text/tab-separated-values; charset=utf-8'), ('n.txt', 'text/plain; charset=utf-8'),
+    ('p.pdf', 'application/pdf'), ('g.npz', 'application/octet-stream'), ('a.parquet', 'application/octet-stream'),
+    ('noext', 'application/octet-stream'),
 ])
 def test_content_types_follow_the_extension(name, expected):
     assert versions.content_type(name) == expected
@@ -526,13 +611,26 @@ async def test_content_endpoint(jp_fetch, jp_serverapp):
     root = init_repo(Path(jp_serverapp.contents_manager.root_dir) / 'project')
     first = materialize(root, b'\x89PNG one')
     materialize(root, b'\x89PNG two')
-    response = await jp_fetch(*CONTENT, params={'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': first})
+    params = {'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': first}
+    response = await jp_fetch(*CONTENT, params=params)
     assert response.code == 200
     assert response.body == b'\x89PNG one'
     assert response.headers['Content-Type'] == 'image/png'
+    assert response.headers['Content-Length'] == '8'
     assert response.headers['Content-Disposition'] == 'inline; filename="fig.png"; filename*=UTF-8\'\'fig.png'
     assert response.headers['Cache-Control'] == 'private, max-age=31536000, immutable'
     assert response.headers['X-Content-Type-Options'] == 'nosniff'
+
+
+async def test_annexed_content_is_streamed_in_chunks(jp_fetch, jp_serverapp, monkeypatch):
+    root = init_repo(Path(jp_serverapp.contents_manager.root_dir) / 'project')
+    first = materialize(root, b'\x89PNG one')
+    monkeypatch.setattr(versions, 'CONTENT_CHUNK_SIZE', 3)
+    params = {'path': 'project/astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': first}
+    response = await jp_fetch(*CONTENT, params=params)
+    assert response.body == b'\x89PNG one'
+    assert response.headers['Content-Length'] == '8'
+    assert response.headers['Content-Type'] == 'image/png'
 
 
 async def test_content_is_sandboxed_and_refuses_cross_site_inclusion(jp_fetch, jp_serverapp, monkeypatch):
@@ -573,7 +671,8 @@ async def test_results_endpoint(jp_fetch, jp_serverapp):
     second = materialize(root, b'\x89PNG two', when=1_700_000_100)
     response = await jp_fetch(*RESULTS_ROUTE, params={'path': 'project/astra.yaml'})
     assert [entry['commit'] for entry in json.loads(response.body)['commits']] == [second, first]
-    response = await jp_fetch(*RESULTS_ROUTE, params={'path': 'project/astra.yaml', 'since': '1700000050', 'until': '1700000150'})
+    window = {'path': 'project/astra.yaml', 'since': '1700000050', 'until': '1700000150'}
+    response = await jp_fetch(*RESULTS_ROUTE, params=window)
     assert [entry['commit'] for entry in json.loads(response.body)['commits']] == [second]
     for params in [{'since': 'yesterday'}, {'limit': '0'}, {'limit': str(versions.MAX_RESULTS_COMMITS + 1)}]:
         refused = await jp_fetch(*RESULTS_ROUTE, params={'path': 'project/astra.yaml', **params}, raise_error=False)
@@ -583,7 +682,9 @@ async def test_results_endpoint(jp_fetch, jp_serverapp):
 @pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT, RESULTS_ROUTE, SOURCE, PACKAGES])
 async def test_requires_authentication(jp_fetch, endpoint):
     params = {'path': 'astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': 'a' * 7, 'file': 'fig.py'}
-    response = await jp_fetch(*endpoint, params=params, follow_redirects=False, headers={'Authorization': ''}, raise_error=False)
+    response = await jp_fetch(
+        *endpoint, params=params, follow_redirects=False, headers={'Authorization': ''}, raise_error=False
+    )
     assert response.code in (302, 403)
 
 
@@ -663,7 +764,9 @@ def test_binary_oversized_and_annexed_files_are_not_shown_as_text(tmp_path, monk
     assert versions.read_source(root, fig, 'results/baseline/.fig.manifest.json')['annexed'] is False
 
 
-@pytest.mark.parametrize('file', ['', '/etc/passwd', '../outside.py', 'a/../b.py', 'a//b.py', './a.py', 'a\\b.py', 'a\x00b.py', 'x' * 1025])
+@pytest.mark.parametrize('file', [
+    '', '/etc/passwd', '../outside.py', 'a/../b.py', 'a//b.py', './a.py', 'a\\b.py', 'a\x00b.py', 'x' * 1025,
+])
 def test_rejects_paths_that_leave_the_project_or_break_a_request(file):
     with pytest.raises(HTTPError) as error:
         versions.validate_source_path(file, allow_hidden=False)
@@ -719,7 +822,8 @@ async def test_source_and_packages_endpoints(jp_fetch, jp_serverapp):
     response = await jp_fetch(*SOURCE, params={'path': 'project/astra.yaml', 'commit': commit, 'file': 'fig.py'})
     assert json.loads(response.body)['text'] == 'print(1)\n'
     assert response.headers['Cache-Control'] == 'no-store'
-    hidden = await jp_fetch(*SOURCE, params={'path': 'project/astra.yaml', 'commit': commit, 'file': '.gitattributes'}, raise_error=False)
+    hidden_params = {'path': 'project/astra.yaml', 'commit': commit, 'file': '.gitattributes'}
+    hidden = await jp_fetch(*SOURCE, params=hidden_params, raise_error=False)
     assert hidden.code == 403
     response = await jp_fetch(*PACKAGES, params={'path': 'project/astra.yaml', 'commit': commit})
     assert json.loads(response.body)['packages'][0] == {'name': 'astropy', 'version': '6.0.0'}

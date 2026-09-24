@@ -58,7 +58,7 @@ def download(monkeypatch, paper_cache):
         return directory / "paper.pdf", SimpleNamespace(success=True, error=None)
 
     mocked = Mock(side_effect=save)
-    monkeypatch.setattr("astra.papers.download.download_paper_to_cache", mocked)
+    monkeypatch.setattr(routes, "download_paper_to_cache", mocked)
     return mocked
 
 
@@ -94,13 +94,10 @@ def test_rejects_invalid_dois(doi):
         routes.validate_doi(doi)
 
 
-def test_cache_environment_precedence(monkeypatch):
+def test_the_cache_is_astras_unless_the_server_names_another(monkeypatch):
     monkeypatch.setenv("LIGHTCONE_PAPER_CACHE_DIR", "/srv/lightcone-papers")
-    monkeypatch.setenv("ASTRA_PAPER_CACHE_DIR", "/srv/astra-papers")
     assert routes.paper_cache_root() == Path("/srv/lightcone-papers")
     monkeypatch.delenv("LIGHTCONE_PAPER_CACHE_DIR")
-    assert routes.paper_cache_root() == Path("/srv/astra-papers")
-    monkeypatch.delenv("ASTRA_PAPER_CACHE_DIR")
     assert routes.paper_cache_root() == Path.home() / ".cache" / "astra" / "papers"
 
 
@@ -180,10 +177,10 @@ async def test_fetches_missing_paper_once_for_concurrent_requests(jp_fetch, down
 
 
 @pytest.mark.parametrize(
-    ("failure", "status"),
-    [(ImportError("missing SDK"), 503), (RuntimeError("/private/cache/path"), 502)],
+    "failure", [RuntimeError("/private/cache/path"), OSError("/private/cache/path is read-only")]
 )
-async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, failure, status):
+async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, failure):
+    """A failed download or cache write is the upstream's failure; the details stay in the server log."""
     monkeypatch.setattr(routes, "fetch_cached_paper", Mock(side_effect=failure))
     response = await jp_fetch(
         *ENDPOINT,
@@ -192,8 +189,16 @@ async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, 
         body=json.dumps({"doi": DOI}),
         raise_error=False,
     )
-    assert response.code == status
+    assert response.code == 502
     assert b"/private/cache/path" not in response.body
+
+
+async def test_a_defect_while_fetching_is_reported_as_one(jp_fetch, monkeypatch):
+    monkeypatch.setattr(routes, "fetch_cached_paper", Mock(side_effect=TypeError("a bug")))
+    response = await jp_fetch(
+        *ENDPOINT, "fetch", method="POST", body=json.dumps({"doi": DOI}), raise_error=False
+    )
+    assert response.code == 500
 
 
 @pytest.mark.parametrize(("action", "method"), [(None, "GET"), ("pdf", "GET"), ("fetch", "POST")])

@@ -1,11 +1,13 @@
-"""Jupyter lifecycle integration for Lightcone's managed resources."""
+"""The Lightcone server extension: routes, page configuration, agent integration and the MySTRA viewer."""
 
 import os
 
 from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
+from .agent_activity import watch_persona_activity
 from .agent_defaults import setup_project_agent_handlers
+from .agent_workspace import delivers_comments
 from .comments import COMMENT_DELIVERY, setup_comment_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
@@ -19,9 +21,13 @@ from .versions import setup_versions_handlers
 
 
 class LightconeApp(ExtensionApp):
-    """Own viewer processes through Jupyter's normal shutdown lifecycle."""
+    """Register the workbench routes, publish what the frontend needs to know
+    about the server, follow the Jupyter AI agents' activity, and own the
+    MySTRA viewer processes through Jupyter's shutdown lifecycle."""
 
     name = "jupyterlab_lightcone"
+    manager: MySTRAManager | None = None
+    """The viewer processes, created with the handlers; None until then."""
     mystra_command = List(
         Unicode(),
         default_value=["myst"],
@@ -42,9 +48,9 @@ class LightconeApp(ExtensionApp):
     )
 
     def initialize_settings(self):
-        """Prepare the environment the in-process Lightcone engine relies on."""
+        """Prepare the environment the in-process Lightcone engine relies on and describe the agents' setup."""
         expose_engine_tools()
-        self._root_agents_in_projects()
+        self._configure_agents()
         self._publish_server_root()
 
     def _publish_server_root(self):
@@ -58,32 +64,22 @@ class LightconeApp(ExtensionApp):
             page_config = self.serverapp.web_app.settings.setdefault("page_config_data", {})
             page_config["lightconeServerRoot"] = os.path.abspath(root)
 
-    def _root_agents_in_projects(self):
-        """Start Jupyter AI agents at their project root; a no-op without Jupyter AI.
+    def _configure_agents(self):
+        """Say how comments reach the agents, and follow the agents' activity.
 
-        Optional and best-effort: no Jupyter AI incompatibility may stop the
-        inventory, viewer and paper routes from loading. Where Lightcone's
-        manager does not handle messages, pending comments travel in the
-        message text instead of the prompt copy.
+        Lightcone's persona manager, configured through Jupyter AI's own
+        config file, appends pending comments to the prompt it hands the
+        persona; where a deployment configured another manager, the composer
+        appends them to the message text instead. Activity comes from the
+        persona events every manager publishes.
         """
         page_config = self.serverapp.web_app.settings.setdefault("page_config_data", {})
-        page_config[COMMENT_DELIVERY] = "message"
-        try:
-            from .agent_workspace import delivers_comments, select_project_persona_manager
-
-            selected = select_project_persona_manager(self.serverapp)
-            if delivers_comments(self.serverapp):
-                page_config[COMMENT_DELIVERY] = "prompt"
-        except ImportError:
-            return
-        except Exception:
-            self.log.warning(
-                "Could not root Jupyter AI agents in their ASTRA project.", exc_info=True
-            )
-            return
+        prompt = delivers_comments(self.serverapp)
+        page_config[COMMENT_DELIVERY] = "prompt" if prompt else "message"
+        watch_persona_activity(self.serverapp)
         self.log.info(
             "Jupyter AI agents start in the ASTRA project that owns their chat."
-            if selected
+            if prompt
             else "Jupyter AI uses a configured persona manager; agent folders are unchanged."
         )
 
@@ -117,7 +113,7 @@ class LightconeApp(ExtensionApp):
         shutting kernels down, so a failure here must not skip the server's
         own cleanup.
         """
-        if hasattr(self, "manager"):
+        if self.manager is not None:
             try:
                 await self.manager.close()
             except Exception:

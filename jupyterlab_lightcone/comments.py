@@ -1,34 +1,36 @@
 """Pending comments on a project's records and files, sent with the next message.
 
-A user pins a note to a figure, a text
-selection or a PDF page, the note waits above the composer, and it goes out
-with the next chat message. The store is `<project>/.lightcone/comments.json`,
-which the engine's `.gitignore` template already ignores, so commenting never
-dirties the project's Git tree.
+A user pins a note to a figure, a text selection or a PDF page, the note
+waits above the composer, and it goes out with the next chat message. The
+store is `<project>/.lightcone/comments.json`, one of the project stores
+`project_store` keeps under the folder the engine's `.gitignore` template
+ignores, so commenting never dirties the project's Git tree.
 
-The store is hidden, so it is read from disk rather than through the Contents
-API; every route still resolves the entrypoint through the contents manager,
-which authorizes the project. `agent_workspace.py` delivers the pending
-comments to the agent through `deliver_comments`. Where a deployment runs
-another persona manager, nothing on the server sees the message go out: the
-composer then asks the `send` route for the block and appends it to the
-message itself.
+Every route resolves the entrypoint through the contents manager, which
+authorizes the project. `agent_workspace.py` delivers the pending comments to
+the agent through `deliver_comments`. Where a deployment runs another persona
+manager, nothing on the server sees the message go out: the composer then
+asks the `send` route for the block and appends it to the message itself.
 """
 
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime, timezone
-import json
 import math
 import os
 from pathlib import Path
-import tempfile
 import uuid
 
-from jupyter_server.auth import authorized
+from jupyter_server.auth import User, authorized
 from jupyter_server.utils import url_path_join
 from tornado import web
 
+from . import project_store
 from .project_routes import ProjectAPIHandler
+from .project_store import StoreError
+from .projects import project_directory
+from .results import RESULTS_DIRECTORY
+from .versions import open_repository, output_file as locate_output
 
 COMMENT_LOCKS = "lightcone_comment_locks"
 """The web application setting holding one `asyncio.Lock` per project store."""
@@ -44,7 +46,7 @@ the message text itself through the ``send`` route.
 MAX_SEND_IDS = 200
 
 STORE_VERSION = 1
-STORE_FILE = Path(".lightcone", "comments.json")
+STORE_NAME = "comments.json"
 MAX_STORE_BYTES = 16 * 1024 * 1024
 MAX_TEXT_CHARS = 1000
 MAX_QUOTE_CHARS = 300
@@ -68,7 +70,7 @@ def timestamp() -> str:
 
 def store_path(project: Path) -> Path:
     """Where a project keeps its comments; hidden, and ignored by the engine."""
-    return project / STORE_FILE
+    return project_store.store_path(project, STORE_NAME)
 
 
 def comment_lock(locks: dict, project: Path) -> asyncio.Lock:
@@ -79,12 +81,6 @@ def comment_lock(locks: dict, project: Path) -> asyncio.Lock:
     JupyterHub home, for instance). Both must take the same lock for one store.
     """
     return locks.setdefault(os.path.realpath(project), asyncio.Lock())
-
-
-def project_directory(entrypoint: str) -> str:
-    """The Contents path of the project directory named by an entrypoint."""
-    suffix = "/astra.yaml"
-    return entrypoint[: -len(suffix)] if entrypoint.endswith(suffix) else ""
 
 
 def relative_path(path: str, project_dir: str) -> str:
@@ -101,6 +97,7 @@ def relative_path(path: str, project_dir: str) -> str:
 
 
 def _bad(message: str) -> web.HTTPError:
+    """The 400 every validation failure answers with."""
     return web.HTTPError(400, message)
 
 
@@ -118,6 +115,7 @@ def _encodable(value: str, name: str) -> str:
 
 
 def _optional_string(value, name: str, limit: int) -> str | None:
+    """A bounded string field, or None when it is null."""
     if value is None:
         return None
     if not isinstance(value, str) or "\x00" in value:
@@ -128,6 +126,7 @@ def _optional_string(value, name: str, limit: int) -> str | None:
 
 
 def _optional_number(value, name: str) -> float | None:
+    """A finite number field, or None when it is null."""
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
@@ -136,6 +135,7 @@ def _optional_number(value, name: str) -> float | None:
 
 
 def _optional_int(value, name: str, minimum: int) -> int | None:
+    """An integer field of at least `minimum`, or None when it is null."""
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
@@ -291,50 +291,44 @@ def _stored_comment(value) -> dict:
 
 
 def read_store(path: Path) -> list[dict]:
-    """Load a project's comments; a missing store is an empty one."""
-    try:
-        with path.open("rb") as stream:
-            data = stream.read(MAX_STORE_BYTES + 1)
-    except FileNotFoundError:
+    """Load a project's comments; a missing store is an empty one.
+
+    Raises `StoreError`: 503 when the store cannot be read, 500 when it is
+    not this module's store, the code an unusable local store gets here as in
+    `provenance`.
+    """
+    store = project_store.read_json(path, MAX_STORE_BYTES)
+    if store is None:
         return []
-    except OSError as error:
-        raise web.HTTPError(503, "The comment store could not be read.") from error
     try:
-        if len(data) > MAX_STORE_BYTES:
-            raise ValueError("Oversized store")
-        store = json.loads(data)
         if not isinstance(store, dict) or store.get("version") != STORE_VERSION:
             raise ValueError("Unsupported store version")
         comments = store.get("comments")
         if not isinstance(comments, list):
             raise ValueError("Comments must be a list")
         return [_stored_comment(comment) for comment in comments]
-    except (ValueError, UnicodeError, web.HTTPError) as error:
-        raise web.HTTPError(500, "The comment store has an unsupported format.") from error
+    except (ValueError, web.HTTPError) as error:
+        raise StoreError("The comment store has an unsupported format.", 500) from error
 
 
 def write_store(path: Path, comments: list[dict]) -> None:
     """Replace the store atomically, so a crash leaves the previous version.
 
-    A store larger than `read_store` accepts is refused with a 413 before
-    anything is written: it would make every route, deletion included, fail.
+    A store larger than `read_store` accepts is refused (`StoreError`, 413)
+    before anything is written: it would make every route, deletion included,
+    fail.
     """
-    payload = json.dumps(
-        {"version": STORE_VERSION, "comments": comments}, ensure_ascii=False, indent=2
-    ).encode("utf-8")
-    if len(payload) > MAX_STORE_BYTES:
-        raise web.HTTPError(413, "The project's comment store is full.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=".comments-", suffix=".json", dir=path.parent)
+    payload = {"version": STORE_VERSION, "comments": comments}
+    project_store.write_json(path, payload, limit=MAX_STORE_BYTES, ensure_ascii=False, indent=2)
+
+
+@contextmanager
+def store_errors():
+    """Inside a request, answer a store that cannot be read or written with the status it maps to."""
     try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
+        yield
+    except StoreError as error:
+        raise web.HTTPError(error.status, str(error)) from error
 
 
 def group_key(target: dict) -> tuple[str, str | None]:
@@ -397,38 +391,42 @@ def find_comment(comments: list[dict], comment_id: str) -> dict:
 # --- the prompt block --------------------------------------------------------
 
 
+def universe_names(project: Path) -> list[str]:
+    """The universes with a results folder, in name order; none when there are no results yet."""
+    results = project / RESULTS_DIRECTORY
+    try:
+        return sorted(entry.name for entry in results.iterdir() if entry.is_dir())
+    except OSError:
+        return []
+
+
 def output_file(project: Path, record: str, universe: str | None) -> str | None:
     """The project-relative result file of an output record, when one exists.
 
-    Outputs live at `results/<universe>/<id>.<ext>` beside a hidden manifest.
-    Without a universe, the first universe holding the file is used.
+    A record `…outputs.<id>` names an output, whose file the versions routes
+    locate (`versions.output_file`): as the spec declares it, or as the last
+    commit holds it. Without a universe, the first universe holding the file
+    is used. None when the record is no output's, or no file is there.
     """
     parts = record.split(".")
     if len(parts) < 2 or parts[-2] != "outputs":
         return None
     output = parts[-1]
-    if not output or any(character in output for character in "./\\"):
+    universes = [universe] if universe is not None else universe_names(project)
+    repository = open_repository(project)
+    try:
+        for name in universes:
+            try:
+                file, _ = locate_output(project, name, output, repository)
+            except web.HTTPError:
+                # Not an identity, not declared, not committed: no file in this universe.
+                continue
+            if (project / file).exists():
+                return file
         return None
-    results = project / "results"
-    if universe is not None:
-        universes = [universe]
-    elif results.is_dir():
-        universes = sorted(entry.name for entry in results.iterdir() if entry.is_dir())
-    else:
-        universes = []
-    for name in universes:
-        if not name or name.startswith(".") or any(character in name for character in "/\\"):
-            continue
-        directory = results / name
-        if not directory.is_dir():
-            continue
-        candidates = sorted(
-            entry for entry in directory.glob(f"{output}.*")
-            if entry.is_file() and not entry.name.startswith(".")
-        )
-        if candidates:
-            return candidates[0].relative_to(project).as_posix()
-    return None
+    finally:
+        if repository is not None:
+            repository.close()
 
 
 def output_files(project: Path, comments: list[dict]) -> dict[str, str | None]:
@@ -442,14 +440,17 @@ def output_files(project: Path, comments: list[dict]) -> dict[str, str | None]:
 
 
 def _marker(index: int) -> str:
+    """The number of an entry in the block: circled up to ten, in parentheses beyond."""
     return CIRCLED_NUMBERS[index - 1] if index <= len(CIRCLED_NUMBERS) else f"({index})"
 
 
 def _percent(value: float) -> str:
+    """A coordinate as the whole percentage the block prints."""
     return str(round(value))
 
 
 def _squash(text: str) -> str:
+    """A quote on one line, with runs of whitespace collapsed."""
     return " ".join(text.split())
 
 
@@ -504,7 +505,9 @@ async def deliver_comments(
 
     Missing and already sent ids are skipped. Returns None when nothing was
     pending, so the message goes out unchanged. The message id is None when
-    the composer appends the block before the message exists.
+    the composer appends the block before the message exists. A store that
+    cannot be read or written raises `StoreError`; the caller says what that
+    means where it runs.
     """
     path = store_path(project)
     wanted = set(ids)
@@ -529,20 +532,24 @@ async def deliver_comments(
 # --- routes -----------------------------------------------------------------
 
 
+def author_of(user: User) -> str:
+    """The name a comment records for its author: the requesting user's username."""
+    return user.username
+
+
 class CommentAPIHandler(ProjectAPIHandler):
     """Shared store access for the comment routes."""
 
     unavailable_message = "Comments require local files"
 
     def locks(self) -> dict:
+        """The server's map of one lock per project store, created with the routes."""
         return self.settings.setdefault(COMMENT_LOCKS, {})
 
     @property
     def author(self) -> str:
-        """The requesting user's name, or an empty string when the server has none."""
-        user = self.current_user
-        username = user.get("username") if isinstance(user, dict) else getattr(user, "username", None)
-        return username if isinstance(username, str) else ""
+        """The requesting user's name; the verbs are authenticated, so there is one."""
+        return author_of(self.current_user)
 
 
 class CommentsHandler(CommentAPIHandler):
@@ -557,8 +564,9 @@ class CommentsHandler(CommentAPIHandler):
         if status not in (*STATUSES, "all"):
             raise web.HTTPError(400, "status must be pending, sent or all.")
         target = self.get_query_argument("target", None)
-        async with comment_lock(self.locks(), project):
-            comments = await asyncio.to_thread(read_store, store_path(project))
+        with store_errors():
+            async with comment_lock(self.locks(), project):
+                comments = await asyncio.to_thread(read_store, store_path(project))
         self.finish({"comments": select_comments(comments, status, target)})
 
     @web.authenticated
@@ -570,11 +578,12 @@ class CommentsHandler(CommentAPIHandler):
         project = await self.project_named(body.get("path") if isinstance(body, dict) else None)
         draft = validate_draft(body.get("comment"))
         path = store_path(project)
-        async with comment_lock(self.locks(), project):
-            comments = await asyncio.to_thread(read_store, path)
-            comment = new_comment(draft, self.author, comments)
-            comments.append(comment)
-            await asyncio.to_thread(write_store, path, comments)
+        with store_errors():
+            async with comment_lock(self.locks(), project):
+                comments = await asyncio.to_thread(read_store, path)
+                comment = new_comment(draft, self.author, comments)
+                comments.append(comment)
+                await asyncio.to_thread(write_store, path, comments)
         self.set_status(201)
         self.finish(comment)
 
@@ -610,9 +619,8 @@ class CommentsSendHandler(CommentAPIHandler):
         entrypoint = body.get("path") if isinstance(body, dict) else None
         project = await self.project_named(entrypoint)
         ids, chat = validate_send(body)
-        block = await deliver_comments(
-            self.locks(), project, project_directory(entrypoint), ids, chat, None
-        )
+        with store_errors():
+            block = await deliver_comments(self.locks(), project, project_directory(entrypoint), ids, chat, None)
         self.finish({"block": block})
 
 
@@ -626,14 +634,15 @@ class CommentHandler(CommentAPIHandler):
         project = await self.project()
         patch = validate_patch(self.get_json_body())
         path = store_path(project)
-        async with comment_lock(self.locks(), project):
-            comments = await asyncio.to_thread(read_store, path)
-            comment = find_comment(comments, comment_id)
-            if comment["status"] != "pending":
-                raise web.HTTPError(409, "This comment was already sent.")
-            comment.update(patch)
-            comment["updated"] = timestamp()
-            await asyncio.to_thread(write_store, path, comments)
+        with store_errors():
+            async with comment_lock(self.locks(), project):
+                comments = await asyncio.to_thread(read_store, path)
+                comment = find_comment(comments, comment_id)
+                if comment["status"] != "pending":
+                    raise web.HTTPError(409, "This comment was already sent.")
+                comment.update(patch)
+                comment["updated"] = timestamp()
+                await asyncio.to_thread(write_store, path, comments)
         self.finish(comment)
 
     @web.authenticated
@@ -642,14 +651,15 @@ class CommentHandler(CommentAPIHandler):
         """Remove a pending comment and close the gap in its target's labels."""
         project = await self.project()
         path = store_path(project)
-        async with comment_lock(self.locks(), project):
-            comments = await asyncio.to_thread(read_store, path)
-            comment = find_comment(comments, comment_id)
-            if comment["status"] != "pending":
-                raise web.HTTPError(409, "This comment was already sent.")
-            comments.remove(comment)
-            renumber(comments)
-            await asyncio.to_thread(write_store, path, comments)
+        with store_errors():
+            async with comment_lock(self.locks(), project):
+                comments = await asyncio.to_thread(read_store, path)
+                comment = find_comment(comments, comment_id)
+                if comment["status"] != "pending":
+                    raise web.HTTPError(409, "This comment was already sent.")
+                comments.remove(comment)
+                renumber(comments)
+                await asyncio.to_thread(write_store, path, comments)
         self.set_status(204)
         self.finish()
 

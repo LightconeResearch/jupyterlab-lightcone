@@ -10,11 +10,8 @@ from jupyterlab_lightcone.application import LightconeApp
 
 
 def stopping_app(manager=None):
-    """The attributes `stop_extension` reads, without starting a server."""
-    app = SimpleNamespace(serverapp=SimpleNamespace(web_app=SimpleNamespace(settings={})), log=Mock())
-    if manager is not None:
-        app.manager = manager
-    return app
+    """The attributes `stop_extension` reads, without starting a server; `manager` is None before the handlers exist."""
+    return SimpleNamespace(serverapp=SimpleNamespace(web_app=SimpleNamespace(settings={})), log=Mock(), manager=manager)
 
 
 async def test_the_viewer_is_stopped():
