@@ -246,15 +246,17 @@ the run with what changed in the lock since). A record tab stacks an output:
 the result first, then its description and provenance below it, at every
 width. **Versions** steps
 through every committed version of the output file with ◀ and ▶; an older
-version shows its own bytes under a banner with **Latest** when git holds
-them. **Compare with previous** shows images side by side, with a swipe slider
-or blinking between the two, numeric deltas for JSON metrics, and row, column
-and header changes for CSV/TSV tables. The history is read from the project's
-Git repository in process (with [dulwich](https://www.dulwich.io/)); the bytes
-of an output the engine annexed live in git-annex, which the server does not
-read, so such a version is listed but its content and comparison say so. Only
-outputs `lc materialize` made have versions, and files an agent wrote outside
-`lc materialize` have no history (the ⓘ beside the stepper says so).
+version shows its own bytes under a banner with **Latest**. **Compare with
+previous** shows images side by side, with a swipe slider or blinking between
+the two, numeric deltas for JSON metrics, and row, column and header changes
+for CSV/TSV tables. The history is read from the project's Git repository in
+process (with [dulwich](https://www.dulwich.io/)); the bytes of an annexed
+output are asked of git-annex itself (`lookupkey`, `whereis`,
+`contentlocation`), so a version whose content was dropped here says which
+repository still has a copy, and a clone nobody ran `git annex init` in is
+never touched. Only outputs `lc materialize` made have versions, and files an
+agent wrote outside `lc materialize` have no history (the ⓘ beside the
+stepper says so).
 
 **Show in pipeline**, on output and input tabs, opens the project's
 **Pipeline**: its inputs and outputs as a graph colored by materialization

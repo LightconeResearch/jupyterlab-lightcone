@@ -7,6 +7,7 @@ import {
   isOutputVersion,
   isResultsCommit,
   isRevisionSource,
+  absentReason,
   listResultsCommits,
   listVersions,
   versionContentUrl
@@ -24,6 +25,7 @@ const version = {
   subject: '[DATALAD RUNCMD] hubble_diagram [baseline]',
   size: 208410,
   present: true,
+  annex: null,
   manifest: { schema_version: 1, output_id: 'hubble_diagram' }
 };
 
@@ -41,6 +43,14 @@ test('narrows a version listing and rejects malformed entries', () => {
       manifest: null
     })
   ).toBe(true);
+  expect(
+    isOutputVersion({
+      ...version,
+      present: false,
+      annex: { key: 'SHA256E-s1--a.png', here: false, remotes: ['lab-store'] }
+    })
+  ).toBe(true);
+  expect(isOutputVersion({ ...version, annex: { key: 1 } })).toBe(false);
   for (const bad of [
     null,
     { ...version, commit: 7 },
@@ -56,6 +66,7 @@ test('lists versions through the authenticated API with the output identity', as
     new Response(
       JSON.stringify({
         file: 'results/baseline/hubble_diagram.png',
+        annex: 'initialized',
         versions: [version]
       })
     )
@@ -67,6 +78,7 @@ test('lists versions through the authenticated API with the output identity', as
     'hubble_diagram'
   );
   expect(listing.file).toBe('results/baseline/hubble_diagram.png');
+  expect(listing.annex).toBe('initialized');
   expect(listing.versions).toEqual([version]);
   const url = new URL(request.mock.calls[0][0]);
   expect(url.pathname).toBe('/lab/jupyterlab_lightcone/api/versions');
@@ -142,7 +154,9 @@ test('shares one listing between callers for a while and never caches a failure'
     .spyOn(ServerConnection, 'makeRequest')
     .mockImplementation(
       async () =>
-        new Response(JSON.stringify({ file: 'f', versions: [version] }))
+        new Response(
+          JSON.stringify({ file: 'f', annex: 'none', versions: [version] })
+        )
     );
   const first = listVersionsCached(
     settings,
@@ -269,4 +283,25 @@ test('lists the commits that touched the results, bounded to a window', async ()
   await expect(
     listResultsCommits(settings, 'project/astra.yaml')
   ).rejects.toThrow('invalid results history');
+});
+
+test('says where absent bytes are', () => {
+  const held = { ...version, present: false };
+  expect(absentReason(held)).toBe(
+    'The bytes of this version are not in this repository.'
+  );
+  expect(
+    absentReason({
+      ...held,
+      annex: { key: 'k', here: false, remotes: [] }
+    })
+  ).toBe(
+    'The bytes of this version are in git-annex but not in this repository.'
+  );
+  expect(
+    absentReason({
+      ...held,
+      annex: { key: 'k', here: false, remotes: ['lab-store', 'archive'] }
+    })
+  ).toContain('lab-store, archive have a copy (git annex get)');
 });

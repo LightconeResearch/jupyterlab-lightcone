@@ -68,6 +68,7 @@ function version(commit: string): IOutputVersion {
     subject: '',
     size: null,
     present: true,
+    annex: null,
     manifest: null
   };
 }
@@ -165,6 +166,7 @@ describe('a version-pinned card', () => {
   test('shows the bytes of the version it was made from while newer ones exist', async () => {
     list.mockResolvedValue({
       file: 'results/baseline/figure.png',
+      annex: 'initialized',
       versions: history
     });
     await show('b'.repeat(7));
@@ -180,6 +182,7 @@ describe('a version-pinned card', () => {
   test('shows the current artifact when its version is the newest or unknown', async () => {
     list.mockResolvedValue({
       file: 'results/baseline/figure.png',
+      annex: 'initialized',
       versions: history
     });
     await show('c'.repeat(40));

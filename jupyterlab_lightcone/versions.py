@@ -4,14 +4,10 @@ The engine commits every materialization with its output file and a manifest
 sidecar under ``results/``, and keeps the bytes of the output in git-annex
 behind a pointer. These routes read the history back for one output: the
 commits that touched its file, the manifest each of them recorded, and the
-bytes at any of them that git itself holds. History is read with dulwich, in
-process; nothing here runs git or git-annex, and nothing writes to the
+bytes at any of them. History and everything git holds are read with dulwich,
+in process; what git-annex holds is asked of git-annex itself (``annex.py``),
+so no pointer, key or object path is ever spelled here. Nothing writes to the
 repository.
-
-A version whose bytes git-annex keeps (a pointer, or the symlink of a locked
-file) is listed but reported as not ``present``: this server does not read the
-annex, so only the working tree's copy of an output, and versions committed
-straight into git, can be served.
 """
 
 import asyncio
@@ -31,6 +27,7 @@ from jupyter_server.auth import authorized
 from jupyter_server.utils import url_path_join
 from tornado import web
 
+from . import annex
 from .project_routes import ProjectAPIHandler
 from .provenance import MAX_RECORD_BYTES, ensure_results_visible, record_path, validate_record
 
@@ -48,9 +45,6 @@ RESULTS_DIRECTORY = "results"
 
 MANIFEST_SUFFIX = ".manifest.json"
 """The engine's sidecar: ``results/<universe>/.<output>.manifest.json``."""
-
-ANNEX_POINTER_PREFIX = b"/annex/objects/"
-"""What an unlocked annexed file holds in git; a locked one is a symlink into the annex."""
 
 CONTENT_TYPES = {
     "png": "image/png",
@@ -95,6 +89,26 @@ class Repository:
     def __init__(self, repo: Repo, prefix: PurePosixPath):
         self.repo = repo
         self.prefix = prefix
+        self.root = Path(repo.path)
+
+    def annex_state(self) -> str:
+        """``initialized`` when git-annex works here, ``uninitialized`` in a clone of an
+        annexed repository nobody ran ``git annex init`` in, ``none`` in a plain repository.
+
+        The ``git-annex`` branch is where git-annex keeps its state, so its
+        presence in any ref is what tells an uninitialized clone from a
+        repository that never had an annex. An uninitialized clone is never
+        asked: any git-annex command would initialize it.
+        """
+        if annex.initialized(self.root):
+            return "initialized"
+        if any(name.endswith(b"/git-annex") for name in self.repo.refs.allkeys()):
+            return "uninitialized"
+        return "none"
+
+    def tree_ref(self, commit: Commit, file: str) -> str:
+        """``<commit>:<path>`` as git-annex's ``lookupkey --ref`` names a tree entry."""
+        return f"{commit.id.decode('ascii')}:{self.path(file).decode('utf-8', 'surrogateescape')}"
 
     def close(self) -> None:
         self.repo.close()
@@ -210,11 +224,6 @@ def describe_commit(commit: Commit) -> dict:
     return {"commit": name, "short": name[:7], "time": commit_time(commit), "subject": commit_subject(commit)}
 
 
-def is_annexed(mode: int, data: bytes) -> bool:
-    """Whether git holds a reference into git-annex rather than the file's bytes."""
-    return stat.S_ISLNK(mode) or data.startswith(ANNEX_POINTER_PREFIX)
-
-
 # =============================================================================
 # The output file
 # =============================================================================
@@ -304,20 +313,12 @@ def too_large() -> web.HTTPError:
     return web.HTTPError(413, f"This version is larger than the {limit} the viewer serves")
 
 
-def describe_version(repository: Repository, commit: Commit, file: str, manifest: str, universe: str, output: str) -> dict:
-    """One committed version: the commit, whether git holds its bytes, and its manifest."""
-    entry = repository.entry(commit, file)
-    if entry is None:
-        size, present = None, False
-    else:
-        mode, blob = entry
-        annexed = is_annexed(mode, blob.data)
-        size, present = (None, False) if annexed else (len(blob.data), True)
+def read_manifest(repository: Repository, commit: Commit, manifest: str, universe: str, output: str) -> dict | None:
+    """The manifest sidecar at a commit, when valid."""
     sidecar = repository.entry(commit, manifest)
-    record = None
-    if sidecar is not None and len(sidecar[1].data) <= MAX_RECORD_BYTES:
-        record = validate_manifest(sidecar[1].data, universe, output)
-    return {**describe_commit(commit), "size": size, "present": present, "manifest": record}
+    if sidecar is None or len(sidecar[1].data) > MAX_RECORD_BYTES:
+        return None
+    return validate_manifest(sidecar[1].data, universe, output)
 
 
 def list_versions(project: Path, universe: str, output: str) -> dict:
@@ -325,39 +326,80 @@ def list_versions(project: Path, universe: str, output: str) -> dict:
 
     A folder that is not a repository, or one without a commit yet, has no
     history rather than an error: the output may simply never have been
-    committed. The file is followed across renames.
+    committed. The file is followed across renames. Each version says where
+    its bytes are: in git (``present`` with a ``size``), or in git-annex
+    (``annex`` names the key, whether the bytes are here and which other
+    repositories hold them). In an uninitialized clone nothing can be asked,
+    and the listing's ``annex`` state says so.
     """
     repository = open_repository(project)
     try:
         file, manifest = output_file(project, universe, output, repository)
         if repository is None:
-            return {"file": file, "versions": []}
-        versions = [
-            describe_version(repository, entry.commit, file, manifest, universe, output)
-            for entry in repository.walk([file], follow=True, max_entries=MAX_VERSIONS)
-        ]
-        return {"file": file, "versions": versions}
+            return {"file": file, "annex": "none", "versions": []}
+        state = repository.annex_state()
+        history = [(entry.commit, repository.entry(entry.commit, file)) for entry in repository.walk([file], follow=True, max_entries=MAX_VERSIONS)]
+        refs = [repository.tree_ref(commit, file) for commit, entry in history if entry is not None]
+        keys = annex.lookup_keys(repository.root, refs) if state == "initialized" else {}
+        distinct = sorted({key for key in keys.values() if key})
+        places, sizes = annex.whereis(repository.root, distinct), annex.sizes(repository.root, distinct)
+        versions = []
+        for commit, entry in history:
+            key = keys.get(repository.tree_ref(commit, file)) if entry is not None else None
+            if entry is None or state == "uninitialized":
+                size, present, held = None, False, None
+            elif key:
+                size, present, held = sizes.get(key), places[key]["here"], places[key]
+            else:
+                size, present, held = len(entry[1].data), True, None
+            versions.append({
+                **describe_commit(commit),
+                "size": size,
+                "present": present,
+                "annex": held,
+                "manifest": read_manifest(repository, commit, manifest, universe, output),
+            })
+        return {"file": file, "annex": state, "versions": versions}
     finally:
         if repository is not None:
             repository.close()
 
 
 def read_version(project: Path, universe: str, output: str, commit: str) -> tuple[str, bytes]:
-    """The output file's project-relative path and its bytes at a commit, when git holds them."""
+    """The output file's project-relative path and its bytes at a commit, from git or git-annex."""
     repository = require_repository(project)
     try:
         file, _ = output_file(project, universe, output, repository)
-        entry = repository.entry(repository.resolve(commit), file)
+        resolved = repository.resolve(commit)
+        entry = repository.entry(resolved, file)
         if entry is None:
             raise web.HTTPError(404, "The output does not exist at this commit", reason="missing")
-        mode, blob = entry
-        if is_annexed(mode, blob.data):
+        state = repository.annex_state()
+        if state == "uninitialized":
             raise web.HTTPError(
-                404, "The bytes of this version are kept by git-annex, which this server does not read", reason="absent"
+                404, "git-annex is not initialized in this repository, so its bytes cannot be read (git annex init)", reason="absent"
             )
-        if len(blob.data) > MAX_CONTENT_BYTES:
+        ref = repository.tree_ref(resolved, file)
+        key = annex.lookup_keys(repository.root, [ref])[ref] if state == "initialized" else None
+        if key is None:
+            data = entry[1].data
+            if len(data) > MAX_CONTENT_BYTES:
+                raise too_large()
+            return file, data
+        size = annex.sizes(repository.root, [key])[key]
+        if size is not None and size > MAX_CONTENT_BYTES:
             raise too_large()
-        return file, blob.data
+        location = annex.content_path(repository.root, key)
+        if location is None:
+            remotes = annex.whereis(repository.root, [key])[key]["remotes"]
+            held = f"; {', '.join(remotes)} {'has' if len(remotes) == 1 else 'have'} a copy (git annex get)" if remotes else ""
+            raise web.HTTPError(404, f"The bytes of this version are not in this repository{held}", reason="absent")
+        try:
+            if location.stat().st_size > MAX_CONTENT_BYTES:
+                raise too_large()
+            return file, location.read_bytes()
+        except OSError as error:
+            raise web.HTTPError(404, "The bytes of this version are not in this repository", reason="absent") from error
     finally:
         repository.close()
 
@@ -486,9 +528,11 @@ def read_source(project: Path, commit: str, file: str) -> dict:
             return answer
         answer["exists"] = True
         mode, blob = entry
-        if is_annexed(mode, blob.data):
-            answer["annexed"] = True
-            return answer
+        if repository.annex_state() == "initialized":
+            ref = repository.tree_ref(resolved, file)
+            if annex.lookup_keys(repository.root, [ref])[ref] is not None:
+                answer["annexed"] = True
+                return answer
         if len(blob.data) > MAX_SOURCE_BYTES:
             answer["truncated"] = True
             return answer
@@ -558,11 +602,13 @@ def locked_packages(project: Path, commit: str) -> dict:
 
 
 def in_thread(function, *args):
-    """Run a history read off the event loop; a repository dulwich cannot read is a 503."""
+    """Run a history read off the event loop; a repository that cannot be read is a 503."""
 
     async def run():
         try:
             return await asyncio.to_thread(function, *args)
+        except annex.AnnexUnavailable as error:
+            raise web.HTTPError(503, str(error)) from error
         except (OSError, KeyError, ValueError) as error:
             raise web.HTTPError(503, "The project's git history could not be read") from error
 

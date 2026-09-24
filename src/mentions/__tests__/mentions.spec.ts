@@ -163,6 +163,7 @@ describe('MentionProvider', () => {
     } as unknown as ReturnType<typeof acquireProjectDataService>);
     jest.mocked(listVersionsCached).mockResolvedValue({
       file: 'results/baseline/hubble_diagram.png',
+      annex: 'initialized',
       versions: [
         {
           commit: 'a889877' + '0'.repeat(33),
@@ -171,6 +172,7 @@ describe('MentionProvider', () => {
           subject: '',
           size: null,
           present: true,
+          annex: null,
           manifest: null
         }
       ]

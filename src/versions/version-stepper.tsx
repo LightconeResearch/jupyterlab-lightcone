@@ -29,7 +29,7 @@ export interface IVersionStepperProps {
  * engine keeps versions, and only of what it made.
  */
 export const VERSION_LIMITS =
-  'Versions are the commits lc materialize made of this output. The bytes of older versions are kept by git-annex, which this viewer does not read, so only what git itself holds can be shown; files written outside lc materialize, such as an agent’s scratch files, have no history.';
+  'Versions are the commits lc materialize made of this output. Older bytes stay available while git-annex keeps their content in this repository, and a version held elsewhere names the repository that has it; files written outside lc materialize, such as an agent’s scratch files, have no history.';
 
 /** "v3 of 3 · 2 days ago · a889877" with older/newer controls. */
 export function VersionStepper({

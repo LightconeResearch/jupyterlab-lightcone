@@ -1,7 +1,11 @@
 import React, { useEffect, useId, useState } from 'react';
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import { Button } from '@astra-spec/ui/primitives';
-import { versionContentUrl, type IOutputVersion } from './versions-api';
+import {
+  absentReason,
+  versionContentUrl,
+  type IOutputVersion
+} from './versions-api';
 import {
   compareModeFor,
   readVersionJson,
@@ -57,7 +61,7 @@ function ImageSide({
           alt={`${output.label ?? output.id} at ${version.short}`}
         />
       ) : (
-        <p role="status">The bytes of this version are kept by git-annex</p>
+        <p role="status">{absentReason(version)}</p>
       )}
       <figcaption>{caption}</figcaption>
     </figure>
@@ -286,7 +290,7 @@ function useComparison<T>(
 }
 
 function absentSide(version: IOutputVersion, ordinal: string): string {
-  return `The bytes of the ${ordinal} version (${version.short}) are kept by git-annex, which this viewer does not read.`;
+  return `${ordinal[0].toUpperCase()}${ordinal.slice(1)} version (${version.short}): ${absentReason(version)}`;
 }
 
 function MetricCompare({

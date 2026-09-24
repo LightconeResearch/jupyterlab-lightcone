@@ -41,6 +41,7 @@ const version: IOutputVersion = {
   subject: '',
   size: null,
   present: true,
+  annex: null,
   manifest: null
 };
 

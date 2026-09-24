@@ -24,6 +24,7 @@ function version(commit: string, time: string): IOutputVersion {
     subject: '',
     size: 208410,
     present: true,
+    annex: null,
     manifest: null
   };
 }
@@ -120,7 +121,7 @@ test('the stepper reports loading, failure and an empty history', () => {
   // What a history covers is stated wherever versions are shown.
   expect(
     container.querySelector('[role="note"]')?.getAttribute('title')
-  ).toContain('kept by git-annex');
+  ).toContain('git-annex keeps their content');
 });
 
 test('provenance tabs show the run and switch panels, loading sessions on demand', () => {
@@ -464,7 +465,7 @@ describe('version comparison', () => {
       );
     });
     expect(button('Swipe').disabled).toBe(true);
-    expect(container.textContent).toContain('kept by git-annex');
+    expect(container.textContent).toContain('not in this repository');
     act(() => {
       root.render(
         <VersionCompare

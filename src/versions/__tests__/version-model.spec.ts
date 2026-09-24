@@ -31,6 +31,7 @@ function version(
     subject: `[DATALAD RUNCMD] fit [baseline]`,
     size: null,
     present: true,
+    annex: null,
     manifest: null,
     ...extra
   };

@@ -34,6 +34,11 @@ function version(commit: string): IOutputVersion {
     subject: '',
     size: 1,
     present: true,
+    annex: {
+      key: `SHA256E-s1--${commit.slice(0, 4)}.png`,
+      here: true,
+      remotes: []
+    },
     manifest: null
   };
 }
@@ -41,6 +46,7 @@ function version(commit: string): IOutputVersion {
 test('a comment is pinned to the version the record tab shows', async () => {
   jest.mocked(listVersions).mockResolvedValue({
     file: 'results/baseline/fit.png',
+    annex: 'initialized',
     versions: [version('c'.repeat(40)), version('b'.repeat(40))]
   });
   const contents = new ContentsManager();
@@ -56,7 +62,7 @@ test('a comment is pinned to the version the record tab shows', async () => {
   try {
     await expect(pin('b'.repeat(7))).resolves.toEqual({
       commit: 'b'.repeat(40),
-      key: null,
+      key: 'SHA256E-s1--bbbb.png',
       hash: null,
       label: 'bbbbbbb'
     });

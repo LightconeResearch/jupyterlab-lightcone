@@ -27,29 +27,13 @@ The template already ignores `.lightcone/`, where the extension keeps its
 comment store and the project's recorded agent; that entry is what those
 stores rely on.
 
-### Expose the bytes of an output at a commit
+### Nothing needed for the bytes of older versions
 
-Every output under `results/` is annexed (`results/** annex.largefiles=anything`
-in `gitattributes.tmpl`), so git holds a pointer for each committed version and
-git-annex holds the bytes. The record tab's version stepper and **Compare with
-previous** need those bytes for an older version. The extension used to spell
-git-annex's pointer grammar and run `git annex contentlocation --batch` itself;
-it now reads history with dulwich and reports an annexed version as one whose
-bytes it cannot serve.
-
-Suggested: a read-only engine API that resolves an output at a commit to its
-bytes, or to the path git-annex holds them at, for example
-
-```python
-from lightcone.engine import dataset
-dataset.read_output(root, "results/<universe>/<output>.png", commit) -> bytes | None
-```
-
-or `lc show results/<universe>/<output>.png --at <commit>`. The engine already
-owns the git and git-annex seam (`dataset.py`), and it is the one place where
-the annex key grammar, `annex.thin` hard links and dropped content are
-understood. With that, the version stepper can show and compare older bytes
-again.
+The extension asks git-annex for them directly, through documented commands
+with JSON output (`lookupkey --ref`, `examinekey`, `whereis --batch-keys`,
+`contentlocation`), so no pointer, key or object path is spelled in the
+extension. A read API on the engine's `dataset` seam would be nicer, but is
+not required.
 
 ### Expose run records, not only commit subjects
 

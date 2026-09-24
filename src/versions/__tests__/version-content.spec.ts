@@ -40,6 +40,7 @@ function version(extra: Partial<IOutputVersion> = {}): IOutputVersion {
     subject: '[DATALAD RUNCMD] fit [baseline]',
     size: 100,
     present: true,
+    annex: null,
     manifest: null,
     ...extra
   };
@@ -77,7 +78,7 @@ describe('previews of a committed version', () => {
       )
     ).resolves.toEqual({
       kind: 'unavailable',
-      reason: 'The bytes of this version are kept by git-annex'
+      reason: 'The bytes of this version are not in this repository.'
     });
     expect(request).not.toHaveBeenCalled();
   });

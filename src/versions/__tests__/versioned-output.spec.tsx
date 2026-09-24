@@ -36,6 +36,7 @@ function version(commit: string, time: string): IOutputVersion {
     subject: '',
     size: null,
     present: true,
+    annex: null,
     manifest: null
   };
 }
@@ -158,7 +159,11 @@ afterEach(() => {
 });
 
 test('shows the selected version and follows a selection changed by the host', async () => {
-  list.mockResolvedValue({ file: 'results/baseline/fit.png', versions });
+  list.mockResolvedValue({
+    file: 'results/baseline/fit.png',
+    annex: 'initialized',
+    versions
+  });
   const onSelect = jest.fn();
   act(() => {
     root.render(<Probe selected={'b'.repeat(40)} onSelect={onSelect} />);
@@ -187,7 +192,11 @@ test('shows the selected version and follows a selection changed by the host', a
 });
 
 test('keeps the stepper and the banner out of the zoomable artifact frame', async () => {
-  list.mockResolvedValue({ file: 'results/baseline/fit.png', versions });
+  list.mockResolvedValue({
+    file: 'results/baseline/fit.png',
+    annex: 'initialized',
+    versions
+  });
   act(() => {
     root.render(<Probe selected={'b'.repeat(40)} onSelect={jest.fn()} />);
   });
@@ -221,7 +230,11 @@ test('keeps the stepper and the banner out of the zoomable artifact frame', asyn
 });
 
 test('the stepper and the Latest button go through the host, closing the comparison', async () => {
-  list.mockResolvedValue({ file: 'results/baseline/fit.png', versions });
+  list.mockResolvedValue({
+    file: 'results/baseline/fit.png',
+    annex: 'initialized',
+    versions
+  });
   const onSelect = jest.fn();
   act(() => {
     root.render(<Host initial={'b'.repeat(40)} onSelect={onSelect} />);
@@ -243,7 +256,11 @@ test('the stepper and the Latest button go through the host, closing the compari
 });
 
 test('a selected commit the history does not hold falls back to the newest', async () => {
-  list.mockResolvedValue({ file: 'results/baseline/fit.png', versions });
+  list.mockResolvedValue({
+    file: 'results/baseline/fit.png',
+    annex: 'initialized',
+    versions
+  });
   const onSelect = jest.fn();
   act(() => {
     root.render(<Host initial={'f'.repeat(7)} onSelect={onSelect} />);
