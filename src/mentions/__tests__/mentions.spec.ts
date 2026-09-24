@@ -2,6 +2,8 @@ import type { ResolvedRecord } from '@astra-spec/sdk';
 import type { IInputModel } from '@jupyter/chat';
 import type { Contents } from '@jupyterlab/services';
 import { ServerConnection } from '@jupyterlab/services';
+import { act, isValidElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import type { ChatProjects } from '../../comments/chat-projects';
 import { acquireProjectDataService } from '../../project-data-service';
 import type { ISessionService } from '../../sessions/session-service';
@@ -98,7 +100,8 @@ describe('record mentions', () => {
     expect(mentions[0]).toEqual({
       name: '@outputs.hubble_diagram',
       description: 'Result · Hubble diagram',
-      replaceWith: '`outputs.hubble_diagram` (version a889877)'
+      replaceWith: '`outputs.hubble_diagram` (version a889877)',
+      kind: 'output'
     });
     expect(mentions[1].replaceWith).toBe('`sub.outputs.hubble_residuals`');
     const decision = recordMentions(records, 'model')[0];
@@ -198,6 +201,23 @@ describe('MentionProvider', () => {
     });
     // A sub-analysis output has no committed versions to name.
     expect(completions[1].replaceWith).toBe('`sub.outputs.hubble_residuals`');
+    // Each record is listed behind the kind mark the inventory draws.
+    const icon = completions[0].icon;
+    expect(isValidElement(icon)).toBe(true);
+    const node = document.createElement('div');
+    const root = createRoot(node);
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+    try {
+      act(() => root.render(isValidElement(icon) ? icon : null));
+      expect(
+        node
+          .querySelector('.lightcone-brand.astra-ui > .astra-kind-glyph')
+          ?.getAttribute('data-kind')
+      ).toBe('output');
+      act(() => root.unmount());
+    } finally {
+      Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', false);
+    }
     expect(listVersionsCached).toHaveBeenCalledTimes(1);
     expect(
       await provider.listCommandCompletions(input('@hub', 'loose/talk.chat'))
@@ -218,6 +238,8 @@ describe('MentionProvider', () => {
     expect(completions.map(item => item.replaceWith)).toEqual([
       '`chats/hubble-fit.chat`'
     ]);
+    // Sessions are not ASTRA records: they keep the chat icon.
+    expect(completions[0].icon).toEqual({ name: 'chat' });
     const without = new MentionProvider({ contents, sessions: null, projects });
     expect(await without.listCommandCompletions(input('#hub'))).toEqual([]);
     provider.dispose();

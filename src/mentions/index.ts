@@ -12,6 +12,8 @@ import type {
 import type { Contents } from '@jupyterlab/services';
 import type { ResolvedRecord } from '@astra-spec/sdk';
 import type { IDisposable } from '@lumino/disposable';
+import { createElement } from 'react';
+import { AstraKindMark } from '../astra-kind';
 import { ChatProjects } from '../comments/chat-projects';
 import { isRootAnalysisOutput } from '../materialization-status';
 import { projectDirectory, type ILoadedProjectData } from '../project-data';
@@ -99,7 +101,10 @@ export class MentionProvider implements IChatCommandProvider, IDisposable {
       description: candidate.description,
       replaceWith: candidate.replaceWith,
       spaceOnAccept: true,
-      icon: mention.trigger === '#' ? chatIcon : undefined
+      // Records carry the kind mark the inventory draws; sessions, a chat.
+      icon: candidate.kind
+        ? createElement(AstraKindMark, { kind: candidate.kind })
+        : chatIcon
     }));
   }
 

@@ -13,6 +13,7 @@ import type { TranslationBundle } from '@jupyterlab/translation';
 import type { ISignal } from '@lumino/signaling';
 import React, { useEffect, useMemo, useState } from 'react';
 import { JupyterArtifactAccess } from '../artifact-access';
+import { AstraKindMark } from '../astra-kind';
 import { CommandIDs } from '../commands';
 import { useProject } from '../element-widget';
 import type { ILoadedProjectData } from '../project-data';
@@ -275,6 +276,7 @@ function OutputTile({
           <Thumbnail preview={preview} output={output} />
         </span>
         <span className="jp-jupyterlab-lightcone-TurnResults-label">
+          <AstraKindMark kind="output" />
           {title}
         </span>
       </button>

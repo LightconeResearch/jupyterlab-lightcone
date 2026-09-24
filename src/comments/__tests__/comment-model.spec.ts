@@ -14,6 +14,7 @@ import {
   paperRecord,
   pointAnchor,
   sameTarget,
+  targetKind,
   targetName,
   truncate,
   withCommentIds
@@ -193,5 +194,23 @@ describe('message metadata', () => {
       withCommentIds({ lightcone: { other: 1, comments: ['x'] } }, ['a'])
     ).toEqual({ other: 1, comments: ['a'] });
     expect(withCommentIds(undefined, [])).toEqual({ comments: [] });
+  });
+});
+
+describe('targetKind', () => {
+  it('names the ASTRA kind of a record target, and nothing for others', () => {
+    expect(targetKind(record)).toBe('output');
+    expect(targetKind({ ...record, record: 'sub.decisions.model' })).toBe(
+      'decision'
+    );
+    expect(targetKind({ ...record, record: paperRecord('10.1/x.y') })).toBe(
+      'paper'
+    );
+    expect(
+      targetKind({ ...record, kind: 'file', path: 'notes.md', record: null })
+    ).toBeUndefined();
+    expect(
+      targetKind({ ...record, kind: 'message', record: null, message: 'm1' })
+    ).toBeUndefined();
   });
 });

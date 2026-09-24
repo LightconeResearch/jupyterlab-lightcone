@@ -189,7 +189,42 @@ describe('LightconeSidebar', () => {
         ['Sessions', 'Results', 'Analysis']
       );
       await until(() => h.text().includes('1 ✓ · 1 behind'));
-      expect(h.text()).toContain('Decisions 1 · Inputs 1 · Findings 1');
+      // Result titles lead with the inventory's output mark, in the Lightcone
+      // ASTRA theme's scope, within the title's text so they share a baseline.
+      const results = Array.from(
+        h.panel.node.querySelectorAll(`.${BASE}-item`)
+      ).filter(row => row.querySelector(`.${BASE}-status`));
+      expect(results).toHaveLength(2);
+      for (const row of results) {
+        const glyph = row.querySelector(
+          `.${BASE}-title > .${BASE}-kind.lightcone-brand.astra-ui > .astra-kind-glyph`
+        );
+        expect(glyph?.getAttribute('data-kind')).toBe('output');
+      }
+      // Analysis rows count each kind behind its mark; the words stay in
+      // the row's label and each count's tooltip.
+      const root = h.panel.node.querySelector(`.${BASE}-node`);
+      expect(root?.getAttribute('aria-label')).toContain(
+        'Decisions 1 · Inputs 1 · Findings 1'
+      );
+      const tallies = Array.from(
+        root?.querySelectorAll<HTMLElement>(`.${BASE}-tally`) ?? []
+      );
+      expect(tallies.map(tally => tally.dataset.kind)).toEqual([
+        'output',
+        'decision',
+        'input',
+        'finding',
+        'paper'
+      ]);
+      expect(
+        tallies.map(tally =>
+          tally
+            .querySelector('.lightcone-brand.astra-ui .astra-kind-glyph')
+            ?.getAttribute('data-kind')
+        )
+      ).toEqual(['output', 'decision', 'input', 'finding', 'paper']);
+      expect(tallies[1].title).toBe('Decisions 1');
       expect(h.text()).toContain('Systematics');
       await until(() => h.text().includes('Files'));
       expect(h.text()).toContain('Report');

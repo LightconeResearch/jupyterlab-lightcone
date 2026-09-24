@@ -5,20 +5,16 @@ import {
   addIcon,
   caretDownIcon,
   editIcon,
-  fileIcon,
   homeIcon,
-  imageIcon,
-  markdownIcon,
-  numberingIcon,
-  searchIcon,
-  tableRowsIcon,
-  type LabIcon
+  searchIcon
 } from '@jupyterlab/ui-components';
 import React from 'react';
+import { AstraKindMark } from '../astra-kind';
 import type { SessionState } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import { lightconeIcon } from './icons';
 import {
+  analysisCounts,
   analysisCountsLabel,
   outputKindLabel,
   relativeTime,
@@ -291,21 +287,6 @@ export function SessionsList({
   );
 }
 
-function outputIcon(type: ResolvedOutput['type']): LabIcon {
-  switch (type) {
-    case 'figure':
-      return imageIcon;
-    case 'table':
-      return tableRowsIcon;
-    case 'metric':
-      return numberingIcon;
-    case 'report':
-      return markdownIcon;
-    default:
-      return fileIcon;
-  }
-}
-
 export interface IResultsListProps {
   state: ISidebarState;
   outputs: readonly ResolvedOutput[];
@@ -353,7 +334,6 @@ export function ResultsList({
             state.view.record?.entrypoint === entrypoint &&
             state.view.record?.target === output.canonicalPath &&
             !state.view.record?.doi;
-          const Icon = outputIcon(output.type).react;
           return (
             <li key={output.canonicalPath}>
               <button
@@ -363,8 +343,12 @@ export function ResultsList({
                 title={`${recordTitle(output)}\n${output.canonicalPath}`}
                 onClick={() => onOpen(output)}
               >
-                <Icon tag="span" elementPosition="center" />
-                <span className={`${BASE}-title`}>{recordTitle(output)}</span>
+                {/* In the title's text, the mark sits on its baseline, as
+                    the inventory's outline sets marks beside their names. */}
+                <span className={`${BASE}-title`}>
+                  <AstraKindMark kind="output" className={`${BASE}-kind`} />
+                  {recordTitle(output)}
+                </span>
                 <span className={`${BASE}-meta`}>
                   {outputKindLabel(output.type)}
                 </span>
@@ -399,8 +383,9 @@ export interface IAnalysisListProps {
 }
 
 /**
- * The analysis tree with record counts; each row opens the inventory scoped.
- * The row the current inventory shows is marked.
+ * The analysis tree with record counts, each count behind the kind mark the
+ * inventory's outline draws for that section; each row opens the inventory
+ * scoped. The row the current inventory shows is marked.
  */
 export function AnalysisList({
   state,
@@ -423,19 +408,34 @@ export function AnalysisList({
     <ul className={`${BASE}-tree`}>
       {rows.map(row => {
         const active = row.canonicalPath === scope;
+        const counts = analysisCounts(row);
+        const label = analysisCountsLabel(row);
         return (
           <li key={row.canonicalPath}>
             <button
               type="button"
               className={`${BASE}-node${active ? ' jp-mod-active' : ''}`}
               aria-current={active ? 'true' : undefined}
+              aria-label={`${row.title}: ${label}`}
               style={{ paddingInlineStart: `${10 + row.depth * 14}px` }}
               title={row.canonicalPath}
               onClick={() => onOpen(row.canonicalPath)}
             >
               <span className={`${BASE}-title`}>{row.title}</span>
               <span className={`${BASE}-counts`}>
-                {analysisCountsLabel(row)}
+                {counts.length
+                  ? counts.map(entry => (
+                      <span
+                        key={entry.kind}
+                        className={`${BASE}-tally`}
+                        data-kind={entry.kind}
+                        title={`${entry.label} ${entry.count}`}
+                      >
+                        <AstraKindMark kind={entry.kind} />
+                        {entry.count}
+                      </span>
+                    ))
+                  : label}
               </span>
             </button>
           </li>

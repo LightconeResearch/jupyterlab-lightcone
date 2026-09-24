@@ -112,6 +112,12 @@ test('the trail names the last references leading to the current one', () => {
     'prior_insights.c'
   ]);
   expect(crumbs.map(crumb => crumb.current)).toEqual([false, false, true]);
+  // Each crumb carries the kind its path names, for its kind mark.
+  expect(crumbs.map(crumb => crumb.kind)).toEqual([
+    'output',
+    'decision',
+    'prior_insight'
+  ]);
   expect(historyCaption(history)).toBe(
     'outputs.a › decisions.b › prior_insights.c'
   );
@@ -119,9 +125,22 @@ test('the trail names the last references leading to the current one', () => {
   expect(historyTrail(long, 3)).toEqual({
     elided: 3,
     crumbs: [
-      { index: 3, identifier: 'd', label: 'd', current: false },
-      { index: 4, identifier: 'e', label: 'e', current: false },
-      { index: 5, identifier: 'f', label: 'f', current: true }
+      // A bare step names a sub-analysis.
+      {
+        index: 3,
+        identifier: 'd',
+        label: 'd',
+        kind: 'analysis',
+        current: false
+      },
+      {
+        index: 4,
+        identifier: 'e',
+        label: 'e',
+        kind: 'analysis',
+        current: false
+      },
+      { index: 5, identifier: 'f', label: 'f', kind: 'analysis', current: true }
     ]
   });
   expect(historyCaption(long, 3)).toBe('… › d › e › f');
@@ -145,6 +164,8 @@ test('papers are identified by DOI and the root analysis by name', () => {
   });
   expect(historyCaption(paper)).toBe('doi:10.1234/example');
   expect(historyCaption(trail(''))).toBe('analysis');
+  expect(historyTrail(paper).crumbs[0].kind).toBe('paper');
+  expect(historyTrail(trail('')).crumbs[0].kind).toBe('analysis');
 });
 
 test('the current entry keeps the version it shows through moves and reopens', () => {

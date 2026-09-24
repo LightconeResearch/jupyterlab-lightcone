@@ -57,6 +57,7 @@ import {
   outputMaterializationStatus,
   useMaterializationStatus
 } from './materialization-status';
+import { AstraKindMark } from './astra-kind';
 import { JupyterOutputProvenance } from './output-provenance';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
@@ -248,6 +249,7 @@ function HistoryControls({
               )}
               {crumb.current ? (
                 <span aria-current="page" title={crumb.label}>
+                  {crumb.kind && <AstraKindMark kind={crumb.kind} />}
                   {crumb.identifier}
                 </span>
               ) : (
@@ -256,6 +258,7 @@ function HistoryControls({
                   title={crumb.label}
                   onClick={() => widget.go(crumb.index)}
                 >
+                  {crumb.kind && <AstraKindMark kind={crumb.kind} />}
                   {crumb.identifier}
                 </button>
               )}

@@ -2,6 +2,7 @@ import React, { useId, useMemo, useState } from 'react';
 import type { ResolvedRecord } from '@astra-spec/sdk';
 import { OutputStatusIndicator } from '@astra-spec/ui/components';
 import { recordTitle, type OutputStatus } from '@astra-spec/ui/model';
+import { AstraKindMark } from '../astra-kind';
 import type { ICodeReference } from '../code-access';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import {
@@ -29,6 +30,7 @@ const TABS: readonly { id: ProvenanceTabId; label: string }[] = [
 export interface IProvenanceInput {
   id: string;
   version: string;
+  /** The input or upstream output the version belongs to. */
   record?: ResolvedRecord;
   onOpen?: () => void;
 }
@@ -366,6 +368,8 @@ function InputsTab({
         <ul>
           {inputs.map(input => (
             <li key={input.id}>
+              {/* An upstream output keeps its own mark, as in the inventory. */}
+              {input.record ? <AstraKindMark kind={input.record.kind} /> : null}
               {input.onOpen && input.record ? (
                 <button type="button" onClick={input.onOpen}>
                   {recordTitle(input.record)}
@@ -517,7 +521,8 @@ function EnvironmentFacts({ run }: { run: IRunView }): React.ReactElement {
           <ul className="jp-jupyterlab-lightcone-Provenance-list">
             {Object.entries(run.decisions).map(([id, option]) => (
               <li key={id}>
-                <code>{id}</code> = <code>{option}</code>
+                <AstraKindMark kind="decision" /> <code>{id}</code> ={' '}
+                <code>{option}</code>
               </li>
             ))}
           </ul>

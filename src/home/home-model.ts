@@ -329,7 +329,11 @@ export interface IRecordCounts {
   findings: number;
 }
 
-/** Count records across an analysis and every nested analysis. */
+/**
+ * Count records across an analysis and every nested analysis. Results are not
+ * counted here: they are `listOutputs`, the root's active outputs, which is
+ * what Home's plates, the sidebar's Results and `lc status` all show.
+ */
 export function countRecords(root: IAnalysisRecords): IRecordCounts {
   const counts: IRecordCounts = { decisions: 0, inputs: 0, findings: 0 };
   const visit = (node: IAnalysisRecords) => {
@@ -375,5 +379,5 @@ export function sessionSubtitle(
 /** Sessions shown on Home before the "All" link takes over. */
 export const HOME_SESSION_LIMIT = 6;
 
-/** Results plates shown on Home before the "All results" link takes over. */
+/** Results plates shown on Home before the "See all" link takes over. */
 export const HOME_RESULT_LIMIT = 8;

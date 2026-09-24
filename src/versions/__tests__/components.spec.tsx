@@ -167,7 +167,23 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
               >['inputs'][number]['record']
             >,
             onOpen: openInput
-          }
+          },
+          {
+            id: 'cosmology_fit',
+            version: 'sha256:upstream',
+            record: {
+              kind: 'output',
+              id: 'cosmology_fit',
+              canonicalPath: 'outputs.cosmology_fit',
+              label: 'Cosmology fit',
+              type: 'table'
+            } as unknown as NonNullable<
+              React.ComponentProps<
+                typeof ProvenanceTabs
+              >['inputs'][number]['record']
+            >
+          },
+          { id: 'dropped', version: 'sha256:dropped' }
         ]}
         sessions={{
           loading: false,
@@ -200,11 +216,34 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
   act(() => button('Inputs').click());
   expect(panel().textContent).toContain('Catalog');
   expect(panel().textContent).toContain('data/catalog.csv');
+  // Each recorded input carries its record's inventory mark: an upstream
+  // output keeps the output mark, and an id no longer declared has none.
+  expect(
+    Array.from(
+      panel().querySelectorAll('.jp-jupyterlab-lightcone-Provenance-inputs li'),
+      row =>
+        row
+          .querySelector(
+            ':scope > .lightcone-brand.astra-ui > .astra-kind-glyph'
+          )
+          ?.getAttribute('data-kind') ?? null
+    )
+  ).toEqual(['input', 'output', null]);
+  expect(panel().textContent).toContain('Cosmology fit');
   act(() => button('Catalog').click());
   expect(openInput).toHaveBeenCalled();
   act(() => button('Environment').click());
   expect(panel().textContent).toContain('sha256:env');
   expect(panel().textContent).toContain('robust');
+  // The decisions the run resolved carry the inventory's decision mark.
+  expect(
+    Array.from(
+      panel().querySelectorAll(
+        '.jp-jupyterlab-lightcone-Provenance-list li > .lightcone-brand.astra-ui > .astra-kind-glyph'
+      ),
+      glyph => glyph.getAttribute('data-kind')
+    )
+  ).toEqual(['decision']);
   expect(onShowConversation).not.toHaveBeenCalled();
   act(() => button('Conversation').click());
   expect(onShowConversation).toHaveBeenCalledTimes(1);

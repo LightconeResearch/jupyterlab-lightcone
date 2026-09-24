@@ -295,6 +295,13 @@ function activate(
       // this project is usually open: bring it forward rather than stacking
       // another one. Otherwise open Home as every other entry point does.
       const project = await findProjectRoot(contents, cwd);
+      // A tab that just followed the browser into this folder is still
+      // looking its project up; wait for every tab to know its project.
+      if (project) {
+        await Promise.all(
+          tracker.filter(() => true).map(tab => tab.content.settled())
+        );
+      }
       const open = project
         ? tracker.find(
             tab =>

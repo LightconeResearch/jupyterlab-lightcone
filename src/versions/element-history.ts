@@ -1,4 +1,5 @@
-import type { IElementReference } from '../element-reference';
+import type { SurfaceKind } from '@astra-spec/ui/model';
+import { referenceKind, type IElementReference } from '../element-reference';
 
 /** Commands that move a record tab through the references it has shown. */
 export namespace ElementHistoryCommandIDs {
@@ -142,6 +143,8 @@ export interface IHistoryCrumb {
   index: number;
   identifier: string;
   label: string;
+  /** What the entry shows, for its kind mark; undefined for an unknown path. */
+  kind: SurfaceKind | undefined;
   current: boolean;
 }
 
@@ -161,6 +164,7 @@ export function historyTrail(
       index: start + offset,
       identifier: entryIdentifier(entry),
       label: entry.label,
+      kind: referenceKind(entry.reference.target, entry.reference.doi),
       current: start + offset === history.index
     }));
   return { crumbs, elided: start };

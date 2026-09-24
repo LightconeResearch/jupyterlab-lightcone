@@ -169,7 +169,8 @@ test('Home keeps its place while a result opens beside it and navigates its own 
     .getByRole('button', { name: 'View decision: Cosmological model' })
     .click();
   await expect(record.locator(TOOLBAR)).toContainText(
-    'outputs.hubble_diagram›decisions.cosmological_model'
+    // Each crumb leads with its record's kind mark.
+    '◆outputs.hubble_diagram›◇decisions.cosmological_model'
   );
   expect(await tabBars(page)).toEqual([['Home'], ['Cosmological model']]);
   // The sidebar follows the tab: a decision is no result.

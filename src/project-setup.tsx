@@ -6,12 +6,15 @@ import {
   initializeProjectFolder,
   type IProjectFolder
 } from './api';
+import type { IProjectRoot } from './project-root';
 
 interface IProjectSetupOptions {
   path: string;
   mode: 'create' | 'finish';
   settings: ServerConnection.ISettings;
   browse: () => Promise<string | undefined>;
+  /** The project at or above a Contents path, as `findProjectRoot` finds it. */
+  findProject: (path: string) => Promise<IProjectRoot | undefined>;
   open: (project: IProjectFolder) => Promise<void>;
 }
 
@@ -27,49 +30,94 @@ export class ProjectSetup extends ReactWidget {
   }
 }
 
+/** What the form is doing while it is busy. */
+type SetupPhase = 'browsing' | 'checking' | 'setting-up' | 'opening';
+
+/**
+ * Why a folder cannot hold a new project: it lies inside `owner`, whose files
+ * it would take over (the nearest `astra.yaml` claims a folder).
+ */
+export function nestedProjectMessage(owner: IProjectRoot): string {
+  const where = owner.path
+    ? `the Lightcone project in ${owner.path}`
+    : 'the Lightcone project at the server root';
+  return `This folder is inside ${where}, and a project cannot be set up inside another one. Choose a folder outside it, or open that project instead.`;
+}
+
+/**
+ * One action: create (or finish) the project in the chosen folder, or open it
+ * when the folder already holds one. Asking for a project is the confirmation.
+ */
 function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
   const [path, setPath] = useState(options.path || '.');
-  const [mode, setMode] = useState(options.mode);
   const [project, setProject] = useState<IProjectFolder>();
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<SetupPhase>();
   const [error, setError] = useState('');
+  const { mode } = options;
+  const busy = phase !== undefined;
   const edit = (value: string) => {
     setPath(value);
     setProject(undefined);
     setError('');
   };
-  // An existing project opens directly unless the user asked to finish setup.
-  const canOpen = !!project?.hasSpec && mode === 'create';
-  const guarded = async (task: () => Promise<void>) => {
-    setBusy(true);
+  const run = async (task: () => Promise<void>) => {
+    setError('');
     try {
       await task();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setBusy(false);
+      setPhase(undefined);
     }
   };
   const submit = () => {
     if (busy || !path.trim()) return;
-    setError('');
-    return guarded(async () => {
-      if (!project) {
-        setProject(await inspectProjectFolder(options.settings, path));
-      } else if (canOpen) {
-        await options.open(project);
-      } else {
-        await options.open(
-          await initializeProjectFolder(options.settings, project.path)
-        );
+    return run(async () => {
+      setPhase('checking');
+      // Inspection resolves the folder the server will use; it writes nothing.
+      const folder = await inspectProjectFolder(options.settings, path);
+      setProject(folder);
+      if (mode === 'create' && folder.hasSpec) {
+        setPhase('opening');
+        await options.open(folder);
+        return;
       }
+      // Setup writes at once, so a folder another project owns is refused
+      // before anything is written there.
+      const owner = folder.hasSpec
+        ? undefined
+        : await options.findProject(folder.path);
+      if (owner) {
+        throw new Error(nestedProjectMessage(owner));
+      }
+      setPhase('setting-up');
+      const ready = await initializeProjectFolder(
+        options.settings,
+        folder.path
+      );
+      setPhase('opening');
+      await options.open(ready);
     });
   };
-  const browse = () =>
-    guarded(async () => {
+  const browse = () => {
+    if (busy) return;
+    return run(async () => {
+      setPhase('browsing');
       const selected = await options.browse();
       if (selected !== undefined) edit(selected || '.');
     });
+  };
+  // Every busy phase is announced; the visible progress block adds detail.
+  const status =
+    phase === 'browsing'
+      ? 'Choosing a folder…'
+      : phase === 'checking'
+        ? 'Checking the folder…'
+        : phase === 'setting-up'
+          ? `Setting up the project in ${project?.directory ?? path}…`
+          : phase === 'opening'
+            ? 'Opening the project…'
+            : '';
   return (
     <form
       onSubmit={event => {
@@ -85,8 +133,8 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
       <p>
         {mode === 'finish'
           ? 'Complete or retry setup in the selected folder.'
-          : 'Choose a folder for your new project, or browse to open an existing one.'}{' '}
-        The launcher will open in that folder.
+          : 'Choose a folder for your new project. If it already holds a Lightcone project, that project opens instead.'}{' '}
+        The project opens once it is ready.
       </p>
       <label htmlFor="lightcone-project-folder">Project folder</label>
       <div className="jp-jupyterlab-lightcone-ProjectSetup-path">
@@ -112,22 +160,18 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
         Paths are relative to the Jupyter server folder. Absolute paths must be
         inside it.
       </p>
-      {project ? (
-        <div className="jp-jupyterlab-lightcone-ProjectSetup-confirm">
-          <h2>
-            {mode === 'finish'
-              ? 'Finish setup in this folder'
-              : project.hasSpec
-                ? 'ASTRA project found'
-                : 'No project in this folder yet'}
-          </h2>
+      <p className="jp-jupyterlab-lightcone-ProjectSetup-status" role="status">
+        {status}
+      </p>
+      {phase === 'setting-up' && project ? (
+        <div className="jp-jupyterlab-lightcone-ProjectSetup-progress">
           <p>
             <strong>{project.directory}</strong>
           </p>
           <p>
-            {canOpen
-              ? 'Open the project launcher, or finish setup if a previous attempt was interrupted.'
-              : 'Set up the analysis specification, Python environment, Git setup, and report starter. Existing files are preserved.'}
+            Setting up the analysis specification, Python environment, Git setup
+            and report starter. Existing files are preserved. This can take a
+            few minutes.
           </p>
         </div>
       ) : null}
@@ -137,28 +181,16 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
         className="jp-mod-styled jp-mod-accept"
         disabled={busy || !path.trim()}
       >
-        {busy
-          ? project
+        {phase === 'checking'
+          ? 'Checking the folder…'
+          : phase === 'setting-up'
             ? 'Setting up project…'
-            : 'Opening…'
-          : !project
-            ? 'Continue'
-            : canOpen
-              ? 'Open project'
+            : phase === 'opening'
+              ? 'Opening project…'
               : mode === 'finish'
-                ? 'Finish setup here'
-                : 'Create project here'}
+                ? 'Finish setup'
+                : 'Create project'}
       </button>
-      {canOpen ? (
-        <button
-          type="button"
-          className="jp-mod-styled"
-          disabled={busy}
-          onClick={() => setMode('finish')}
-        >
-          Finish setup…
-        </button>
-      ) : null}
     </form>
   );
 }

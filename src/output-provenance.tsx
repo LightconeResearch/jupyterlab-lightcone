@@ -35,6 +35,35 @@ import {
  */
 const OPEN_SESSION_COMMAND = 'jupyterlab_lightcone:open-session';
 
+/**
+ * The record behind one of a run's input versions. The engine keys them by
+ * the ids the output lists under `inputs:`, which the SDK resolves in the same
+ * order into `provenance.inputPaths`: a sibling output wins over an input of
+ * the same id, a `sub.output` id names a sub-analysis's output, and an alias
+ * resolves to its target. So an upstream output is found as the output it is,
+ * as the record's own "Inputs and upstream outputs" list shows it. An id the
+ * output no longer lists is looked up among its analysis's outputs, then its
+ * inputs; undefined when it names neither.
+ */
+export function runInputRecord(
+  index: AnalysisIndex,
+  output: ResolvedOutput,
+  id: string
+): ResolvedRecord | undefined {
+  const declared = output.inputs ?? [];
+  const paths = output.provenance.inputPaths;
+  const position = declared.indexOf(id);
+  if (position >= 0 && declared.length === paths.length) {
+    const record = index.recordByPath.get(paths[position]);
+    if (record) return record;
+  }
+  const analysis = index.analysisByRecordPath.get(output.canonicalPath);
+  return (
+    analysis?.outputs.find(candidate => candidate.id === id) ??
+    analysis?.inputs.find(candidate => candidate.id === id)
+  );
+}
+
 export interface IJupyterOutputProvenanceProps {
   contents: Contents.IManager;
   entrypoint: string;
@@ -137,9 +166,8 @@ export function JupyterOutputProvenance({
 
   const inputs = useMemo<IProvenanceInput[]>(() => {
     if (!view) return [];
-    const analysis = index.analysisByRecordPath.get(output.canonicalPath);
     return Object.entries(view.inputVersions).map(([id, inputVersion]) => {
-      const record = analysis?.inputs.find(input => input.id === id);
+      const record = runInputRecord(index, output, id);
       return {
         id,
         version: inputVersion,

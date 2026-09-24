@@ -163,10 +163,15 @@ it('shows live jobs, refusals and the history, and routes their actions', async 
   try {
     await until(() => h.widget.title.label === 'Runs · Runs project');
     await until(() => h.text().includes('python src/plot.py'));
-    // Without universes, outputs are named without one.
+    // Without universes, outputs are named without one, after the
+    // inventory's output mark.
+    const runOutput = h.widget.node.querySelector(`.${CLASS}-runOutput`);
+    expect(runOutput?.textContent).toBe('◆hubble_diagram');
     expect(
-      h.widget.node.querySelector(`.${CLASS}-runOutput`)?.textContent
-    ).toBe('hubble_diagram');
+      runOutput
+        ?.querySelector('.lightcone-brand.astra-ui > .astra-kind-glyph')
+        ?.getAttribute('data-kind')
+    ).toBe('output');
     expect(h.text()).toContain('Materialize hubble_diagram');
     expect(h.text()).toContain('step 1');
     expect(h.text()).toContain('The engine refused to run');
@@ -200,6 +205,43 @@ it('shows live jobs, refusals and the history, and routes their actions', async 
       ],
       [CommandIDs.openInventory, { path: ENTRYPOINT }]
     ]);
+  } finally {
+    h.dispose();
+  }
+});
+
+it('marks the outputs a finished job reports with their kind', async () => {
+  const h = host({
+    jobs: [
+      job({
+        state: 'failed',
+        exit: 1,
+        finished: '2026-09-23T11:58:40.000Z',
+        report: {
+          ok: false,
+          made: ['default/hubble_diagram'],
+          failed: ['default/cosmology_fit'],
+          behind: { 'default/hubble_diagram': 'recipe changed' }
+        }
+      })
+    ]
+  });
+  try {
+    await until(() => h.text().includes('is behind: recipe changed'));
+    const chips = Array.from(
+      h.widget.node.querySelectorAll<HTMLButtonElement>(`.${CLASS}-chip`)
+    );
+    expect(chips.map(chip => [chip.dataset.tone, chip.textContent])).toEqual([
+      ['made', '◆hubble_diagram'],
+      ['failed', '◆cosmology_fit']
+    ]);
+    const reason = h.widget.node.querySelector(`.${CLASS}-reasons button`);
+    const marked = [...chips, reason].map(node =>
+      node
+        ?.querySelector('.lightcone-brand.astra-ui > .astra-kind-glyph')
+        ?.getAttribute('data-kind')
+    );
+    expect(marked).toEqual(['output', 'output', 'output']);
   } finally {
     h.dispose();
   }

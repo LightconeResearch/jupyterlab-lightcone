@@ -211,6 +211,14 @@ it('lists what the reply materialized and edited under its last message', async 
     '.jp-jupyterlab-lightcone-TurnResults-tile'
   )!;
   expect(tile.textContent).toContain('hubble_diagram');
+  // The result is named after the inventory's output mark.
+  expect(
+    tile
+      .querySelector(
+        '.jp-jupyterlab-lightcone-TurnResults-label > .lightcone-brand.astra-ui > .astra-kind-glyph'
+      )
+      ?.getAttribute('data-kind')
+  ).toBe('output');
   act(() => tile.click());
   act(() => {
     tile.dispatchEvent(

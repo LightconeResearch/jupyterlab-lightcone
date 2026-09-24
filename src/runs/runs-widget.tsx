@@ -17,6 +17,7 @@ import React, {
   useRef,
   useState
 } from 'react';
+import { AstraKindMark } from '../astra-kind';
 import { CommandIDs } from '../commands';
 import { useMaterializationStatus } from '../materialization-status';
 import type { ILoadedProjectData } from '../project-data';
@@ -368,6 +369,7 @@ function OutputChips({
           title={trans.__('Open %1', key)}
           onClick={() => openKey(key)}
         >
+          <AstraKindMark kind="output" />
           {outputLabel(key)}
         </button>
       ))}
@@ -439,6 +441,7 @@ function ReportSummary({
                 className={`${CLASS}-link`}
                 onClick={() => openKey(reason.key)}
               >
+                <AstraKindMark kind="output" />
                 {outputLabel(reason.key)}
               </button>{' '}
               <span>{trans.__('is behind: %1', reason.why)}</span>
@@ -577,6 +580,7 @@ function History({
         onClick={() => openOutput(run.universe, run.output, run.commit)}
       >
         <span className={`${CLASS}-runOutput`}>
+          <AstraKindMark kind="output" />
           {outputLabel(`${run.universe}/${run.output}`)}
         </span>
         <span className={`${CLASS}-runMeta`}>

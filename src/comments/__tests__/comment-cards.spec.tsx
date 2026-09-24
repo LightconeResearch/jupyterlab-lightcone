@@ -61,6 +61,20 @@ describe('comment cards', () => {
     expect(text).toContain('version a889877');
     expect(text).toContain('point at 42% across, 31% down');
     expect(text).toContain('The legend covers the high-redshift points.');
+    // The record's kind mark stands before its name, as in the inventory.
+    const head = cards[0].querySelector(
+      '.jp-jupyterlab-lightcone-CommentCard-head'
+    );
+    expect(
+      head
+        ?.querySelector(
+          '.jp-jupyterlab-lightcone-CommentCard-kind.lightcone-brand.astra-ui > .astra-kind-glyph'
+        )
+        ?.getAttribute('data-kind')
+    ).toBe('output');
+    expect(
+      head?.querySelector('.jp-jupyterlab-lightcone-CommentCard-icon')
+    ).toBeNull();
     act(() => cards[0].click());
     expect(open).toHaveBeenCalledWith(sent);
     act(() => root.unmount());

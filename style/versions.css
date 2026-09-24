@@ -62,6 +62,11 @@
     font-weight: 600;
   }
 
+  /* Each crumb leads with its record's kind mark, as the inventory draws it. */
+  .jp-jupyterlab-lightcone-element-trail .jp-jupyterlab-lightcone-KindMark {
+    margin-inline-end: 2px;
+  }
+
   /* Back, Forward and the version stepper's arrows. */
   .jp-jupyterlab-lightcone-Chevron {
     display: block;
@@ -709,6 +714,14 @@
     fill: var(--astra-color-text-muted);
     font-size: 10.5px;
     font-weight: 400;
+  }
+
+  /* A node's kind mark sits before its meta line, at the meta's size. */
+  .jp-jupyterlab-lightcone-Pipeline-kind {
+    overflow: visible;
+    font-size: 10.5px;
+    line-height: 14px;
+    pointer-events: none;
   }
 
   .jp-jupyterlab-lightcone-Pipeline-node[data-dimmed] {

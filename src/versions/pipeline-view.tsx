@@ -6,6 +6,7 @@ import {
 } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import type { CommandRegistry } from '@lumino/commands';
+import { AstraKindMark } from '../astra-kind';
 import { CommandIDs } from '../commands';
 import { useProject } from '../element-widget';
 import { astraIcon } from '../icons';
@@ -31,6 +32,10 @@ const NODE_WIDTH = 200;
 const NODE_HEIGHT = 50;
 const ROW = 68;
 const LABEL_LENGTH = 26;
+/** Where a node's meta line starts: after its kind mark. */
+const META_X = 42;
+/** The box the kind mark is drawn in, before the meta line. */
+const MARK_SIZE = 14;
 
 type NodeStatus = 'current' | 'behind' | 'stale' | 'unknown' | 'input';
 
@@ -148,8 +153,10 @@ function PipelineGraph({
           </span>
           <h1>{data.document.analysis.name}</h1>
           <p>
-            {counts.input} input{counts.input === 1 ? '' : 's'} → {outputs}{' '}
-            output{outputs === 1 ? '' : 's'} · universe{' '}
+            <AstraKindMark kind="input" /> {counts.input} input
+            {counts.input === 1 ? '' : 's'} → <AstraKindMark kind="output" />{' '}
+            {outputs} output
+            {outputs === 1 ? '' : 's'} · universe{' '}
             <code>{data.document.universe.universeId}</code>
             {materialization.error && (
               <span role="status">
@@ -245,14 +252,24 @@ function PipelineGraph({
                     <text x={28} y={21}>
                       {truncate(node.label, LABEL_LENGTH)}
                     </text>
-                    <text
+                    {/* The inventory's kind mark, drawn by ASTRA UI itself. */}
+                    <foreignObject
                       x={28}
+                      y={38 - MARK_SIZE + 3}
+                      width={MARK_SIZE}
+                      height={MARK_SIZE}
+                      className="jp-jupyterlab-lightcone-Pipeline-kind"
+                    >
+                      <AstraKindMark kind={node.kind} />
+                    </foreignObject>
+                    <text
+                      x={META_X}
                       y={38}
                       className="jp-jupyterlab-lightcone-Pipeline-meta"
                     >
                       {truncate(
                         `${node.type}${node.analysisPath === '$' ? '' : ` · ${node.analysisPath}`}`,
-                        LABEL_LENGTH + 4
+                        LABEL_LENGTH + 2
                       )}
                     </text>
                   </g>

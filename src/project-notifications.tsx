@@ -7,7 +7,9 @@ import type { Contents } from '@jupyterlab/services';
 import type { CommandRegistry } from '@lumino/commands';
 import type { IDisposable } from '@lumino/disposable';
 import { Signal } from '@lumino/signaling';
+import type { SurfaceKind } from '@astra-spec/ui/model';
 import * as React from 'react';
+import { AstraKindMark } from './astra-kind';
 import { CommandIDs } from './commands';
 import { effectiveUniverseId, projectDirectory } from './project-data';
 import type { ILoadedProjectData } from './project-data';
@@ -23,6 +25,32 @@ import {
   type IProjectChange,
   type IProjectSnapshot
 } from './project-changes';
+
+/**
+ * The kind mark of a change row: a result is an output that was remade, the
+ * project and its sub-analyses are analyses, and an insight is a prior one.
+ */
+export function changeKind(
+  kind: IProjectChange['kind']
+): SurfaceKind | undefined {
+  switch (kind) {
+    case 'result':
+      return 'output';
+    case 'project':
+    case 'subanalysis':
+      return 'analysis';
+    case 'insight':
+      return 'prior_insight';
+    case 'output':
+    case 'decision':
+    case 'input':
+    case 'finding':
+    case 'paper':
+      return kind;
+    default:
+      return undefined;
+  }
+}
 
 /** Artifact hashing shares the browser's connection pool with autosave and kernels. */
 const HASH_CONCURRENCY = 4;
@@ -296,27 +324,31 @@ export class ProjectNotifications {
         <div className="jp-jupyterlab-lightcone-ProjectUpdates">
           <p>{title}</p>
           <ul>
-            {changes.map(change => (
-              <li key={change.key}>
-                <span>
-                  {change.kind} {change.action}
-                </span>
-                {change.action === 'removed' ? (
-                  <strong>{change.label}</strong>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      selected = change;
-                      dialog.resolve();
-                    }}
-                  >
-                    {change.label}
-                  </button>
-                )}
-                {change.detail && <small>{change.detail}</small>}
-              </li>
-            ))}
+            {changes.map(change => {
+              const kind = changeKind(change.kind);
+              return (
+                <li key={change.key}>
+                  <span>
+                    {kind && <AstraKindMark kind={kind} />} {change.kind}{' '}
+                    {change.action}
+                  </span>
+                  {change.action === 'removed' ? (
+                    <strong>{change.label}</strong>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        selected = change;
+                        dialog.resolve();
+                      }}
+                    >
+                      {change.label}
+                    </button>
+                  )}
+                  {change.detail && <small>{change.detail}</small>}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ),

@@ -87,6 +87,8 @@ interface IDeskHostOptions {
   sessions?: FakeSessionService;
   personas?: PersonaDirectory | null;
   state?: IStateDB | null;
+  /** The project's `astra.yaml`; RESULTS_SPEC by default. */
+  spec?: string;
 }
 
 function deskHost(options: IDeskHostOptions = {}) {
@@ -113,7 +115,7 @@ function deskHost(options: IDeskHostOptions = {}) {
   }
   const sessions = options.sessions ?? new FakeSessionService();
   const entries: Record<string, Contents.IModel> = {
-    [ENTRYPOINT]: fileModel(RESULTS_SPEC)
+    [ENTRYPOINT]: fileModel(options.spec ?? RESULTS_SPEC)
   };
   const host = homeHost({
     entries,
@@ -399,6 +401,16 @@ describe('the results', () => {
       expect(
         plates.map(plate => plate.querySelector(`.${C}-plateKind`)!.textContent)
       ).toEqual(['Figure', 'Table']);
+      // Each plate names its output after the inventory's output mark.
+      expect(
+        plates.map(plate =>
+          plate
+            .querySelector(
+              `.${C}-plateCaption > .lightcone-brand.astra-ui > .astra-kind-glyph`
+            )
+            ?.getAttribute('data-kind')
+        )
+      ).toEqual(['output', 'output']);
       plates[0].click();
       await flush();
       expect(h.executed).toContainEqual([
@@ -406,15 +418,70 @@ describe('the results', () => {
         { entrypoint: ENTRYPOINT, target: 'outputs.hubble_diagram' }
       ]);
       h.queryAll<HTMLButtonElement>(`.${C}-link`)
-        .find(button => button.textContent === 'All results →')!
+        .find(button => button.textContent === 'See all')!
         .click();
       await flush();
       expect(h.executed).toContainEqual([
         CommandIDs.openInventory,
         { path: ENTRYPOINT }
       ]);
+      h.executed.length = 0;
+      h.query<HTMLButtonElement>(`.${C}-astra`)!.click();
+      await flush();
+      expect(h.executed).toContainEqual([
+        CommandIDs.openInventory,
+        { path: ENTRYPOINT }
+      ]);
+      // The badges under the title carry the inventory's kind marks.
+      const badges = h.queryAll<HTMLElement>(`.${C}-badge`);
+      expect(badges.map(badge => badge.dataset.kind)).toEqual([
+        'output',
+        'decision',
+        'input',
+        'finding',
+        'paper'
+      ]);
+      expect(
+        badges.every(badge =>
+          badge.querySelector('.lightcone-brand.astra-ui .astra-kind-glyph')
+        )
+      ).toBe(true);
+      expect(h.text()).toContain('2 results');
       expect(h.text()).toContain('1 decision');
       expect(h.text()).toContain('1 input');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('counts the results it shows, leaving a sub-analysis output to its scope', async () => {
+    const h = deskHost({
+      spec: `${RESULTS_SPEC}analyses:
+  checks:
+    name: Checks
+    inputs:
+      - id: residual_data
+        type: data
+        source: data/residuals.csv
+    outputs:
+      - id: residuals
+        type: figure
+        format: png
+        inputs: [residual_data]
+`
+    });
+    try {
+      await until(() => h.queryAll(`.${C}-plate`).length === 2);
+      const badge = (kind: string) =>
+        h.query(`.${C}-badge[data-kind="${kind}"]`)?.textContent;
+      await until(() => badge('output') !== undefined);
+      // Two plates, two results; the nested analysis still adds its input.
+      expect(badge('output')).toBe('◆2 results');
+      expect(badge('input')).toBe('▤2 inputs');
+      const seeAll = h
+        .queryAll<HTMLButtonElement>(`.${C}-link`)
+        .find(button => button.textContent === 'See all');
+      expect(seeAll?.getAttribute('aria-label')).toBe('See all results');
     } finally {
       h.dispose();
     }

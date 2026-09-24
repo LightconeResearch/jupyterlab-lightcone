@@ -185,27 +185,34 @@ export function analysisRows(data: ILoadedProjectData): IAnalysisRow[] {
   return rows;
 }
 
+/** One kind's count on an analysis row, in the inventory's section order. */
+export interface IAnalysisCount {
+  kind: 'output' | 'decision' | 'input' | 'finding' | 'paper';
+  count: number;
+  /** The inventory's section name: "Outputs", "Decisions", … */
+  label: string;
+}
+
+/** The row's non-empty counts, in the inventory's section order. */
+export function analysisCounts(row: IAnalysisRow): IAnalysisCount[] {
+  const counts: IAnalysisCount[] = [
+    { kind: 'output', count: row.outputs, label: 'Outputs' },
+    { kind: 'decision', count: row.decisions, label: 'Decisions' },
+    { kind: 'input', count: row.inputs, label: 'Inputs' },
+    { kind: 'finding', count: row.findings, label: 'Findings' },
+    { kind: 'paper', count: row.papers, label: 'Papers' }
+  ];
+  return counts.filter(entry => entry.count > 0);
+}
+
 /**
  * "Outputs 2 · Decisions 5 · Inputs 7 · Findings 2 · Papers 3", in the
  * inventory's section order, omitting empty kinds.
  */
 export function analysisCountsLabel(row: IAnalysisRow): string {
-  const parts: string[] = [];
-  if (row.outputs) {
-    parts.push(`Outputs ${row.outputs}`);
-  }
-  if (row.decisions) {
-    parts.push(`Decisions ${row.decisions}`);
-  }
-  if (row.inputs) {
-    parts.push(`Inputs ${row.inputs}`);
-  }
-  if (row.findings) {
-    parts.push(`Findings ${row.findings}`);
-  }
-  if (row.papers) {
-    parts.push(`Papers ${row.papers}`);
-  }
+  const parts = analysisCounts(row).map(
+    entry => `${entry.label} ${entry.count}`
+  );
   return parts.length ? parts.join(' · ') : 'No records yet';
 }
 

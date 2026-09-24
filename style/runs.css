@@ -257,6 +257,9 @@
 }
 
 .jp-jupyterlab-lightcone-Runs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 10px;
   border: 1px solid var(--jp-border-color1);
   border-radius: var(--jp-border-radius);
@@ -324,6 +327,12 @@
 .jp-jupyterlab-lightcone-Runs-runOutput {
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+/* Outputs named in a report or a run lead with the inventory's kind mark. */
+.jp-jupyterlab-lightcone-Runs-runOutput > .jp-jupyterlab-lightcone-KindMark,
+.jp-jupyterlab-lightcone-Runs-reasons .jp-jupyterlab-lightcone-KindMark {
+  margin-inline-end: 4px;
 }
 
 .jp-jupyterlab-lightcone-Runs-runMeta {

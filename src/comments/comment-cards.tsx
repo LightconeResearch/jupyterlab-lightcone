@@ -10,7 +10,7 @@ import {
   targetName
 } from './comment-model';
 import type { ChatProjects } from './chat-projects';
-import { kindIcon } from './comment-tray';
+import { CommentTargetIcon } from './comment-tray';
 
 export interface ICommentCardsDependencies {
   service: CommentService;
@@ -70,8 +70,6 @@ export function createCommentCards(
         aria-label="Comments sent with this message"
       >
         {comments.map(comment => {
-          const kind = commentKind(comment);
-          const Icon = kindIcon(kind);
           const where = anchorSummary(comment.anchor);
           return (
             <button
@@ -79,13 +77,13 @@ export function createCommentCards(
               type="button"
               role="listitem"
               className="jp-jupyterlab-lightcone-CommentCard"
-              data-kind={kind}
+              data-kind={commentKind(comment)}
               onClick={() => deps.open(comment)}
             >
               <span className="jp-jupyterlab-lightcone-CommentCard-head">
-                <Icon.react
-                  tag="span"
-                  className="jp-jupyterlab-lightcone-CommentCard-icon"
+                <CommentTargetIcon
+                  comment={comment}
+                  base="jp-jupyterlab-lightcone-CommentCard"
                 />
                 <span className="jp-jupyterlab-lightcone-CommentCard-label">
                   {labelGlyph(comment.label)}

@@ -103,7 +103,7 @@ export class HomeWidget extends Panel {
     this.addWidget(this._view);
     this._current.changed.connect(this._resolve, this);
     this._update();
-    void this._resolve();
+    this._resolve();
   }
 
   /** The directory the tab launches into; setting it re-resolves the project. */
@@ -119,7 +119,7 @@ export class HomeWidget extends Panel {
     // The stock body names its folder at once: when the project lookup finds
     // the same project (or none again) it leaves the tab untouched.
     this._updateTitle();
-    void this._resolve();
+    this._resolve();
   }
 
   /** The project the tab shows; null outside projects, undefined until the lookup settles. */
@@ -130,6 +130,19 @@ export class HomeWidget extends Panel {
   /** Which body the tab shows. */
   get mode(): HomeMode {
     return homeMode(this._project, this._stockRequested);
+  }
+
+  /**
+   * Resolves once the project lookup for the tab's current folder has
+   * settled, including lookups started while it waited, so `project` and
+   * `mode` then describe the folder the tab follows.
+   */
+  async settled(): Promise<void> {
+    let pending: Promise<void>;
+    do {
+      pending = this._resolving;
+      await pending;
+    } while (pending !== this._resolving && !this.isDisposed);
   }
 
   /** Show the stock launcher body until `showHome` is called. */
@@ -161,7 +174,12 @@ export class HomeWidget extends Panel {
     super.dispose();
   }
 
-  private async _resolve(): Promise<void> {
+  /** Look the project up again; `settled` waits for the newest lookup. */
+  private _resolve(): void {
+    this._resolving = this._lookUp();
+  }
+
+  private async _lookUp(): Promise<void> {
     const generation = ++this._generation;
     let project: IProjectRoot | null;
     try {
@@ -240,4 +258,5 @@ export class HomeWidget extends Panel {
   private _project: IProjectRoot | null | undefined = undefined;
   private _stockRequested = false;
   private _generation = 0;
+  private _resolving: Promise<void> = Promise.resolve();
 }

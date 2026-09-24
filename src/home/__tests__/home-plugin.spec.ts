@@ -67,7 +67,7 @@ function pluginHost(
     'project/astra.yaml': fileModel(analysis('Union 2.1 cosmology')),
     'elsewhere/notes.txt': fileModel('notes')
   };
-  const { contents } = createContents(entries);
+  const { contents, get } = createContents(entries);
   const commands = new CommandRegistry();
   const main: Widget[] = [];
   const added: { widget: Widget; options: unknown }[] = [];
@@ -132,6 +132,7 @@ function pluginHost(
   };
   return {
     commands,
+    get,
     shell,
     labShell,
     browserModel,
@@ -294,6 +295,35 @@ describe('homePlugin', () => {
       );
       expect(isHomeTab(elsewhere) && elsewhere.content.cwd).toBe('elsewhere');
       expect(h.main).toHaveLength(3);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('brings forward the tab that followed the browser into a project, even before it has looked it up', async () => {
+    const h = pluginHost();
+    try {
+      h.browserModel.path = 'elsewhere';
+      h.activate();
+      const tab = await h.create();
+      await until(() => tab.content.project === null);
+      // The tab's own lookup answers late, so Open Home's would settle first.
+      const read = h.get.getMockImplementation()!;
+      let slow = true;
+      h.get.mockImplementation(async (path, options) => {
+        if (slow) await new Promise(resolve => setTimeout(resolve, 30));
+        return read(path, options);
+      });
+      h.browserModel.path = 'project';
+      h.browserModel.pathChanged.emit(undefined);
+      slow = false;
+      const shown: unknown = await h.commands.execute(HomeCommandIDs.openHome, {
+        cwd: 'project'
+      });
+      h.get.mockImplementation(read);
+      expect(shown).toBe(tab);
+      expect(tab.content.mode).toBe('home');
+      expect(h.main).toHaveLength(1);
     } finally {
       h.dispose();
     }

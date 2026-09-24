@@ -1,7 +1,9 @@
-import { Notification } from '@jupyterlab/apputils';
+import { Dialog, Notification } from '@jupyterlab/apputils';
 import type { Contents, ContentsManager } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
-import { ProjectNotifications } from '../project-notifications';
+import { act, isValidElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { changeKind, ProjectNotifications } from '../project-notifications';
 import {
   acquireProjectDataService,
   type IProjectDataLease
@@ -15,7 +17,15 @@ jest.mock('@jupyterlab/apputils', () => ({
     dismiss: jest.fn(),
     manager: { has: jest.fn(() => true) }
   },
-  Dialog: jest.fn(),
+  // The review stays open and has no stock buttons; only its body is read.
+  Dialog: Object.assign(
+    jest.fn(() => ({
+      launch: () => new Promise(() => undefined),
+      dispose: jest.fn(),
+      resolve: jest.fn()
+    })),
+    { okButton: jest.fn(() => ({})) }
+  ),
   showErrorMessage: jest.fn()
 }));
 const faults = { snapshot: 0 };
@@ -198,5 +208,52 @@ it('keeps watching after a comparison fails', async () => {
     expect(Notification.emit).toHaveBeenCalledTimes(1);
   } finally {
     failed.mockRestore();
+  }
+});
+
+it('names the kind mark of every kind of change row', () => {
+  expect(
+    ['project', 'subanalysis', 'output', 'result', 'decision'].map(changeKind)
+  ).toEqual(['analysis', 'analysis', 'output', 'output', 'decision']);
+  expect(['input', 'finding', 'insight', 'paper'].map(changeKind)).toEqual([
+    'input',
+    'finding',
+    'prior_insight',
+    'paper'
+  ]);
+  expect(changeKind('unknown')).toBeUndefined();
+});
+
+it('marks each row of the review with its kind, as the inventory does', async () => {
+  fixture = harness();
+  await fixture.write('Initial');
+  await fixture.settle();
+  await fixture.write('Renamed');
+  await fixture.settle();
+  const review = jest.mocked(Notification.emit).mock.calls[0][2]?.actions?.[0];
+  review?.callback(new MouseEvent('click'));
+  const body = jest.mocked(Dialog).mock.calls[0]?.[0]?.body;
+  expect(isValidElement(body)).toBe(true);
+  const node = document.createElement('div');
+  const root = createRoot(node);
+  const actEnvironment: unknown = Reflect.get(
+    globalThis,
+    'IS_REACT_ACT_ENVIRONMENT'
+  );
+  Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+  try {
+    act(() => root.render(isValidElement(body) ? body : null));
+    const rows = Array.from(node.querySelectorAll('li'));
+    expect(rows.map(row => row.textContent)).toEqual([
+      expect.stringContaining('project changed')
+    ]);
+    expect(
+      rows[0]
+        .querySelector('span > .lightcone-brand.astra-ui > .astra-kind-glyph')
+        ?.getAttribute('data-kind')
+    ).toBe('analysis');
+  } finally {
+    act(() => root.unmount());
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', actEnvironment);
   }
 });

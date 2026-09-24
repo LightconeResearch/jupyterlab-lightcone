@@ -1,5 +1,9 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import { analysisTitle, collectInventoryPapers } from '@astra-spec/ui/model';
+import {
+  analysisTitle,
+  collectInventoryPapers,
+  type SurfaceKind
+} from '@astra-spec/ui/model';
 import {
   ReactWidget,
   showErrorMessage,
@@ -29,7 +33,8 @@ import { isRecord, RequestError } from '../api';
 import { JupyterArtifactAccess } from '../artifact-access';
 import { JupyterArtifactPreview } from '../artifact-preview';
 import { CommandIDs } from '../commands';
-import { mystIcon } from '../icons';
+import { AstraKindMark } from '../astra-kind';
+import { astraIcon, mystIcon } from '../icons';
 import {
   outputMaterializationStatus,
   useMaterializationStatus
@@ -45,6 +50,7 @@ import { listRuns } from '../runs/runs-api';
 import type { ISessionService } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
+import { listOutputs } from '../sidebar/sidebar-helpers';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { lightconeIcon } from './icons';
 import {
@@ -274,6 +280,7 @@ function HomeRoot({
               <h1 className={`${CLASS}-title`}>
                 {analysisTitle(data.document.analysis)}
               </h1>
+              <ProjectBadges data={data} />
               {data.document.analysis.description ? (
                 <p className={`${CLASS}-description`}>
                   {data.document.analysis.description}
@@ -290,16 +297,26 @@ function HomeRoot({
               {trans.__('Showing the last valid project data: %1', state.error)}
             </p>
           ) : null}
-          {reportAvailable ? (
+          <div className={`${CLASS}-actions`}>
+            {reportAvailable ? (
+              <button
+                type="button"
+                className={`${CLASS}-report`}
+                onClick={openReport}
+              >
+                <mystIcon.react tag="span" className={`${CLASS}-actionIcon`} />
+                {trans.__('Open report')}
+              </button>
+            ) : null}
             <button
               type="button"
-              className={`${CLASS}-report`}
-              onClick={openReport}
+              className={`${CLASS}-astra`}
+              onClick={openInventory}
             >
-              <mystIcon.react tag="span" className={`${CLASS}-reportIcon`} />
-              {trans.__('Open report')}
+              <astraIcon.react tag="span" className={`${CLASS}-actionIcon`} />
+              {trans.__('Open ASTRA')}
             </button>
-          ) : null}
+          </div>
           {data ? (
             <ResultsSection
               contents={contents}
@@ -308,9 +325,6 @@ function HomeRoot({
               data={data}
               onOpenInventory={openInventory}
             />
-          ) : null}
-          {data ? (
-            <AnalysisSection data={data} onOpenInventory={openInventory} />
           ) : null}
         </section>
         {sessions && chatAvailable ? (
@@ -496,13 +510,7 @@ function ResultsSection({
     data.document
   );
   const latestRun = useLatestRun(contents, entrypoint, data);
-  const outputs = useMemo(
-    () =>
-      orderPlates(
-        data.document.analysis.outputs.filter(output => output.active)
-      ),
-    [data]
-  );
+  const outputs = useMemo(() => orderPlates(listOutputs(data)), [data]);
   const access = useMemo(
     () =>
       new JupyterArtifactAccess(contents, entrypoint, data.bindings, commands),
@@ -556,9 +564,10 @@ function ResultsSection({
           <button
             type="button"
             className={`${CLASS}-link`}
+            aria-label={trans.__('See all results')}
             onClick={onOpenInventory}
           >
-            {trans.__('All results →')}
+            {trans.__('See all')}
           </button>
         ) : null}
       </div>
@@ -583,10 +592,11 @@ function ResultsSection({
                 />
               </span>
               <span className={`${CLASS}-plateCaption`}>
+                <AstraKindMark kind="output" />
                 <span className={`${CLASS}-plateName`}>
                   {output.label ?? output.id}
                 </span>
-                <span className={`${CLASS}-plateKind`} data-kind={output.type}>
+                <span className={`${CLASS}-plateKind`} data-type={output.type}>
                   {outputKindLabel(output.type)}
                 </span>
               </span>
@@ -598,17 +608,21 @@ function ResultsSection({
   );
 }
 
-interface IAnalysisSectionProps {
+interface IProjectBadgesProps {
   data: ILoadedProjectData;
-  onOpenInventory: () => void;
 }
 
-function AnalysisSection({
-  data,
-  onOpenInventory
-}: IAnalysisSectionProps): React.ReactElement {
+/**
+ * What the ASTRA analysis holds, as a line of badges under the title. Each
+ * badge carries the kind mark the inventory draws for that record kind.
+ * Results are the project's results, the plates Home shows; decisions,
+ * inputs, findings and papers count the whole analysis tree.
+ */
+function ProjectBadges({ data }: IProjectBadgesProps): React.ReactElement {
   const trans = useContext(TransContext);
   const counts = useMemo(() => countRecords(data.document.analysis), [data]);
+  // The same results as the plates below, so the badge counts what they show.
+  const results = useMemo(() => listOutputs(data).length, [data]);
   const papers = useMemo(
     () =>
       collectInventoryPapers(
@@ -619,7 +633,12 @@ function AnalysisSection({
       ).length,
     [data]
   );
-  const entries: { kind: string; count: number; label: string }[] = [
+  const badges: { kind: SurfaceKind; count: number; label: string }[] = [
+    {
+      kind: 'output',
+      count: results,
+      label: trans._n('result', 'results', results)
+    },
     {
       kind: 'decision',
       count: counts.decisions,
@@ -642,35 +661,21 @@ function AnalysisSection({
     }
   ];
   return (
-    <section className={`${CLASS}-section`} aria-label={trans.__('Analysis')}>
-      <div className={`${CLASS}-kicker`}>
-        <span className={`${CLASS}-kickerLabel`}>{trans.__('Analysis')}</span>
-        <span className={`${CLASS}-kickerNote`}>
-          {trans.__('Recorded in astra.yaml')}
-        </span>
-        <button
-          type="button"
-          className={`${CLASS}-link`}
-          onClick={onOpenInventory}
+    <ul
+      className={`${CLASS}-badges`}
+      aria-label={trans.__('Contents of the ASTRA analysis')}
+    >
+      {badges.map(badge => (
+        <li
+          key={badge.kind}
+          className={`${CLASS}-badge`}
+          data-kind={badge.kind}
         >
-          {trans.__('Open inventory →')}
-        </button>
-      </div>
-      <div className={`${CLASS}-counts`}>
-        {entries.map(entry => (
-          <button
-            type="button"
-            key={entry.kind}
-            className={`${CLASS}-count`}
-            data-kind={entry.kind}
-            onClick={onOpenInventory}
-          >
-            <span className={`${CLASS}-countGlyph`} aria-hidden="true" />
-            <strong>{entry.count}</strong> {entry.label}
-          </button>
-        ))}
-      </div>
-    </section>
+          <AstraKindMark kind={badge.kind} />
+          <strong>{badge.count}</strong> {badge.label}
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -380,10 +380,6 @@
   --lc-font-heading:
     'Lightcone Brand Quattrocento', georgia, 'Times New Roman', serif;
   --lc-eyebrow: #3f7280; /* slate blue */
-  --lc-kind-decision: #a67c3c; /* antique gold */
-  --lc-kind-input: #4e5a70; /* blue ink */
-  --lc-kind-finding: #3b7a73; /* vert-de-gris */
-  --lc-kind-paper: #a45a43; /* wax red */
   --lc-accent-contrast: #fff;
   --lc-paper: #fff;
 }
@@ -599,10 +595,6 @@
 
   /* Lightcone extras */
   --lc-eyebrow: #82a3ac; /* slate blue 65% / white */
-  --lc-kind-decision: #c5aa80; /* antique gold 65% / white */
-  --lc-kind-input: #9ea4b0; /* blue ink 55% / white */
-  --lc-kind-finding: #80a9a4; /* vert-de-gris 65% / white */
-  --lc-kind-paper: #c49485; /* wax red 65% / white */
   --lc-accent-contrast: #221f20;
   --lc-paper: #221f20; /* charcoal: documents and panels */
 }

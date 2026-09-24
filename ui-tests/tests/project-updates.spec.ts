@@ -50,12 +50,8 @@ test('minimal project notifications group edits, review records, and distinguish
   ).toBe(beforeWidget);
   await review.click();
   const dialog = page.getByRole('dialog');
-  await expect(
-    dialog.getByText('input changed', { exact: true })
-  ).toBeVisible();
-  await expect(
-    dialog.getByText('decision changed', { exact: true })
-  ).toBeVisible();
+  await expect(dialog.getByText(/ input changed$/)).toBeVisible();
+  await expect(dialog.getByText(/ decision changed$/)).toBeVisible();
   await expect(
     dialog.getByText('48–152 → 40–160', { exact: true })
   ).toBeVisible();
@@ -78,7 +74,7 @@ test('minimal project notifications group edits, review records, and distinguish
   );
   await expect(review).toBeVisible({ timeout: 15000 });
   await review.click();
-  await expect(dialog.getByText('result ready', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/ result ready$/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   // Equal-length content change must notify; an identical rewrite must stay quiet.
   await page.contents.uploadContent(
@@ -88,9 +84,7 @@ test('minimal project notifications group edits, review records, and distinguish
   );
   await expect(review).toBeVisible({ timeout: 15000 });
   await review.click();
-  await expect(
-    dialog.getByText('result updated', { exact: true })
-  ).toBeVisible();
+  await expect(dialog.getByText(/ result updated$/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await page.contents.uploadContent(
     '{"value":43}',

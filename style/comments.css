@@ -343,6 +343,13 @@
   border-left: 1px solid var(--jp-border-color2);
 }
 
+/* A comment on a record leads with the record's ASTRA kind mark, in place of
+ * the anchor icon and at about its size. */
+.jp-jupyterlab-lightcone-CommentChip-kind,
+.jp-jupyterlab-lightcone-CommentCard-kind {
+  font-size: var(--jp-ui-font-size1);
+}
+
 /* Cards on a sent message. */
 .jp-jupyterlab-lightcone-CommentCards {
   display: flex;

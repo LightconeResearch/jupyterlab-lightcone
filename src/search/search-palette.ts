@@ -1,9 +1,9 @@
-import { surfaceGlyph } from '@astra-spec/ui/model';
 import { CommandRegistry } from '@lumino/commands';
 import type { IDisposable } from '@lumino/disposable';
 import { Signal, type ISignal } from '@lumino/signaling';
 import { h, type VirtualElement } from '@lumino/virtualdom';
 import { CommandPalette } from '@lumino/widgets';
+import { kindMarkRenderer } from '../astra-kind';
 import {
   isSurfaceKind,
   SEARCH_SECTION_ORDER,
@@ -40,7 +40,8 @@ function sectionCategory(candidate: ISearchCandidate): string {
 
 /**
  * Lumino's renderer with the caption inline after the label (JupyterLab hides
- * the stock caption) and ASTRA kind glyphs for records and papers.
+ * the stock caption) and, for records and papers, the kind mark the inventory
+ * draws, in the Lightcone ASTRA theme's colours.
  */
 export class SearchRenderer extends CommandPalette.Renderer {
   renderItemIcon(data: CommandPalette.IItemRenderData): VirtualElement {
@@ -48,10 +49,10 @@ export class SearchRenderer extends CommandPalette.Renderer {
     if (isSurfaceKind(kind)) {
       return h.div(
         {
-          className: `lm-CommandPalette-itemIcon ${SEARCH_CLASS}-glyph`,
+          className: `lm-CommandPalette-itemIcon ${SEARCH_CLASS}-kind`,
           dataset: { kind }
         },
-        surfaceGlyph(kind)
+        kindMarkRenderer(kind)
       );
     }
     return super.renderItemIcon(data);

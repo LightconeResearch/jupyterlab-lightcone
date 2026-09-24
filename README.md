@@ -45,25 +45,27 @@ presence, not validation of the specification.
 
 Choose **New Lightcone project** in the launcher (or **Create project** in the
 command palette), enter a project folder, or use **Browse…** to select an
-existing directory. Create defaults to a new `my-project` subfolder, which you
-can rename. Paths are relative to the Jupyter server's root; absolute paths
-inside that root are also accepted. Existing projects open directly. For a
-folder without `astra.yaml`, **Create project here** initializes the exact
-folder shown, as `lc init` would. Inspecting or cancelling the form creates
-nothing. The extension installs `lightcone-cli` as a dependency and calls its
-engine directly, so no `lc` command has to be on the server's `PATH`.
+existing directory. Create proposes a folder that does not exist yet,
+`my-project` (or `my-project-2`, … when that is taken), beside the current
+project when the file browser is inside one; you can rename it. Paths are
+relative to the Jupyter server's root; absolute paths inside that root are also
+accepted. **Create project** does it in one step: a folder that already holds a
+Lightcone project opens directly, a folder inside another project is refused
+before anything is written, and any other folder is initialized exactly as
+entered, as `lc init` would, then opened. Cancelling the form creates nothing.
+The extension installs `lightcone-cli` as a dependency and calls its engine
+directly, so no `lc` command has to be on the server's `PATH`.
 Initialization requires a local filesystem server, and the engine's own tools,
 `uv` and `git`, on the server's `PATH`; failures are displayed in the form and
 can be retried. After closing the form or reloading JupyterLab, run **Finish
 project setup** from the command palette to resume setup, including when
-`astra.yaml` already exists. The Create form also offers **Finish setup…** after
-inspecting an existing project. Both routes show the exact destination before
-running initialization; file presence alone does not imply setup completed. Each
-setup action opens a fresh form so an older draft cannot override a newly
-selected destination.
+`astra.yaml` already exists; file presence alone does not imply setup
+completed. While setup runs, the form shows the exact destination. Each setup
+action opens a fresh form so an older draft cannot override a newly selected
+destination.
 
-After opening or creating a project, the file browser navigates there and a
-launcher tab opens on the project's Home. Inventory and Lightcone Agent commands
+After opening or creating a project, the file browser navigates there and the
+project's Home comes forward: the Home tab already showing it, or a new one. Inventory and Lightcone Agent commands
 invoked in a folder without `astra.yaml` offer the same setup form.
 
 ### Home
@@ -78,10 +80,13 @@ Launcher**, Ctrl+Shift+L, the file browser's button, an emptied main area and
 `/lab/tree/...` URLs. Browsing into or out of a project switches an open tab
 between Home and the stock launcher.
 
-The left column shows the project's name and description, **Open report**
-(only when the project has a `myst.yml` or `myst.yaml`; it opens the
-[MySTRA Viewer](#mystra-viewer)), result plates under one freshness line with
-**All results →**, and a line of analysis counts with **Open inventory →**.
+The left column shows the project's name, a line of badges counting what the
+ASTRA analysis holds (results, decisions, inputs, findings, papers, each with
+the kind mark the inventory uses), and its description. Below them, **Open
+report** (only when the project has a `myst.yml` or `myst.yaml`; it opens the
+[MySTRA Viewer](#mystra-viewer)) and **Open ASTRA**, which opens the ASTRA
+inventory. Result plates follow under one freshness line, with **See all**
+leading to the inventory.
 When results are stale the freshness line names them and **Rematerialize stale
 (N)** (or **Refresh behind (N)** when they only lag the environment) starts
 `lc materialize` for them and opens [Runs](#runs) to follow it. The right

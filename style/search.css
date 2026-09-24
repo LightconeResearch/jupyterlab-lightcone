@@ -40,32 +40,18 @@
   color: var(--jp-ui-inverse-font-color2);
 }
 
-.jp-jupyterlab-lightcone-Search-glyph {
-  font-size: var(--jp-ui-font-size0);
-  line-height: 1;
-  text-align: center;
-  color: var(--jp-brand-color1);
-}
-
-.jp-jupyterlab-lightcone-Search-glyph[data-kind='decision'] {
-  color: var(--lc-kind-decision, var(--jp-warn-color1));
-}
-
-.jp-jupyterlab-lightcone-Search-glyph[data-kind='input'] {
-  color: var(--lc-kind-input, var(--jp-accent-color1));
-}
-
-.jp-jupyterlab-lightcone-Search-glyph[data-kind='finding'],
-.jp-jupyterlab-lightcone-Search-glyph[data-kind='prior_insight'] {
-  color: var(--lc-kind-finding, var(--jp-success-color1));
-}
-
-.jp-jupyterlab-lightcone-Search-glyph[data-kind='paper'] {
-  color: var(--lc-kind-paper, var(--jp-ui-font-color2));
+/* Records and papers carry the ASTRA kind mark (src/astra-kind.tsx) in the
+ * icon slot. On the highlighted row it takes the row's inverse text colour,
+ * as Lab's own icons do, since no kind colour reads on the brand fill. */
+.jp-jupyterlab-lightcone-Search-kind {
+  display: flex;
+  justify-content: center;
+  font-size: var(--jp-ui-font-size1);
 }
 
 .jp-jupyterlab-lightcone-Search
   .lm-CommandPalette-item.lm-mod-active
-  .jp-jupyterlab-lightcone-Search-glyph {
+  .jp-jupyterlab-lightcone-Search-kind
+  .astra-kind-glyph {
   color: var(--jp-ui-inverse-font-color1);
 }

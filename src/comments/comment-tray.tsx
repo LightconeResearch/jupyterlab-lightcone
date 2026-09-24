@@ -11,6 +11,7 @@ import {
 import type { IDisposable } from '@lumino/disposable';
 import React, { useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { AstraKindMark } from '../astra-kind';
 import type { IComment } from './comments-api';
 import type { CommentService, ICommentService } from './comment-service';
 import {
@@ -18,12 +19,13 @@ import {
   chipTooltip,
   commentKind,
   labelGlyph,
+  targetKind,
   type CommentKind
 } from './comment-model';
 import type { ChatProjects } from './chat-projects';
 
-/** The icon of a comment kind. */
-export function kindIcon(kind: CommentKind): LabIcon {
+/** The icon of a comment's anchor, for comments on files and messages. */
+function kindIcon(kind: CommentKind): LabIcon {
   switch (kind) {
     case 'image':
       return imageIcon;
@@ -32,6 +34,26 @@ export function kindIcon(kind: CommentKind): LabIcon {
     default:
       return textEditorIcon;
   }
+}
+
+/**
+ * What a comment is on, as an icon: the ASTRA kind mark of a record, as the
+ * inventory draws it, else the icon of the file or message anchor. The mark
+ * takes `<base>-kind` and the icon `<base>-icon`.
+ */
+export function CommentTargetIcon({
+  comment,
+  base
+}: {
+  comment: Pick<IComment, 'anchor' | 'target'>;
+  base: string;
+}): React.ReactElement {
+  const kind = targetKind(comment.target);
+  if (kind) {
+    return <AstraKindMark kind={kind} className={`${base}-kind`} />;
+  }
+  const Icon = kindIcon(commentKind(comment));
+  return <Icon.react tag="span" className={`${base}-icon`} />;
 }
 
 /** Keep a component in step with a project's pending comments. */
@@ -83,13 +105,11 @@ function CommentChip({
   comment,
   actions
 }: IChipProps): React.ReactElement {
-  const kind = commentKind(comment);
-  const Icon = kindIcon(kind);
   return (
     <div
       className="jp-jupyterlab-lightcone-CommentChip"
       role="listitem"
-      data-kind={kind}
+      data-kind={commentKind(comment)}
       title={chipTooltip(comment)}
     >
       <button
@@ -102,9 +122,9 @@ function CommentChip({
           actions.open(comment);
         }}
       >
-        <Icon.react
-          tag="span"
-          className="jp-jupyterlab-lightcone-CommentChip-icon"
+        <CommentTargetIcon
+          comment={comment}
+          base="jp-jupyterlab-lightcone-CommentChip"
         />
         <span className="jp-jupyterlab-lightcone-CommentChip-label">
           {labelGlyph(comment.label)}

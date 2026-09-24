@@ -169,19 +169,48 @@
   background: var(--jp-brand-color0);
 }
 
-.jp-jupyterlab-lightcone-Home-reportIcon {
+.jp-jupyterlab-lightcone-Home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Open ASTRA sits beside Open report with the same shape; it is the quieter
+ * of the two, since the report is what the project is for. */
+.jp-jupyterlab-lightcone-Home-astra {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 17px;
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-brand-color1);
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-astra:hover {
+  background: color-mix(in srgb, var(--jp-brand-color1) 10%, transparent);
+}
+
+.jp-jupyterlab-lightcone-Home-actionIcon {
   display: inline-flex;
 }
 
-.jp-jupyterlab-lightcone-Home-reportIcon svg {
+.jp-jupyterlab-lightcone-Home-actionIcon svg {
   width: 16px;
   height: 16px;
 }
 
-/* The logo's grey and orange would not read on the action colour: the mark
+/* The MyST logo's grey and orange would not read on the action colour: it
  * takes the button's text colour, white on blue ink and dark on the lighter
- * accent of dark themes. */
-.jp-jupyterlab-lightcone-Home-reportIcon svg path {
+ * accent of dark themes. The ASTRA sparkle keeps its own gold outline. */
+.jp-jupyterlab-lightcone-Home-report
+  .jp-jupyterlab-lightcone-Home-actionIcon
+  svg
+  path {
   fill: currentcolor;
 }
 
@@ -374,15 +403,16 @@
   object-fit: contain;
 }
 
+/* The output's ASTRA kind mark, its name, then its type on the right. */
 .jp-jupyterlab-lightcone-Home-plateCaption {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .jp-jupyterlab-lightcone-Home-plateName {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -397,60 +427,31 @@
   text-transform: uppercase;
 }
 
-.jp-jupyterlab-lightcone-Home-counts {
+.jp-jupyterlab-lightcone-Home-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 28px;
-}
-
-.jp-jupyterlab-lightcone-Home-count {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
+  gap: 6px;
+  margin: 0 0 16px;
   padding: 0;
-  border: 0;
+  list-style: none;
+}
+
+.jp-jupyterlab-lightcone-Home-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 999px;
   color: var(--jp-ui-font-color2);
-  background: none;
-  font: inherit;
-  cursor: pointer;
+  background: var(--jp-layout-color0);
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.4;
 }
 
-.jp-jupyterlab-lightcone-Home-count strong {
+.jp-jupyterlab-lightcone-Home-badge strong {
   color: var(--jp-ui-font-color0);
-  font-size: 18px;
   font-weight: 600;
-}
-
-.jp-jupyterlab-lightcone-Home-countGlyph {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--jp-ui-font-color3);
-}
-
-.jp-jupyterlab-lightcone-Home-count[data-kind='decision']
-  .jp-jupyterlab-lightcone-Home-countGlyph {
-  border-radius: 1px;
-  background: var(--lc-kind-decision, var(--jp-warn-color1));
-  transform: rotate(45deg);
-}
-
-.jp-jupyterlab-lightcone-Home-count[data-kind='input']
-  .jp-jupyterlab-lightcone-Home-countGlyph {
-  border-radius: 1px;
-  background: var(--lc-kind-input, var(--jp-brand-color1));
-}
-
-.jp-jupyterlab-lightcone-Home-count[data-kind='finding']
-  .jp-jupyterlab-lightcone-Home-countGlyph {
-  background: var(--lc-kind-finding, var(--jp-success-color1));
-}
-
-.jp-jupyterlab-lightcone-Home-count[data-kind='paper']
-  .jp-jupyterlab-lightcone-Home-countGlyph {
-  border-radius: 0;
-  background: var(--lc-kind-paper, var(--jp-accent-color1));
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 
 .jp-jupyterlab-lightcone-Home-desk {
@@ -589,8 +590,8 @@
 }
 
 .jp-jupyterlab-lightcone-Home-report:focus-visible,
+.jp-jupyterlab-lightcone-Home-astra:focus-visible,
 .jp-jupyterlab-lightcone-Home-plate:focus-visible,
-.jp-jupyterlab-lightcone-Home-count:focus-visible,
 .jp-jupyterlab-lightcone-Home-session:focus-visible,
 .jp-jupyterlab-lightcone-Home-link:focus-visible {
   outline: 2px solid var(--jp-brand-color1);

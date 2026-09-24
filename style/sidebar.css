@@ -276,14 +276,10 @@
   height: 14px;
 }
 
-.jp-jupyterlab-lightcone-Sidebar-item .jp-icon3[fill] {
-  fill: var(--jp-inverse-layout-color3);
-}
-
-.jp-jupyterlab-lightcone-Sidebar-item > .jp-icon3,
-.jp-jupyterlab-lightcone-Sidebar-item > span:first-child svg {
-  width: 14px;
-  height: 14px;
+/* A result's title leads with the ASTRA kind mark the inventory draws for
+ * outputs, on the title's baseline. */
+.jp-jupyterlab-lightcone-Sidebar-kind {
+  margin-inline-end: 6px;
 }
 
 .jp-jupyterlab-lightcone-Sidebar-title {
@@ -408,12 +404,24 @@
   background: var(--jp-brand-color1);
 }
 
+/* Counts wrap as whole tallies in a narrow sidebar or a deeply nested row,
+ * never clipped mid-mark. */
 .jp-jupyterlab-lightcone-Sidebar-counts {
-  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px 10px;
   color: var(--jp-ui-font-color3);
   font-size: var(--jp-ui-font-size0);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* One count of an analysis row, behind its kind's ASTRA mark. Mark and
+ * count share a baseline, as in the inventory's outline, since centring
+ * their boxes lifts the mark above the count's figures. */
+.jp-jupyterlab-lightcone-Sidebar-tally {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
 }
 
 .jp-jupyterlab-lightcone-Sidebar-footerHost {

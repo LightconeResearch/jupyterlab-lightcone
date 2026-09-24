@@ -1,4 +1,6 @@
+import type { SurfaceKind } from '@astra-spec/ui/model';
 import { isRecord } from '../api';
+import { referenceKind } from '../element-reference';
 import type { IComment, ICommentAnchor, ICommentTarget } from './comments-api';
 
 /** The longest comment the server accepts. */
@@ -88,6 +90,19 @@ export function targetName(target: ICommentTarget): string {
   }
   const local = target.path.slice(target.path.indexOf(':') + 1);
   return local.split('/').filter(Boolean).pop() ?? target.path;
+}
+
+/**
+ * The ASTRA kind of the record a comment is on, for its kind mark; undefined
+ * for comments on files and session messages.
+ */
+export function targetKind(target: ICommentTarget): SurfaceKind | undefined {
+  if (target.kind !== 'record' || !target.record) {
+    return undefined;
+  }
+  return paperDoi(target.record) !== undefined
+    ? 'paper'
+    : referenceKind(target.record);
 }
 
 /** Where inside its target a comment sits, in words. */

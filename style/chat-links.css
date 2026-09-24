@@ -90,6 +90,11 @@
   color: var(--jp-ui-font-color1);
 }
 
+/* The result's name follows the inventory's kind mark for outputs. */
+.jp-jupyterlab-lightcone-TurnResults-label > .jp-jupyterlab-lightcone-KindMark {
+  margin-inline-end: 3px;
+}
+
 .jp-jupyterlab-lightcone-TurnResults-files {
   display: flex;
   flex-wrap: wrap;

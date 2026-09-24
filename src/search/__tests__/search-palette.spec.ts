@@ -140,6 +140,87 @@ describe('SearchPalette', () => {
     });
   });
 
+  it('marks records and papers as the inventory does, and nothing else', () => {
+    palette.setCandidates('records', [
+      candidate({}),
+      candidate({
+        id: 'record:decisions.range',
+        kind: 'decision',
+        category: 'Decisions',
+        label: 'Fitting range',
+        rank: 1
+      }),
+      candidate({
+        id: 'record:inputs.catalog',
+        kind: 'input',
+        category: 'Inputs',
+        label: 'Catalog',
+        rank: 2
+      }),
+      candidate({
+        id: 'record:prior_insights.h0',
+        kind: 'prior_insight',
+        category: 'Findings',
+        label: 'Local H0',
+        rank: 3
+      }),
+      candidate({
+        id: 'paper:10.1/x',
+        kind: 'paper',
+        category: 'Papers',
+        label: 'Hubble 1929',
+        rank: 4,
+        action: { type: 'paper', entrypoint: 'astra.yaml', doi: '10.1/x' }
+      })
+    ]);
+    palette.setCandidates('sessions', [
+      candidate({
+        id: 'session:chats/hubble.chat',
+        kind: 'session',
+        category: 'Sessions',
+        label: 'Hubble fit',
+        action: { type: 'session', path: 'chats/hubble.chat' }
+      })
+    ]);
+    render(palette);
+    const rows = Array.from(
+      palette.contentNode.querySelectorAll('.lm-CommandPalette-item')
+    );
+    const kindOf = (row: Element) =>
+      row
+        .querySelector(
+          '.lm-CommandPalette-itemIcon > .lightcone-brand.astra-ui > .astra-kind-glyph'
+        )
+        ?.getAttribute('data-kind') ?? null;
+    expect(rows.map(kindOf)).toEqual([
+      null,
+      'output',
+      'decision',
+      'input',
+      'prior_insight',
+      'paper'
+    ]);
+    // The glyphs are ASTRA UI's own: symbols, and a drawing for papers.
+    expect(
+      rows
+        .slice(1, 5)
+        .map(row => row.querySelector('.astra-kind-glyph')?.textContent)
+    ).toEqual(['◆', '◇', '▤', '◈']);
+    expect(rows[5].querySelector('.astra-kind-glyph svg')).not.toBeNull();
+    // The scope follows the Lab theme, so the Lightcone dark kind colours apply.
+    document.body.dataset.jpThemeLight = 'false';
+    try {
+      render(palette, 'fit');
+      const mark = palette.contentNode.querySelector(
+        '.lm-CommandPalette-itemIcon > .lightcone-brand.astra-ui'
+      );
+      expect(mark?.getAttribute('data-astra-color-scheme')).toBe('dark');
+      expect(mark?.getAttribute('data-lightcone-color-scheme')).toBe('dark');
+    } finally {
+      delete document.body.dataset.jpThemeLight;
+    }
+  });
+
   it('emits the chosen candidate when its command runs', async () => {
     const chosen: ISearchCandidate[] = [];
     palette.selected.connect((_sender, value) => {

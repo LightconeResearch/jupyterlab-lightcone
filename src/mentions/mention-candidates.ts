@@ -16,6 +16,8 @@ export interface IMentionCandidate {
   description: string;
   /** The visible reference that replaces the typed word. */
   replaceWith: string;
+  /** A record's kind, which the menu marks as the inventory does. */
+  kind?: ResolvedRecord['kind'];
 }
 
 /** A record kind as the menu names it. */
@@ -97,7 +99,8 @@ export function recordMentions(
     description: `${KIND_LABELS[record.kind]} · ${recordTitle(record)}`,
     replaceWith: `\`${record.canonicalPath}\`${
       record.kind === 'output' ? versionSuffix(versionOf(record)) : ''
-    }`
+    }`,
+    kind: record.kind
   }));
 }
 
