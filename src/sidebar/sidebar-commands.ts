@@ -6,8 +6,7 @@ export namespace SidebarCommandIDs {
 
 /**
  * JupyterLab commands the sidebar executes. Lightcone commands come from the
- * areas that register them (`SearchCommandIDs`, `RunsCommandIDs`,
- * `CommandIDs`); the sidebar hides an entry whose command is not registered.
+ * areas that register them (`SearchCommandIDs`, `CommandIDs`); the sidebar hides an entry whose command is not registered.
  */
 export namespace WorkbenchCommandIDs {
   /** JupyterLab's launcher, which the Home plugin turns into Home. */

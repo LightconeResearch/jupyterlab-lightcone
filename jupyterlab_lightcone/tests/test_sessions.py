@@ -1,13 +1,10 @@
 """Sessions are listed with readable titles and live activity; preparing a project keeps chats out of Git."""
 
 import json
-import logging
 import os
 from pathlib import Path
-import subprocess
 import warnings
 
-from jupyter_server.base.handlers import log as server_log
 from jupyter_server.utils import JupyterServerAuthWarning
 import pytest
 
@@ -64,10 +61,6 @@ def project(jp_root_dir):
     (directory / "chats").mkdir(parents=True)
     (directory / "astra.yaml").write_text("name: example\n")
     return directory
-
-
-def git(directory: Path, *arguments: str) -> str:
-    return subprocess.run(["git", *arguments], cwd=directory, capture_output=True, text=True, check=True).stdout.strip()
 
 
 def test_the_title_is_the_first_line_a_person_wrote():
@@ -226,82 +219,6 @@ def test_the_project_keeps_the_contents_path_its_entrypoint_names(entrypoint, ex
     assert sessions.project_contents_path(entrypoint) == expected
 
 
-def test_exclude_rules_are_relative_to_the_repository_root(tmp_path):
-    assert sessions.exclude_patterns(tmp_path, tmp_path) == ["/chats/", "/*.chat"]
-    nested = tmp_path / "team" / "project"
-    nested.mkdir(parents=True)
-    assert sessions.exclude_patterns(nested, tmp_path) == ["/team/project/chats/", "/team/project/*.chat"]
-
-
-def test_exclude_rules_quote_wildcards_in_folder_names(tmp_path):
-    nested = tmp_path / "draft [v2]" / "a*b?c\\d"
-    nested.mkdir(parents=True)
-    assert sessions.exclude_patterns(nested, tmp_path) == [
-        "/draft \\[v2]/a\\*b\\?c\\\\d/chats/",
-        "/draft \\[v2]/a\\*b\\?c\\\\d/*.chat",
-    ]
-    spanning = tmp_path / "two\nlines"
-    spanning.mkdir()
-    with pytest.raises(ValueError):
-        sessions.exclude_patterns(spanning, tmp_path)
-
-
-def test_excluding_chats_of_a_folder_named_like_a_wildcard_hides_only_its_own(tmp_path):
-    git(tmp_path, "init", "-q")
-    for folder in ("draft [v2]", "draftv"):
-        write_chat(tmp_path / folder / "chats" / "talk.chat", chat(message("Hello")))
-        write_chat(tmp_path / folder / "loose.chat", chat(message("Hello")))
-    assert sessions.exclude_chats(tmp_path / "draft [v2]") is True
-    assert git(tmp_path, "status", "--porcelain", "--untracked-files=all").splitlines() == [
-        "?? draftv/chats/talk.chat",
-        "?? draftv/loose.chat",
-    ]
-
-
-def test_excluding_chats_appends_once_after_any_last_line(tmp_path):
-    git(tmp_path, "init", "-q")
-    exclude = tmp_path / ".git" / "info" / "exclude"
-    exclude.parent.mkdir(parents=True, exist_ok=True)
-    exclude.write_text("/results/README.md")
-    assert sessions.exclude_chats(tmp_path) is True
-    assert exclude.read_text() == "/results/README.md\n/chats/\n/*.chat\n"
-    assert sessions.exclude_chats(tmp_path) is False
-    assert exclude.read_text() == "/results/README.md\n/chats/\n/*.chat\n"
-
-
-def test_excluding_chats_creates_a_missing_exclude_file(tmp_path):
-    repository = tmp_path / "repository"
-    repository.mkdir()
-    git(repository, "init", "-q")
-    exclude = repository / ".git" / "info" / "exclude"
-    if exclude.exists():
-        exclude.unlink()
-        exclude.parent.rmdir()
-    assert sessions.exclude_chats(repository) is True
-    assert exclude.read_text() == "/chats/\n/*.chat\n"
-    ignored = git(repository, "check-ignore", "chats/talk.chat", "talk.chat", "src/talk.chat", "notes.md")
-    assert ignored.splitlines() == ["chats/talk.chat", "talk.chat"]
-
-
-def test_a_folder_outside_any_repository_is_left_alone(tmp_path):
-    assert sessions.exclude_chats(tmp_path) is False
-    assert not (tmp_path / ".git").exists()
-
-
-def test_a_missing_git_executable_is_not_an_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("PATH", str(tmp_path / "nowhere"))
-    assert sessions.exclude_chats(tmp_path) is False
-
-
-def test_an_unwritable_exclude_file_is_an_error(tmp_path):
-    git(tmp_path, "init", "-q")
-    exclude = tmp_path / ".git" / "info" / "exclude"
-    exclude.unlink(missing_ok=True)
-    exclude.mkdir(parents=True)
-    with pytest.raises(OSError):
-        sessions.exclude_chats(tmp_path)
-
-
 async def test_the_listing_endpoint_reports_sessions_and_their_activity(jp_fetch, jp_serverapp, project):
     # Seeded through the persona manager's own accessor, so writer and reader must agree.
     agent_workspace = pytest.importorskip("jupyterlab_lightcone.agent_workspace")
@@ -409,47 +326,6 @@ async def test_preparing_creates_the_chats_folder_through_the_contents_manager(j
     assert json.loads(response.body) == {"directory": "fresh/chats"}
     assert created == [({"type": "directory"}, "fresh/chats")]
     assert not (project / ".git").exists()
-
-
-async def test_preparing_excludes_chats_from_the_projects_git_status(jp_fetch, project):
-    git(project, "init", "-q")
-    write_chat(project / "chats" / "talk.chat", chat(message("Hello")))
-    write_chat(project / "loose.chat", chat(message("Hello")))
-    assert git(project, "status", "--porcelain")
-    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "project/astra.yaml"}))
-    assert response.code == 200
-    exclude = (project / ".git" / "info" / "exclude").read_text()
-    assert exclude.endswith("/chats/\n/*.chat\n")
-    assert git(project, "status", "--porcelain", "--untracked-files=all").splitlines() == ["?? astra.yaml"]
-    await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "project/astra.yaml"}))
-    assert (project / ".git" / "info" / "exclude").read_text() == exclude
-
-
-async def test_preparing_a_project_nested_in_a_repository_targets_its_own_chats(jp_fetch, jp_root_dir, project):
-    git(jp_root_dir, "init", "-q")
-    write_chat(project / "chats" / "talk.chat", chat(message("Hello")))
-    await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "project/astra.yaml"}))
-    exclude = (jp_root_dir / ".git" / "info" / "exclude").read_text()
-    assert exclude.endswith("/project/chats/\n/project/*.chat\n")
-    assert git(jp_root_dir, "status", "--porcelain", "--untracked-files=all").splitlines() == ["?? project/astra.yaml"]
-
-
-async def test_preparing_reports_a_failed_exclusion_but_still_prepares(jp_fetch, jp_root_dir, caplog):
-    project = jp_root_dir / "fresh"
-    project.mkdir()
-    (project / "astra.yaml").write_text("name: fresh\n")
-    git(project, "init", "-q")
-    exclude = project / ".git" / "info" / "exclude"
-    exclude.unlink(missing_ok=True)
-    exclude.mkdir(parents=True)
-    with caplog.at_level(logging.WARNING, logger=server_log().name):
-        response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "fresh/astra.yaml"}))
-    assert response.code == 200
-    assert json.loads(response.body) == {"directory": "fresh/chats"}
-    assert (project / "chats").is_dir()
-    warnings_logged = [record for record in caplog.records if record.levelno == logging.WARNING]
-    assert [record.getMessage() for record in warnings_logged] == [f"Could not exclude chats from the Git status of {project.resolve()}"]
-    assert warnings_logged[0].exc_info is not None
 
 
 async def test_preparing_a_project_at_the_server_root(jp_fetch, jp_root_dir):

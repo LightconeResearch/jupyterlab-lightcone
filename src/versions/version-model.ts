@@ -356,7 +356,6 @@ export interface IRunView {
    * recorded by a version committed without a manifest.
    */
   recipe?: string;
-  exit?: number;
   gitRevision?: string;
   engineVersion?: string;
   environmentVersion?: string;
@@ -367,17 +366,14 @@ export interface IRunView {
   dataVersion?: string;
   inputVersions: Record<string, string>;
   decisions: Record<string, string>;
-  /** Paths the DataLad record lists as read. */
-  inputs: string[];
 }
 
 /**
- * Describe one materialization: a committed version from its own DataLad
- * record and manifest, or, when no version is described, the current run
- * record (the sidecar). A version never borrows the sidecar's facts: the
- * sidecar describes the latest run, so a version committed without a valid
- * manifest shows only what its commit recorded. Undefined when neither
- * exists.
+ * Describe one materialization: a committed version from its manifest at
+ * that commit, or, when no version is described, the current run record
+ * (the sidecar). A version never borrows the sidecar's facts: the sidecar
+ * describes the latest run, so a version committed without a valid manifest
+ * shows only what its commit recorded. Undefined when neither exists.
  */
 export function runView(
   run: OutputRun | null | undefined,
@@ -397,11 +393,7 @@ export function runView(
       sidecar?.finishedAt,
     started: manifestString(manifest, 'started_at'),
     recipe: manifestString(manifest, 'recipe') ?? sidecar?.recipe,
-    command:
-      version?.run?.cmd ??
-      manifestString(manifest, 'recipe') ??
-      sidecar?.recipe,
-    exit: version?.run?.exit,
+    command: manifestString(manifest, 'recipe') ?? sidecar?.recipe,
     gitRevision: manifestString(manifest, 'git_sha') ?? sidecar?.gitRevision,
     engineVersion:
       manifestString(manifest, 'lc_version') ?? sidecar?.cliVersion,
@@ -415,8 +407,7 @@ export function runView(
     inputVersions: manifest
       ? manifestStringMap(manifest, 'input_versions')
       : { ...(sidecar?.inputVersions ?? {}) },
-    decisions: manifestStringMap(manifest, 'decisions'),
-    inputs: version?.run?.inputs ?? []
+    decisions: manifestStringMap(manifest, 'decisions')
   };
 }
 

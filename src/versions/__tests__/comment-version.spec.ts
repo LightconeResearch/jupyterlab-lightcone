@@ -32,10 +32,8 @@ function version(commit: string): IOutputVersion {
     short: commit.slice(0, 7),
     time: '2026-09-20T10:00:00Z',
     subject: '',
-    key: `SHA256E-s1--${commit.slice(0, 4)}.png`,
     size: 1,
     present: true,
-    run: null,
     manifest: null
   };
 }
@@ -58,7 +56,7 @@ test('a comment is pinned to the version the record tab shows', async () => {
   try {
     await expect(pin('b'.repeat(7))).resolves.toEqual({
       commit: 'b'.repeat(40),
-      key: 'SHA256E-s1--bbbb.png',
+      key: null,
       hash: null,
       label: 'bbbbbbb'
     });

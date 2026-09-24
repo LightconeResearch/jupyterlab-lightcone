@@ -15,16 +15,14 @@ const listed = listVersionsCached as jest.MockedFunction<
   typeof listVersionsCached
 >;
 
-function version(commit: string, key: string | null): IOutputVersion {
+function version(commit: string): IOutputVersion {
   return {
     commit,
     short: commit.slice(0, 7),
     time: '2026-09-20T10:00:00Z',
     subject: '',
-    key,
     size: null,
     present: true,
-    run: null,
     manifest: null
   };
 }
@@ -63,14 +61,11 @@ beforeEach(() => {
 test('pins the newest committed version of a root output, freshly listed', async () => {
   listed.mockResolvedValue({
     file: 'results/baseline/figure.png',
-    versions: [
-      version('c'.repeat(40), 'SHA256E-s1--c.png'),
-      version('b'.repeat(40), null)
-    ]
+    versions: [version('c'.repeat(40)), version('b'.repeat(40))]
   });
   await expect(
     latestCardVersion(contents(), 'p/astra.yaml', data(), output)
-  ).resolves.toEqual({ commit: 'c'.repeat(40), key: 'SHA256E-s1--c.png' });
+  ).resolves.toEqual({ commit: 'c'.repeat(40) });
   expect(forgetVersions).toHaveBeenCalledWith(
     settings,
     'p/astra.yaml',
@@ -79,7 +74,7 @@ test('pins the newest committed version of a root output, freshly listed', async
   );
   listed.mockResolvedValue({
     file: 'results/baseline/figure.png',
-    versions: [version('d'.repeat(40), null)]
+    versions: [version('d'.repeat(40))]
   });
   await expect(
     latestCardVersion(contents(), 'p/astra.yaml', data(), output)

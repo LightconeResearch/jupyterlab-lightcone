@@ -5,7 +5,9 @@ import {
   fetchVersionContent,
   isLockedPackages,
   isOutputVersion,
+  isResultsCommit,
   isRevisionSource,
+  listResultsCommits,
   listVersions,
   versionContentUrl
 } from '../versions-api';
@@ -20,15 +22,8 @@ const version = {
   short: 'a889877',
   time: '2026-09-20T10:00:00Z',
   subject: '[DATALAD RUNCMD] hubble_diagram [baseline]',
-  key: 'SHA256E-s208410--01ec.png',
   size: 208410,
   present: true,
-  run: {
-    cmd: 'uv run plot.py',
-    exit: 0,
-    inputs: ['data/union.csv'],
-    outputs: ['results/baseline/hubble_diagram.png']
-  },
   manifest: { schema_version: 1, output_id: 'hubble_diagram' }
 };
 
@@ -42,9 +37,7 @@ test('narrows a version listing and rejects malformed entries', () => {
   expect(
     isOutputVersion({
       ...version,
-      key: null,
       size: null,
-      run: null,
       manifest: null
     })
   ).toBe(true);
@@ -52,7 +45,6 @@ test('narrows a version listing and rejects malformed entries', () => {
     null,
     { ...version, commit: 7 },
     { ...version, present: 'yes' },
-    { ...version, run: { cmd: 'x' } },
     { ...version, manifest: [] },
     { ...version, size: '1' }
   ])
@@ -235,4 +227,46 @@ test('reads a script at a recorded revision and the locked packages', async () =
   await expect(
     fetchLockedPackages(settings, 'project/astra.yaml', 'ddddddd')
   ).rejects.toThrow('Recorded environment request failed (404)');
+});
+
+test('lists the commits that touched the results, bounded to a window', async () => {
+  const commit = {
+    commit: 'e'.repeat(40),
+    short: 'eeeeeee',
+    time: '2026-09-21T10:00:00Z',
+    subject: '[DATALAD RUNCMD] hubble_diagram [baseline]',
+    outputs: [{ universe: 'baseline', output: 'hubble_diagram' }]
+  };
+  expect(isResultsCommit(commit)).toBe(true);
+  expect(isResultsCommit({ ...commit, outputs: [{ universe: 1 }] })).toBe(
+    false
+  );
+  const request = jest
+    .spyOn(ServerConnection, 'makeRequest')
+    .mockImplementation(
+      async () => new Response(JSON.stringify({ commits: [commit] }))
+    );
+  await expect(
+    listResultsCommits(settings, 'project/astra.yaml', {
+      since: 1000.7,
+      until: 2000,
+      limit: 5
+    })
+  ).resolves.toEqual([commit]);
+  const url = new URL(request.mock.calls[0][0]);
+  expect(url.pathname).toBe('/lab/jupyterlab_lightcone/api/versions/results');
+  expect(url.searchParams.get('path')).toBe('project/astra.yaml');
+  expect(url.searchParams.get('since')).toBe('1000');
+  expect(url.searchParams.get('until')).toBe('2000');
+  expect(url.searchParams.get('limit')).toBe('5');
+  await listResultsCommits(settings, 'project/astra.yaml');
+  expect(new URL(request.mock.calls[1][0]).searchParams.has('since')).toBe(
+    false
+  );
+  request.mockImplementation(
+    async () => new Response(JSON.stringify({ commits: [{}] }))
+  );
+  await expect(
+    listResultsCommits(settings, 'project/astra.yaml')
+  ).rejects.toThrow('invalid results history');
 });

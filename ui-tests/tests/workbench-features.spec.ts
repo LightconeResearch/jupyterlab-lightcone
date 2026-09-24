@@ -143,19 +143,6 @@ test('search finds the text of a session and opens it', async ({
     .toBe('residuals.chat');
 });
 
-test('the settings page reports the project kernel, container and compute', async ({
-  page,
-  tmpPath
-}) => {
-  await openWorkbench(page, tmpPath);
-  await execute(page, 'jupyterlab_lightcone:open-customize');
-  const settings = page.locator('.jp-jupyterlab-lightcone-Customize');
-  await expect(settings).toContainText('Notebook kernel');
-  await expect(settings).toContainText('Container');
-  await expect(settings).toContainText('Compute');
-  await expect(settings).toContainText('ACP client installed');
-});
-
 test('tabs of two projects that read the same name their project', async ({
   page,
   tmpPath

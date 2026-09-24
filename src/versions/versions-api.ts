@@ -2,14 +2,6 @@ import { ServerConnection } from '@jupyterlab/services';
 import { isRecord, RequestError } from '../api';
 import { apiUrl, requestAPI } from '../request';
 
-/** The DataLad run record the engine writes into a materialization commit. */
-export interface IRunCommand {
-  cmd: string;
-  exit: number;
-  inputs: string[];
-  outputs: string[];
-}
-
 /** One committed version of an output. */
 export interface IOutputVersion {
   commit: string;
@@ -19,14 +11,31 @@ export interface IOutputVersion {
   time: string;
   /** First line of the commit message. */
   subject: string;
-  /** git-annex key of the bytes, when the file is annexed. */
-  key: string | null;
+  /** Size of the bytes git holds; null when git-annex keeps them. */
   size: number | null;
-  /** Whether the bytes are available on this server. */
+  /**
+   * Whether git itself holds the bytes. An annexed version is listed but
+   * cannot be served: the server does not read git-annex.
+   */
   present: boolean;
-  run: IRunCommand | null;
   /** The manifest sidecar at that commit, when valid. */
   manifest: Record<string, unknown> | null;
+}
+
+/** An output a commit under `results/` changed. */
+export interface ICommittedOutput {
+  universe: string;
+  output: string;
+}
+
+/** A commit that touched the project's results, and the outputs it changed. */
+export interface IResultsCommit {
+  commit: string;
+  short: string;
+  /** Commit time, ISO 8601. */
+  time: string;
+  subject: string;
+  outputs: ICommittedOutput[];
 }
 
 /** The history of one output. */
@@ -37,20 +46,6 @@ export interface IVersionListing {
   versions: IOutputVersion[];
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(item => typeof item === 'string');
-}
-
-function isRunCommand(value: unknown): value is IRunCommand {
-  return (
-    isRecord(value) &&
-    typeof value.cmd === 'string' &&
-    typeof value.exit === 'number' &&
-    isStringArray(value.inputs) &&
-    isStringArray(value.outputs)
-  );
-}
-
 /** Narrow a server payload to an output version. */
 export function isOutputVersion(value: unknown): value is IOutputVersion {
   return (
@@ -59,12 +54,68 @@ export function isOutputVersion(value: unknown): value is IOutputVersion {
     typeof value.short === 'string' &&
     typeof value.time === 'string' &&
     typeof value.subject === 'string' &&
-    (value.key === null || typeof value.key === 'string') &&
     (value.size === null || typeof value.size === 'number') &&
     typeof value.present === 'boolean' &&
-    (value.run === null || isRunCommand(value.run)) &&
     (value.manifest === null || isRecord(value.manifest))
   );
+}
+
+function isCommittedOutput(value: unknown): value is ICommittedOutput {
+  return (
+    isRecord(value) &&
+    typeof value.universe === 'string' &&
+    typeof value.output === 'string'
+  );
+}
+
+/** Narrow a server payload to a results commit. */
+export function isResultsCommit(value: unknown): value is IResultsCommit {
+  return (
+    isRecord(value) &&
+    typeof value.commit === 'string' &&
+    typeof value.short === 'string' &&
+    typeof value.time === 'string' &&
+    typeof value.subject === 'string' &&
+    Array.isArray(value.outputs) &&
+    value.outputs.every(isCommittedOutput)
+  );
+}
+
+/** Bounds of a results history request; times are seconds since the epoch. */
+export interface IResultsWindow {
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+/**
+ * The commits that touched the project's results, newest first, with the
+ * outputs each one changed; bounded to the window when one is given.
+ */
+export async function listResultsCommits(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  window: IResultsWindow = {}
+): Promise<IResultsCommit[]> {
+  const params = new URLSearchParams({ path: entrypoint });
+  for (const [name, value] of Object.entries(window)) {
+    if (value !== undefined) {
+      params.set(name, String(Math.floor(value)));
+    }
+  }
+  try {
+    const data = await requestAPI(`api/versions/results?${params}`, settings);
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.commits) ||
+      !data.commits.every(isResultsCommit)
+    ) {
+      throw new Error('The server returned an invalid results history.');
+    }
+    return data.commits;
+  } catch (error) {
+    throw new RequestError('Results history', error);
+  }
 }
 
 function query(

@@ -7,7 +7,7 @@ import { ElementTabs, type ElementTab } from '../../element-tabs';
 import { ElementWidget } from '../../element-widget';
 import { FakeThemeManager } from '../../home/__tests__/home-fixtures';
 import { requestAPI } from '../../request';
-import { until } from '../../runs/__tests__/runs-fixtures';
+import { until } from '../../__tests__/async-fixtures';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { ElementHistoryCommandIDs } from '../element-history';
 import { PipelineCommandIDs } from '../pipeline-commands';

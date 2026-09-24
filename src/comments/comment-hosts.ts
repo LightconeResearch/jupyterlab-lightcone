@@ -119,7 +119,7 @@ export async function recordVersion(
     return pinned
       ? {
           commit: pinned.commit,
-          key: pinned.key,
+          key: null,
           hash: null,
           label: pinned.short
         }

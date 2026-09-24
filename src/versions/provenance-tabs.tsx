@@ -138,13 +138,6 @@ function RunTab({
           <Row label="Command">
             {run.command ? <code>{run.command}</code> : undefined}
           </Row>
-          <Row label="Exit code">
-            {run.exit === undefined ? undefined : (
-              <span data-failed={run.exit === 0 ? undefined : ''}>
-                {run.exit}
-              </span>
-            )}
-          </Row>
           <Row label="Commit">
             {run.short ? (
               <code title={run.commit}>{run.short}</code>
@@ -344,7 +337,7 @@ function InputsTab({
   run,
   inputs
 }: Pick<IProvenanceTabsProps, 'run' | 'inputs'>): React.ReactElement {
-  if (!inputs.length && !run?.inputs.length)
+  if (!inputs.length)
     return <p>No input versions were recorded for this run.</p>;
   return (
     <div className="jp-jupyterlab-lightcone-Provenance-inputs">
@@ -367,14 +360,6 @@ function InputsTab({
             </li>
           ))}
         </ul>
-      )}
-      {run && run.inputs.length > 0 && (
-        <p>
-          <span>Files read:</span>{' '}
-          {run.inputs.map(path => (
-            <code key={path}>{path}</code>
-          ))}
-        </p>
       )}
     </div>
   );

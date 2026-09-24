@@ -34,10 +34,8 @@ function version(commit: string, time: string): IOutputVersion {
     short: commit.slice(0, 7),
     time,
     subject: '',
-    key: null,
     size: null,
     present: true,
-    run: null,
     manifest: null
   };
 }

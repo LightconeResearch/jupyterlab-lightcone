@@ -1,4 +1,4 @@
-import type { IRunRecord } from '../runs/runs-api';
+import type { IResultsCommit } from '../versions/versions-api';
 import { isPersonaUser } from '../sessions/session-activity';
 
 /** The part of a chat message that turn detection reads. */
@@ -25,7 +25,8 @@ export interface ITurnWindow {
 export interface IMaterializedOutput {
   universe: string;
   output: string;
-  run: IRunRecord;
+  /** The newest commit in the window that changed the output. */
+  commit: IResultsCommit;
 }
 
 /**
@@ -77,40 +78,36 @@ export function turnEndingAt(
   return undefined;
 }
 
-/** Commit time in seconds, or undefined when the record's time cannot be read. */
-function runSeconds(run: IRunRecord): number | undefined {
-  const millis = Date.parse(run.time);
+/** Commit time in seconds, or undefined when it cannot be read. */
+function commitSeconds(commit: IResultsCommit): number | undefined {
+  const millis = Date.parse(commit.time);
   return Number.isNaN(millis) ? undefined : millis / 1000;
 }
 
 /**
  * The outputs whose materialization commits fall inside the window, newest
  * commit per output and universe, oldest first. Commit times have whole-second
- * precision, so the window is widened to whole seconds on both sides. A
- * failed run made nothing, so it is left out.
+ * precision, so the window is widened to whole seconds on both sides. The
+ * engine commits only what a run made, so every commit here is a success.
  */
 export function materializedDuring(
-  runs: readonly IRunRecord[],
+  commits: readonly IResultsCommit[],
   window: Pick<ITurnWindow, 'start' | 'end'>
 ): IMaterializedOutput[] {
   const start = Math.floor(window.start);
   const end = Math.ceil(window.end);
   const newest = new Map<string, { at: number; item: IMaterializedOutput }>();
-  for (const run of runs) {
-    const at = runSeconds(run);
+  for (const commit of commits) {
+    const at = commitSeconds(commit);
     if (at === undefined || at < start || at > end) {
       continue;
     }
-    if (run.exit !== null && run.exit !== 0) {
-      continue;
-    }
-    const key = `${run.universe}\u0000${run.output}`;
-    const known = newest.get(key);
-    if (!known || known.at < at) {
-      newest.set(key, {
-        at,
-        item: { universe: run.universe, output: run.output, run }
-      });
+    for (const { universe, output } of commit.outputs) {
+      const key = `${universe}\u0000${output}`;
+      const known = newest.get(key);
+      if (!known || known.at < at) {
+        newest.set(key, { at, item: { universe, output, commit } });
+      }
     }
   }
   return [...newest.values()]

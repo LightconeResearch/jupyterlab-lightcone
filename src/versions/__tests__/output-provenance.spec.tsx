@@ -39,10 +39,8 @@ const version: IOutputVersion = {
   short: 'ccccccc',
   time: '2026-09-20T10:00:00Z',
   subject: '',
-  key: null,
   size: null,
   present: true,
-  run: { cmd: 'uv run fit.py', exit: 0, inputs: [], outputs: [] },
   manifest: null
 };
 
@@ -80,12 +78,6 @@ test('the Code tab locates the script from the recipe, not the worker command', 
   });
   const recorded: IOutputVersion = {
     ...version,
-    run: {
-      cmd: 'uv run -- python -m lightcone.engine.worker baseline/fit',
-      exit: 0,
-      inputs: [],
-      outputs: []
-    },
     manifest: { recipe: 'python src/fit.py --output results/baseline/fit.png' }
   };
   await act(async () => {

@@ -1,4 +1,4 @@
-"""The extension's shutdown hook never lets one failure strand other processes."""
+"""The extension's shutdown hook never lets a viewer failure reach Jupyter Server's own cleanup."""
 
 import asyncio
 from types import SimpleNamespace
@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from jupyterlab_lightcone import application
 from jupyterlab_lightcone.application import LightconeApp
 
 
@@ -18,35 +17,27 @@ def stopping_app(manager=None):
     return app
 
 
-async def test_a_failed_job_shutdown_still_stops_the_viewer(monkeypatch):
-    monkeypatch.setattr(application, "close_jobs", AsyncMock(side_effect=PermissionError("killpg")))
+async def test_the_viewer_is_stopped():
     manager = SimpleNamespace(close=AsyncMock())
     app = stopping_app(manager)
     await LightconeApp.stop_extension(app)
     manager.close.assert_awaited_once()
-    app.log.warning.assert_called_once()
+    app.log.warning.assert_not_called()
 
 
-async def test_a_failed_viewer_shutdown_does_not_fail_the_server_cleanup(monkeypatch):
-    close_jobs = AsyncMock()
-    monkeypatch.setattr(application, "close_jobs", close_jobs)
+async def test_a_failed_viewer_shutdown_does_not_fail_the_server_cleanup():
     app = stopping_app(SimpleNamespace(close=AsyncMock(side_effect=OSError("myst"))))
     await LightconeApp.stop_extension(app)
-    close_jobs.assert_awaited_once_with(app.serverapp.web_app)
     app.log.warning.assert_called_once()
 
 
-async def test_a_cancelled_shutdown_is_not_swallowed(monkeypatch):
+async def test_a_cancelled_shutdown_is_not_swallowed():
     """Only failures are isolated; cancellation still reaches Jupyter Server."""
-    monkeypatch.setattr(application, "close_jobs", AsyncMock(side_effect=asyncio.CancelledError))
     with pytest.raises(asyncio.CancelledError):
-        await LightconeApp.stop_extension(stopping_app(SimpleNamespace(close=AsyncMock())))
+        await LightconeApp.stop_extension(stopping_app(SimpleNamespace(close=AsyncMock(side_effect=asyncio.CancelledError))))
 
 
-async def test_without_a_viewer_manager_only_jobs_stop(monkeypatch):
-    close_jobs = AsyncMock()
-    monkeypatch.setattr(application, "close_jobs", close_jobs)
+async def test_without_a_viewer_manager_nothing_stops():
     app = stopping_app()
     await LightconeApp.stop_extension(app)
-    close_jobs.assert_awaited_once()
     app.log.warning.assert_not_called()

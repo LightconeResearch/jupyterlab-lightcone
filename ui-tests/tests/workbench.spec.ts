@@ -561,30 +561,12 @@ test('the sidebar’s Home button brings the open Home forward', async ({
   expect(await tabBars(page)).toEqual([['Home', 'untitled.chat']]);
 });
 
-test('narrow tabs wrap and stack by their own width', async ({
+test('a narrow record beside Home keeps a readable context line', async ({
   page,
   tmpPath
 }) => {
   await openWorkbench(page, tmpPath);
-  // A window this wide leaves the settings page under 560 px, while the
-  // window itself stays well above it.
   await page.setViewportSize({ width: 820, height: 900 });
-  await execute(page, 'jupyterlab_lightcone:open-customize');
-  const settings = page.locator('.jp-jupyterlab-lightcone-Customize');
-  const row = settings
-    .locator('.jp-jupyterlab-lightcone-Customize-row')
-    .first();
-  await expect(row).toBeVisible();
-  const columns = await row.evaluate(
-    element => getComputedStyle(element).gridTemplateColumns
-  );
-  expect(columns.trim().split(/\s+/)).toHaveLength(1);
-  expect(
-    await settings.evaluate(
-      element => element.scrollWidth <= element.clientWidth
-    )
-  ).toBe(true);
-
   // A record beside Home gets a third of the window: its context line keeps
   // a readable width instead of breaking every word.
   await page.locator('.lm-TabBar-tab', { hasText: 'Home' }).click();

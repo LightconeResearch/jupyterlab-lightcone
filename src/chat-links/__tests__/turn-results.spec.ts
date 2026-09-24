@@ -1,4 +1,4 @@
-import type { IRunRecord } from '../../runs/runs-api';
+import type { IResultsCommit } from '../../versions/versions-api';
 import { isPersonaUser } from '../../sessions/session-activity';
 import {
   filesEditedIn,
@@ -25,18 +25,17 @@ function run(
   time: string,
   output: string,
   universe = 'baseline',
-  exit: number | null = 0
-): IRunRecord {
+  ...more: [string, string][]
+): IResultsCommit {
   return {
     commit: `${output}-${time}`,
     short: 'abc1234',
     time,
-    output,
-    universe,
-    exit,
-    cmd: 'lc materialize',
-    inputs: [],
-    outputs: [`results/${universe}/${output}.png`]
+    subject: `[DATALAD RUNCMD] ${output} [${universe}]`,
+    outputs: [
+      { universe, output },
+      ...more.map(([universe, output]) => ({ universe, output }))
+    ]
   };
 }
 
@@ -138,7 +137,7 @@ describe('materializedDuring', () => {
     ];
     const items = materializedDuring(runs, window);
     expect(
-      items.map(item => [item.universe, item.output, item.run.time])
+      items.map(item => [item.universe, item.output, item.commit.time])
     ).toEqual([
       ['baseline', 'table', '1970-01-01T00:17:05Z'],
       ['alt', 'hubble', '1970-01-01T00:17:10Z'],
@@ -146,14 +145,16 @@ describe('materializedDuring', () => {
     ]);
   });
 
-  it('skips failed runs and unreadable times', () => {
+  it('lists every output a commit changed and skips unreadable times', () => {
     const runs = [
-      run('1970-01-01T00:17:00Z', 'failed', 'baseline', 1),
       run('not a date', 'unreadable'),
-      run('1970-01-01T00:17:00Z', 'unknown_exit', 'baseline', null)
+      run('1970-01-01T00:17:00Z', 'fit', 'baseline', ['alt', 'fit'])
     ];
-    expect(materializedDuring(runs, window).map(item => item.output)).toEqual([
-      'unknown_exit'
+    expect(
+      materializedDuring(runs, window).map(item => [item.universe, item.output])
+    ).toEqual([
+      ['baseline', 'fit'],
+      ['alt', 'fit']
     ]);
   });
 });

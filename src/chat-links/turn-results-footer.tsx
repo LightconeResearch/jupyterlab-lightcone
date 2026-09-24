@@ -18,10 +18,10 @@ import { CommandIDs } from '../commands';
 import { useProject } from '../element-widget';
 import type { ILoadedProjectData } from '../project-data';
 import type { IProjectRoot } from '../project-root';
-import type { IRunRecord } from '../runs/runs-api';
 import { displayPath, serverRelativePath } from './chat-paths';
 import { recordedChatProject } from './chat-project';
-import { cachedRuns } from './runs-cache';
+import type { IResultsCommit } from '../versions/versions-api';
+import { cachedResultsCommits } from './results-cache';
 import {
   filesEditedIn,
   materializedDuring,
@@ -55,8 +55,9 @@ const KIND_LABELS: Record<ResolvedOutput['type'], string> = {
 
 /**
  * How long, in milliseconds, a reply's end time must hold still before the
- * footer lists the project's runs again: the agent restamps its message with
- * every streamed chunk, and each listing is a `git log` on the server.
+ * footer reads the project's results history again: the agent restamps its
+ * message with every streamed chunk, and each listing walks the history on
+ * the server.
  */
 export const TURN_SETTLE_DELAY = 2000;
 
@@ -137,34 +138,40 @@ function useChatProject(
 }
 
 /**
- * The project's runs, fetched after the turn ended so its commits are in.
- * `notBefore` is the turn's end, server time in seconds since the epoch.
+ * The commits that touched the project's results, fetched after the turn
+ * ended so its commits are in. `notBefore` is the turn's end, server time in
+ * seconds since the epoch.
  */
-function useRuns(
+function useResultsCommits(
   host: ITurnResultsHost,
   entrypoint: string | undefined,
   notBefore: number | undefined
-): IRunRecord[] | undefined {
-  const [runs, setRuns] = useState<IRunRecord[] | undefined>(undefined);
+): IResultsCommit[] | undefined {
+  const [commits, setCommits] = useState<IResultsCommit[] | undefined>(
+    undefined
+  );
   useEffect(() => {
     if (entrypoint === undefined || notBefore === undefined) {
       return;
     }
     let active = true;
-    void cachedRuns(
+    void cachedResultsCommits(
       host.app.serviceManager.serverSettings,
       entrypoint,
       notBefore
     ).then(
       listing => {
         if (active) {
-          setRuns(listing.runs);
+          setCommits(listing);
         }
       },
       error => {
         if (active) {
-          console.warn('Could not list the project runs for a reply.', error);
-          setRuns([]);
+          console.warn(
+            'Could not read the results history for a reply.',
+            error
+          );
+          setCommits([]);
         }
       }
     );
@@ -172,7 +179,7 @@ function useRuns(
       active = false;
     };
   }, [host, entrypoint, notBefore]);
-  return runs;
+  return commits;
 }
 
 /** The output record the engine wrote, whichever analysis declares it. */
@@ -262,7 +269,7 @@ function OutputTile({
           '%1 · %2 · %3. Click to open; middle-click to open pinned.',
           title,
           item.universe,
-          item.run.short
+          item.commit.short
         )}
         onClick={() => onOpen(false)}
         onAuxClick={event => {
@@ -443,10 +450,10 @@ export function createTurnResultsFooter(
       turn ? model.name : undefined,
       turn ? recordedChatProject(model) : undefined
     );
-    const runs = useRuns(host, project?.entrypoint, settledEnd);
+    const commits = useResultsCommits(host, project?.entrypoint, settledEnd);
     const outputs = useMemo(
-      () => (turn && runs ? materializedDuring(runs, turn) : []),
-      [turn, runs]
+      () => (turn && commits ? materializedDuring(commits, turn) : []),
+      [turn, commits]
     );
     const files = useMemo(
       () => (turn ? filesEditedIn(model.messages, turn) : []),

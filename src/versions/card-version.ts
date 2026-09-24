@@ -38,9 +38,7 @@ export async function latestCardVersion(
     );
     const newest = listing.versions[0];
     if (!newest) return undefined;
-    return newest.key
-      ? { commit: newest.commit, key: newest.key }
-      : { commit: newest.commit };
+    return { commit: newest.commit };
   } catch {
     return undefined;
   }

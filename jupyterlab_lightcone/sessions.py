@@ -2,8 +2,10 @@
 
 A session is a Jupyter Chat document under `<project>/chats/` (or, for chats
 created before that folder existed, beside `astra.yaml`). This module lists
-them with a readable title and prepares a project to hold them; it never
-deletes or renames a chat, which the browser does through the Contents API.
+them with a readable title and creates the folder that holds them; it never
+deletes or renames a chat, which the browser does through the Contents API,
+and never touches the project's git configuration: the engine's own
+`.gitignore` template is where `chats/` has to be ignored.
 """
 
 import asyncio
@@ -12,7 +14,6 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import subprocess
 
 from jupyter_server.auth import authorized
 from jupyter_server.utils import url_path_join
@@ -44,8 +45,6 @@ MAX_QUERY_LENGTH = 200
 MAX_SEARCH_MATCHES = 50
 SNIPPET_CONTEXT = 50
 """Characters of a message kept on each side of a search match."""
-EXCLUDE_PATTERNS = ("chats/", "*.chat")
-GIT_TIMEOUT = 10
 
 
 def project_contents_path(entrypoint: str) -> str:
@@ -283,66 +282,8 @@ def search_sessions(project_path: str, project: Path, query: str) -> list[dict]:
     return matches[:MAX_SEARCH_MATCHES]
 
 
-def _git(project: Path, *arguments: str) -> str:
-    """Run one Git query in the project, without a shell, and return its output."""
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=project,
-        capture_output=True,
-        text=True,
-        timeout=GIT_TIMEOUT,
-        check=True,
-    )
-    return completed.stdout.strip()
-
-
-def exclude_patterns(project: Path, toplevel: Path) -> list[str]:
-    """The exclude rules for a project's chats, relative to the repository root.
-
-    A project that is a repository of its own excludes `/chats/` and `/*.chat`;
-    one nested in a larger repository prefixes both with its own folder, so the
-    rules keep pointing at the project's chats rather than the repository's.
-    Raises ValueError for a folder name no single rule can hold.
-    """
-    relative = project.resolve().relative_to(toplevel.resolve()).as_posix()
-    if "\n" in relative or "\r" in relative:
-        raise ValueError("An exclude rule cannot name a folder whose name spans lines")
-    # Quote the wildcards Git would otherwise read in a folder name such as `draft [v2]`.
-    prefix = "" if relative == "." else "/" + re.sub(r"([\\*?\[])", r"\\\1", relative)
-    return [f"{prefix}/{pattern}" for pattern in EXCLUDE_PATTERNS]
-
-
-def exclude_chats(project: Path) -> bool:
-    """Keep the project's chats out of `git status`, so the engine still runs.
-
-    Appends the missing rules to the repository's `info/exclude`, which stays
-    local and never touches the project's own `.gitignore`. Returns whether the
-    file was changed. A folder outside every Git repository, or a server
-    without Git, is left alone; any other failure to query the repository or
-    to read or write the file raises (`OSError`, `ValueError` or
-    `subprocess.SubprocessError`), so the caller can report it.
-    """
-    try:
-        toplevel = Path(_git(project, "rev-parse", "--show-toplevel"))
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        # Git reports no repository here, or is not installed at all.
-        return False
-    exclude = project / _git(project, "rev-parse", "--git-path", "info/exclude")
-    patterns = exclude_patterns(project, toplevel)
-    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
-    present = {line.strip() for line in existing.splitlines()}
-    missing = [pattern for pattern in patterns if pattern not in present]
-    if not missing:
-        return False
-    lead = "" if not existing or existing.endswith("\n") else "\n"
-    exclude.parent.mkdir(parents=True, exist_ok=True)
-    with exclude.open("a", encoding="utf-8") as stream:
-        stream.write(lead + "".join(f"{pattern}\n" for pattern in missing))
-    return True
-
-
 class ProjectSessionsHandler(ProjectAPIHandler):
-    """List a project's sessions, or prepare the project to hold new ones."""
+    """List a project's sessions, or create the folder that holds new ones."""
 
     unavailable_message = "Sessions require local files"
 
@@ -362,12 +303,11 @@ class ProjectSessionsHandler(ProjectAPIHandler):
     @web.authenticated
     @authorized(action="write", resource="contents")
     async def post(self):
-        """Create the project's `chats` folder and keep chats out of its Git status."""
+        """Create the project's `chats` folder, through the contents manager."""
         body = self.get_json_body()
         entrypoint = body.get("path") if isinstance(body, dict) else None
         await self.project_named(entrypoint)
         project_path = project_contents_path(entrypoint)
-        project = project_folder(self.contents_root, project_path)
         directory = chats_directory(project_path)
         manager = self.contents_manager
         try:
@@ -377,15 +317,6 @@ class ProjectSessionsHandler(ProjectAPIHandler):
                 raise
             # Through the manager, so the browser's file events fire.
             await contents_call(manager.new, model={"type": "directory"}, path=directory)
-        try:
-            excluded = await asyncio.to_thread(exclude_chats, project)
-        except (OSError, ValueError, subprocess.SubprocessError):
-            # The folder is ready either way; only the Git hygiene is missing,
-            # and the engine will name the dirty tree if it refuses to run.
-            self.log.warning("Could not exclude chats from the Git status of %s", project, exc_info=True)
-        else:
-            if excluded:
-                self.log.info("Excluded chats from the Git status of %s", project)
         self.finish({"directory": directory})
 
 

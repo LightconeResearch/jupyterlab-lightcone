@@ -169,10 +169,8 @@ describe('MentionProvider', () => {
           short: 'a889877',
           time: '2026-09-20T10:00:00Z',
           subject: '',
-          key: null,
           size: null,
           present: true,
-          run: null,
           manifest: null
         }
       ]

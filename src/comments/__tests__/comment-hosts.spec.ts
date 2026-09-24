@@ -345,10 +345,8 @@ describe('recordVersion', () => {
     short: commit.slice(0, 7),
     time: '2026-09-23T10:00:00Z',
     subject: 'materialize',
-    key: `SHA256E-s8--${commit.slice(0, 4)}.png`,
     size: 8,
     present: true,
-    run: null,
     manifest: null
   });
 
@@ -386,7 +384,7 @@ describe('recordVersion', () => {
       )
     ).resolves.toEqual({
       commit: 'c'.repeat(40),
-      key: 'SHA256E-s8--cccc.png',
+      key: null,
       hash: null,
       label: 'ccccccc'
     });

@@ -58,22 +58,17 @@ beforeEach(() => {
         }
       };
     }
-    if (endpoint.startsWith('api/runs')) {
+    if (endpoint.startsWith('api/versions/results')) {
       return {
-        runs: [
+        commits: [
           {
             commit: 'a'.repeat(40),
             short: 'aaaaaaa',
             time: new Date(Date.now() - 2 * DAY).toISOString(),
-            output: 'hubble_diagram',
-            universe: 'default',
-            exit: 0,
-            cmd: 'lc materialize hubble_diagram',
-            inputs: [],
-            outputs: []
+            subject: '[DATALAD RUNCMD] hubble_diagram [default]',
+            outputs: [{ universe: 'default', output: 'hubble_diagram' }]
           }
-        ],
-        jobs: []
+        ]
       };
     }
     return { papers: {} };

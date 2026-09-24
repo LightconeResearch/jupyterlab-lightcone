@@ -22,10 +22,8 @@ function version(commit: string, time: string): IOutputVersion {
     short: commit.slice(0, 7),
     time,
     subject: '',
-    key: null,
     size: 208410,
     present: true,
-    run: null,
     manifest: null
   };
 }
@@ -122,7 +120,7 @@ test('the stepper reports loading, failure and an empty history', () => {
   // What a history covers is stated wherever versions are shown.
   expect(
     container.querySelector('[role="note"]')?.getAttribute('title')
-  ).toContain('only while git-annex keeps their content');
+  ).toContain('kept by git-annex');
 });
 
 test('provenance tabs show the run and switch panels, loading sessions on demand', () => {
@@ -132,14 +130,12 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
     short: 'ccccccc',
     time: '2026-09-20T10:00:00Z',
     command: 'uv run plot.py',
-    exit: 1,
     gitRevision: 'def456',
     engineVersion: '0.6',
     environmentVersion: 'sha256:env',
     sandbox: 'backend: landlock',
     inputVersions: { catalog: 'sha256:input' },
-    decisions: { method: 'robust' },
-    inputs: ['data/catalog.csv']
+    decisions: { method: 'robust' }
   };
   const onOpenCode = jest.fn();
   const openInput = jest.fn();
@@ -192,14 +188,12 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
   expect(panel().textContent).toContain('stale');
   expect(panel().textContent).toContain('recipe changed');
   expect(panel().textContent).toContain('backend: landlock');
-  expect(panel().querySelector('[data-failed]')?.textContent).toBe('1');
   act(() => button('Code').click());
   expect(panel().textContent).toContain('plot.py');
   act(() => button('Open current file').click());
   expect(onOpenCode).toHaveBeenCalledWith('plot.py');
   act(() => button('Inputs').click());
   expect(panel().textContent).toContain('Catalog');
-  expect(panel().textContent).toContain('data/catalog.csv');
   // Each recorded input carries its record's inventory mark: an upstream
   // output keeps the output mark, and an id no longer declared has none.
   expect(
@@ -243,8 +237,7 @@ test('the Code tab shows the script as run and its changes since', () => {
     commit: 'c'.repeat(40),
     gitRevision: 'd'.repeat(40),
     inputVersions: {},
-    decisions: {},
-    inputs: []
+    decisions: {}
   };
   const onShowCode = jest.fn();
   const onShowEnvironment = jest.fn();
@@ -471,7 +464,7 @@ describe('version comparison', () => {
       );
     });
     expect(button('Swipe').disabled).toBe(true);
-    expect(container.textContent).toContain('Content not available locally');
+    expect(container.textContent).toContain('kept by git-annex');
     act(() => {
       root.render(
         <VersionCompare

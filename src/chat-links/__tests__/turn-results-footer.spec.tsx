@@ -14,9 +14,9 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CommandIDs } from '../../commands';
 import type { IProjectRoot } from '../../project-root';
-import type { IRunRecord } from '../../runs/runs-api';
+import type { IResultsCommit } from '../../versions/versions-api';
 import { CHAT_PROJECT_METADATA } from '../chat-project';
-import { cachedRuns } from '../runs-cache';
+import { cachedResultsCommits } from '../results-cache';
 import {
   createTurnResultsFooter,
   TURN_SETTLE_DELAY,
@@ -31,9 +31,9 @@ jest.mock('../../element-widget', () => ({
     fetchPaper: () => undefined
   })
 }));
-jest.mock('../runs-cache', () => ({
-  ...jest.requireActual('../runs-cache'),
-  cachedRuns: jest.fn()
+jest.mock('../results-cache', () => ({
+  ...jest.requireActual('../results-cache'),
+  cachedResultsCommits: jest.fn()
 }));
 
 declare global {
@@ -51,17 +51,13 @@ const USER = { username: 'ada' };
 const AGENT = { username: 'jupyter-ai-personas::lightcone::Agent', bot: true };
 
 /** A materialization commit at `seconds` since the epoch. */
-function run(seconds: number, output = 'hubble_diagram'): IRunRecord {
+function run(seconds: number, output = 'hubble_diagram'): IResultsCommit {
   return {
     commit: `c${seconds}`,
     short: `c${seconds}`.slice(0, 7),
     time: new Date(seconds * 1000).toISOString(),
-    output,
-    universe: 'baseline',
-    exit: 0,
-    cmd: 'lc materialize',
-    inputs: [],
-    outputs: []
+    subject: `[DATALAD RUNCMD] ${output} [baseline]`,
+    outputs: [{ universe: 'baseline', output }]
   };
 }
 
@@ -110,7 +106,7 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  jest.mocked(cachedRuns).mockReset();
+  jest.mocked(cachedResultsCommits).mockReset();
 });
 
 afterEach(() => {
@@ -121,15 +117,13 @@ afterEach(() => {
 
 function setup(
   chat: FakeChat,
-  runs: IRunRecord[][] = [[run(1020)]],
+  runs: IResultsCommit[][] = [[run(1020)]],
   project: IProjectRoot | null = PROJECT
 ) {
   for (const listing of runs) {
-    jest.mocked(cachedRuns).mockResolvedValueOnce({ runs: listing, jobs: [] });
+    jest.mocked(cachedResultsCommits).mockResolvedValueOnce(listing);
   }
-  jest
-    .mocked(cachedRuns)
-    .mockResolvedValue({ runs: runs[runs.length - 1], jobs: [] });
+  jest.mocked(cachedResultsCommits).mockResolvedValue(runs[runs.length - 1]);
   const executed: [string, ReadonlyPartialJSONObject][] = [];
   const commands = new CommandRegistry();
   commands.addCommand(CommandIDs.openElement, {
@@ -308,8 +302,8 @@ it('follows the end of a reply that is still streaming, listing runs once it set
   const { render } = setup(chat, [[], [run(1030)]]);
   await render('a1');
   await flush();
-  expect(cachedRuns).toHaveBeenCalledTimes(1);
-  expect(jest.mocked(cachedRuns).mock.calls[0][2]).toBe(1010);
+  expect(cachedResultsCommits).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(cachedResultsCommits).mock.calls[0][2]).toBe(1010);
   expect(container.textContent).toBe('');
 
   // The agent keeps streaming after the run: every chunk moves the end.
@@ -319,13 +313,13 @@ it('follows the end of a reply that is still streaming, listing runs once it set
       jest.advanceTimersByTime(TURN_SETTLE_DELAY / 2);
     });
   }
-  expect(cachedRuns).toHaveBeenCalledTimes(1);
+  expect(cachedResultsCommits).toHaveBeenCalledTimes(1);
 
   await act(async () => {
     jest.advanceTimersByTime(TURN_SETTLE_DELAY);
   });
   await flush();
-  expect(cachedRuns).toHaveBeenCalledTimes(2);
-  expect(jest.mocked(cachedRuns).mock.calls[1][2]).toBe(1042);
+  expect(cachedResultsCommits).toHaveBeenCalledTimes(2);
+  expect(jest.mocked(cachedResultsCommits).mock.calls[1][2]).toBe(1042);
   expect(heading()).toEqual(['Materialized during this reply · 1']);
 });

@@ -57,7 +57,7 @@ function ImageSide({
           alt={`${output.label ?? output.id} at ${version.short}`}
         />
       ) : (
-        <p role="status">Content not available locally</p>
+        <p role="status">The bytes of this version are kept by git-annex</p>
       )}
       <figcaption>{caption}</figcaption>
     </figure>
@@ -286,7 +286,7 @@ function useComparison<T>(
 }
 
 function absentSide(version: IOutputVersion, ordinal: string): string {
-  return `The ${ordinal} version (${version.short}) is not available locally.`;
+  return `The bytes of the ${ordinal} version (${version.short}) are kept by git-annex, which this viewer does not read.`;
 }
 
 function MetricCompare({

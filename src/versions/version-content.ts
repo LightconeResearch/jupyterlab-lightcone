@@ -115,7 +115,7 @@ export async function previewForVersion(
   if (!version.present) {
     return {
       kind: 'unavailable',
-      reason: 'Content not available locally'
+      reason: 'The bytes of this version are kept by git-annex'
     };
   }
   const format = outputFormat(output);
