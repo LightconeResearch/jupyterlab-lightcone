@@ -2,11 +2,15 @@ import type { IChatModel, IMessageContent } from '@jupyter/chat';
 import { ServerConnection } from '@jupyterlab/services';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { ChatProjects } from '../chat-projects';
+import type { IChatProjectResolver } from '../../chat-links/chat-project';
 import { createCommentCards } from '../comment-cards';
 import { pointAnchor } from '../comment-model';
 import { CommentService } from '../comment-service';
 import { makeComment, recordTarget } from './fixtures';
+
+jest.mock('@jupyter/chat', () =>
+  jest.requireActual('../../chat-links/__tests__/chat-mock')
+);
 
 const CARD = '.jp-jupyterlab-lightcone-CommentCard';
 
@@ -32,8 +36,10 @@ function setup() {
   const all = jest
     .spyOn(service, 'all')
     .mockResolvedValue([sent, makeComment('x', pointAnchor(1, 1))]);
-  const entrypointFor = jest.fn().mockResolvedValue('project/astra.yaml');
-  const projects = { entrypointFor } as unknown as ChatProjects;
+  const resolve = jest
+    .fn()
+    .mockResolvedValue({ path: 'project', entrypoint: 'project/astra.yaml' });
+  const projects: IChatProjectResolver = { resolve };
   const open = jest.fn();
   const Cards = createCommentCards({ service, projects, open });
   const node = document.createElement('div');
@@ -45,14 +51,14 @@ function setup() {
       root.render(<Cards model={model} message={message} />);
     });
   };
-  return { node, root, render, all, entrypointFor, open };
+  return { node, root, render, all, resolve, open };
 }
 
 describe('comment cards', () => {
   it('show the comments a message carried and open their target', async () => {
-    const { node, root, render, open, entrypointFor } = setup();
+    const { node, root, render, open, resolve } = setup();
     await render({ lightcone: { comments: ['s1'] } });
-    expect(entrypointFor).toHaveBeenCalledWith('project/chats/a.chat');
+    expect(resolve).toHaveBeenCalledWith('project/chats/a.chat', undefined);
     const cards = node.querySelectorAll<HTMLButtonElement>(CARD);
     expect(cards).toHaveLength(1);
     const text = cards[0].textContent ?? '';

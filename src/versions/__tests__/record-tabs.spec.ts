@@ -101,7 +101,13 @@ function workbench() {
     isLight: () => true,
     themeChanged: new Signal<object, unknown>(owner)
   } as unknown as IThemeManager;
-  registerElementCommands(app, themes, restorer, null);
+  registerElementCommands(
+    app,
+    { openOrReveal: () => undefined },
+    themes,
+    restorer,
+    null
+  );
   return {
     commands,
     shell,

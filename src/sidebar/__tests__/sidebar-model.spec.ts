@@ -1,11 +1,11 @@
 import type { IThemeManager } from '@jupyterlab/apputils';
 import type { IChangedArgs } from '@jupyterlab/coreutils';
+import { createFileContext } from '@jupyterlab/docregistry/lib/testutils';
 import type { Contents } from '@jupyterlab/services';
-import { CommandRegistry } from '@lumino/commands';
 import { DisposableDelegate } from '@lumino/disposable';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
-import { AstraInventoryPanel } from '../../inventory-panel';
+import { InventoryDocument } from '../../document-widget';
 import {
   observeProjectDataServices,
   type ProjectDataService
@@ -18,6 +18,7 @@ import {
   type ISidebarState
 } from '../sidebar-model';
 import {
+  FakeChatPanel,
   FakeCommentService,
   FakeCurrentProject,
   FakeSessionService,
@@ -359,9 +360,7 @@ describe('SidebarModel', () => {
   it('follows the current widget to highlight sessions and records', async () => {
     const h = host();
     try {
-      const chat = Object.assign(new Widget(), {
-        context: { path: 'project/chats/hubble.chat' }
-      });
+      const chat = new FakeChatPanel('project/chats/hubble.chat');
       h.shell.currentWidget = chat;
       h.shell.currentChanged.emit({});
       await flush();
@@ -369,14 +368,10 @@ describe('SidebarModel', () => {
         session: 'project/chats/hubble.chat'
       });
       const record = Object.assign(new Widget(), {
-        content: {
-          reference: {
-            entrypoint: 'project/astra.yaml',
-            target: 'outputs.hubble_diagram'
-          }
-        }
+        lightconeView: true as const,
+        entrypoint: 'project/astra.yaml',
+        reference: { target: 'outputs.hubble_diagram' }
       });
-      record.title.dataset = { 'lightcone-element': record.id };
       h.shell.currentWidget = record;
       h.shell.currentChanged.emit({});
       await flush();
@@ -396,35 +391,29 @@ describe('SidebarModel', () => {
     try {
       const historyChanged = new Signal<object, void>({});
       const record = Object.assign(new Widget(), {
-        content: {
-          reference: {
-            entrypoint: 'project/astra.yaml',
-            target: 'outputs.hubble_diagram'
-          },
-          historyChanged
-        }
+        lightconeView: true as const,
+        entrypoint: 'project/astra.yaml',
+        reference: { target: 'outputs.hubble_diagram' },
+        historyChanged
       });
-      record.title.dataset = { 'lightcone-element': record.id };
       h.shell.currentWidget = record;
       h.shell.currentChanged.emit({});
       await flush();
       expect(h.model.state.view.record?.target).toBe('outputs.hubble_diagram');
       // A link followed inside the tab keeps it current but shows a decision.
-      record.content.reference.target = 'decisions.cosmological_model';
+      record.reference.target = 'decisions.cosmological_model';
       historyChanged.emit();
       await flush();
       expect(h.model.state.view.record?.target).toBe(
         'decisions.cosmological_model'
       );
       // Once another widget is current, that tab's moves no longer matter.
-      const chat = Object.assign(new Widget(), {
-        context: { path: 'project/chats/hubble.chat' }
-      });
+      const chat = new FakeChatPanel('project/chats/hubble.chat');
       h.shell.currentWidget = chat;
       h.shell.currentChanged.emit({});
       await flush();
       const before = h.states.length;
-      record.content.reference.target = 'outputs.cosmology_fit';
+      record.reference.target = 'outputs.cosmology_fit';
       historyChanged.emit();
       await flush();
       expect(h.states.length).toBe(before);
@@ -438,22 +427,18 @@ describe('SidebarModel', () => {
 
   it('follows the analysis the inventory shows', async () => {
     const h = host();
-    const commands = new CommandRegistry();
-    const panel = new AstraInventoryPanel(
+    const context = createFileContext('project/astra.yaml');
+    const inventory = new InventoryDocument(
+      context,
       h.contents,
       new FakeThemeManager(),
-      commands
+      { openOrReveal: jest.fn() }
     );
     try {
-      await panel.display(
+      await inventory.content.display(
         { analysisPath: 'systematics' },
         'project/astra.yaml'
       );
-      const inventory = Object.assign(new Widget(), {
-        context: { path: 'project/astra.yaml' },
-        content: panel
-      });
-      inventory.addClass('jp-jupyterlab-lightcone-Document');
       h.shell.currentWidget = inventory;
       h.shell.currentChanged.emit({});
       await flush();
@@ -462,11 +447,15 @@ describe('SidebarModel', () => {
         analysisPath: 'systematics'
       });
       // Choosing the root analysis inside the inventory moves the highlight.
-      await panel.display({ scope: 'root' }, 'project/astra.yaml');
+      await inventory.content.display(
+        { analysisPath: '$' },
+        'project/astra.yaml'
+      );
       await flush();
       expect(h.model.state.view.analysisPath).toBe('$');
     } finally {
-      panel.dispose();
+      inventory.dispose();
+      context.dispose();
       h.dispose();
     }
   });
@@ -474,16 +463,12 @@ describe('SidebarModel', () => {
   it('follows the current chat when its file is renamed', async () => {
     const h = host();
     try {
-      const pathChanged = new Signal<object, string>({});
-      const chat = Object.assign(new Widget(), {
-        context: { path: 'project/chats/untitled.chat', pathChanged }
-      });
+      const chat = new FakeChatPanel('project/chats/untitled.chat');
       h.shell.currentWidget = chat;
       h.shell.currentChanged.emit({});
       await flush();
       expect(h.model.state.view.session).toBe('project/chats/untitled.chat');
-      chat.context.path = 'project/chats/hubble.chat';
-      pathChanged.emit(chat.context.path);
+      chat.rename('project/chats/hubble.chat');
       await flush();
       expect(h.model.state.view.session).toBe('project/chats/hubble.chat');
     } finally {

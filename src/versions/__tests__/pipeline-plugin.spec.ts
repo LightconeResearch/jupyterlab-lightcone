@@ -2,9 +2,9 @@ import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
 import { MainAreaWidget, showErrorMessage } from '@jupyterlab/apputils';
 import { CommandRegistry } from '@lumino/commands';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
-import type { TabBar } from '@lumino/widgets';
+import type { DockLayout } from '@lumino/widgets';
 import { Widget } from '@lumino/widgets';
-import { FakeThemeManager } from '../../home/__tests__/home-fixtures';
+import { FakeThemeManager } from './theme-fixtures';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { versionsPlugin } from '..';
 import { PipelineCommandIDs } from '../pipeline-commands';
@@ -44,26 +44,32 @@ function recordTab(id: string): Widget {
 
 /**
  * Activate the plugin in a fake shell whose main area is `columns`: tab
- * bars from left to right, each showing its first widget.
+ * areas from left to right, each showing its first widget, as the shell
+ * saves its layout.
  */
 function host(columns: Widget[][], current: Widget) {
   const { contents } = createContents({ [ENTRYPOINT]: fileModel(SPEC) });
-  const bars = new Map<Widget, TabBar<Widget>>();
-  columns.forEach((column, index) => {
-    const node = document.createElement('div');
-    node.getBoundingClientRect = () => ({ left: index * 400 }) as DOMRect;
-    const bar = {
-      node,
-      currentTitle: { owner: column[0] }
-    } as unknown as TabBar<Widget>;
-    column.forEach(widget => bars.set(widget, bar));
-  });
+  const areas: DockLayout.AreaConfig[] = columns.map(widgets => ({
+    type: 'tab-area',
+    widgets,
+    currentIndex: 0
+  }));
+  const dock: DockLayout.ILayoutConfig = {
+    main:
+      areas.length === 1
+        ? areas[0]
+        : {
+            type: 'split-area',
+            orientation: 'horizontal',
+            children: areas,
+            sizes: areas.map(() => 1)
+          }
+  };
   const shell = {
     add: jest.fn(),
     activateById: jest.fn(),
     currentWidget: current as Widget | null,
-    widgets: () => columns.flat()[Symbol.iterator](),
-    getMainAreaTabBar: (widget: Widget) => bars.get(widget) ?? null
+    saveLayout: () => ({ mainArea: { currentWidget: current, dock } })
   };
   const commands = new CommandRegistry();
   const app = {

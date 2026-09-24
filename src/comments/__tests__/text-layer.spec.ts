@@ -1,6 +1,7 @@
+import { COMMENT_LAYER_CLASS } from '../comment-layer';
 import { emptyAnchor, pointAnchor } from '../comment-model';
 import type { ICommentAnchor } from '../comments-api';
-import { COMMENT_LAYER_CLASS, ImageCommentLayer } from '../image-layer';
+import { ImageCommentLayer } from '../image-layer';
 import * as textAnchor from '../text-anchor';
 import {
   indexText,

@@ -1,4 +1,4 @@
-import type { IChatModel, IChatTracker } from '@jupyter/chat';
+import type { IChatModel, IChatPanel, IChatTracker } from '@jupyter/chat';
 import type {
   PersonaManagerSessionState,
   PersonaSessionRegistry
@@ -37,6 +37,10 @@ class FakeState {
   personas: typeof PERSONAS = [];
   isDisposed = false;
   readonly updates: string[][] = [];
+  /** Whether a persona list arrived, as `PersonaManagerSessionState.ready`. */
+  get ready(): boolean {
+    return this.updates.length > 0;
+  }
   updatePersonas(list: typeof PERSONAS): void {
     this.personas = list;
     this.updates.push(list.map(option => option.id));
@@ -79,7 +83,7 @@ function chatPanel(
     messages?: ReturnType<typeof message>[];
     selected?: string | null;
   } = {}
-): Widget & { model: IChatModel } {
+): IChatPanel {
   const panel = new Widget() as Widget & { model: IChatModel; area: string };
   let metadata: Record<string, unknown> = { to_persona: options.selected };
   const id = options.id ?? 'chat-1';
@@ -97,15 +101,15 @@ function chatPanel(
       }
     }
   } as unknown as IChatModel;
-  return panel;
+  return panel as unknown as IChatPanel;
 }
 
-function host(panels: Widget[] = []) {
+function host(panels: IChatPanel[] = []) {
   const registry = new FakeRegistry();
-  const widgetAdded = new Signal<unknown, Widget>({});
+  const widgetAdded = new Signal<unknown, IChatPanel>({});
   const tracker = {
     widgetAdded,
-    find: (test: (widget: Widget) => boolean) => panels.find(test)
+    find: (test: (widget: IChatPanel) => boolean) => panels.find(test)
   } as unknown as IChatTracker;
   const contents = {
     localPath: (path: string) => path,
@@ -180,6 +184,27 @@ describe('whenListed', () => {
     first.changed.emit();
     registry.get('chat-1').updatePersonas(PERSONAS);
     await expect(listed).resolves.toBe(registry.get('chat-1'));
+  });
+
+  it('gives up once the list arrives without the persona', async () => {
+    const registry = new FakeRegistry();
+    const listed = whenListed(
+      registry as unknown as PersonaSessionRegistry,
+      'chat-1',
+      CODEX,
+      () => false
+    );
+    registry.get('chat-1').updatePersonas([PERSONAS[0]]);
+    await expect(listed).resolves.toBeUndefined();
+    // A list that already arrived answers at once.
+    await expect(
+      whenListed(
+        registry as unknown as PersonaSessionRegistry,
+        'chat-1',
+        CODEX,
+        () => false
+      )
+    ).resolves.toBeUndefined();
   });
 
   it('gives up after the timeout, or when cancelled', async () => {
@@ -277,7 +302,7 @@ describe('AgentContinuity', () => {
     h.registry.get('chat-1').updatePersonas(PERSONAS);
     const tracker = (
       h.continuity as unknown as {
-        _options: { tracker: { widgetAdded: Signal<unknown, Widget> } };
+        _options: { tracker: { widgetAdded: Signal<unknown, IChatPanel> } };
       }
     )._options.tracker;
     tracker.widgetAdded.emit(panel);

@@ -1,4 +1,5 @@
 import type { MainAreaWidget } from '@jupyterlab/apputils';
+import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents } from '@jupyterlab/services';
 import { StateDB } from '@jupyterlab/statedb';
 import { CommandRegistry } from '@lumino/commands';
@@ -22,6 +23,18 @@ import {
 } from './home-fixtures';
 
 jest.mock('../../pdf-runtime', () => ({}));
+jest.mock('../../api', () => ({
+  ...jest.requireActual('../../api'),
+  collectPaperMetadata: jest.fn().mockResolvedValue({}),
+  fetchPaper: jest.fn()
+}));
+jest.mock('../../materialization-status', () => ({
+  useMaterializationStatus: () => ({}),
+  outputMaterializationStatus: () => undefined
+}));
+jest.mock('../../versions/versions-api', () => ({
+  listResultsCommits: jest.fn().mockResolvedValue([])
+}));
 
 type HomeTab = MainAreaWidget<HomeWidget>;
 
@@ -109,11 +122,13 @@ function pluginHost(
     resolveOptionalService: jest.fn(async () => sessions)
   } as unknown as Parameters<typeof homePlugin.activate>[0];
   const palette = { addItem: jest.fn() };
+  const documents = { openOrReveal: jest.fn() } as unknown as IDocumentManager;
   const activate = () =>
     homePlugin.activate(
       app,
       new FakeCurrentProject(),
       new FakeThemeManager(),
+      documents,
       labShell,
       { model: browserModel },
       palette,

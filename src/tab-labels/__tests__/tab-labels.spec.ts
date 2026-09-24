@@ -1,17 +1,67 @@
-import { MainAreaWidget } from '@jupyterlab/apputils';
 import type { ILabShell } from '@jupyterlab/application';
+import { MainAreaWidget } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
+import { LauncherModel } from '@jupyterlab/launcher';
+import type { Contents } from '@jupyterlab/services';
+import { CommandRegistry } from '@lumino/commands';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
+import {
+  FakeCurrentProject,
+  FakeThemeManager,
+  until
+} from '../../home/__tests__/home-fixtures';
+import { HomeWidget } from '../../home/home-widget';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
+import { TAB_PROJECT_DATASET_KEY } from '../../workbench-ids';
 import {
   collidingTabs,
   projectTag,
   shownLabel,
   statedProject,
-  TabProjectLabels,
-  TAB_PROJECT_DATASET_KEY
+  TabProjectLabels
 } from '../index';
+
+jest.mock('../../pdf-runtime', () => ({}));
+jest.mock('../../api', () => ({
+  ...jest.requireActual('../../api'),
+  collectPaperMetadata: jest.fn().mockResolvedValue({}),
+  fetchPaper: jest.fn()
+}));
+jest.mock('../../materialization-status', () => ({
+  useMaterializationStatus: () => ({}),
+  outputMaterializationStatus: () => undefined
+}));
+jest.mock('../../versions/versions-api', () => ({
+  listResultsCommits: jest.fn().mockResolvedValue([])
+}));
+
+/** A widget stating the view it shows, as record tabs and inventories do. */
+function view(entrypoint: string): Widget {
+  return Object.assign(new Widget(), {
+    lightconeView: true as const,
+    entrypoint
+  });
+}
+
+/** A Home tab launching into `cwd`; it resolves its project asynchronously. */
+function homeTab(
+  contents: Contents.IManager,
+  cwd: string
+): MainAreaWidget<HomeWidget> {
+  const content = new HomeWidget({
+    model: new LauncherModel(),
+    cwd,
+    commands: new CommandRegistry(),
+    contents,
+    documents: { openOrReveal: jest.fn() },
+    themes: new FakeThemeManager(),
+    current: new FakeCurrentProject(),
+    callback: jest.fn(),
+    onOpenTools: jest.fn()
+  });
+  return new MainAreaWidget({ content });
+}
 
 describe('which tabs name their project', () => {
   it('labels tabs whose label another project also shows', () => {
@@ -24,7 +74,7 @@ describe('which tabs name their project', () => {
     expect(collidingTabs([a, b, c, d, e, f])).toEqual(new Set([a, b]));
   });
 
-  it('reads the shown label, the tag and what Lightcone views state', () => {
+  it('reads the shown label and the tag', () => {
     expect(
       shownLabel({
         label: 'fit.chat',
@@ -34,42 +84,54 @@ describe('which tabs name their project', () => {
     expect(shownLabel({ label: 'x', dataset: {} })).toBe('x');
     expect(projectTag('work/hubble')).toBe('hubble');
     expect(projectTag('')).toBe('/');
+  });
+
+  it('reads the project Lightcone views and Home state about themselves', async () => {
+    expect(statedProject(view('work/hubble/astra.yaml'))).toBe('work/hubble');
+    expect(statedProject(view('astra.yaml'))).toBe('');
+    expect(statedProject(view('archive:astra.yaml'))).toBe('archive:');
+    // A record tab states its view through the content of its main-area widget.
     expect(
-      statedProject({ reference: { entrypoint: 'work/hubble/astra.yaml' } })
-    ).toBe('work/hubble');
-    expect(statedProject({ entrypoint: 'astra.yaml' })).toBe('');
-    expect(statedProject({ project: { path: 'work/bao' } })).toBe('work/bao');
-    expect(statedProject({ entrypoint: 'notes.md' })).toBeUndefined();
-    expect(statedProject(null)).toBeUndefined();
+      statedProject(
+        new MainAreaWidget({ content: view('work/bao/astra.yaml') })
+      )
+    ).toBe('work/bao');
+    expect(statedProject(new Widget())).toBeUndefined();
+    expect(
+      statedProject(new MainAreaWidget({ content: new Widget() }))
+    ).toBeUndefined();
+
+    // Home states the project it resolved for its folder, once it has.
+    const { contents } = createContents({
+      'work/bao/astra.yaml': fileModel('name: bao')
+    });
+    const home = homeTab(contents, 'work/bao');
+    try {
+      expect(statedProject(home)).toBeUndefined();
+      await home.content.settled();
+      expect(statedProject(home)).toBe('work/bao');
+    } finally {
+      home.dispose();
+      contents.dispose();
+    }
   });
 });
 
 describe('TabProjectLabels', () => {
-  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
-
   it('tags colliding tabs and clears the tag once the collision ends', async () => {
     const { contents } = createContents({
       'hubble/astra.yaml': fileModel('name: hubble'),
       'bao/astra.yaml': fileModel('name: bao')
     });
-    const home = (path: string) => {
-      const content = new Widget();
-      Object.assign(content, {
-        project: { path, entrypoint: `${path}/astra.yaml` }
-      });
-      const widget = new MainAreaWidget({ content });
-      widget.title.label = 'Home';
-      return widget;
-    };
+    const paths = new Map<Widget, string>();
     const document = (path: string) => {
       const widget = new Widget();
       widget.title.label = 'astra.yaml';
       paths.set(widget, path);
       return widget;
     };
-    const paths = new Map<Widget, string>();
-    const hubbleHome = home('hubble');
-    const baoHome = home('bao');
+    const hubbleHome = homeTab(contents, 'hubble');
+    const baoHome = homeTab(contents, 'bao');
     const hubbleSpec = document('hubble/astra.yaml');
     const baoSpec = document('bao/astra.yaml');
     const main = [hubbleHome, baoHome, hubbleSpec, baoSpec];
@@ -86,21 +148,16 @@ describe('TabProjectLabels', () => {
     const tag = (widget: Widget) =>
       widget.title.dataset[TAB_PROJECT_DATASET_KEY];
     try {
-      for (let i = 0; i < 10 && tag(baoSpec) === undefined; i++) await flush();
-      expect([hubbleHome, baoHome, hubbleSpec, baoSpec].map(tag)).toEqual([
-        'hubble',
-        'bao',
-        'hubble',
-        'bao'
-      ]);
+      // Both Homes read "Home" once their projects resolve, and collide.
+      await until(() => main.every(widget => tag(widget) !== undefined));
+      expect(main.map(tag)).toEqual(['hubble', 'bao', 'hubble', 'bao']);
       baoHome.title.label = 'Launcher';
-      for (let i = 0; i < 10 && tag(hubbleHome) !== undefined; i++)
-        await flush();
-      expect(tag(hubbleHome)).toBeUndefined();
+      await until(() => tag(hubbleHome) === undefined);
       expect(tag(baoHome)).toBeUndefined();
       expect(tag(hubbleSpec)).toBe('hubble');
     } finally {
       labels.dispose();
+      main.forEach(widget => widget.dispose());
       contents.dispose();
     }
   });

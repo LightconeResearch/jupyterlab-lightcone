@@ -3,18 +3,17 @@ import {
   type JupyterFrontEnd,
   type JupyterFrontEndPlugin
 } from '@jupyterlab/application';
-import { MainAreaWidget } from '@jupyterlab/apputils';
 import { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents } from '@jupyterlab/services';
 import type { Title, Widget } from '@lumino/widgets';
 import { projectDirectory } from '../project-data';
 import { findProjectRoot } from '../project-root';
+import { TAB_PROJECT_DATASET_KEY } from '../workbench-ids';
 import {
   collidingTabs,
   projectTag,
   shownLabel,
   statedProject,
-  TAB_PROJECT_DATASET_KEY,
   type ITabEntry
 } from './tab-projects';
 
@@ -96,8 +95,7 @@ export class TabProjectLabels {
 
   /** The project folder of a tab: stated by Lightcone views, else found from its file. */
   private async _project(widget: Widget): Promise<string | undefined> {
-    const content = widget instanceof MainAreaWidget ? widget.content : widget;
-    const stated = statedProject(content);
+    const stated = statedProject(widget);
     if (stated !== undefined) return stated;
     const path = this._documents?.contextForWidget(widget)?.path;
     if (!path) return undefined;

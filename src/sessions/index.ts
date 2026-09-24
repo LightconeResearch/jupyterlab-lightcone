@@ -10,11 +10,14 @@ import {
   type JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { ICommandPalette, showErrorMessage } from '@jupyterlab/apputils';
+import { IDocumentManager } from '@jupyterlab/docmanager';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { requireProject } from '../commands';
 import { ICurrentProject } from '../current-project';
 import type { IProjectRoot } from '../project-root';
+import { PALETTE_CATEGORY } from '../workbench-ids';
+import { resolvePersonaRegistry } from './persona-registry';
 import { SessionManager } from './session-manager';
 import { addSessionPermissions } from './session-permissions';
 import { SessionPlaceholderFactory } from './session-placeholder';
@@ -29,7 +32,6 @@ export { agentContinuityPlugin } from './agent-continuity';
 export {
   fetchProjectAgent,
   listSessions,
-  prepareSessions,
   type ISessionInfo,
   type ISessionListing,
   type SessionActivity
@@ -42,12 +44,14 @@ export {
   isSessionWidget,
   personaMetadata,
   selectedPersona,
+  trackedSession,
   type ISessionManagerOptions
 } from './session-manager';
 export {
   agentModes,
   modeWords,
   modesText,
+  publishedModes,
   SessionPermissions,
   addSessionPermissions
 } from './session-permissions';
@@ -64,12 +68,11 @@ export {
   hasPendingPermission,
   isPersonaUser,
   listActivity,
-  readToolCalls,
+  personaDisplayName,
   type ActivityTransition,
   type ISessionSnapshot
 } from './session-activity';
-
-const CATEGORY = 'Lightcone Lab';
+export { readAgentModes, readToolCalls, type IToolCall } from './acp-metadata';
 
 export namespace SessionsCommandIDs {
   /** Create a session in the current project and open it in the main area. */
@@ -131,7 +134,9 @@ export function readOpenSessionArgs(
  * tracker: without Jupyter Chat the service is not provided, and the
  * surfaces that take it optionally (Home's composer, the sidebar's sessions,
  * search's sessions) hide their session features instead of offering actions
- * that can only fail.
+ * that can only fail. Jupyter AI's persona manager, when installed, tells the
+ * service which personas are processing; without it the server's event
+ * stream does.
  */
 export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
   id: 'jupyterlab_lightcone:sessions',
@@ -139,29 +144,36 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
     'Project-scoped Jupyter AI sessions: list, create and open them in the main area.',
   autoStart: true,
   provides: ISessionService,
-  requires: [ICurrentProject, IChatTracker],
+  requires: [ICurrentProject, IChatTracker, IDocumentManager],
   optional: [IChatCommandRegistry, ILabShell, ICommandPalette, ITranslator],
-  activate: (
+  activate: async (
     app: JupyterFrontEnd,
     current: ICurrentProject,
     tracker: IChatTracker,
+    documents: IDocumentManager,
     chatCommands: IChatCommandRegistry | null,
     labShell: ILabShell | null,
     palette: ICommandPalette | null,
     translator: ITranslator | null
-  ): ISessionService => {
+  ): Promise<ISessionService> => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
+    const registry = await resolvePersonaRegistry(app);
     const sessions = new SessionManager({
       commands: app.commands,
       shell: app.shell,
       contents: app.serviceManager.contents,
+      documents,
       tracker,
       chatCommands,
       labShell,
       events: app.serviceManager.events,
+      registry,
       translator: translator ?? undefined
     });
-    const permissions = addSessionPermissions(tracker);
+    const permissions = addSessionPermissions(tracker, {
+      translator: translator ?? undefined,
+      registry
+    });
     app.shell.disposed.connect(() => {
       permissions.dispose();
       sessions.dispose();
@@ -253,7 +265,7 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
 
     palette?.addItem({
       command: SessionsCommandIDs.newSession,
-      category: CATEGORY
+      category: PALETTE_CATEGORY
     });
     return sessions;
   }

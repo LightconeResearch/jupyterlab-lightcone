@@ -1,7 +1,6 @@
 import {
   IChatTracker,
   IMessageFooterRegistry,
-  IMessagePreambleRegistry,
   type IChatPanel
 } from '@jupyter/chat';
 import {
@@ -15,42 +14,52 @@ import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { ICurrentProject } from '../current-project';
 import { projectDirectory } from '../project-data';
 import { serverRoots } from './chat-paths';
-import { createChatProjectResolver, recordedChatProject } from './chat-project';
+import {
+  createChatProjectResolver,
+  IChatProjectResolver,
+  recordedChatProject
+} from './chat-project';
 import { attachChatLinks } from './link-fixer';
 import { BesideOpener } from './open-beside';
-import { PlanChecklist } from './plan-checklist';
+import { ResultsHistoryCache } from './results-cache';
 import { createTurnResultsFooter } from './turn-results-footer';
+
+export {
+  IChatProjectResolver,
+  recordedChatProject,
+  createChatProjectResolver
+} from './chat-project';
 
 /**
  * Working links and turn results in sessions: file links and images an agent
- * writes as server paths open in JupyterLab, the last message of a reply
- * lists what was materialized and edited while the agent answered, and a
- * message carrying the agent's plan shows it as a checklist.
+ * writes as server paths open in JupyterLab, and the last message of a reply
+ * lists what was materialized and edited while the agent answered. Provides
+ * the resolver that files a chat under its project, which comments, mentions
+ * and the agent continuity share.
  */
-export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
+export const chatLinksPlugin: JupyterFrontEndPlugin<IChatProjectResolver> = {
   id: 'jupyterlab_lightcone:chat-links',
   description:
     'Open file links from Lightcone sessions in JupyterLab and list what each reply materialized.',
   autoStart: true,
+  provides: IChatProjectResolver,
+  requires: [IDocumentManager],
   optional: [
     IChatTracker,
-    IDocumentManager,
     IMessageFooterRegistry,
     ICurrentProject,
     ILabShell,
-    ITranslator,
-    IMessagePreambleRegistry
+    ITranslator
   ],
   activate: (
     app: JupyterFrontEnd,
+    documents: IDocumentManager,
     tracker: IChatTracker | null,
-    documents: IDocumentManager | null,
     footers: IMessageFooterRegistry | null,
     currentProject: ICurrentProject | null,
     labShell: ILabShell | null,
-    translator: ITranslator | null,
-    preambles: IMessagePreambleRegistry | null
-  ): void => {
+    translator: ITranslator | null
+  ): IChatProjectResolver => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const contents = app.serviceManager.contents;
     // `lightconeServerRoot` is published by this extension's server side,
@@ -65,6 +74,8 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
       contents,
       () => currentProject?.project
     );
+    const results = new ResultsHistoryCache(app.serviceManager.serverSettings);
+    app.shell.disposed.connect(() => results.dispose());
     const openFile = (path: string, panel: IChatPanel | undefined) =>
       opener.open(path, panel);
 
@@ -74,6 +85,7 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
           return;
         }
         const links = attachChatLinks(panel, {
+          trans,
           serverRoots: roots,
           baseUrl: app.serviceManager.serverSettings.baseUrl,
           baseDirectory: async chat => {
@@ -94,21 +106,22 @@ export const chatLinksPlugin: JupyterFrontEndPlugin<void> = {
       tracker.widgetAdded.connect((_sender, panel) => attach(panel));
     }
 
-    preambles?.addComponent(PlanChecklist);
-
     if (footers) {
       footers.addSection({
         position: 'left',
         component: createTurnResultsFooter({
           app,
+          documents,
           tracker,
           trans,
           serverRoots: roots,
+          results,
           resolveProject: (chatPath, recorded) =>
             projects.resolve(chatPath, recorded),
           openFile
         })
       });
     }
+    return projects;
   }
 };

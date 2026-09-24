@@ -1,6 +1,9 @@
 import type { IChatPanel } from '@jupyter/chat';
+import { Notification } from '@jupyterlab/apputils';
 import { PathExt } from '@jupyterlab/coreutils';
+import type { TranslationBundle } from '@jupyterlab/translation';
 import type { IDisposable } from '@lumino/disposable';
+import { RENDERED_MESSAGE_SELECTOR } from './chat-dom';
 import {
   isFileLink,
   resolveChatLink,
@@ -8,11 +11,12 @@ import {
   type IChatPathContext
 } from './chat-paths';
 
-/** Only message bodies are rewritten; toolbars and avatars keep their links. */
-const RENDERED_MESSAGE_SELECTOR = '.jp-chat-rendered-message';
+/** How long the notice of a link that could not be opened stays, in ms. */
+const OPEN_FAILURE_DURATION = 5000;
 
 /** What the link fixer needs from its host. */
 export interface IChatLinkHost {
+  trans: TranslationBundle;
   /** Absolute filesystem paths naming the server root; empty when unknown. */
   serverRoots: readonly string[];
   /** The URL every `files/` route hangs off. */
@@ -26,7 +30,8 @@ export interface IChatLinkHost {
 /**
  * Make links and images in a chat work: agents write absolute server paths,
  * which browsers cannot follow. Clicks on such links open the file in
- * JupyterLab, and images are served through the `files/` route.
+ * JupyterLab, and images are served through the `files/` route. Only message
+ * bodies are rewritten; toolbars and avatars keep their links.
  */
 export function attachChatLinks(
   panel: IChatPanel,
@@ -72,6 +77,9 @@ export function attachChatLinks(
       })
       .catch(error => {
         console.error(`Could not open ${reference} from the chat.`, error);
+        Notification.error(host.trans.__('Could not open %1.', reference), {
+          autoClose: OPEN_FAILURE_DURATION
+        });
       });
   };
 

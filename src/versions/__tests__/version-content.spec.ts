@@ -37,7 +37,7 @@ function version(extra: Partial<IOutputVersion> = {}): IOutputVersion {
     commit: 'c'.repeat(40),
     short: 'ccccccc',
     time: '2026-09-20T10:00:00Z',
-    subject: '[DATALAD RUNCMD] fit [baseline]',
+    subject: 'materialize fit',
     size: 100,
     present: true,
     annex: null,
@@ -148,7 +148,10 @@ describe('previews of a committed version', () => {
         output('metric', 'json'),
         version({ size: null })
       )
-    ).rejects.toThrow('The JSON artifact exceeds the preview limit.');
+    ).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'The JSON artifact exceeds the preview limit.'
+    });
     request.mockRestore();
     serve('{"reason": "absent"}', 404);
     await expect(

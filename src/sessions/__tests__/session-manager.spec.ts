@@ -1,7 +1,9 @@
 import type { IChatPanel, IChatTracker } from '@jupyter/chat';
+import type { PersonaSessionRegistry } from '@jupyter-ai/persona-manager';
 import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
 import { Notification } from '@jupyterlab/apputils';
 import { PageConfig } from '@jupyterlab/coreutils';
+import type { IDocumentManager } from '@jupyterlab/docmanager';
 import {
   ContentsManager,
   ServerConnection,
@@ -21,14 +23,16 @@ import {
   isSessionWidget,
   messagesTitle,
   personaMetadata,
-  selectedPersona
+  selectedPersona,
+  trackedSession,
+  type ISessionManagerOptions
 } from '../session-manager';
-import { listSessions, prepareSessions } from '../sessions-api';
+import { listSessions } from '../sessions-api';
 
 jest.mock('../../pdf-runtime', () => ({}));
 jest.mock('../sessions-api', () => ({
   listSessions: jest.fn(),
-  prepareSessions: jest.fn()
+  fetchProjectAgent: jest.fn(async () => null)
 }));
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -84,7 +88,38 @@ class FakePanel extends Widget {
   }
 }
 
-function host() {
+/** A chat's persona state, as the persona manager's registry serves it. */
+class FakePersonaState {
+  readonly changed = new Signal<this, void>(this);
+  isDisposed = false;
+  processing = false;
+  report(processing: boolean): void {
+    this.processing = processing;
+    this.changed.emit();
+  }
+}
+
+/** Hands out one state per chat, and a new one after a discard. */
+class FakeRegistry {
+  states = new Map<string, FakePersonaState>();
+  readonly get = jest.fn((chatId: string): FakePersonaState => {
+    let state = this.states.get(chatId);
+    if (!state) {
+      state = new FakePersonaState();
+      this.states.set(chatId, state);
+    }
+    return state;
+  });
+  discard(chatId: string): void {
+    const state = this.states.get(chatId);
+    if (state) {
+      state.isDisposed = true;
+    }
+    this.states.delete(chatId);
+  }
+}
+
+function host(options: Partial<ISessionManagerOptions> = {}) {
   const commands = new CommandRegistry();
   const contents = new ContentsManager();
   const files = new Set(['p/astra.yaml', 'p/chats/plan.chat']);
@@ -96,6 +131,9 @@ function host() {
     }
     return fileModel('', { path });
   });
+  const save = jest
+    .spyOn(contents, 'save')
+    .mockImplementation(async path => fileModel('', { path }));
   const panels: IChatPanel[] = [];
   const widgetAdded = new Signal<IChatTracker, IChatPanel>({} as IChatTracker);
   const tracker = {
@@ -129,25 +167,35 @@ function host() {
       return `${path}/${name}.chat`;
     }
   });
-  commands.addCommand('docmanager:open', {
-    execute: args => {
-      opened.push(args);
-      const panel = new FakePanel(new FakeModel(args.path as string));
-      panels.push(panel as unknown as IChatPanel);
-      mainWidgets.push(panel);
-      widgetAdded.emit(panel as unknown as IChatPanel);
-      return panel;
-    }
-  });
+  /** The document manager opens the chat document; the tracker learns of it. */
+  const documents = {
+    openOrReveal: jest.fn(
+      (
+        path: string,
+        factory?: string,
+        _kernel?: unknown,
+        options?: unknown
+      ) => {
+        opened.push({ path, factory, options });
+        const panel = new FakePanel(new FakeModel(path));
+        panels.push(panel as unknown as IChatPanel);
+        mainWidgets.push(panel);
+        widgetAdded.emit(panel as unknown as IChatPanel);
+        return panel;
+      }
+    )
+  } as unknown as IDocumentManager;
   const manager = new SessionManager({
     commands,
     shell: shell as unknown as JupyterFrontEnd.IShell,
     contents,
+    documents,
     tracker,
     chatCommands: chatCommands as never,
     labShell: labShell as unknown as ILabShell,
     events: events as unknown as Event.IManager,
-    translator: undefined
+    translator: undefined,
+    ...options
   });
   const addPanel = (
     name: string,
@@ -176,6 +224,8 @@ function host() {
     manager,
     commands,
     contents,
+    save,
+    documents,
     files,
     tracker,
     shell,
@@ -196,9 +246,7 @@ function host() {
 }
 
 beforeEach(() => {
-  jest.mocked(prepareSessions).mockReset();
   jest.mocked(listSessions).mockReset();
-  jest.mocked(prepareSessions).mockResolvedValue({ directory: 'p/chats' });
   jest.mocked(listSessions).mockResolvedValue({
     directory: 'p/chats',
     sessions: [
@@ -238,6 +286,20 @@ describe('type guards', () => {
     expect(isRecordTab(main)).toBe(false);
   });
 
+  it('asks the tracker which shell widget is a session', () => {
+    const main = new FakePanel(new FakeModel('a.chat'));
+    const side = new FakePanel(new FakeModel('b.chat'), 'sidebar');
+    const tracker = {
+      find: (test: (panel: IChatPanel) => boolean) =>
+        ([main, side] as unknown as IChatPanel[]).find(test)
+    } as unknown as IChatTracker;
+    expect(trackedSession(tracker, main)).toBe(main);
+    expect(trackedSession(tracker, side)).toBeUndefined();
+    expect(trackedSession(tracker, new Widget())).toBeUndefined();
+    expect(trackedSession(tracker, null)).toBeUndefined();
+    expect(trackedSession(null, main)).toBeUndefined();
+  });
+
   it('reads and writes persona metadata like the composer', () => {
     expect(selectedPersona({ to_persona: 'p' })).toBe('p');
     expect(selectedPersona({ to_persona: null })).toBeNull();
@@ -256,16 +318,17 @@ describe('type guards', () => {
 describe('SessionManager.createAndOpen', () => {
   it('names the chat from the first message, opens it in the current group and sends', async () => {
     const h = host();
-    jest.useFakeTimers();
     try {
       const home = new Widget();
       home.id = 'home';
       h.shell.currentWidget = home;
-      const pending = h.manager.createAndOpen('p/astra.yaml', {
+      const path = await h.manager.createAndOpen('p/astra.yaml', {
         firstMessage: 'Plot the Hubble diagram\nwith error bars',
         persona: 'jupyter-ai-personas::pkg::Persona'
       });
-      await jest.advanceTimersByTimeAsync(10);
+      expect(path).toBe('p/chats/plot-the-hubble-diagram.chat');
+      // The chats folder comes from the listing and is saved as a directory.
+      expect(h.save).toHaveBeenCalledWith('p/chats', { type: 'directory' });
       expect(h.created).toEqual([
         { path: 'p/chats', name: 'plot-the-hubble-diagram' }
       ]);
@@ -276,23 +339,36 @@ describe('SessionManager.createAndOpen', () => {
           options: { mode: 'tab-after', ref: 'home', activate: true }
         }
       ]);
+      // With an explicit persona nothing waits for the picker: the message
+      // is stamped and sent at once.
       const panel = h.panels[0] as unknown as FakePanel;
-      expect(panel.model.input.send).not.toHaveBeenCalled();
-      // The persona picker stamps "No one" once its toolbar mounts; with an
-      // explicit persona that stamp is all the wait needs.
-      panel.model.input.updateMetadata({ to_persona: null });
-      await jest.advanceTimersByTimeAsync(10);
       expect(panel.model.input.send).toHaveBeenCalledWith(
         'Plot the Hubble diagram\nwith error bars'
       );
-      expect(await pending).toBe('p/chats/plot-the-hubble-diagram.chat');
       expect(panel.model.input.metadata).toEqual(
         personaMetadata('jupyter-ai-personas::pkg::Persona')
       );
       expect(h.chatCommands.onSubmit).toHaveBeenCalledWith(panel.model.input);
       expect(panel.model.input.focus).toHaveBeenCalled();
     } finally {
-      jest.useRealTimers();
+      h.dispose();
+    }
+  });
+
+  it('leaves a draft in the composer of a session started without a message', async () => {
+    const h = host();
+    try {
+      await h.manager.createAndOpen('p/astra.yaml', {
+        title: 'Discuss outputs.hubble',
+        draft: 'Discuss ASTRA element outputs.hubble.'
+      });
+      const panel = h.panels[0] as unknown as FakePanel;
+      expect(panel.model.input.value).toBe(
+        'Discuss ASTRA element outputs.hubble.'
+      );
+      expect(panel.model.input.send).not.toHaveBeenCalled();
+      expect(panel.model.input.focus).toHaveBeenCalled();
+    } finally {
       h.dispose();
     }
   });
@@ -405,18 +481,13 @@ describe('SessionManager.createAndOpen', () => {
   it('reports a chat file that was not created, and a session that did not open', async () => {
     const h = host();
     const commands = new CommandRegistry();
-    const opened: unknown[] = [];
     commands.addCommand('jupyterlab-chat:create', { execute: () => null });
-    commands.addCommand('docmanager:open', {
-      execute: args => {
-        opened.push(args);
-        return undefined;
-      }
-    });
+    const openOrReveal = jest.fn(() => undefined);
     const manager = new SessionManager({
       commands,
       shell: h.shell as unknown as JupyterFrontEnd.IShell,
       contents: h.contents,
+      documents: { openOrReveal } as unknown as IDocumentManager,
       tracker: h.tracker,
       chatCommands: null,
       labShell: null,
@@ -426,11 +497,11 @@ describe('SessionManager.createAndOpen', () => {
       await expect(manager.createAndOpen('p/astra.yaml')).rejects.toThrow(
         'The session file could not be created.'
       );
-      expect(opened).toEqual([]);
+      expect(openOrReveal).not.toHaveBeenCalled();
       await expect(manager.openSession('p/chats/plan.chat')).rejects.toThrow(
         'The session did not open. Check that Jupyter AI is enabled.'
       );
-      expect(opened).toHaveLength(1);
+      expect(openOrReveal).toHaveBeenCalledTimes(1);
     } finally {
       manager.dispose();
       h.dispose();
@@ -445,6 +516,7 @@ describe('SessionManager.createAndOpen', () => {
         commands: new CommandRegistry(),
         shell: h.shell as unknown as JupyterFrontEnd.IShell,
         contents: h.contents,
+        documents: h.documents,
         tracker: null,
         chatCommands: null,
         labShell: null,
@@ -852,6 +924,47 @@ describe('SessionManager activity', () => {
       ready.resolve('chat-1');
       await flush();
       expect(h.manager.activity('p/chats/plan.chat')).toBe('working');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('reads processing from the persona manager’s registry when it is there', async () => {
+    const registry = new FakeRegistry();
+    const h = host({
+      registry: registry as unknown as PersonaSessionRegistry
+    });
+    try {
+      const path = 'p/chats/plan.chat';
+      const session = h.addPanel(path);
+      await flush();
+      expect(registry.get).toHaveBeenCalledWith(session.model.id);
+      const state = registry.get(session.model.id);
+      state.report(true);
+      expect(h.manager.activity(path)).toBe('working');
+      // The event stream is not read beside the registry.
+      h.events.stream.emit({
+        schema_id: PERSONA_STATE,
+        version: '1',
+        chat_id: session.model.id,
+        persona_id: 'p',
+        processing: false
+      });
+      expect(h.manager.activity(path)).toBe('working');
+      state.report(false);
+      expect(h.manager.activity(path)).toBe('idle');
+
+      // A view of the chat closed: the registry hands out a fresh state,
+      // which the next update follows.
+      registry.discard(session.model.id);
+      session.model.messagesUpdated.emit();
+      const fresh = registry.get(session.model.id);
+      expect(fresh).not.toBe(state);
+      fresh.report(true);
+      expect(h.manager.activity(path)).toBe('working');
+      state.report(true);
+      fresh.report(false);
+      expect(h.manager.activity(path)).toBe('idle');
     } finally {
       h.dispose();
     }

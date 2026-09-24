@@ -4,7 +4,10 @@ import { projectDirectory, resolveProject } from '../project-data';
 import { createJupyterProjectReader } from '../project-reader';
 import { analysis, createContents, fileModel } from './project-fixtures';
 
-jest.mock('../api', () => ({ collectPaperMetadata: jest.fn() }));
+jest.mock('../api', () => ({
+  ...jest.requireActual('../api'),
+  collectPaperMetadata: jest.fn()
+}));
 
 describe('Jupyter project reader', () => {
   it('reads text and shares adjacent file metadata within one resolution', async () => {

@@ -1,4 +1,5 @@
-import { ServerConnection, type Contents } from '@jupyterlab/services';
+import type { Contents } from '@jupyterlab/services';
+import { isNotFoundResponse } from './api';
 import { projectDirectory } from './project-data';
 
 export interface IProjectRoot {
@@ -14,10 +15,7 @@ export async function findModel(
   try {
     return await contents.get(path, { content: false });
   } catch (error) {
-    if (
-      error instanceof ServerConnection.ResponseError &&
-      error.response.status === 404
-    ) {
+    if (isNotFoundResponse(error)) {
       return undefined;
     }
     throw error;

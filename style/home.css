@@ -366,21 +366,25 @@
   justify-content: center;
 }
 
-/* A value list (a one-row table) reads from the plate's top left. The
- * selector outweighs ASTRA UI's isolation reset for `pre`. */
+/* A value list (a one-row table) reads from the plate's top left. */
 .jp-jupyterlab-lightcone-Home-platePreview > .astra-artifact[data-type='text'] {
   align-self: stretch;
 }
 
-.jp-jupyterlab-lightcone-Home-platePreview.astra-ui.astra-isolate pre {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  color: var(--jp-content-font-color1);
-  background: transparent;
-  font: 10.5px/1.6 var(--jp-code-font-family);
-  white-space: pre;
+/* ASTRA UI's isolation reset rolls native elements back to the highest
+ * declared layer, which is this one (see base.css and isolate.css): host
+ * chrome styles the preview's `pre` from here, not by out-specifying it. */
+@layer lightcone {
+  .jp-jupyterlab-lightcone-Home-platePreview pre {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    color: var(--jp-content-font-color1);
+    background: transparent;
+    font: 10.5px/1.6 var(--jp-code-font-family);
+    white-space: pre;
+  }
 }
 
 .jp-jupyterlab-lightcone-Home-platePreview img {
@@ -585,28 +589,7 @@
   outline-offset: 2px;
 }
 
-/* The Tools menu: category headings and kernel icons from their spec URL. */
-.jp-jupyterlab-lightcone-HomeTools
-  .lm-Menu-item.jp-jupyterlab-lightcone-HomeTools-category {
-  opacity: 1;
-}
-
-.jp-jupyterlab-lightcone-HomeTools
-  .lm-Menu-item.jp-jupyterlab-lightcone-HomeTools-category
-  > .lm-Menu-itemLabel {
-  color: var(--jp-ui-font-color2);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.jp-jupyterlab-lightcone-HomeTools
-  .lm-Menu-item.jp-jupyterlab-lightcone-HomeTools-category
-  > .lm-Menu-itemIcon {
-  visibility: hidden;
-}
-
+/* The Tools menu: kernel icons from their spec URL. */
 .jp-jupyterlab-lightcone-HomeTools-kernelIcon {
   width: 16px;
   height: 16px;

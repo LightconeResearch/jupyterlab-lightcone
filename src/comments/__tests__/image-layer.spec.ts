@@ -1,11 +1,10 @@
-import { emptyAnchor, pointAnchor } from '../comment-model';
 import {
   COMMENT_HOST_CLASS,
   COMMENT_LAYER_CLASS,
-  ImageCommentLayer,
-  inCommentLayer,
-  type IImageLayerOptions
-} from '../image-layer';
+  inCommentLayer
+} from '../comment-layer';
+import { emptyAnchor, pointAnchor } from '../comment-model';
+import { ImageCommentLayer, type IImageLayerOptions } from '../image-layer';
 import {
   Frames,
   makeComment,

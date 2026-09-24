@@ -8,6 +8,7 @@ import { CommandIDs } from './commands';
 import { ElementHistoryCommandIDs } from './versions/element-history';
 import { isSessionWidget } from './sessions/session-manager';
 import { isPipelineTab } from './versions/pipeline-placement';
+import { ELEMENT_TAB_DATASET_KEY } from './workbench-ids';
 
 export type ElementTab = MainAreaWidget<ElementWidget>;
 
@@ -16,7 +17,9 @@ export function elementContextKey(reference: IElementReference): string {
   return JSON.stringify([reference.entrypoint, reference.universeId]);
 }
 
-const TAB_SELECTOR = '.lm-TabBar-tab[data-lightcone-element]';
+/** The tab data attribute Lumino renders from `ElementWidget`'s title dataset. */
+const TAB_ATTRIBUTE = `data-${ELEMENT_TAB_DATASET_KEY}`;
+const TAB_SELECTOR = `.lm-TabBar-tab[${TAB_ATTRIBUTE}]`;
 const WIDGET_SELECTOR = '.jp-jupyterlab-lightcone-ElementWidget';
 
 /** Native tab placement, preview eligibility, and user-owned retention. */
@@ -251,16 +254,19 @@ export class ElementTabs {
 
   /** Track actual tab bars through the public shell API, including after user docking. */
   sync(): void {
-    if (!this.shell || this._isDisposed) return;
+    const shell = this.shell;
+    if (!shell || this._isDisposed) return;
     const live = new Set<TabBar<Widget>>();
     this.tracker.forEach(tab => {
-      const bar = this.shell!.getMainAreaTabBar(tab);
+      const bar = shell.getMainAreaTabBar(tab);
       if (!bar) return;
       const previous = this._groups.get(tab);
       if (this._observeMoves && previous && previous !== bar) this.pin(tab);
       this._groups.set(tab, bar);
       live.add(bar);
       if (this._bars.has(bar)) return;
+      // A double click on a record tab's label pins it. Lumino renders the
+      // title dataset onto the tab, so the tab names its widget itself.
       const doubleClick = (event: MouseEvent) => {
         if (
           bar.titlesEditable ||
@@ -269,11 +275,10 @@ export class ElementTabs {
         )
           return;
         if (!event.target.closest('.lm-TabBar-tabLabel')) return;
-        const node = event.target.closest('.lm-TabBar-tab');
-        if (!node) return;
-        const index = Array.from(bar.contentNode.children).indexOf(node);
-        const owner = bar.titles[index]?.owner;
-        const tab = this.tracker.find(item => item === owner);
+        const id = event.target
+          .closest(TAB_SELECTOR)
+          ?.getAttribute(TAB_ATTRIBUTE);
+        const tab = id ? this.find(id) : undefined;
         if (tab) this.pin(tab);
       };
       const moved = (
@@ -321,10 +326,8 @@ export class ElementTabs {
   private target(args: ReadonlyPartialJSONObject): ElementTab | undefined {
     const id = args.contextMenu
       ? this.app
-          .contextMenuHitTest(node =>
-            node.hasAttribute('data-lightcone-element')
-          )
-          ?.getAttribute('data-lightcone-element')
+          .contextMenuHitTest(node => node.hasAttribute(TAB_ATTRIBUTE))
+          ?.getAttribute(TAB_ATTRIBUTE)
       : args.widgetId;
     return typeof id === 'string'
       ? this.find(id)

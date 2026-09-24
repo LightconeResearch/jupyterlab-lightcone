@@ -10,16 +10,16 @@ import {
 } from '@jupyterlab/ui-components';
 import React from 'react';
 import { AstraKindMark } from '../astra-kind';
+import { lightconeIcon } from '../icons';
+import { relativeTime } from '../relative-time';
 import type { SessionState } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
-import { lightconeIcon } from './icons';
 import {
   analysisCounts,
   analysisCountsLabel,
-  outputKindLabel,
-  relativeTime,
   type IAnalysisRow
-} from './sidebar-helpers';
+} from './analysis-rows';
+import { outputKindLabel } from './results-summary';
 import type { ISidebarState } from './sidebar-model';
 
 const BASE = 'jp-jupyterlab-lightcone-Sidebar';
@@ -257,7 +257,7 @@ export function SessionsList({
                 </span>
                 <span className={`${BASE}-title`}>{session.title}</span>
                 <span className={`${BASE}-meta`}>
-                  {relativeTime(session.modified)}
+                  {relativeTime(session.modified, 'narrow')}
                 </span>
               </button>
               <button
@@ -347,7 +347,7 @@ export function ResultsList({
                   {recordTitle(output)}
                 </span>
                 <span className={`${BASE}-meta`}>
-                  {outputKindLabel(output.type)}
+                  {outputKindLabel(output.type, trans)}
                 </span>
                 <span
                   className={`${BASE}-status`}
@@ -404,8 +404,8 @@ export function AnalysisList({
     <ul className={`${BASE}-tree`}>
       {rows.map(row => {
         const active = row.canonicalPath === scope;
-        const counts = analysisCounts(row);
-        const label = analysisCountsLabel(row);
+        const counts = analysisCounts(row, trans);
+        const label = analysisCountsLabel(row, trans);
         return (
           <li key={row.canonicalPath}>
             <button

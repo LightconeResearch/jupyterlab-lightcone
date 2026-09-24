@@ -1,5 +1,9 @@
 import type { MessagePreambleProps } from '@jupyter/chat';
 import React, { useEffect, useMemo, useState } from 'react';
+import {
+  recordedChatProject,
+  type IChatProjectResolver
+} from '../chat-links/chat-project';
 import type { IComment } from './comments-api';
 import type { CommentService } from './comment-service';
 import {
@@ -9,12 +13,12 @@ import {
   labelGlyph,
   targetName
 } from './comment-model';
-import type { ChatProjects } from './chat-projects';
 import { CommentTargetIcon } from './comment-tray';
 
 export interface ICommentCardsDependencies {
   service: CommentService;
-  projects: ChatProjects;
+  /** Files a chat under its project. */
+  projects: IChatProjectResolver;
   /** Open the comment's target. */
   open(comment: IComment): void;
 }
@@ -43,8 +47,9 @@ export function createCommentCards(
       }
       let active = true;
       void deps.projects
-        .entrypointFor(model.name)
-        .then(async entrypoint => {
+        .resolve(model.name, recordedChatProject(model))
+        .then(async project => {
+          const entrypoint = project?.entrypoint;
           if (!entrypoint) {
             return;
           }
@@ -59,7 +64,7 @@ export function createCommentCards(
       return () => {
         active = false;
       };
-    }, [ids, model.name]);
+    }, [ids, model]);
     if (!comments.length) {
       return null;
     }

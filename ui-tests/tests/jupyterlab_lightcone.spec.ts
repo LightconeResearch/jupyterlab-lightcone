@@ -456,17 +456,17 @@ test('an explicit scope changes the analysis in a reused inventory document', as
   );
   const id = await openInventory(page, path);
   const selected = page.locator(CURRENT_ANALYSIS);
-  for (const scope of ['child', 'root']) {
+  for (const analysisPath of ['child', '$']) {
     await page.evaluate(
-      async ({ path, scope }) => {
+      async ({ path, analysisPath }) => {
         await window.jupyterapp.commands.execute(
           'jupyterlab_lightcone:open-inventory',
-          { path, scope }
+          { path, analysisPath }
         );
       },
-      { path, scope }
+      { path, analysisPath }
     );
-    const title = scope === 'root' ? 'Parent analysis' : 'Child analysis';
+    const title = analysisPath === '$' ? 'Parent analysis' : 'Child analysis';
     await expect(selected).toHaveText(title);
     expect(await openInventory(page, path)).toBe(id);
     await expect(selected).toHaveText(title);

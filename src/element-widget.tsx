@@ -43,15 +43,10 @@ import {
   isInsight
 } from '@astra-spec/ui/model';
 import type { ResolvedOutput, ResolvedRecord } from '@astra-spec/sdk';
-import {
-  acquireProjectDataService,
-  type IProjectDataState
-} from './project-data-service';
-import {
-  resolveReference,
-  type IElementReference,
-  type IProjectContext
-} from './element-reference';
+import type { IDocumentOpener } from './artifact-access';
+import type { IProjectDataState } from './project-data-service';
+import { useProject } from './project-data-hooks';
+import { resolveReference, type IElementReference } from './element-reference';
 import type { ILoadedProjectData } from './project-data';
 import { useProjectRenderers } from './project-renderers';
 import {
@@ -63,6 +58,8 @@ import { JupyterOutputProvenance } from './output-provenance';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
 import { astraIcon } from './icons';
+import { ELEMENT_TAB_DATASET_KEY } from './workbench-ids';
+import type { ILightconeView } from './workbench-view';
 import {
   canGoBack,
   canGoForward,
@@ -90,43 +87,6 @@ import {
   VersionRail
 } from './versions/versioned-output';
 
-/** Share project resolution with every tab and visible chat card. */
-export function useProject(
-  contents: Contents.IManager,
-  context: IProjectContext
-): IProjectDataState & { fetchPaper: (doi: string) => void } {
-  const [state, setState] = useState<IProjectDataState>({
-    data: undefined,
-    error: undefined
-  });
-  const [fetchPaper, setFetch] = useState<(doi: string) => void>(
-    () => () => undefined
-  );
-  useEffect(() => {
-    const lease = acquireProjectDataService(
-      contents,
-      context.entrypoint,
-      context.universeId
-    );
-    let active = true;
-    const update = () => {
-      if (active) setState(lease.service.state);
-    };
-    lease.service.changed.connect(update);
-    setFetch(() => (doi: string) => {
-      void lease.service.fetchPaper(doi);
-    });
-    update();
-    void lease.service.get().then(update, update);
-    return () => {
-      active = false;
-      lease.service.changed.disconnect(update);
-      lease.release();
-    };
-  }, [contents, context.entrypoint, context.universeId]);
-  return { ...state, fetchPaper };
-}
-
 /**
  * The controls ASTRA UI renders to open another record. A middle click on
  * one of them opens that record beside this tab instead of navigating it.
@@ -146,12 +106,14 @@ interface IDetailProps {
   widget: ElementWidget;
   contents: Contents.IManager;
   commands: CommandRegistry;
+  documents: IDocumentOpener;
 }
 
 function Detail({
   widget,
   contents,
-  commands
+  commands,
+  documents
 }: IDetailProps): React.ReactElement {
   const state = useProject(contents, widget.reference);
   // A modifier or middle click on a record link asks for a new tab; the
@@ -193,6 +155,7 @@ function Detail({
           widget={widget}
           contents={contents}
           commands={commands}
+          documents={documents}
           data={state.data}
           fetchPaper={state.fetchPaper}
           wantsNewTab={() => newTab.current}
@@ -276,7 +239,7 @@ function HistoryControls({
 interface IOutputRecordDetailProps {
   widget: ElementWidget;
   contents: Contents.IManager;
-  commands: CommandRegistry;
+  documents: IDocumentOpener;
   data: ILoadedProjectData;
   record: ResolvedOutput;
   renderers: ReturnType<typeof useProjectRenderers>;
@@ -289,7 +252,7 @@ interface IOutputRecordDetailProps {
 function OutputRecordDetail({
   widget,
   contents,
-  commands,
+  documents,
   data,
   record,
   renderers,
@@ -352,7 +315,7 @@ function OutputRecordDetail({
               status={status}
               version={versioning.shown}
               onOpenRecord={open}
-              commands={commands}
+              documents={documents}
             />
           </>
         )}
@@ -403,6 +366,7 @@ function DetailBody({
   widget,
   contents,
   commands,
+  documents,
   data,
   fetchPaper,
   wantsNewTab
@@ -417,7 +381,7 @@ function DetailBody({
     reference.entrypoint,
     data,
     fetchPaper,
-    commands
+    documents
   );
   const [expanded, setExpanded] = useState(false);
   // The body remounts for every record shown; one the tab comes back to
@@ -425,7 +389,7 @@ function DetailBody({
   const content = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = content.current;
-    return element ? widget.restoreScroll(element) : undefined;
+    return element ? widget.mountContent(element) : undefined;
   }, [widget]);
   let resolved: ReturnType<typeof resolveReference> | undefined;
   try {
@@ -478,7 +442,7 @@ function DetailBody({
           <OutputRecordDetail
             widget={widget}
             contents={contents}
-            commands={commands}
+            documents={documents}
             data={data}
             record={record}
             renderers={renderers}
@@ -682,14 +646,16 @@ export interface IDisplayOptions {
 
 /**
  * Native ASTRA view with replaceable content, an explicit user-owned pin and
- * a history of the references it has shown.
+ * a history of the references it has shown. It is a workbench view: the
+ * sidebar and the tab labeller read it through `isLightconeView`.
  */
-export class ElementWidget extends ReactWidget {
+export class ElementWidget extends ReactWidget implements ILightconeView {
   constructor(
     public reference: IElementReference,
     private contents: Contents.IManager,
     themes: IThemeManager,
     private commands: CommandRegistry,
+    private documents: IDocumentOpener,
     public identity: string,
     readonly tabId: string,
     private _isPinned = false
@@ -700,9 +666,16 @@ export class ElementWidget extends ReactWidget {
     this.addClass('astra-isolate');
     this.addClass('lightcone-brand');
     this.title.icon = astraIcon;
-    this.title.dataset = { 'lightcone-element': tabId };
+    this.title.dataset = { [ELEMENT_TAB_DATASET_KEY]: tabId };
     this._syncPin();
     this._theme = new LightconeThemeBinding(themes, this.node);
+  }
+
+  readonly lightconeView = true as const;
+
+  /** The Contents path of the project's `astra.yaml` this tab shows. */
+  get entrypoint(): string {
+    return this.reference.entrypoint;
   }
 
   get isPinned(): boolean {
@@ -779,14 +752,20 @@ export class ElementWidget extends ReactWidget {
   }
 
   /**
-   * Scroll a freshly rendered body to where this entry was left, following
-   * the body as it grows. Returns a function that stops following it.
+   * Adopt a freshly rendered body's scroller: scroll it to where this entry
+   * was left, following the body as it grows, and read its offset back when
+   * the tab moves on. Returns a function that stops following it.
    */
-  restoreScroll(element: HTMLElement): () => void {
-    return restoreScrollOffset(
+  mountContent(element: HTMLElement): () => void {
+    this._scroller = element;
+    const stop = restoreScrollOffset(
       element,
       currentEntry(this._history)?.scrollTop ?? 0
     );
+    return () => {
+      stop();
+      if (this._scroller === element) this._scroller = undefined;
+    };
   }
 
   /** Rename the current entry once the record's title is known. */
@@ -815,7 +794,12 @@ export class ElementWidget extends ReactWidget {
 
   render(): React.ReactElement {
     return (
-      <Detail widget={this} contents={this.contents} commands={this.commands} />
+      <Detail
+        widget={this}
+        contents={this.contents}
+        commands={this.commands}
+        documents={this.documents}
+      />
     );
   }
 
@@ -850,10 +834,7 @@ export class ElementWidget extends ReactWidget {
 
   /** The history with the current entry's scroll offset, as the tab leaves it. */
   private _leave(): IElementHistory {
-    const scroller = this.node.querySelector<HTMLElement>(
-      '.jp-jupyterlab-lightcone-element-content'
-    );
-    return rememberScroll(this._history, scroller?.scrollTop ?? 0);
+    return rememberScroll(this._history, this._scroller?.scrollTop ?? 0);
   }
 
   private _show(): void {
@@ -898,4 +879,6 @@ export class ElementWidget extends ReactWidget {
   private _history: IElementHistory = EMPTY_HISTORY;
   private readonly _historyChanged = new Signal<this, void>(this);
   private _theme: LightconeThemeBinding;
+  /** The mounted body's scroller, while a body is mounted. */
+  private _scroller: HTMLElement | undefined;
 }

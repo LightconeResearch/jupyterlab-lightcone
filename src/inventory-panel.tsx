@@ -1,5 +1,4 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import type { CommandRegistry } from '@lumino/commands';
 import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import { listIcon } from '@jupyterlab/ui-components';
@@ -10,6 +9,7 @@ import type { DetailEntry } from '@astra-spec/ui/lib';
 import { Signal, type ISignal } from '@lumino/signaling';
 import React, { useId } from 'react';
 import { flushSync } from 'react-dom';
+import type { IDocumentOpener } from './artifact-access';
 import { useProjectRenderers } from './project-renderers';
 import type { ILoadedProjectData } from './project-data';
 import type { IProjectDataState } from './project-data-service';
@@ -40,9 +40,8 @@ type InventoryPanelState =
   | { status: 'error'; message: string };
 
 export interface IInventoryDisplayRequest {
+  /** The canonical path of the analysis to show; `$` is the root. */
   analysisPath?: string;
-  /** Legacy view-model scope id; `root` maps to the resolved `$` path. */
-  scope?: string;
   /** Open this record's detail dialog once the inventory is shown. */
   openReference?: InventoryOpenReference;
 }
@@ -56,18 +55,8 @@ function requestedAnalysisPath(
   const retainedPath = data.index.analysisByPath.has(currentPath)
     ? currentPath
     : '$';
-  const requested = request.analysisPath ?? request.scope ?? retainedPath;
-  const canonical =
-    request.analysisPath === undefined && request.scope === 'root'
-      ? '$'
-      : requested;
-  if (data.index.analysisByPath.has(canonical)) return canonical;
-  if (request.analysisPath === undefined && request.scope) {
-    const byId = [...data.index.analysisByPath.values()].find(
-      analysis => analysis.id === request.scope
-    );
-    if (byId) return byId.canonicalPath;
-  }
+  const requested = request.analysisPath ?? retainedPath;
+  if (data.index.analysisByPath.has(requested)) return requested;
   throw new Error(`No ASTRA analysis exists at "${requested}".`);
 }
 
@@ -103,15 +92,15 @@ function readyState(
 }
 
 function ReadyInventoryView({
-  commands,
   contents,
+  documents,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
-  commands: CommandRegistry;
   contents: Contents.IManager;
+  documents: IDocumentOpener;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
   onSelectAnalysis: (analysisPath: string) => void;
@@ -130,7 +119,7 @@ function ReadyInventoryView({
     state.entrypoint,
     state.data,
     onFetchPaper,
-    commands,
+    documents,
     // Let the dialog restore focus before Jupyter activates the file tab.
     () => flushSync(() => onDetailChange([])),
     getOutputStatus
@@ -194,15 +183,15 @@ function ReadyInventoryView({
 }
 
 function InventoryPanelView({
-  commands,
   contents,
+  documents,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
-  commands: CommandRegistry;
   contents: Contents.IManager;
+  documents: IDocumentOpener;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
   onSelectAnalysis: (analysisPath: string) => void;
@@ -222,7 +211,7 @@ function InventoryPanelView({
   if (state.status === 'error') {
     return (
       <div
-        className="jp-jupyterlab-lightcone-inventory-message is-error"
+        className="jp-jupyterlab-lightcone-inventory-message jp-mod-error"
         role="alert"
       >
         <span>Could not open ASTRA inventory</span>
@@ -232,8 +221,8 @@ function InventoryPanelView({
   }
   return (
     <ReadyInventoryView
-      commands={commands}
       contents={contents}
+      documents={documents}
       state={state}
       onDetailChange={onDetailChange}
       onSelectAnalysis={onSelectAnalysis}
@@ -246,7 +235,7 @@ export class AstraInventoryPanel extends ReactWidget {
   constructor(
     private readonly contents: Contents.IManager,
     themeManager: IThemeManager,
-    private readonly commands: CommandRegistry
+    private readonly documents: IDocumentOpener
   ) {
     super();
     this.title.label = 'ASTRA Inventory';
@@ -351,8 +340,8 @@ export class AstraInventoryPanel extends ReactWidget {
   protected render(): React.ReactElement {
     return (
       <InventoryPanelView
-        commands={this.commands}
         contents={this.contents}
+        documents={this.documents}
         state={this._state}
         onDetailChange={detail => {
           if (this._state.status === 'ready') {

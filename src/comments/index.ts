@@ -16,11 +16,16 @@ import {
 } from '@jupyterlab/codemirror';
 import { IDocumentManager } from '@jupyterlab/docmanager';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
+import { IChatProjectResolver } from '../chat-links/chat-project';
 import { ICurrentProject } from '../current-project';
-import { ChatProjects } from './chat-projects';
+import { PALETTE_CATEGORY } from '../workbench-ids';
 import { createCommentCards } from './comment-cards';
 import { CommentHosts } from './comment-hosts';
-import { METADATA_KEY, withCommentIds } from './comment-model';
+import {
+  commentIdsFromMetadata,
+  METADATA_KEY,
+  withCommentIds
+} from './comment-model';
 import { CommentPopover } from './comment-popover';
 import { CommentService, ICommentService } from './comment-service';
 import { commentDelivery, type CommentDelivery } from './comments-api';
@@ -44,8 +49,6 @@ export namespace CommentsCommandIDs {
   export const refreshComments = 'jupyterlab_lightcone:refresh-comments';
 }
 
-const CATEGORY = 'Lightcone Lab';
-
 /** Delay before the pending list is fetched again after a send, in ms. */
 const POST_SEND_REFRESH = 1000;
 
@@ -58,18 +61,25 @@ const POST_SEND_REFRESH = 1000;
  */
 export function commentCommandProvider(
   service: CommentService,
-  projects: ChatProjects,
+  projects: IChatProjectResolver,
   delivery: CommentDelivery = commentDelivery()
 ): IChatCommandProvider {
   return {
     id: 'jupyterlab_lightcone:comments',
     listCommandCompletions: async () => [],
     onSubmit: async input => {
+      // The input keeps its metadata from one send to the next, so the IDs
+      // stamped for an earlier message must not ride with this one.
+      if (commentIdsFromMetadata(input.getMetadata()).length) {
+        input.updateMetadata({
+          [METADATA_KEY]: withCommentIds(input.getMetadata(), [])
+        });
+      }
       const name = input.chatContext?.name;
       if (!name) {
         return;
       }
-      const entrypoint = await projects.entrypointFor(name);
+      const entrypoint = (await projects.resolve(name))?.entrypoint;
       if (!entrypoint) {
         return;
       }
@@ -89,15 +99,6 @@ export function commentCommandProvider(
       input.updateMetadata({
         [METADATA_KEY]: withCommentIds(input.getMetadata(), ids)
       });
-      // The message is sent right after the providers ran; then the IDs must
-      // not ride with the next message too.
-      window.setTimeout(() => {
-        if (!input.isDisposed) {
-          input.updateMetadata({
-            [METADATA_KEY]: withCommentIds(input.getMetadata(), [])
-          });
-        }
-      }, 0);
       window.setTimeout(() => {
         void service.refresh(entrypoint).catch(error => {
           console.warn('Could not refresh the pending comments.', error);
@@ -118,7 +119,7 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
     'Comments on figures, files and records, sent with the next chat message.',
   autoStart: true,
   provides: ICommentService,
-  requires: [ICurrentProject],
+  requires: [ICurrentProject, IChatProjectResolver],
   optional: [
     IChatTracker,
     IChatCommandRegistry,
@@ -132,6 +133,7 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
   activate: (
     app: JupyterFrontEnd,
     current: ICurrentProject,
+    projects: IChatProjectResolver,
     tracker: IChatTracker | null,
     chatCommands: IChatCommandRegistry | null,
     preambles: IMessagePreambleRegistry | null,
@@ -144,8 +146,15 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const service = new CommentService(app.serviceManager.serverSettings);
     const popover = new CommentPopover();
-    const hosts = new CommentHosts({ app, shell, documents, service, popover });
-    const projects = new ChatProjects(app.serviceManager.contents);
+    const hosts = new CommentHosts({
+      app,
+      shell,
+      documents,
+      tracker,
+      projects,
+      service,
+      popover
+    });
     const open = (comment: Parameters<CommentHosts['openTarget']>[0]) => {
       void hosts.openTarget(comment).catch(reason => {
         void showErrorMessage(
@@ -157,7 +166,7 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
     if (editorExtensions) {
       const extension = editorCommentExtension(hosts.editorHandlers);
       editorExtensions.addExtension({
-        name: 'lightcone:comment',
+        name: 'jupyterlab_lightcone:comment',
         factory: options =>
           options.inline
             ? null
@@ -245,7 +254,7 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
     });
     palette?.addItem({
       command: CommentsCommandIDs.refreshComments,
-      category: CATEGORY
+      category: PALETTE_CATEGORY
     });
     app.shell.disposed.connect(() => {
       current.changed.disconnect(refreshCurrent);

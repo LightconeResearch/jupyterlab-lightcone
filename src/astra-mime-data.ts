@@ -7,7 +7,7 @@ export const ASTRA_MIME_TYPE = 'application/vnd.lightcone.astra+json';
 
 /** The committed output version a card was made from. */
 export interface IAstraCardVersion {
-  /** Full or abbreviated commit hash, 7 to 40 hex characters. */
+  /** Full or abbreviated commit hash (see `COMMIT_PATTERN`). */
   commit: string;
   /** git-annex key of the bytes at that commit, when known. */
   key?: string;
@@ -21,7 +21,11 @@ export interface IAstraCard extends IElementReference {
   outputVersion?: IAstraCardVersion;
 }
 
-const COMMIT_PATTERN = /^[0-9a-f]{7,40}$/i;
+/**
+ * A full or abbreviated git commit hash: 7 to 40 hex characters for SHA-1
+ * repositories, 64 for SHA-256 ones.
+ */
+export const COMMIT_PATTERN = /^(?:[0-9a-f]{7,40}|[0-9a-f]{64})$/i;
 const KEY_MAX_LENGTH = 256;
 
 function parseCardVersion(value: unknown): IAstraCardVersion {

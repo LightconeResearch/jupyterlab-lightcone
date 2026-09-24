@@ -15,9 +15,7 @@ const doc = ['# Title', '', 'The magnitude offset is profiled.'].join('\n');
 function handlers(): jest.Mocked<IEditorCommentHandlers> {
   return {
     onComment: jest.fn(),
-    onBadge: jest.fn(),
-    onViewCreated: jest.fn(),
-    onViewDestroyed: jest.fn()
+    onBadge: jest.fn()
   };
 }
 
@@ -131,7 +129,6 @@ describe('the editor extension', () => {
     });
     const view = new EditorView({ state, parent: document.body });
     try {
-      expect(callbacks.onViewCreated).toHaveBeenCalledWith(view);
       const tooltip = view.state.facet(showTooltip).find(Boolean);
       const dom = tooltip?.create(view).dom;
       expect(dom?.textContent).toBe('Comment');
@@ -145,6 +142,5 @@ describe('the editor extension', () => {
     } finally {
       view.destroy();
     }
-    expect(callbacks.onViewDestroyed).toHaveBeenCalledWith(view);
   });
 });

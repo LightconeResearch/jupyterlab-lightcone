@@ -13,6 +13,12 @@ export const QUOTE_LIMIT = 300;
 export const PREFIX_LIMIT = 100;
 /** The metadata key under which comment IDs ride with a chat message. */
 export const METADATA_KEY = 'lightcone';
+/**
+ * The attribute `@astra-spec/ui`'s paper viewer puts on each page shell with
+ * the page's 1-based number; the viewer scrolls by it, so it is the viewer's
+ * own contract.
+ */
+export const PAGE_ATTRIBUTE = 'data-page';
 
 const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
 

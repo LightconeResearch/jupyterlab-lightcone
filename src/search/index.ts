@@ -7,14 +7,13 @@ import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { searchIcon } from '@jupyterlab/ui-components';
 import { ICurrentProject } from '../current-project';
 import { ISessionService } from '../sessions/session-service';
+import { PALETTE_CATEGORY } from '../workbench-ids';
 import { SearchController } from './search-controller';
 
 export namespace SearchCommandIDs {
   /** Open the search modal (bound to Accel K in `schema/search.json`). */
   export const search = 'jupyterlab_lightcone:search';
 }
-
-const CATEGORY = 'Lightcone Lab';
 
 /**
  * Ctrl/Cmd+K search over the current project's sessions, ASTRA records,
@@ -56,7 +55,10 @@ export const searchPlugin: JupyterFrontEndPlugin<void> = {
       describedBy: { args: { type: 'object', properties: {} } },
       execute: () => search.open()
     });
-    palette?.addItem({ command: SearchCommandIDs.search, category: CATEGORY });
+    palette?.addItem({
+      command: SearchCommandIDs.search,
+      category: PALETTE_CATEGORY
+    });
     app.shell.disposed.connect(() => {
       search.dispose();
     });

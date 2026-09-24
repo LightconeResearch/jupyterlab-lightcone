@@ -1,8 +1,8 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { AnalysisIndex, ResolvedOutput } from '@astra-spec/sdk';
+import type { IDocumentWidget } from '@jupyterlab/docregistry';
 import { ContentsManager } from '@jupyterlab/services';
-import { CommandRegistry } from '@lumino/commands';
 import { resolveOutputCode } from '../../code-access';
 import { JupyterOutputProvenance } from '../../output-provenance';
 import type { IOutputVersion } from '../versions-api';
@@ -91,7 +91,6 @@ test('the Code tab locates the script from the recipe, not the worker command', 
         output={output}
         status={undefined}
         version={recorded}
-        commands={new CommandRegistry()}
       />
     );
   });
@@ -107,4 +106,31 @@ test('the Code tab locates the script from the recipe, not the worker command', 
   expect(panel.textContent).toContain('python src/fit.py --output');
   expect(panel.textContent).not.toContain('lightcone.engine.worker');
   expect(panel.textContent).toContain('src/fit.py');
+});
+
+test('the Code tab opens the current script through the document manager', async () => {
+  jest.mocked(resolveOutputCode).mockResolvedValue({
+    relativePath: 'src/fit.py',
+    source: 'recorded run'
+  });
+  const openOrReveal = jest.fn(
+    () => ({ id: 'opened' }) as unknown as IDocumentWidget
+  );
+  await act(async () => {
+    root.render(
+      <JupyterOutputProvenance
+        contents={contents}
+        entrypoint="project/astra.yaml"
+        index={index}
+        universe="baseline"
+        output={output}
+        status={undefined}
+        version={version}
+        documents={{ openOrReveal }}
+      />
+    );
+  });
+  await act(async () => button('Code').click());
+  await act(async () => button('Open current file').click());
+  expect(openOrReveal).toHaveBeenCalledWith('project/src/fit.py', 'Editor');
 });

@@ -47,9 +47,9 @@ import {
   InventoryDocument,
   InventoryDocumentFactory
 } from './document-widget';
+import { PALETTE_CATEGORY as CATEGORY } from './workbench-ids';
 
 const PLUGIN_ID = 'jupyterlab_lightcone:plugin';
-const CATEGORY = 'Lightcone Lab';
 
 /** Native JupyterLab integration for the Lightcone Lab research workbench. */
 const plugin: JupyterFrontEndPlugin<void> = {
@@ -94,7 +94,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     const factory = new InventoryDocumentFactory(
       app.serviceManager.contents,
       themes,
-      app.commands
+      documents
     );
     factory.widgetCreated.connect((_sender, widget) => {
       widget.title.icon = astraIcon;
@@ -111,7 +111,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     });
     app.docRegistry.addWidgetFactory(factory);
-    registerElementCommands(app, themes, restorer, shell);
+    registerElementCommands(app, documents, themes, restorer, shell);
     palette?.addItem({ command: CommandIDs.pinElement, category: CATEGORY });
     palette?.addItem({ command: CommandIDs.unpinElement, category: CATEGORY });
     registerCommands({

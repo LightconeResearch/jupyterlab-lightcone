@@ -2,11 +2,23 @@ import type {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
-import { Dialog, Notification, showErrorMessage } from '@jupyterlab/apputils';
+import {
+  Dialog,
+  Notification,
+  ReactWidget,
+  showErrorMessage
+} from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
+import {
+  ITranslator,
+  nullTranslator,
+  type TranslationBundle
+} from '@jupyterlab/translation';
 import type { CommandRegistry } from '@lumino/commands';
 import type { IDisposable } from '@lumino/disposable';
+import { MessageLoop } from '@lumino/messaging';
 import { Signal } from '@lumino/signaling';
+import { Widget } from '@lumino/widgets';
 import type { SurfaceKind } from '@astra-spec/ui/model';
 import * as React from 'react';
 import { AstraKindMark } from './astra-kind';
@@ -52,6 +64,25 @@ export function changeKind(
   }
 }
 
+/**
+ * A dialog renderer whose body keeps its own controls: the stock renderer
+ * stamps every button in the body `jp-mod-styled`, which the review's rows of
+ * record links are not. Text bodies render as the stock renderer does.
+ */
+export class UnstyledBodyRenderer extends Dialog.Renderer {
+  createBody(value: Dialog.Body<unknown>): Widget {
+    if (typeof value === 'string') {
+      return super.createBody(value);
+    }
+    const body = value instanceof Widget ? value : ReactWidget.create(value);
+    // Render the React nodes at once, as the stock renderer does, so the
+    // dialog measures a body that is already there.
+    MessageLoop.sendMessage(body, Widget.Msg.UpdateRequest);
+    body.addClass('jp-Dialog-body');
+    return body;
+  }
+}
+
 /** Artifact hashing shares the browser's connection pool with autosave and kernels. */
 const HASH_CONCURRENCY = 4;
 
@@ -82,8 +113,10 @@ interface IWatchedProject {
 export class ProjectNotifications {
   constructor(
     private readonly contents: Contents.IManager,
-    private readonly commands: CommandRegistry
+    private readonly commands: CommandRegistry,
+    translator?: ITranslator
   ) {
+    this._trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     this._observer = observeProjectDataServices(contents, service =>
       this._watch(service)
     );
@@ -274,7 +307,7 @@ export class ProjectNotifications {
       autoClose: 5000,
       actions: [
         {
-          label: 'Review changes',
+          label: this._trans.__('Review changes'),
           displayType: 'link' as const,
           callback: () => {
             project.baseline = project.reviewing;
@@ -282,7 +315,7 @@ export class ProjectNotifications {
             void this._review(entrypoint, title, changes, universeId).catch(
               error =>
                 showErrorMessage(
-                  'Could not review project changes',
+                  this._trans.__('Could not review project changes'),
                   String(error)
                 )
             );
@@ -319,7 +352,8 @@ export class ProjectNotifications {
     let selected: IProjectChange | undefined;
     // eslint-disable-next-line jupyter/require-disposable-ownership -- Disposed in the finally block after launch settles.
     const dialog = new Dialog({
-      title: 'Project updates',
+      title: this._trans.__('Project updates'),
+      renderer: new UnstyledBodyRenderer(),
       body: (
         <div className="jp-jupyterlab-lightcone-ProjectUpdates">
           <p>{title}</p>
@@ -352,7 +386,7 @@ export class ProjectNotifications {
           </ul>
         </div>
       ),
-      buttons: [Dialog.okButton({ label: 'Close' })]
+      buttons: [Dialog.okButton({ label: this._trans.__('Close') })]
     });
     try {
       await dialog.launch();
@@ -380,6 +414,7 @@ export class ProjectNotifications {
   }
 
   private _disposed = false;
+  private readonly _trans: TranslationBundle;
   private readonly _observer: IDisposable;
   private readonly _projects = new Map<string, IWatchedProject>();
 }
@@ -389,10 +424,12 @@ export const projectNotificationsPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:project-notifications',
   description: 'Group project edits and new results into a JupyterLab notice.',
   autoStart: true,
-  activate: (app: JupyterFrontEnd) => {
+  optional: [ITranslator],
+  activate: (app: JupyterFrontEnd, translator: ITranslator | null) => {
     const notifications = new ProjectNotifications(
       app.serviceManager.contents,
-      app.commands
+      app.commands,
+      translator ?? undefined
     );
     app.shell.disposed.connect(() => notifications.dispose());
   }

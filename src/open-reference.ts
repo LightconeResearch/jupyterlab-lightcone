@@ -4,6 +4,7 @@ import {
   type ResolvedRecord
 } from '@astra-spec/sdk';
 import { paperEntry, recordEntry, type DetailEntry } from '@astra-spec/ui/lib';
+import { isRecord } from './api';
 
 export type InventoryRecordKind = ResolvedRecord['kind'];
 
@@ -29,10 +30,6 @@ const RECORD_KINDS: readonly string[] = [
   'finding',
   'prior_insight'
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 function isRecordKind(value: string): value is InventoryRecordKind {
   return RECORD_KINDS.includes(value);

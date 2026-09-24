@@ -1,4 +1,5 @@
 import type { ServerConnection } from '@jupyterlab/services';
+import type { IDisposable } from '@lumino/disposable';
 import {
   listResultsCommits,
   type IResultsCommit
@@ -21,38 +22,61 @@ interface ICachedListing {
   listing: Promise<IResultsCommit[]>;
 }
 
-const listings = new Map<string, ICachedListing>();
-
 /**
- * The project's results history, shared by every footer for up to 30 s.
- *
- * `notBefore` is the server time (seconds since the epoch) of the end of the
- * turn the caller shows. A cached listing is reused only when it was requested
- * at least `CLOCK_SKEW_ALLOWANCE` after that, by the browser's clock; a
- * recent turn therefore always gets a fresh listing, which contains every
- * commit the turn made, while footers of older turns share one request.
+ * The results histories of projects, shared by every footer for up to 30 s
+ * each. Owned by the chat-links plugin, which disposes it with the shell.
  */
-export function cachedResultsCommits(
-  settings: ServerConnection.ISettings,
-  entrypoint: string,
-  notBefore = 0
-): Promise<IResultsCommit[]> {
-  const now = Date.now() / 1000;
-  const cached = listings.get(entrypoint);
-  if (
-    cached &&
-    now - cached.at < RESULTS_CACHE_TTL / 1000 &&
-    cached.at >= notBefore + CLOCK_SKEW_ALLOWANCE
-  ) {
-    return cached.listing;
+export class ResultsHistoryCache implements IDisposable {
+  constructor(private readonly _settings: ServerConnection.ISettings) {}
+
+  get isDisposed(): boolean {
+    return this._isDisposed;
   }
-  const listing = listResultsCommits(settings, entrypoint);
-  const entry = { at: now, listing };
-  listings.set(entrypoint, entry);
-  listing.catch(() => {
-    if (listings.get(entrypoint) === entry) {
-      listings.delete(entrypoint);
+
+  /**
+   * The project's results history.
+   *
+   * `notBefore` is the server time (seconds since the epoch) of the end of
+   * the turn the caller shows. A cached listing is reused only when it was
+   * requested at least `CLOCK_SKEW_ALLOWANCE` after that, by the browser's
+   * clock; a recent turn therefore always gets a fresh listing, which
+   * contains every commit the turn made, while footers of older turns share
+   * one request.
+   */
+  get(entrypoint: string, notBefore = 0): Promise<IResultsCommit[]> {
+    const now = Date.now() / 1000;
+    const cached = this._listings.get(entrypoint);
+    if (
+      cached &&
+      now - cached.at < RESULTS_CACHE_TTL / 1000 &&
+      cached.at >= notBefore + CLOCK_SKEW_ALLOWANCE
+    ) {
+      return cached.listing;
     }
-  });
-  return listing;
+    const listing = listResultsCommits(this._settings, entrypoint);
+    const entry = { at: now, listing };
+    this._listings.set(entrypoint, entry);
+    listing.catch(() => {
+      if (this._listings.get(entrypoint) === entry) {
+        this._listings.delete(entrypoint);
+      }
+    });
+    return listing;
+  }
+
+  /** Forget every listing, so the next footer fetches afresh. */
+  clear(): void {
+    this._listings.clear();
+  }
+
+  dispose(): void {
+    if (this._isDisposed) {
+      return;
+    }
+    this._isDisposed = true;
+    this.clear();
+  }
+
+  private readonly _listings = new Map<string, ICachedListing>();
+  private _isDisposed = false;
 }

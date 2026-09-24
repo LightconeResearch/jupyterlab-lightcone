@@ -15,13 +15,14 @@ import {
   createContents,
   fileModel
 } from '../../__tests__/project-fixtures';
+import { createChatProjectResolver } from '../../chat-links/chat-project';
 import { createComment, listComments, type IComment } from '../comments-api';
+import { COMMENT_LAYER_CLASS } from '../comment-layer';
 import { emptyAnchor, NULL_VERSION, pointAnchor } from '../comment-model';
 import { CommentHosts, recordVersion } from '../comment-hosts';
 import { CommentPopover, type IPopoverRequest } from '../comment-popover';
 import { CommentService } from '../comment-service';
 import { editorCommentExtension } from '../editor-comments';
-import { COMMENT_LAYER_CLASS } from '../image-layer';
 import {
   Frames,
   makeComment,
@@ -31,6 +32,9 @@ import {
   settle
 } from './fixtures';
 
+jest.mock('@jupyter/chat', () =>
+  jest.requireActual('../../chat-links/__tests__/chat-mock')
+);
 jest.mock('../comments-api', () => ({
   listComments: jest.fn(),
   createComment: jest.fn(),
@@ -155,13 +159,19 @@ async function setup(pending: IComment[]) {
     app: fake.app,
     shell: null,
     documents: null,
+    tracker: null,
+    projects: createChatProjectResolver(contents, () => undefined),
     service,
     popover
   });
   return { ...fake, service, hosts };
 }
 
-/** A file editor whose CodeMirror view carries the comment extension. */
+/**
+ * A file editor whose CodeMirror view carries the comment extension; its
+ * `content.editor` stands in for the `CodeMirrorEditor` that `getEditor`
+ * (mocked above) reads the view from.
+ */
 function editorWidget(current: CommentHosts) {
   const view = new EditorView({
     state: EditorState.create({

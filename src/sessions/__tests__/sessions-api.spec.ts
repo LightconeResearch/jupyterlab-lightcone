@@ -1,5 +1,5 @@
 import { ServerConnection } from '@jupyterlab/services';
-import { listSessions, prepareSessions } from '../sessions-api';
+import { listSessions } from '../sessions-api';
 
 jest.mock('../../pdf-runtime', () => ({}));
 
@@ -80,39 +80,5 @@ describe('listSessions', () => {
     expect(failure).toBeInstanceOf(Error);
     expect(String(failure)).toMatch(/Sessions request failed \(404\)/);
     expect(String(failure)).not.toContain('trace');
-  });
-});
-
-describe('prepareSessions', () => {
-  it('posts the entrypoint as JSON and returns the chats directory', async () => {
-    const request = respond({ directory: 'project/chats' });
-    await expect(
-      prepareSessions(settings, 'project/astra.yaml')
-    ).resolves.toEqual({ directory: 'project/chats' });
-    const [url, init] = request.mock.calls[0];
-    expect(new URL(url).pathname).toBe(
-      '/user/researcher/jupyterlab_lightcone/api/chat-sessions'
-    );
-    expect(init.method).toBe('POST');
-    expect(new Headers(init.headers).get('Content-Type')).toBe(
-      'application/json'
-    );
-    expect(JSON.parse(String(init.body))).toEqual({
-      path: 'project/astra.yaml'
-    });
-  });
-
-  it('rejects a response without a directory', async () => {
-    respond({ path: 'project/chats' });
-    await expect(
-      prepareSessions(settings, 'project/astra.yaml')
-    ).rejects.toThrow(/invalid session directory/);
-  });
-
-  it('reports a refused write with its status', async () => {
-    respond({ message: 'Forbidden' }, 403);
-    await expect(
-      prepareSessions(settings, 'project/astra.yaml')
-    ).rejects.toThrow(/Sessions request failed \(403\)/);
   });
 });

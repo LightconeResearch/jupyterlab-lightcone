@@ -1,11 +1,10 @@
+import { MainAreaWidget } from '@jupyterlab/apputils';
 import { PathExt } from '@jupyterlab/coreutils';
-import { isRecord } from '../api';
-
-/** The title data key naming a tab's project when labels collide. */
-export const TAB_PROJECT_DATASET_KEY = 'lightcone-project';
-
-/** The title data key of a session's shown title (see `session-manager.ts`). */
-const SESSION_TITLE_DATASET_KEY = 'lightcone-session-title';
+import type { Widget } from '@lumino/widgets';
+import { HomeWidget } from '../home/home-widget';
+import { projectDirectory } from '../project-data';
+import { isLightconeView } from '../workbench-view';
+import { SESSION_TITLE_DATASET_KEY } from '../workbench-ids';
 
 /** A main-area tab as the labeller sees it. */
 export interface ITabEntry {
@@ -53,24 +52,21 @@ export function collidingTabs<T extends ITabEntry>(tabs: readonly T[]): Set<T> {
   return labelled;
 }
 
-/** The directory holding an `astra.yaml` entrypoint. */
-function entrypointFolder(entrypoint: string): string {
-  return PathExt.dirname(entrypoint) === '.' ? '' : PathExt.dirname(entrypoint);
-}
-
 /**
- * The project entrypoint a Lightcone widget states about itself: a record
- * tab's reference, the Runs or Pipeline view's entrypoint, or Home's project.
+ * The project folder a Lightcone widget states about itself: the folder of
+ * the entrypoint a workbench view (a record tab, the inventory, the Pipeline
+ * view) shows, or the project a Home tab has resolved. The view is the tab
+ * itself (the inventory document) or the content of its `MainAreaWidget`.
  * Undefined for any other widget, whose project is looked up from its file.
  */
-export function statedProject(content: unknown): string | undefined {
-  if (!isRecord(content)) return undefined;
-  const { reference, entrypoint, project } = content;
-  if (isRecord(reference) && typeof reference.entrypoint === 'string')
-    return entrypointFolder(reference.entrypoint);
-  if (typeof entrypoint === 'string' && entrypoint.endsWith('astra.yaml'))
-    return entrypointFolder(entrypoint);
-  if (isRecord(project) && typeof project.path === 'string')
-    return project.path;
-  return undefined;
+export function statedProject(widget: Widget): string | undefined {
+  const content = widget instanceof MainAreaWidget ? widget.content : widget;
+  for (const candidate of [widget, content]) {
+    if (isLightconeView(candidate)) {
+      return projectDirectory(candidate.entrypoint);
+    }
+  }
+  return content instanceof HomeWidget
+    ? (content.project?.path ?? undefined)
+    : undefined;
 }

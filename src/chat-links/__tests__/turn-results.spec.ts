@@ -4,7 +4,6 @@ import {
   filesEditedIn,
   isAgentMessage,
   materializedDuring,
-  toolCallDiffPaths,
   turnEndingAt,
   type ITurnMessage
 } from '../turn-results';
@@ -31,7 +30,7 @@ function run(
     commit: `${output}-${time}`,
     short: 'abc1234',
     time,
-    subject: `[DATALAD RUNCMD] ${output} [${universe}]`,
+    subject: `materialize ${output} [${universe}]`,
     outputs: [
       { universe, output },
       ...more.map(([universe, output]) => ({ universe, output }))
@@ -174,19 +173,6 @@ describe('files edited', () => {
       { tool_call_id: '3', diffs: [{ path: '/srv/p/src/a.py', new_text: 'z' }] }
     ]
   };
-
-  it('reads diff paths from ACP tool calls only', () => {
-    expect(toolCallDiffPaths(metadata)).toEqual([
-      '/srv/p/src/a.py',
-      '/srv/p/src/b.py',
-      '/srv/p/src/a.py'
-    ]);
-    expect(toolCallDiffPaths(undefined)).toEqual([]);
-    expect(toolCallDiffPaths({ tool_calls: 'nope' })).toEqual([]);
-    expect(
-      toolCallDiffPaths({ tool_calls: [{ diffs: [{ path: 3 }] }] })
-    ).toEqual([]);
-  });
 
   it('collects the turn agent messages in order without repeats', () => {
     const chat = [

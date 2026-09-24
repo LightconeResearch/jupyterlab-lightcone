@@ -14,7 +14,7 @@ import type { ResolvedRecord } from '@astra-spec/sdk';
 import type { IDisposable } from '@lumino/disposable';
 import { createElement } from 'react';
 import { AstraKindMark } from '../astra-kind';
-import { ChatProjects } from '../comments/chat-projects';
+import { IChatProjectResolver } from '../chat-links/chat-project';
 import { isRootAnalysisOutput } from '../materialization-status';
 import { projectDirectory, type ILoadedProjectData } from '../project-data';
 import {
@@ -42,7 +42,8 @@ export interface IMentionProviderOptions {
   contents: Contents.IManager;
   /** Absent without Jupyter Chat's sessions. */
   sessions: ISessionService | null;
-  projects?: ChatProjects;
+  /** Files a chat under its project. */
+  projects: IChatProjectResolver;
 }
 
 /**
@@ -55,7 +56,7 @@ export class MentionProvider implements IChatCommandProvider, IDisposable {
   constructor(options: IMentionProviderOptions) {
     this._contents = options.contents;
     this._sessions = options.sessions;
-    this._projects = options.projects ?? new ChatProjects(options.contents);
+    this._projects = options.projects;
   }
 
   readonly id = MENTION_PROVIDER_ID;
@@ -68,7 +69,7 @@ export class MentionProvider implements IChatCommandProvider, IDisposable {
     const mention = parseMention(input.currentWord);
     const name = input.chatContext?.name;
     if (!mention || !name) return [];
-    const entrypoint = await this._projects.entrypointFor(name);
+    const entrypoint = (await this._projects.resolve(name))?.entrypoint;
     if (!entrypoint) return [];
     let candidates: IMentionCandidate[];
     if (mention.trigger === '@') {
@@ -176,7 +177,7 @@ export class MentionProvider implements IChatCommandProvider, IDisposable {
 
   private readonly _contents: Contents.IManager;
   private readonly _sessions: ISessionService | null;
-  private readonly _projects: ChatProjects;
+  private readonly _projects: IChatProjectResolver;
   private _lease: { entrypoint: string; lease: IProjectDataLease } | null =
     null;
   private _isDisposed = false;
@@ -188,16 +189,19 @@ export const mentionsPlugin: JupyterFrontEndPlugin<void> = {
   description:
     'Mention ASTRA records with @ and project sessions with # in the session composer.',
   autoStart: true,
+  requires: [IChatProjectResolver],
   optional: [IChatCommandRegistry, ISessionService],
   activate: (
     app: JupyterFrontEnd,
+    projects: IChatProjectResolver,
     registry: IChatCommandRegistry | null,
     sessions: ISessionService | null
   ) => {
     if (!registry) return;
     const provider = new MentionProvider({
       contents: app.serviceManager.contents,
-      sessions
+      sessions,
+      projects
     });
     registry.addProvider(provider);
     app.shell.disposed.connect(() => provider.dispose());

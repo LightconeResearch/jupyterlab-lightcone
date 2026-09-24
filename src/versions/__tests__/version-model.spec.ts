@@ -8,7 +8,6 @@ import {
   METRIC_LEAF_LIMIT,
   metricDeltas,
   outputFormat,
-  relativeTime,
   runView,
   sandboxLine,
   stepVersion,
@@ -28,7 +27,7 @@ function version(
     commit,
     short: commit.slice(0, 7),
     time,
-    subject: `[DATALAD RUNCMD] fit [baseline]`,
+    subject: 'materialize fit',
     size: null,
     present: true,
     annex: null,
@@ -66,15 +65,7 @@ describe('version stepper', () => {
     expect(stepVersion(versions, undefined, 0)).toBeUndefined();
   });
 
-  it('formats relative times and sizes', () => {
-    const now = Date.parse('2026-09-22T12:00:00Z');
-    expect(relativeTime('2026-09-22T11:59:50Z', now)).toBe('just now');
-    expect(relativeTime('2026-09-22T11:55:00Z', now)).toBe('5 minutes ago');
-    expect(relativeTime('2026-09-22T09:00:00Z', now)).toBe('3 hours ago');
-    expect(relativeTime('2026-09-20T12:00:00Z', now)).toBe('2 days ago');
-    expect(relativeTime('2026-08-22T12:00:00Z', now)).toBe('1 month ago');
-    expect(relativeTime('2026-09-22T13:00:00Z', now)).toBe('in 1 hour');
-    expect(relativeTime('not a date', now)).toBe('not a date');
+  it('formats sizes', () => {
     expect(formatBytes(null)).toBe('unknown size');
     expect(formatBytes(512)).toBe('512 B');
     expect(formatBytes(208_410)).toBe('208 kB');

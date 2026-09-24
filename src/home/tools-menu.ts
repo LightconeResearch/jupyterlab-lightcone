@@ -8,7 +8,6 @@ import { HomeCommandIDs } from './home-commands';
 import { groupLauncherItems, isLightconeCategory } from './home-model';
 
 const KERNEL_ICON_CLASS = 'jp-jupyterlab-lightcone-HomeTools-kernelIcon';
-const CATEGORY_CLASS = 'jp-jupyterlab-lightcone-HomeTools-category';
 
 /** Renders kernel icons from their spec URL, as the stock launcher cards do. */
 class ToolsMenuRenderer extends MenuSvg.Renderer {
@@ -27,66 +26,96 @@ class ToolsMenuRenderer extends MenuSvg.Renderer {
     }
     return super.renderIcon(data);
   }
-
-  createItemClass(data: Menu.IRenderData): string {
-    const base = super.createItemClass(data);
-    return data.item.command === HomeCommandIDs.toolsCategory
-      ? `${base} ${CATEGORY_CLASS}`
-      : base;
-  }
 }
 
 export interface IToolsMenuOptions {
   model: ILauncher.IModel;
   commands: CommandRegistry;
-  /** The launcher tab's working directory, passed to every command. */
-  cwd: string;
   /** The Home tab the menu belongs to, for "Show the full launcher". */
   widgetId: string;
   translator?: ITranslator;
 }
 
 /**
- * Build the Tools menu: every launcher item grouped by category, executing
- * the same command with the same arguments as its stock card, then an entry
- * that switches the tab to the stock launcher body. The caller disposes it.
+ * The Tools menu of a Home tab: one submenu per launcher category, each item
+ * executing the same command with the same arguments as its stock card, then
+ * an entry that switches the tab to the stock launcher body. The menu lives
+ * as long as its tab and is filled again before each opening, for the
+ * launcher items and working directory of that moment.
  */
-export function buildToolsMenu(options: IToolsMenuOptions): MenuSvg {
-  const { model, commands, cwd, widgetId } = options;
-  const trans = (options.translator ?? nullTranslator).load('jupyterlab');
-  const kernelIcons = new WeakMap<Menu.IItem, string>();
-  const menu = new MenuSvg({
-    commands,
-    renderer: new ToolsMenuRenderer(kernelIcons)
-  });
-  menu.addClass('jp-jupyterlab-lightcone-HomeTools');
-  const groups = groupLauncherItems(model.items(), commands, cwd, {
-    labels: {
-      notebook: trans.__('Notebook'),
-      console: trans.__('Console'),
-      other: trans.__('Other')
-    },
-    // Home offers Lightcone's own launcher cards in its body, not in Tools.
-    exclude: item => isLightconeCategory(item.category)
-  });
-  for (const group of groups) {
-    menu.addItem({
-      command: HomeCommandIDs.toolsCategory,
-      args: { category: group.category }
+export class ToolsMenu extends MenuSvg {
+  constructor(options: IToolsMenuOptions) {
+    const kernelIcons = new WeakMap<Menu.IItem, string>();
+    super({
+      commands: options.commands,
+      renderer: new ToolsMenuRenderer(kernelIcons)
     });
-    for (const item of group.items) {
-      const added = menu.addItem({
-        command: item.command,
-        args: { ...item.args, cwd }
+    this._kernelIcons = kernelIcons;
+    this._model = options.model;
+    this._widgetId = options.widgetId;
+    this._trans = (options.translator ?? nullTranslator).load('jupyterlab');
+    this.addClass('jp-jupyterlab-lightcone-HomeTools');
+  }
+
+  /** Fill the menu for the tab's working directory; an open menu closes first. */
+  refresh(cwd: string): void {
+    this.clearItems();
+    this._clearSubmenus();
+    const groups = groupLauncherItems(this._model.items(), this.commands, cwd, {
+      labels: {
+        notebook: this._trans.__('Notebook'),
+        console: this._trans.__('Console'),
+        other: this._trans.__('Other')
+      },
+      // Home offers Lightcone's own launcher cards in its body, not in Tools.
+      exclude: item => isLightconeCategory(item.category)
+    });
+    for (const group of groups) {
+      const submenu = new MenuSvg({
+        commands: this.commands,
+        renderer: this.renderer
       });
-      if (item.kernelIconUrl) {
-        kernelIcons.set(added, item.kernelIconUrl);
+      submenu.title.label = group.category;
+      for (const item of group.items) {
+        const added = submenu.addItem({
+          command: item.command,
+          args: { ...item.args, cwd }
+        });
+        if (item.kernelIconUrl) {
+          this._kernelIcons.set(added, item.kernelIconUrl);
+        }
       }
+      this._submenus.push(submenu);
+      this.addItem({ type: 'submenu', submenu });
     }
+    if (groups.length) {
+      this.addItem({ type: 'separator' });
+    }
+    this.addItem({
+      command: HomeCommandIDs.showLauncher,
+      args: { widgetId: this._widgetId }
+    });
   }
-  if (groups.length) {
-    menu.addItem({ type: 'separator' });
+
+  dispose(): void {
+    if (this.isDisposed) {
+      return;
+    }
+    this._clearSubmenus();
+    super.dispose();
   }
-  menu.addItem({ command: HomeCommandIDs.showLauncher, args: { widgetId } });
-  return menu;
+
+  // Lumino disposes no submenu with its parent.
+  private _clearSubmenus(): void {
+    for (const submenu of this._submenus) {
+      submenu.dispose();
+    }
+    this._submenus = [];
+  }
+
+  private readonly _kernelIcons: WeakMap<Menu.IItem, string>;
+  private readonly _model: ILauncher.IModel;
+  private readonly _widgetId: string;
+  private readonly _trans: ReturnType<ITranslator['load']>;
+  private _submenus: MenuSvg[] = [];
 }

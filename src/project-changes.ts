@@ -1,4 +1,21 @@
-import { collectCitedDois, normalizeDoi } from '@astra-spec/sdk';
+import {
+  collectCitedDois,
+  normalizeDoi,
+  type Analysis,
+  type Decision,
+  type Evidence,
+  type Input,
+  type Insight,
+  type Option,
+  type Output,
+  type ResolvedAnalysisNode,
+  type ResolvedDecision,
+  type ResolvedEvidence,
+  type ResolvedInput,
+  type ResolvedInsight,
+  type ResolvedOption,
+  type ResolvedOutput
+} from '@astra-spec/sdk';
 import {
   analysisTitle,
   countLabel,
@@ -37,25 +54,79 @@ export interface IProjectChange extends Omit<
   detail?: string;
 }
 
-/** Added by the resolver: comparing them reports its work as the user's. */
-const RESOLVED_FIELDS = [
-  'canonicalPath',
-  'kind',
-  'provenance',
-  'resolvedFrom',
-  'resolvedInsightPaths',
-  'resolvedOutputPath'
-];
+/** The keys the resolver adds to a record beyond the authored ones. */
+type DerivedKey<Resolved, Authored> = Exclude<keyof Resolved, keyof Authored>;
+
+/** Every key the resolver adds to some record, option, evidence or analysis. */
+type ResolverKey =
+  | DerivedKey<ResolvedAnalysisNode, Analysis>
+  | DerivedKey<ResolvedInput, Input>
+  | DerivedKey<ResolvedOutput, Output>
+  | DerivedKey<ResolvedDecision, Decision>
+  | DerivedKey<ResolvedOption, Option>
+  | DerivedKey<ResolvedInsight, Insight>
+  | DerivedKey<ResolvedEvidence, Evidence>;
+
+/** Every key an author may write somewhere in `astra.yaml`. */
+type AuthoredKey =
+  | keyof Analysis
+  | keyof Input
+  | keyof Output
+  | keyof Decision
+  | keyof Option
+  | keyof Insight
+  | keyof Evidence;
+
+/**
+ * How change detection treats a resolver key: `strip` removes it by name at
+ * every depth, `strip-here` only at a record's top level, `compare` keeps it
+ * as part of the record's meaning. A key an author may also write somewhere
+ * (`artifact` names a file on an output, a reference on evidence) cannot be
+ * stripped at every depth, so the type refuses `strip` for it.
+ */
+type Treatment<Key extends ResolverKey> = Key extends AuthoredKey
+  ? 'strip-here' | 'compare'
+  : 'strip' | 'compare';
+
+/**
+ * Every resolver key, classified. The SDK exports no runtime list of them,
+ * so the record is checked against its types: a key the resolver starts
+ * adding fails to compile until it is listed here, and an authored field
+ * that later shares a stripped key's name fails at `Treatment`.
+ */
+const RESOLVER_KEYS: { [Key in ResolverKey]: Treatment<Key> } = {
+  canonicalPath: 'strip',
+  kind: 'strip',
+  provenance: 'strip',
+  resolvedFrom: 'strip',
+  resolvedInsightPaths: 'strip',
+  resolvedOutputPath: 'strip',
+  // An output's artifact is runtime metadata; evidence's is a declared
+  // reference and stays part of the comparison.
+  artifact: 'strip-here',
+  // Which option a universe selects, and whether a record is active in it,
+  // is the meaning a reader asks about (see `FIELD_LABELS`).
+  active: 'compare',
+  selectedOptionId: 'compare'
+};
+
+function resolverKeys(treatment: Treatment<ResolverKey>): readonly string[] {
+  return Object.entries(RESOLVER_KEYS)
+    .filter(([, value]) => value === treatment)
+    .map(([key]) => key);
+}
 
 /** Authored, but not what a reader means by "this record changed". */
 const NOISY_AUTHORED_FIELDS = ['created_at'];
 
-/**
- * Matched by name at every depth, because the SDK does not yet expose which
- * keys it derived. A future authored field sharing one of these names would be
- * compared away silently, so this set tracks `resolved-types.d.ts` by hand.
- */
-const IGNORED_FIELDS = new Set([...RESOLVED_FIELDS, ...NOISY_AUTHORED_FIELDS]);
+/** Matched by name at every depth. */
+const IGNORED_FIELDS = new Set([
+  ...resolverKeys('strip'),
+  ...NOISY_AUTHORED_FIELDS
+]);
+
+/** Removed from a record's top level only. */
+const TOP_LEVEL_IGNORED_FIELDS = resolverKeys('strip-here');
 
 /** Analysis members that are records in their own right, snapshotted separately. */
 const SECTION_FIELDS = new Set([
@@ -111,9 +182,7 @@ export function snapshotProject(data: ILoadedProjectData): IProjectSnapshot {
   }
   for (const [path, record] of data.index.recordByPath) {
     const fields: Record<string, unknown> = { ...record };
-    // Output artifacts are runtime metadata; evidence.artifact is a declared
-    // reference and must remain part of the comparison.
-    if (record.kind === 'output') delete fields.artifact;
+    for (const field of TOP_LEVEL_IGNORED_FIELDS) delete fields[field];
     items.set(path, {
       kind: record.kind === 'prior_insight' ? 'insight' : record.kind,
       label: recordTitle(record),

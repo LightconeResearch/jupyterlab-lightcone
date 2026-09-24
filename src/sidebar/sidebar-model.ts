@@ -7,11 +7,12 @@ import type { Widget } from '@lumino/widgets';
 import { RequestError } from '../api';
 import type { ICommentService } from '../comments/comment-service';
 import type { ICurrentProject } from '../current-project';
+import { sessionActivity } from '../home/home-model';
 import {
   fetchMaterializationStatuses,
   type MaterializationStatuses
-} from '../materialization-status';
-import { projectDirectory, type ILoadedProjectData } from '../project-data';
+} from '../materialization-api';
+import { isUnderProject, type ILoadedProjectData } from '../project-data';
 import {
   acquireProjectDataService,
   type IProjectDataLease,
@@ -23,14 +24,10 @@ import type {
   ISessionService,
   SessionState
 } from '../sessions/session-service';
+import { SESSION_FILE_EXTENSION } from '../sessions/session-titles';
 import type { ISessionInfo } from '../sessions/sessions-api';
-import {
-  describeWidget,
-  renamedSessionPath,
-  sessionMarker,
-  viewChanges,
-  type ICurrentView
-} from './sidebar-helpers';
+import { describeWidget, viewChanges, type ICurrentView } from './current-view';
+import { renamedSessionPath } from './session-rename';
 
 /** Everything the sidebar renders, as one immutable snapshot. */
 export interface ISidebarState {
@@ -230,10 +227,7 @@ export class SidebarModel implements IDisposable {
 
   /** The marker to show for a session: its live state, else the server's. */
   activity(session: ISessionInfo): SessionState {
-    return sessionMarker(
-      this._sessions?.activity(session.path),
-      session.activity
-    );
+    return sessionActivity(session, this._sessions?.activity(session.path));
   }
 
   /** Fetch everything again for the current project. */
@@ -438,21 +432,19 @@ export class SidebarModel implements IDisposable {
     if (!entrypoint || !this._visible) {
       return;
     }
-    const root = this._contents.localPath(projectDirectory(entrypoint));
-    const drive = this._contents.driveName(entrypoint);
-    const paths = [change.oldValue?.path, change.newValue?.path].filter(
+    const inside = [change.oldValue?.path, change.newValue?.path].filter(
       (path): path is string =>
-        path !== undefined && this._contents.driveName(path) === drive
+        path !== undefined && isUnderProject(this._contents, entrypoint, path)
     );
-    const inside = paths.filter(path => {
-      const local = this._contents.localPath(path);
-      return !root || local === root || local.startsWith(`${root}/`);
-    });
     if (!inside.length) {
       return;
     }
     this._request(this._statusRunner);
-    if (inside.some(path => path.endsWith('.chat') || change.type !== 'save')) {
+    if (
+      inside.some(
+        path => path.endsWith(SESSION_FILE_EXTENSION) || change.type !== 'save'
+      )
+    ) {
       this._request(this._sessionsRunner);
     }
   }

@@ -10,10 +10,11 @@ import {
 import { launcherIcon } from '@jupyterlab/ui-components';
 import type { CommandRegistry } from '@lumino/commands';
 import { Panel, Widget } from '@lumino/widgets';
+import type { IDocumentOpener } from '../artifact-access';
 import type { ICurrentProject } from '../current-project';
+import { lightconeIcon } from '../icons';
 import { findProjectRoot, type IProjectRoot } from '../project-root';
 import type { ISessionService } from '../sessions/session-service';
-import { lightconeIcon } from './icons';
 import { homeMode, type HomeMode } from './home-model';
 import { HomeView } from './home-view';
 import type { PersonaDirectory } from './personas';
@@ -25,6 +26,8 @@ export interface IHomeWidgetOptions {
   cwd: string;
   commands: CommandRegistry;
   contents: Contents.IManager;
+  /** Opens an artifact file in a tab, for the results plates. */
+  documents: IDocumentOpener;
   themes: IThemeManager;
   current: ICurrentProject;
   /** The stock launcher's callback: replace this tab with the launched widget. */
@@ -91,6 +94,7 @@ export class HomeWidget extends Panel {
     this._view = new HomeView({
       contents: options.contents,
       commands: options.commands,
+      documents: options.documents,
       themes: options.themes,
       sessions: options.sessions ?? null,
       personas: options.personas ?? null,

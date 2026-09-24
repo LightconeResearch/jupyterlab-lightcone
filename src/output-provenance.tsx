@@ -6,10 +6,9 @@ import type {
 import type { OutputRun, OutputStatus } from '@astra-spec/ui/model';
 import { showErrorMessage } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
-import type { CommandRegistry } from '@lumino/commands';
-import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchRunRecord } from './api';
+import type { IDocumentOpener } from './artifact-access';
 import { resolveOutputCode, type ICodeReference } from './code-access';
 import { isRootAnalysisOutput } from './materialization-status';
 import { projectDirectory } from './project-data';
@@ -70,8 +69,8 @@ export interface IJupyterOutputProvenanceProps {
   version?: IOutputVersion;
   /** Opens a record the run depends on in the host's record view. */
   onOpenRecord?: (record: ResolvedRecord) => void;
-  /** Lets the Code tab open the script. */
-  commands?: CommandRegistry;
+  /** Lets the Code tab open the script in a document tab. */
+  documents?: IDocumentOpener;
 }
 
 /** Mounted only for the open output detail; never reads every output's record. */
@@ -84,7 +83,7 @@ export function JupyterOutputProvenance({
   status,
   version,
   onOpenRecord,
-  commands
+  documents
 }: IJupyterOutputProvenanceProps): React.ReactElement {
   const [result, setResult] = useState<{
     record?: OutputRun | null;
@@ -136,7 +135,7 @@ export function JupyterOutputProvenance({
     return result.record === null ? null : runView(result.record, undefined);
   }, [result, version]);
 
-  // The recipe names the script; the DataLad command only starts the worker.
+  // The manifest's recipe names the script.
   const recipe = view?.recipe;
   const [code, setCode] = useState<ICodeReference>();
   useEffect(() => {
@@ -238,13 +237,19 @@ export function JupyterOutputProvenance({
     };
   }, [wantPackages, revision, contents, entrypoint]);
 
-  const openWith = commands
-    ? (command: string, args: ReadonlyPartialJSONObject, subject: string) => {
-        void commands
-          .execute(command, args)
-          .catch(reason =>
-            showErrorMessage(`Could not open ${subject}`, String(reason))
-          );
+  const openCode = documents
+    ? (relativePath: string) => {
+        const path = contents.resolvePath(
+          projectDirectory(entrypoint),
+          relativePath
+        );
+        try {
+          if (!documents.openOrReveal(path, 'Editor')) {
+            throw new Error(`No document viewer can open ${path}.`);
+          }
+        } catch (reason) {
+          void showErrorMessage('Could not open code', String(reason));
+        }
       }
     : undefined;
 
@@ -254,22 +259,7 @@ export function JupyterOutputProvenance({
       run={view}
       error={result?.error}
       code={code}
-      onOpenCode={
-        openWith
-          ? relativePath =>
-              openWith(
-                'docmanager:open',
-                {
-                  path: contents.resolvePath(
-                    projectDirectory(entrypoint),
-                    relativePath
-                  ),
-                  factory: 'Editor'
-                },
-                'code'
-              )
-          : undefined
-      }
+      onOpenCode={openCode}
       inputs={inputs}
       recordedCode={recordedCode}
       onShowCode={() => setWantCode(true)}

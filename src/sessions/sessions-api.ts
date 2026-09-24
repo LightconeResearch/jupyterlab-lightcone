@@ -64,29 +64,6 @@ export async function listSessions(
   }
 }
 
-/**
- * Make sure the project can hold sessions: create its `chats` directory and
- * keep chat files out of the project's Git status.
- */
-export async function prepareSessions(
-  settings: ServerConnection.ISettings,
-  entrypoint: string
-): Promise<{ directory: string }> {
-  try {
-    const data = await requestAPI('api/chat-sessions', settings, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: entrypoint })
-    });
-    if (!isRecord(data) || typeof data.directory !== 'string') {
-      throw new Error('The server returned an invalid session directory.');
-    }
-    return { directory: data.directory };
-  } catch (error) {
-    throw new RequestError('Sessions', error);
-  }
-}
-
 /** One message of a session containing the searched text. */
 export interface ISessionMatch {
   /** Contents path of the `.chat` file. */

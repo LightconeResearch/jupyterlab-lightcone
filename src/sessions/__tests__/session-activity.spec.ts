@@ -5,8 +5,8 @@ import {
   hasPendingPermission,
   isPersonaUser,
   listActivity,
+  personaDisplayName,
   readPersonaStateEvent,
-  readToolCalls,
   type ISessionMessage
 } from '../session-activity';
 
@@ -25,25 +25,15 @@ describe('isPersonaUser', () => {
     expect(isPersonaUser(agent)).toBe(true);
     expect(isPersonaUser({ username: 'x', bot: true })).toBe(true);
     expect(isPersonaUser(human)).toBe(false);
+    // The id scheme is `jupyter-ai-personas::<package>::<class>`.
+    expect(isPersonaUser({ username: 'jupyter-ai-personas' })).toBe(false);
   });
 });
 
-describe('readToolCalls', () => {
-  it('reads only well-formed tool calls', () => {
-    expect(readToolCalls(undefined)).toEqual([]);
-    expect(readToolCalls({ tool_calls: 'nope' })).toEqual([]);
-    expect(
-      readToolCalls({
-        tool_calls: [
-          { status: 'in_progress', permission_status: 'pending' },
-          'junk',
-          { status: 7 }
-        ]
-      })
-    ).toEqual([
-      { status: 'in_progress', permissionStatus: 'pending' },
-      { status: null, permissionStatus: null }
-    ]);
+describe('personaDisplayName', () => {
+  it('takes the last segment of a persona id', () => {
+    expect(personaDisplayName(agent.username)).toBe('Persona');
+    expect(personaDisplayName('plain')).toBe('plain');
   });
 });
 

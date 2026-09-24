@@ -1,18 +1,36 @@
 import { StateDB } from '@jupyterlab/statedb';
+import { assembleLoadedProject, resolveProject } from '../../project-data';
+import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import {
-  buildProjectSwitcher,
+  ProjectSwitcher,
   projectFolderName,
+  projectLabel,
   RECENT_PROJECT_LIMIT,
   RECENT_PROJECTS_KEY,
   RecentProjects,
   rememberProject,
   siblingFolder
 } from '../project-switcher';
+import { PROJECT_SPEC } from './sidebar-fixtures';
+
+jest.mock('../../pdf-runtime', () => ({}));
 
 const project = (path: string) => ({
   path,
   entrypoint: path ? `${path}/astra.yaml` : 'astra.yaml'
 });
+
+async function loadProject() {
+  const { contents } = createContents({
+    'project/astra.yaml': fileModel(PROJECT_SPEC)
+  });
+  try {
+    const { bundle } = await resolveProject(contents, 'project/astra.yaml');
+    return assembleLoadedProject(bundle, {});
+  } finally {
+    contents.dispose();
+  }
+}
 
 describe('recent projects', () => {
   it('puts the latest visit first, once, and keeps a bounded list', () => {
@@ -56,34 +74,69 @@ describe('recent projects', () => {
   });
 });
 
+describe('projectLabel', () => {
+  it('uses the spec name, then the folder, then the root', async () => {
+    const data = await loadProject();
+    const current = project('project');
+    expect(projectLabel(current, data)).toBe('Sidebar project');
+    expect(projectLabel(current, undefined)).toBe('project');
+    expect(projectLabel(project(''), undefined)).toBe('/');
+  });
+});
+
 describe('the project switcher menu', () => {
   it('lists recent and neighbouring projects, not the current one, then the extras', () => {
     const go = jest.fn();
     const create = jest.fn();
-    const menu = buildProjectSwitcher({
-      current: project('work/hubble'),
-      recent: [project('work/hubble'), project('other/bao')],
-      siblings: ['work/hubble', 'work/cmb', 'other/bao'],
-      go,
-      extras: [{ label: 'New Lightcone project', execute: create }]
-    });
-    const labels = menu.items.map(item =>
-      item.type === 'separator' ? '—' : item.label
-    );
-    expect(labels).toEqual([
-      'Recent projects',
-      'bao',
-      '—',
-      'Projects in this folder',
-      'cmb',
-      '—',
-      'New Lightcone project'
-    ]);
-    expect(menu.items[0].isEnabled).toBe(false);
-    void menu.commands.execute(menu.items[4].command);
-    expect(go).toHaveBeenCalledWith('work/cmb');
-    void menu.commands.execute(menu.items[6].command);
-    expect(create).toHaveBeenCalled();
-    menu.dispose();
+    const switcher = new ProjectSwitcher(go);
+    const { menu } = switcher;
+    const labels = () =>
+      menu.items.map(item => (item.type === 'separator' ? '—' : item.label));
+    const run = (index: number) => {
+      const item = menu.items[index];
+      void menu.commands.execute(item.command, item.args);
+    };
+    try {
+      switcher.fill({
+        current: project('work/hubble'),
+        recent: [project('work/hubble'), project('other/bao')],
+        siblings: ['work/hubble', 'work/cmb', 'other/bao'],
+        extras: [{ label: 'New Lightcone project', execute: create }]
+      });
+      expect(labels()).toEqual([
+        'bao',
+        '—',
+        'cmb',
+        '—',
+        'New Lightcone project'
+      ]);
+      expect(menu.items[0].caption).toBe('other/bao');
+      run(2);
+      expect(go).toHaveBeenCalledWith('work/cmb');
+      run(4);
+      expect(create).toHaveBeenCalled();
+
+      // Each opening lists the projects of that moment, in the same menu.
+      switcher.fill({
+        current: project('work/cmb'),
+        recent: [],
+        siblings: ['work/cmb'],
+        extras: []
+      });
+      expect(labels()).toEqual([]);
+      switcher.fill({
+        current: project(''),
+        recent: [project('a')],
+        siblings: [],
+        extras: []
+      });
+      expect(labels()).toEqual(['a']);
+      run(0);
+      expect(go).toHaveBeenLastCalledWith('a');
+    } finally {
+      switcher.dispose();
+    }
+    expect(switcher.isDisposed).toBe(true);
+    expect(menu.isDisposed).toBe(true);
   });
 });

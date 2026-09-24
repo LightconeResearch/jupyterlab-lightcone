@@ -1,3 +1,7 @@
+import {
+  nullTranslator,
+  type TranslationBundle
+} from '@jupyterlab/translation';
 import { CommandRegistry } from '@lumino/commands';
 import type { IDisposable } from '@lumino/disposable';
 import { Signal, type ISignal } from '@lumino/signaling';
@@ -44,6 +48,10 @@ function sectionCategory(candidate: ISearchCandidate): string {
  * draws, in the Lightcone ASTRA theme's colours.
  */
 export class SearchRenderer extends CommandPalette.Renderer {
+  constructor(private readonly trans: TranslationBundle) {
+    super();
+  }
+
   renderItemIcon(data: CommandPalette.IItemRenderData): VirtualElement {
     const kind = data.item.dataset.kind;
     if (isSurfaceKind(kind)) {
@@ -85,7 +93,7 @@ export class SearchRenderer extends CommandPalette.Renderer {
   }
 
   formatEmptyMessage(data: CommandPalette.IEmptyMessageRenderData): h.Child {
-    return `Nothing matches '${data.query}'`;
+    return this.trans.__("Nothing matches '%1'", data.query);
   }
 }
 
@@ -102,13 +110,14 @@ interface IGroupRegistration {
  */
 export class SearchPalette extends CommandPalette {
   constructor(options: SearchPalette.IOptions = {}) {
+    const trans = options.trans ?? nullTranslator.load('jupyterlab_lightcone');
     super({
       commands: options.commands ?? new CommandRegistry(),
-      renderer: new SearchRenderer()
+      renderer: new SearchRenderer(trans)
     });
     this.id = 'jupyterlab-lightcone-search';
     this.addClass(SEARCH_CLASS);
-    this.inputNode.placeholder = options.placeholder ?? 'Search';
+    this.inputNode.placeholder = options.placeholder ?? trans.__('Search');
   }
 
   /** Emitted with the candidate the user chose. */
@@ -205,6 +214,9 @@ export namespace SearchPalette {
   export interface IOptions {
     /** A private registry; one is created when omitted. */
     commands?: CommandRegistry;
+    /** The palette's text, in the page's language; English when omitted. */
+    trans?: TranslationBundle;
+    /** The search box's hint; "Search" when omitted. */
     placeholder?: string;
   }
 }

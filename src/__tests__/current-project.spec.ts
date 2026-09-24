@@ -16,6 +16,7 @@ import { fileModel } from './project-fixtures';
 
 jest.mock('../pdf-runtime', () => ({}));
 jest.mock('../api', () => ({
+  ...jest.requireActual('../api'),
   reportCurrentProject: jest.fn(() => Promise.resolve())
 }));
 

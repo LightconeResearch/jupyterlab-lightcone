@@ -15,11 +15,11 @@ import {
   type IVersionTarget
 } from './version-content';
 import {
-  relativeTime,
   stepVersion,
   versionPosition,
   type IVersionPosition
 } from './version-model';
+import { relativeTime } from '../relative-time';
 import { VersionCompare } from './version-compare';
 import { VersionStepper } from './version-stepper';
 import type { IOutputVersion } from './versions-api';

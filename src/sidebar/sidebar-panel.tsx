@@ -15,12 +15,12 @@ import {
   SidePanel
 } from '@jupyterlab/ui-components';
 import type { CommandRegistry } from '@lumino/commands';
-import type { IDisposable } from '@lumino/disposable';
 import type { Message } from '@lumino/messaging';
 import { Widget } from '@lumino/widgets';
 import React from 'react';
-import { CommandIDs } from '../commands';
+import { CommandIDs, shortcutLabel } from '../commands';
 import { HomeCommandIDs } from '../home/home-commands';
+import { lightconeIcon } from '../icons';
 import { outputMaterializationStatus } from '../materialization-status';
 import { SearchCommandIDs } from '../search';
 import {
@@ -30,21 +30,20 @@ import {
 import type { ISessionInfo } from '../sessions/sessions-api';
 import { LightconeThemeBinding } from '../theme-adapter';
 import type { IProjectRoot } from '../project-root';
-import { lightconeIcon } from './icons';
+import { analysisRows } from './analysis-rows';
 import {
-  buildProjectSwitcher,
+  ProjectSwitcher,
+  projectLabel,
   siblingFolder,
+  type IProjectSwitcherEntry,
   type RecentProjects
 } from './project-switcher';
-import { WorkbenchCommandIDs } from './sidebar-commands';
 import {
-  analysisRows,
   listOutputs,
-  projectLabel,
   resultsSummaryLabel,
-  shortcutLabel,
   summarizeResults
-} from './sidebar-helpers';
+} from './results-summary';
+import { WorkbenchCommandIDs } from './sidebar-commands';
 import type { ISidebarState, SidebarModel } from './sidebar-model';
 import {
   AnalysisList,
@@ -142,6 +141,16 @@ export class LightconeSidebar extends SidePanel {
     this.node.setAttribute('role', 'region');
     this.node.setAttribute('aria-label', trans.__('Lightcone project'));
     this._theme = new LightconeThemeBinding(options.themes, this.node);
+    this._switcher = options.projects
+      ? new ProjectSwitcher(path =>
+          this._run(trans.__('Could not switch project'), () =>
+            this._commands.execute(WorkbenchCommandIDs.goToPath, {
+              path: path || '/',
+              dontShowBrowser: true
+            })
+          )
+        )
+      : null;
 
     const model = this._model;
     this._headerView = new ModelView(model, state => this._renderHeader(state));
@@ -246,7 +255,8 @@ export class LightconeSidebar extends SidePanel {
       this._resultsSection.count = resultsSummaryLabel(
         summarizeResults(outputs, output =>
           outputMaterializationStatus(state.statuses, data, output)
-        )
+        ),
+        this._bundle
       );
     } else {
       this._resultsSection.count = '';
@@ -268,7 +278,8 @@ export class LightconeSidebar extends SidePanel {
     anchor: HTMLElement
   ): Promise<void> {
     const source = this._projects;
-    if (!source) {
+    const switcher = this._switcher;
+    if (!source || !switcher) {
       return;
     }
     const trans = this._bundle;
@@ -279,7 +290,10 @@ export class LightconeSidebar extends SidePanel {
       }),
       source.recent.ready
     ]);
-    const extras: { label: string; execute: () => void }[] = [];
+    if (this.isDisposed) {
+      return;
+    }
+    const extras: IProjectSwitcherEntry[] = [];
     for (const [command, label] of [
       [CommandIDs.openExistingProject, trans.__('Open project…')],
       [CommandIDs.createProject, trans.__('New Lightcone project')]
@@ -291,24 +305,12 @@ export class LightconeSidebar extends SidePanel {
         });
       }
     }
-    const menu = buildProjectSwitcher({
-      current: project,
-      recent: source.recent.projects,
-      siblings,
-      go: path =>
-        this._run(trans.__('Could not switch project'), () =>
-          this._commands.execute(WorkbenchCommandIDs.goToPath, {
-            path: path || '/',
-            dontShowBrowser: true
-          })
-        ),
-      extras
-    });
-    // One switcher at a time; a menu also disposes itself once it closes.
-    this._switcher?.dispose();
-    this._switcher = menu;
     const rect = anchor.getBoundingClientRect();
-    menu.open(rect.left, rect.bottom + 2);
+    switcher.open(
+      { current: project, recent: source.recent.projects, siblings, extras },
+      rect.left,
+      rect.bottom + 2
+    );
   }
 
   private _run(title: string, action: () => Promise<unknown>): void {
@@ -339,7 +341,7 @@ export class LightconeSidebar extends SidePanel {
               ? this._commands.execute(HomeCommandIDs.openHome, {
                   cwd: project.path
                 })
-              : this._commands.execute(WorkbenchCommandIDs.createLauncher, {
+              : this._commands.execute(HomeCommandIDs.create, {
                   cwd: project.path,
                   activate: true
                 })
@@ -514,7 +516,7 @@ export class LightconeSidebar extends SidePanel {
   private readonly _commands: CommandRegistry;
   private readonly _model: SidebarModel;
   private readonly _projects: IProjectSwitcherSource | undefined;
-  private _switcher: IDisposable | null = null;
+  private readonly _switcher: ProjectSwitcher | null;
   private readonly _bundle: TranslationBundle;
   private readonly _theme: LightconeThemeBinding;
   private readonly _headerView: ModelView;

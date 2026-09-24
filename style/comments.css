@@ -40,66 +40,86 @@
 }
 
 /*
- * Pins and badges drawn in a layer can sit inside a record tab, which is an
- * `astra-ui astra-isolate` root: its reset
- * `.astra-ui.astra-isolate :is(button, …) { all: revert-layer }` (0-2-1)
- * would strip every native control there. Naming the host, the layer and the
- * element (0-3-1) keeps the layer's own controls styled.
+ * Pins and badges. Inside a record tab, an `astra-ui astra-isolate` root,
+ * @astra-spec/ui's reset `.astra-ui.astra-isolate :is(button, …) { all:
+ * revert-layer }` rolls unlayered styles back to the layered ones, so the
+ * controls are styled in `@layer lightcone` (ordered last in base.css) and
+ * the reset resolves to these rules. Outside such a root JupyterLab's own
+ * unlayered button rules (`.jp-ThemedContainer button`: font family, border
+ * radius, focus outline) would beat the layer, so those few properties are
+ * restated unlayered below.
  */
-.jp-jupyterlab-lightcone-CommentBadge,
-.jp-jupyterlab-lightcone-CommentHost
-  .jp-jupyterlab-lightcone-CommentLayer
-  :is(
-    button.jp-jupyterlab-lightcone-CommentPin,
-    button.jp-jupyterlab-lightcone-CommentBadge
-  ) {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  margin: 0;
-  padding: 0 4px;
-  border: 1px solid var(--jp-brand-color1);
+@layer lightcone {
+  .jp-jupyterlab-lightcone-CommentPin,
+  .jp-jupyterlab-lightcone-CommentBadge {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    margin: 0;
+    padding: 0 4px;
+    border: 1px solid var(--jp-brand-color1);
+    border-radius: var(--jp-border-radius, 2px);
+    background: var(--jp-brand-color1);
+    color: var(--jp-ui-inverse-font-color1);
+    font: 600 var(--jp-ui-font-size1) / 1 var(--jp-ui-font-family);
+    line-height: 20px;
+    cursor: pointer;
+    pointer-events: auto;
+    box-shadow: var(--jp-elevation-z2);
+  }
+
+  .jp-jupyterlab-lightcone-CommentPin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .jp-jupyterlab-lightcone-CommentPin:hover,
+  .jp-jupyterlab-lightcone-CommentBadge:hover {
+    background: var(--jp-brand-color0);
+    border-color: var(--jp-brand-color0);
+  }
+
+  .jp-jupyterlab-lightcone-CommentPin:focus-visible,
+  .jp-jupyterlab-lightcone-CommentBadge:focus-visible {
+    outline: 2px solid var(--jp-brand-color2);
+    outline-offset: 1px;
+  }
+
+  /*
+   * Badges in rendered text sit in the margin, their right edge at the given
+   * left and their middle on the middle of the quote's first line.
+   */
+  .jp-jupyterlab-lightcone-CommentLayer .jp-jupyterlab-lightcone-CommentBadge {
+    position: absolute;
+    transform: translate(-100%, -50%);
+    min-width: 20px;
+    height: 20px;
+  }
+
+  .jp-jupyterlab-lightcone-CommentFlash {
+    animation: jp-jupyterlab-lightcone-comment-flash 1.5s ease-in-out;
+  }
+}
+
+/* What JupyterLab's unlayered button rules would otherwise set outside an isolate root. */
+.jp-jupyterlab-lightcone-CommentPin,
+.jp-jupyterlab-lightcone-CommentBadge {
   border-radius: var(--jp-border-radius, 2px);
-  background: var(--jp-brand-color1);
-  color: var(--jp-ui-inverse-font-color1);
-  font: 600 var(--jp-ui-font-size1) / 1 var(--jp-ui-font-family);
-  line-height: 20px;
-  cursor: pointer;
-  pointer-events: auto;
-  box-shadow: var(--jp-elevation-z2);
+  font-family: var(--jp-ui-font-family);
 }
 
-.jp-jupyterlab-lightcone-CommentHost
-  .jp-jupyterlab-lightcone-CommentLayer
-  button.jp-jupyterlab-lightcone-CommentPin {
-  position: absolute;
-  transform: translate(-50%, -50%);
+.jp-jupyterlab-lightcone-CommentPin {
   border-radius: 50%;
-  touch-action: none;
-  user-select: none;
 }
 
-.jp-jupyterlab-lightcone-CommentBadge:hover,
-.jp-jupyterlab-lightcone-CommentHost
-  .jp-jupyterlab-lightcone-CommentLayer
-  :is(
-    button.jp-jupyterlab-lightcone-CommentPin,
-    button.jp-jupyterlab-lightcone-CommentBadge
-  ):hover {
-  background: var(--jp-brand-color0);
-  border-color: var(--jp-brand-color0);
-}
-
-.jp-jupyterlab-lightcone-CommentBadge:focus-visible,
-.jp-jupyterlab-lightcone-CommentHost
-  .jp-jupyterlab-lightcone-CommentLayer
-  :is(
-    button.jp-jupyterlab-lightcone-CommentPin,
-    button.jp-jupyterlab-lightcone-CommentBadge
-  ):focus-visible {
+.jp-jupyterlab-lightcone-CommentPin:focus-visible,
+.jp-jupyterlab-lightcone-CommentBadge:focus-visible {
   outline: 2px solid var(--jp-brand-color2);
   outline-offset: 1px;
 }
@@ -113,19 +133,6 @@
   transform: translate(-50%, -50%);
   background: color-mix(in srgb, var(--jp-brand-color1) 20%, transparent);
   pointer-events: none;
-}
-
-/*
- * Badges in rendered text sit in the margin, their right edge at the given
- * left and their middle on the middle of the quote's first line.
- */
-.jp-jupyterlab-lightcone-CommentHost
-  .jp-jupyterlab-lightcone-CommentLayer
-  button.jp-jupyterlab-lightcone-CommentBadge {
-  position: absolute;
-  transform: translate(-100%, -50%);
-  min-width: 20px;
-  height: 20px;
 }
 
 .jp-jupyterlab-lightcone-CommentHighlight {
@@ -161,13 +168,6 @@
     box-shadow: 0 0 0 6px
       color-mix(in srgb, var(--jp-warn-color1) 55%, transparent);
   }
-}
-
-.jp-jupyterlab-lightcone-CommentFlash,
-.jp-jupyterlab-lightcone-CommentHost
-  .jp-jupyterlab-lightcone-CommentLayer
-  button.jp-jupyterlab-lightcone-CommentFlash {
-  animation: jp-jupyterlab-lightcone-comment-flash 1.5s ease-in-out;
 }
 
 /* The floating Comment button: in a CodeMirror tooltip or fixed on the page. */

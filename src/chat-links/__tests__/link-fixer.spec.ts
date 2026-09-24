@@ -1,6 +1,11 @@
 import type { IChatPanel } from '@jupyter/chat';
+import { Notification } from '@jupyterlab/apputils';
+import { nullTranslator } from '@jupyterlab/translation';
 import { Widget } from '@lumino/widgets';
+import { RENDERED_MESSAGE_CLASS } from '../chat-dom';
 import { attachChatLinks, type IChatLinkHost } from '../link-fixer';
+
+jest.mock('@jupyter/chat', () => jest.requireActual('./chat-mock'));
 
 const ROOT = '/srv/lab';
 const BASE_URL = 'http://localhost:8888/lab/';
@@ -23,6 +28,7 @@ function host(overrides: Partial<IChatLinkHost> = {}) {
     open,
     baseDirectory,
     value: {
+      trans: nullTranslator.load('jupyterlab_lightcone'),
       serverRoots: [ROOT],
       baseUrl: BASE_URL,
       baseDirectory,
@@ -35,7 +41,7 @@ function host(overrides: Partial<IChatLinkHost> = {}) {
 /** A rendered chat message, as Jupyter Chat's Markdown renderer produces it. */
 function message(html: string): HTMLElement {
   const node = document.createElement('div');
-  node.className = 'jp-chat-rendered-message';
+  node.className = RENDERED_MESSAGE_CLASS;
   node.innerHTML = html;
   return node;
 }
@@ -127,6 +133,24 @@ it('leaves external, out-of-root, escaping and non-message links to the browser'
   expect(click(panel.node.querySelector('#mid')!, { button: 1 })).toBe(false);
   await settle();
   expect(links.open).not.toHaveBeenCalled();
+});
+
+it('tells the user when a link cannot be opened', async () => {
+  const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const notified = jest.spyOn(Notification, 'error').mockReturnValue('');
+  const { panel } = setup({ open: () => Promise.reject(new Error('403')) });
+  panel.node.appendChild(
+    message(`<a id="abs" href="${ROOT}/project/x.md">x</a>`)
+  );
+  expect(click(panel.node.querySelector('#abs')!)).toBe(true);
+  await settle();
+  expect(notified).toHaveBeenCalledWith(
+    `Could not open ${ROOT}/project/x.md.`,
+    { autoClose: 5000 }
+  );
+  expect(error).toHaveBeenCalled();
+  error.mockRestore();
+  notified.mockRestore();
 });
 
 it('resolves relative links against the chat folder when the project is unknown', async () => {

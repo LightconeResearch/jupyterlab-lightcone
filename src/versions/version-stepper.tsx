@@ -2,12 +2,8 @@ import React from 'react';
 import { Chevron } from './chevron';
 import { Button } from '@astra-spec/ui/primitives';
 import type { IOutputVersion } from './versions-api';
-import {
-  formatBytes,
-  relativeTime,
-  stepVersion,
-  versionPosition
-} from './version-model';
+import { formatBytes, stepVersion, versionPosition } from './version-model';
+import { relativeTime } from '../relative-time';
 
 export interface IVersionStepperProps {
   /** Newest first. */

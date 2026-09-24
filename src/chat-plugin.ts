@@ -8,11 +8,12 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { CommandIDs, requireProject } from './commands';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { parseElementReference } from './element-reference';
-import { projectDirectory } from './project-data';
+import { isUnderProject, projectDirectory } from './project-data';
 import { findProjectRoot, type IProjectRoot } from './project-root';
 import { InventoryDocument } from './document-widget';
 import { ISessionService } from './sessions/session-service';
-import { isSessionWidget } from './sessions/session-manager';
+import { trackedSession } from './sessions/session-manager';
+import { PALETTE_CATEGORY } from './workbench-ids';
 
 /**
  * The open session of a project, preferring the one the user works in.
@@ -27,36 +28,27 @@ async function findProjectSession(
   root: IProjectRoot
 ): Promise<IChatPanel | undefined> {
   const contents = app.serviceManager.contents;
-  const drive = contents.driveName(root.entrypoint);
-  const underProject = (chat: string) => {
+  const candidates: IChatPanel[] = [];
+  const directories: string[] = [];
+  const consider = (item: IChatPanel) => {
+    if (item.isDisposed || item.area !== 'main' || candidates.includes(item)) {
+      return;
+    }
+    const chat = item.model.name;
     let directory: string;
     try {
       directory = projectDirectory(chat);
     } catch {
-      return undefined;
-    }
-    return contents.driveName(directory) === drive &&
-      (!root.path ||
-        directory === root.path ||
-        directory.startsWith(`${root.path}/`))
-      ? directory
-      : undefined;
-  };
-  const candidates: IChatPanel[] = [];
-  const directories: string[] = [];
-  const consider = (item: IChatPanel) => {
-    if (item.isDisposed || !isSessionWidget(item)) {
       return;
     }
-    const directory = underProject(item.model.name);
-    if (directory === undefined || candidates.includes(item)) {
+    if (!isUnderProject(contents, root.entrypoint, chat)) {
       return;
     }
     candidates.push(item);
     directories.push(directory);
   };
-  const current = app.shell.currentWidget;
-  if (isSessionWidget(current)) {
+  const current = trackedSession(tracker, app.shell.currentWidget);
+  if (current) {
     consider(current);
   }
   tracker.forEach(consider);
@@ -68,6 +60,11 @@ async function findProjectSession(
   return candidates.find(
     (_item, index) => owners[index]?.entrypoint === root.entrypoint
   );
+}
+
+/** What the command leaves in the composer to discuss an element. */
+function discussionDraft(target: string): string {
+  return `Discuss ASTRA element ${target}.`;
 }
 
 /**
@@ -140,37 +137,24 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
           });
           // The server roots the agent in whichever project owns the chat file,
           // so any session open in this project can take the conversation.
-          let panel = await findProjectSession(app, tracker, root);
-          const reused = !!panel;
-          let filepath: string;
+          const panel = await findProjectSession(app, tracker, root);
           if (panel) {
-            filepath = panel.model.name;
-            await sessions.openSession(filepath);
-          } else {
-            filepath = await sessions.createAndOpen(entrypoint, {
-              title: target ? `Discuss ${target}` : undefined
-            });
-            const local = app.serviceManager.contents.localPath(filepath);
-            panel = tracker.find(
-              item =>
-                isSessionWidget(item) &&
-                app.serviceManager.contents.localPath(item.model.name) === local
-            );
+            const path = panel.model.name;
+            await sessions.openSession(path);
+            await panel.model.ready;
+            if (target) {
+              const draft = panel.model.input.value;
+              panel.model.input.value = `${draft}${draft ? '\n\n' : ''}${discussionDraft(target)}`;
+            }
+            panel.model.input.focus();
+            return { entrypoint, reused: true, path };
           }
-          if (!panel) {
-            throw new Error(
-              trans.__(
-                'The session did not open. Check that Jupyter AI is enabled.'
-              )
-            );
-          }
-          await panel.model.ready;
-          const draft = panel.model.input.value;
-          if (target) {
-            panel.model.input.value = `${draft}${draft ? '\n\n' : ''}Discuss ASTRA element ${target}.`;
-          }
-          panel.model.input.focus();
-          return { entrypoint, reused, path: filepath };
+          // The service opens the session and leaves the draft in its composer.
+          const path = await sessions.createAndOpen(entrypoint, {
+            title: target ? `Discuss ${target}` : undefined,
+            draft: target ? discussionDraft(target) : undefined
+          });
+          return { entrypoint, reused: false, path };
         } catch (reason) {
           await showErrorMessage(
             trans.__('Could not open Lightcone Agent'),
@@ -182,7 +166,7 @@ export const chatPlugin: JupyterFrontEndPlugin<void> = {
     });
     palette?.addItem({
       command: CommandIDs.discuss,
-      category: 'Lightcone Lab'
+      category: PALETTE_CATEGORY
     });
   }
 };

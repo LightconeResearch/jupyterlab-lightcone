@@ -1,5 +1,6 @@
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import type { ContentsManager } from '@jupyterlab/services';
+import { nullTranslator } from '@jupyterlab/translation';
 import { CommandRegistry } from '@lumino/commands';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
@@ -43,6 +44,7 @@ prior_insights:
 `;
 
 const PROJECT = { path: 'work', entrypoint: 'work/astra.yaml' };
+const TRANS = nullTranslator.load('jupyterlab_lightcone');
 
 function app(contents: ContentsManager): JupyterFrontEnd {
   return {
@@ -81,7 +83,7 @@ beforeEach(() => {
 describe('SearchSources', () => {
   it('shares one walk between concurrent openings and reuses it for 30 s', async () => {
     const { contents, get } = fixture();
-    const sources = new SearchSources(app(contents), null, []);
+    const sources = new SearchSources(app(contents), null, [], TRANS);
     const now = jest.spyOn(Date, 'now');
     try {
       now.mockReturnValue(1_000_000);
@@ -131,13 +133,13 @@ describe('SearchSources', () => {
       changed: new Signal<ISessionService, string>({} as ISessionService),
       activity: (): SessionState => 'attention'
     };
-    const withSessions = new SearchSources(app(contents), service, []);
-    const without = new SearchSources(app(contents), null, []);
+    const withSessions = new SearchSources(app(contents), service, [], TRANS);
+    const without = new SearchSources(app(contents), null, [], TRANS);
     try {
       const [session] = await withSessions.listSessions(PROJECT);
       expect(service.list).toHaveBeenCalledWith('work/astra.yaml');
       expect(session.label).toBe('Hubble diagram');
-      expect(session.caption).toBe('Codex · needs your input · just now');
+      expect(session.caption).toBe('Codex · needs your input · now');
       expect(without.hasSessions).toBe(false);
       expect(await without.listSessions(PROJECT)).toEqual([]);
     } finally {
@@ -157,7 +159,7 @@ describe('SearchSources', () => {
     const observing = observeProjectDataServices(contents, service => {
       services.push(service);
     });
-    const sources = new SearchSources(app(contents), null, []);
+    const sources = new SearchSources(app(contents), null, [], TRANS);
     const updates: IRecordsUpdate[] = [];
     sources.recordsChanged.connect((_sender, update) => {
       updates.push(update);

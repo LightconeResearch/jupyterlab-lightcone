@@ -1,5 +1,7 @@
 import type { Contents } from '@jupyterlab/services';
+import { CommandRegistry } from '@lumino/commands';
 import { PromiseDelegate } from '@lumino/coreutils';
+import { CommandIDs } from '../../commands';
 import { analysis, fileModel } from '../../__tests__/project-fixtures';
 import { flush, homeHost, setDocumentHidden, until } from './home-fixtures';
 
@@ -17,15 +19,34 @@ jest.mock('../../versions/versions-api', () => ({
   listResultsCommits: jest.fn().mockResolvedValue([])
 }));
 
-function host() {
+function host(options: { report?: boolean } = {}) {
   const entries: Record<string, Contents.IModel> = {
     'project/astra.yaml': fileModel(analysis('Union 2.1 cosmology')),
     'project/data/readme.txt': fileModel('hello'),
     'elsewhere/notes.txt': fileModel('notes'),
     'other/notes.txt': fileModel('notes')
   };
-  return { entries, ...homeHost({ entries }) };
+  // The report opens through the MySTRA viewer stopgap: Home offers it only
+  // while that command is registered.
+  const commands = new CommandRegistry();
+  if (options.report !== false) {
+    commands.addCommand(CommandIDs.openMySTRA, { execute: () => undefined });
+  }
+  return { entries, ...homeHost({ entries, commands }) };
 }
+
+it('offers no report without the command that opens one', async () => {
+  const h = host({ report: false });
+  h.entries['project/myst.yml'] = fileModel('site: {}');
+  try {
+    h.widget.cwd = 'project';
+    await until(() => h.text().includes('Union 2.1 cosmology'));
+    await flush();
+    expect(h.text()).not.toContain('Open report');
+  } finally {
+    h.dispose();
+  }
+});
 
 it('shows the stock launcher outside a project and Home inside one', async () => {
   const h = host();

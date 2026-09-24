@@ -1,5 +1,11 @@
 import { ServerConnection } from '@jupyterlab/services';
-import { collectPaperMetadata, fetchPaper, paperPdfUrl } from '../api';
+import {
+  collectPaperMetadata,
+  fetchPaper,
+  isNotFoundResponse,
+  isStringRecord,
+  paperPdfUrl
+} from '../api';
 
 const settings = ServerConnection.makeSettings({
   baseUrl: 'https://example.org/user/researcher/'
@@ -98,4 +104,23 @@ it('does not render server HTML in user-facing errors', async () => {
   await expect(fetchPaper('10.1234/paper', settings)).rejects.toThrow(
     'Paper request failed (502):'
   );
+});
+
+it('narrows string maps and the Jupyter server’s 404 answers', () => {
+  expect(isStringRecord({ a: '1', b: '2' })).toBe(true);
+  expect(isStringRecord({})).toBe(true);
+  expect(isStringRecord({ a: 1 })).toBe(false);
+  expect(isStringRecord(['a'])).toBe(false);
+  expect(isStringRecord(null)).toBe(false);
+  const missing = new ServerConnection.ResponseError(
+    new Response(null, { status: 404 })
+  );
+  const denied = new ServerConnection.ResponseError(
+    new Response(null, { status: 403 })
+  );
+  expect(isNotFoundResponse(missing)).toBe(true);
+  expect(isNotFoundResponse(denied)).toBe(false);
+  // Only the server's answer counts, not a look-alike object or message.
+  expect(isNotFoundResponse({ status: 404 })).toBe(false);
+  expect(isNotFoundResponse(new Error('404'))).toBe(false);
 });
