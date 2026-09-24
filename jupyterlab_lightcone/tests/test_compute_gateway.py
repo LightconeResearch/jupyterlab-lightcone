@@ -10,7 +10,7 @@ import pytest
 from jupyterlab_lightcone.compute import gateway as gateway_module
 from jupyterlab_lightcone.compute import records
 from jupyterlab_lightcone.compute.backend import BackendError
-from jupyterlab_lightcone.compute.gateway import MARKER, GatewayBackend
+from jupyterlab_lightcone.compute.gateway import MARKER, GatewayBackend, server_gateway
 from jupyterlab_lightcone.compute.records import FORMAT, Record
 
 ADDRESS = "http://traefik-lightcone-dask-gateway/services/dask-gateway"
@@ -46,6 +46,10 @@ class Hub:
     reports: list = field(default_factory=list)
     endings: dict = field(default_factory=dict)
     down: bool = False
+    adaptation_error: Exception | None = None
+    submit_error: Exception | None = None
+    before_adapt: object = None
+    statuses_requested: list = field(default_factory=list)
     submitted: list = field(default_factory=list)
     adapted: list = field(default_factory=list)
     stopped: list = field(default_factory=list)
@@ -63,13 +67,20 @@ class FakeGateway:
         return Options(self.hub.options, self.hub.rejected)
 
     async def submit(self, options):
+        if self.hub.submit_error is not None:
+            raise self.hub.submit_error
         self.hub.submitted.append(dict(options))
         return "lightcone.0123abcd"
 
     async def adapt_cluster(self, name, minimum=None, maximum=None):
+        if self.hub.before_adapt is not None:
+            self.hub.before_adapt()
+        if self.hub.adaptation_error is not None:
+            raise self.hub.adaptation_error
         self.hub.adapted.append((name, minimum, maximum))
 
-    async def list_clusters(self):
+    async def list_clusters(self, status=None):
+        self.hub.statuses_requested.append(status)
         if self.hub.down:
             raise OSError("gateway unreachable")
         return self.hub.reports
@@ -82,7 +93,10 @@ class FakeGateway:
             raise OSError("gateway unreachable")
         self.hub.stopped.append(name)
 
-    async def close(self):
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
         self.hub.closed += 1
 
 
@@ -112,6 +126,13 @@ def report(name, status, dashboard=None):
 async def test_a_cluster_runs_this_servers_image_and_adapts(tmp_path, backend, hub, monkeypatch):
     monkeypatch.setenv("JUPYTER_IMAGE_SPEC", "ghcr.io/lightconeresearch/lightcone-hub/user:sha-3f9c1e2")
     record = make_record(tmp_path)
+
+    def check_persisted_handle():
+        [persisted] = records.read_records(record.directory.parent)
+        assert persisted.section("gateway")["name"] == "lightcone.0123abcd"
+        assert persisted.data["workers"]["image"] == "ghcr.io/lightconeresearch/lightcone-hub/user:sha-3f9c1e2"
+
+    hub.before_adapt = check_persisted_handle
     await backend.start(record, {"workers": 6, "cores": 2, "memory": 4.0})
     [submitted] = hub.submitted
     assert submitted["image"] == "ghcr.io/lightconeresearch/lightcone-hub/user:sha-3f9c1e2"
@@ -123,7 +144,7 @@ async def test_a_cluster_runs_this_servers_image_and_adapts(tmp_path, backend, h
     assert hub.closed == hub.opened == 1
 
 
-async def test_without_an_image_option_the_record_says_which_image_runs(tmp_path, backend, hub, monkeypatch):
+async def test_without_a_server_image_the_record_names_the_gateway_default(tmp_path, backend, hub, monkeypatch):
     monkeypatch.delenv("JUPYTER_IMAGE_SPEC", raising=False)
     monkeypatch.delenv("JUPYTER_IMAGE", raising=False)
     record = make_record(tmp_path)
@@ -132,15 +153,78 @@ async def test_without_an_image_option_the_record_says_which_image_runs(tmp_path
     assert "worker_cores" not in record.data["gateway"]
 
 
+@pytest.mark.parametrize("image", [None, ""])
+async def test_an_unknown_worker_image_is_refused(tmp_path, backend, hub, monkeypatch, image):
+    monkeypatch.delenv("JUPYTER_IMAGE_SPEC", raising=False)
+    monkeypatch.delenv("JUPYTER_IMAGE", raising=False)
+    hub.options = {"image": image}
+    with pytest.raises(BackendError, match="worker image"):
+        await backend.start(make_record(tmp_path), {"workers": 2, "cores": None, "memory": None})
+    assert hub.submitted == []
+
+
+async def test_a_missing_image_option_does_not_claim_the_servers_image(tmp_path, backend, hub, monkeypatch):
+    monkeypatch.setenv("JUPYTER_IMAGE_SPEC", "server-image")
+    hub.options = {}
+    with pytest.raises(BackendError, match="expose an image option"):
+        await backend.start(make_record(tmp_path), {"workers": 2, "cores": None, "memory": None})
+    assert hub.submitted == []
+
+
 async def test_a_preset_the_gateway_cannot_honour_is_refused(tmp_path, backend, hub):
     hub.options = {"image": "default"}
     with pytest.raises(BackendError, match="no worker_cores option"):
         await backend.start(make_record(tmp_path), {"workers": 2, "cores": 2, "memory": None})
-    hub.options = {"worker_cores": 1}
+    hub.options = {"image": "default", "worker_cores": 1}
     hub.rejected = ("worker_cores",)
     with pytest.raises(BackendError, match="rejected the preset: worker_cores must be at most 8"):
         await backend.start(make_record(tmp_path), {"workers": 2, "cores": 64, "memory": None})
     assert hub.submitted == []
+    assert hub.closed == hub.opened
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_failed_adaptation_keeps_the_accepted_handle_until_confirmed_gone(tmp_path, backend, hub, cleanup_fails):
+    hub.adaptation_error = OSError("adaptation failed")
+    hub.down = cleanup_fails
+    record = make_record(tmp_path)
+    with pytest.raises(BackendError, match="adaptation failed") as caught:
+        await backend.start(record, {"workers": 2, "cores": None, "memory": None})
+    [persisted] = records.read_records(record.directory.parent)
+    assert persisted.section("gateway")["name"] == "lightcone.0123abcd"
+    assert hub.stopped == ([] if cleanup_fails else ["lightcone.0123abcd"])
+    assert ("use Stop to retry" in str(caught.value)) is cleanup_fails
+    assert hub.closed == hub.opened
+
+
+async def test_submission_errors_are_reported_as_backend_errors(tmp_path, backend, hub):
+    hub.submit_error = OSError("gateway unreachable")
+    record = make_record(tmp_path)
+    with pytest.raises(BackendError, match="could not start the cluster: gateway unreachable"):
+        await backend.start(record, {"workers": 2, "cores": None, "memory": None})
+    assert record.section("gateway") == {}
+    assert hub.stopped == []
+    assert hub.closed == hub.opened
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_failed_persistence_stops_the_submitted_cluster(tmp_path, backend, hub, monkeypatch, cleanup_fails):
+    def fail_write(record):
+        raise OSError("registry is full")
+
+    monkeypatch.setattr(gateway_module, "write_record", fail_write)
+    hub.down = cleanup_fails
+    record = make_record(tmp_path)
+    with pytest.raises(BackendError, match="registry is full") as caught:
+        await backend.start(record, {"workers": 2, "cores": None, "memory": None})
+    assert record.section("gateway")["name"] == "lightcone.0123abcd"
+    assert hub.stopped == ([] if cleanup_fails else ["lightcone.0123abcd"])
+    assert hub.adapted == []
+    if cleanup_fails:
+        assert "lightcone.0123abcd" in str(caught.value)
+        assert ADDRESS in str(caught.value)
+        assert "could not be recorded" in str(caught.value)
+        assert "use Stop to retry" not in str(caught.value)
     assert hub.closed == hub.opened
 
 
@@ -163,6 +247,7 @@ async def test_reports_decide_each_state(tmp_path, backend, hub):
     assert statuses[stopping.id].state == "stopping"
     assert (statuses[gone.id].state, statuses[gone.id].reason) == ("gone", "was stopped")
     assert statuses[elsewhere.id].state == "unknown"
+    assert hub.statuses_requested == [["pending", "running", "stopping"]]
 
 
 async def test_an_unreachable_gateway_forgets_nothing(tmp_path, backend, hub):
@@ -180,6 +265,14 @@ async def test_stop_asks_the_gateway(tmp_path, backend, hub):
         await backend.stop(record)
 
 
+async def test_stop_cannot_target_a_different_gateway(tmp_path, backend, hub):
+    record = make_record(tmp_path, gateway={"name": "a", "address": "http://another"})
+    with pytest.raises(BackendError, match="another Dask Gateway"):
+        await backend.stop(record)
+    assert hub.stopped == []
+    assert hub.closed == hub.opened
+
+
 def test_it_needs_the_client_and_a_configured_gateway(monkeypatch):
     backend = GatewayBackend()
     monkeypatch.setattr(gateway_module.importlib.util, "find_spec", lambda name: None)
@@ -189,6 +282,15 @@ def test_it_needs_the_client_and_a_configured_gateway(monkeypatch):
         assert not backend.available()
     with dask.config.set({"gateway.address": ADDRESS}):
         assert backend.available()
+
+
+def test_configured_gateway_uses_the_clients_address_normalization(monkeypatch):
+    monkeypatch.setenv("TEST_GATEWAY_HOST", "gateway.example")
+    with dask.config.set({"gateway.address": "http://{TEST_GATEWAY_HOST}/"}):
+        assert server_gateway() == "http://gateway.example"
+    monkeypatch.delenv("TEST_GATEWAY_HOST")
+    with dask.config.set({"gateway.address": "http://{TEST_GATEWAY_HOST}/"}):
+        assert server_gateway() is None
 
 
 def test_a_preset_names_workers_cores_and_memory(backend):

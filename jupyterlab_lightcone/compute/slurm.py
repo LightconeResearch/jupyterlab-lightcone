@@ -9,13 +9,14 @@ connection file into the cluster directory on the shared home filesystem.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import shlex
 import subprocess
 import sys
 
 from .backend import BackendError, PresetError, Status, integer, run_tool, word
-from .records import ENCRYPTION_ENV, Record, read_scheduler_file, scheduler_argv, worker_arguments
+from .records import ENCRYPTION_ENV, Record, read_scheduler_file, scheduler_argv, worker_arguments, write_record
 
 JOB_SCRIPT = "job.sh"
 JOB_NAME_PREFIX = "lightcone-"
@@ -58,8 +59,8 @@ def seconds(text: str) -> int | None:
 
 
 def _quote(argument: str) -> str:
-    """Quote for bash, leaving `$host`-style expansions to the shell."""
-    return f'"{argument}"' if "$" in argument else shlex.quote(argument)
+    """Expand only the job's own variables; filesystem paths remain literal."""
+    return f'"{argument}"' if argument in ("$host", "$host:0", "$cpus") else shlex.quote(argument)
 
 
 def job_script(record: Record, spec: dict, interpreter: str, idle_timeout: int) -> str:
@@ -138,6 +139,14 @@ class SlurmBackend:
             message = (done.stderr or done.stdout).strip() or f"exit code {done.returncode}"
             raise BackendError(f"Slurm refused the cluster: {message}")
         record.data["slurm"] = {"job": job, **{key: value for key, value in spec.items() if value is not None}}
+        try:
+            await asyncio.to_thread(write_record, record)
+        except OSError as error:
+            try:
+                await self.stop(record)
+            except BackendError:
+                pass
+            raise BackendError(f"Could not record Slurm job {job}; check it with squeue: {error}") from error
 
     async def statuses(self, records: list[Record]) -> dict[str, Status]:
         if not records:

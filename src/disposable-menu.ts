@@ -1,21 +1,19 @@
 import { CommandRegistry } from '@lumino/commands';
-import type { IDisposable } from '@lumino/disposable';
 import { Menu } from '@lumino/widgets';
 
-/** One line of a Compute menu: an action, a heading, or a separator. */
-export type ComputeMenuItem =
+/** One line of a disposable menu: an action, a heading, or a separator. */
+export type DisposableMenuItem =
   | { kind: 'action'; label: string; caption?: string; execute: () => void }
   | { kind: 'heading'; label: string }
   | { kind: 'separator' };
 
 /**
- * A throwaway menu for the Compute section: its commands live in a private
- * registry, and it disposes itself once closed, as the project switcher does.
+ * A menu with a private command registry that disposes itself once closed.
  */
-export function buildComputeMenu(
-  items: readonly ComputeMenuItem[],
+export function buildDisposableMenu(
+  items: readonly DisposableMenuItem[],
   className: string
-): Menu & IDisposable {
+): Menu {
   const commands = new CommandRegistry();
   const menu = new Menu({ commands });
   menu.addClass(className);
@@ -24,7 +22,7 @@ export function buildComputeMenu(
       menu.addItem({ type: 'separator' });
       return;
     }
-    const id = `compute:${index}`;
+    const id = `item:${index}`;
     commands.addCommand(id, {
       label: item.label,
       caption: item.kind === 'action' ? (item.caption ?? '') : '',

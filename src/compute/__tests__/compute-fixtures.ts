@@ -37,7 +37,6 @@ export function slurmTarget(
     startEstimate: null,
     dashboard: '/user/me/proxy/nid001:8787/status',
     details: ['Job 31415926', 'regular', 'm1234'],
-    created: '2026-09-24T14:15:02Z',
     ...overrides
   };
 }
@@ -47,10 +46,8 @@ export function listing(
   overrides: Partial<IComputeListing> = {}
 ): IComputeListing {
   return {
-    format: 'lightcone.cluster/1',
     attaches: true,
     lightcone: '0.5.0rc2',
-    idleTimeout: 1800,
     backends: ['slurm'],
     targets,
     ended: [],

@@ -54,7 +54,7 @@ class Backend(Protocol):
         """The backend's own fields of a preset, checked; raises PresetError."""
 
     async def start(self, record: Record, spec: dict) -> None:
-        """Submit or launch the cluster and store its handle in the record."""
+        """Launch and persist each accepted handle before further setup can fail."""
 
     async def statuses(self, records: list[Record]) -> dict[str, Status]:
         """The status of each record of this backend, by cluster id."""
@@ -63,10 +63,8 @@ class Backend(Protocol):
         """Ask the backend to end the cluster; its status then reports it."""
 
 
-def integer(preset: dict, key: str, default: int | None, low: int, high: int) -> int | None:
+def integer(preset: dict, key: str, default: int, low: int, high: int) -> int:
     value = preset.get(key, default)
-    if value is None:
-        return None
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise PresetError(f"{key} must be a whole number from {low} to {high}.")
     return value

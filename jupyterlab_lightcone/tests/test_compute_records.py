@@ -133,3 +133,46 @@ def test_the_worker_environment_names_what_the_engine_checks():
     assert environment["interpreter"] is None
     assert environment["lightcone"] == records.package_version("lightcone-cli")
     assert environment["distributed"] == records.package_version("distributed")
+
+
+async def test_registry_lock_excludes_other_processes_and_releases_on_exit(tmp_path):
+    import asyncio
+    import subprocess
+    import sys
+
+    probe = (
+        "import fcntl, sys\n"
+        "with open(sys.argv[1], 'r+') as lock:\n"
+        " try:\n"
+        "  fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+        " except BlockingIOError:\n"
+        "  sys.exit(2)\n"
+    )
+
+    async def another_process():
+        result = await asyncio.to_thread(
+            subprocess.run, [sys.executable, "-c", probe, str(tmp_path / ".lock")],
+            capture_output=True, timeout=5,
+        )
+        return result.returncode
+
+    async with records.registry_lock(tmp_path):
+        assert await another_process() == 2
+        assert mode(tmp_path / ".lock") == 0o600
+    assert await another_process() == 0
+
+
+async def test_cancelling_a_lock_waiter_does_not_leave_a_lock_behind(tmp_path):
+    import asyncio
+
+    async def wait_for_lock():
+        async with records.registry_lock(tmp_path):
+            pass
+
+    async with records.registry_lock(tmp_path):
+        waiter = asyncio.create_task(wait_for_lock())
+        await asyncio.sleep(0)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+    await asyncio.wait_for(wait_for_lock(), timeout=1)

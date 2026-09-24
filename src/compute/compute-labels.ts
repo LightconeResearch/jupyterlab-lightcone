@@ -57,12 +57,14 @@ function sizeText(target: IComputeTarget, trans: TranslationBundle): string {
   switch (target.backend) {
     case 'slurm':
       return trans._n('%1 node', '%1 nodes', size.nodes ?? 1);
-    case 'gateway':
-      return trans._n(
-        '%1 worker',
-        '%1 workers',
-        load?.workers ?? size.workers ?? 0
-      );
+    case 'gateway': {
+      const workers = load?.workers ?? size.workers;
+      return workers !== null
+        ? trans._n('%1 worker', '%1 workers', workers)
+        : size.maxWorkers !== undefined
+          ? trans._n('Up to %1 worker', 'Up to %1 workers', size.maxWorkers)
+          : trans.__('Worker count unavailable');
+    }
     default:
       return trans._n('%1 thread', '%1 threads', size.threads ?? 1);
   }

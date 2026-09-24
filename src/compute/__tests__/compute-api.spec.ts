@@ -18,7 +18,7 @@ const settings = ServerConnection.makeSettings();
 
 afterEach(() => request.mockReset());
 
-test('a listing names the format, the backends and every target', () => {
+test('a listing names the backends and every target', () => {
   expect(isComputeListing(listing([hostTarget(), slurmTarget()]))).toBe(true);
   expect(isComputeListing({ ...listing([]), backends: ['pbs'] })).toBe(false);
   expect(isComputeListing({ ...listing([]), attaches: 'yes' })).toBe(false);

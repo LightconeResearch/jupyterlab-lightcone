@@ -1,9 +1,11 @@
 import { PathExt } from '@jupyterlab/coreutils';
 import type { IStateDB } from '@jupyterlab/statedb';
-import { CommandRegistry } from '@lumino/commands';
 import type { ReadonlyPartialJSONValue } from '@lumino/coreutils';
-import type { IDisposable } from '@lumino/disposable';
-import { Menu } from '@lumino/widgets';
+import type { Menu } from '@lumino/widgets';
+import {
+  buildDisposableMenu,
+  type DisposableMenuItem
+} from '../disposable-menu';
 import type { IProjectRoot } from '../project-root';
 
 /** How many recently visited projects the switcher remembers. */
@@ -112,37 +114,15 @@ export interface IProjectSwitcherOptions {
  * this one, then opening or creating one. Choosing a project moves the file
  * browser there; nothing closes or swaps tabs.
  */
-export function buildProjectSwitcher(
-  options: IProjectSwitcherOptions
-): Menu & IDisposable {
-  const commands = new CommandRegistry();
-  const menu = new Menu({ commands });
-  menu.addClass('jp-jupyterlab-lightcone-ProjectSwitcher');
-  let count = 0;
+export function buildProjectSwitcher(options: IProjectSwitcherOptions): Menu {
+  const items: DisposableMenuItem[] = [];
   const add = (label: string, caption: string, execute: () => void) => {
-    const id = `switch:${count++}`;
-    commands.addCommand(id, {
-      label,
-      caption,
-      describedBy: { args: { type: 'object', properties: {} } },
-      execute
-    });
-    menu.addItem({ command: id });
-  };
-  const heading = (label: string) => {
-    const id = `heading:${count++}`;
-    commands.addCommand(id, {
-      label,
-      describedBy: { args: { type: 'object', properties: {} } },
-      isEnabled: () => false,
-      execute: () => undefined
-    });
-    menu.addItem({ command: id });
+    items.push({ kind: 'action', label, caption, execute });
   };
   const seen = new Set<string>([options.current.path]);
   const recent = options.recent.filter(item => !seen.has(item.path));
   if (recent.length) {
-    heading('Recent projects');
+    items.push({ kind: 'heading', label: 'Recent projects' });
     for (const project of recent) {
       seen.add(project.path);
       add(projectFolderName(project), project.path || '/', () =>
@@ -152,21 +132,17 @@ export function buildProjectSwitcher(
   }
   const siblings = options.siblings.filter(path => !seen.has(path));
   if (siblings.length) {
-    if (recent.length) menu.addItem({ type: 'separator' });
-    heading('Projects in this folder');
+    if (recent.length) items.push({ kind: 'separator' });
+    items.push({ kind: 'heading', label: 'Projects in this folder' });
     for (const path of siblings) {
       add(PathExt.basename(path) || '/', path || '/', () => options.go(path));
     }
   }
   if (options.extras.length) {
-    if (recent.length || siblings.length) menu.addItem({ type: 'separator' });
+    if (recent.length || siblings.length) items.push({ kind: 'separator' });
     for (const extra of options.extras) {
       add(extra.label, '', extra.execute);
     }
   }
-  menu.aboutToClose.connect(() => {
-    // Lumino still reads the menu while the close event runs.
-    window.setTimeout(() => menu.dispose(), 0);
-  });
-  return menu;
+  return buildDisposableMenu(items, 'jp-jupyterlab-lightcone-ProjectSwitcher');
 }

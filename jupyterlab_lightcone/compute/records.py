@@ -9,8 +9,12 @@ the only writer; the engine only reads.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import errno
+import fcntl
 import importlib.metadata
 import json
 import os
@@ -101,6 +105,31 @@ def make_directory(root: Path, cluster_id: str) -> Path:
     return directory
 
 
+@asynccontextmanager
+async def registry_lock(root: Path):
+    """Serialize registry mutations across requests and Jupyter servers.
+
+    The lock file is permanent: unlinking it could let two writers lock
+    different inodes. Nonblocking acquisition keeps the server responsive
+    and releases the descriptor if a waiting request is cancelled.
+    """
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(root, 0o700)
+    descriptor = os.open(root / ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as error:
+                if error.errno not in (errno.EACCES, errno.EAGAIN):
+                    raise
+                await asyncio.sleep(0.05)
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def write_record(record: Record) -> None:
     """Replace the record atomically, so no reader ever sees half of one."""
     _write_private(record.path(RECORD_FILE), json.dumps(record.data, indent=2) + "\n")
@@ -130,7 +159,12 @@ def read_records(root: Path) -> list[Record]:
             data = json.loads((directory / RECORD_FILE).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(data, dict) and data.get("format") == FORMAT and data.get("id") == directory.name:
+        if (
+            isinstance(data, dict)
+            and data.get("format") == FORMAT
+            and data.get("id") == directory.name
+            and isinstance(data.get("backend"), str)
+        ):
             records.append(Record(directory, data))
     return records
 

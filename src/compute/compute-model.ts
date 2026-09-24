@@ -129,6 +129,9 @@ export class ComputeModel implements IDisposable {
   async start(preset: IClusterPreset): Promise<void> {
     await this._act(() => startCluster(this._settings, preset, this._project));
     this._lastPreset = preset.label;
+    if (!this.isDisposed) {
+      this._changed.emit();
+    }
     try {
       await this._state?.save(LAST_PRESET_KEY, preset.label);
     } catch (error) {
@@ -150,31 +153,47 @@ export class ComputeModel implements IDisposable {
   }
 
   private async _act(action: () => Promise<unknown>): Promise<void> {
+    if (this.isDisposed) {
+      throw new Error('The compute view has closed.');
+    }
+    if (this._pending) {
+      throw new Error('Another cluster action is already in progress.');
+    }
     this._pending = true;
     this._changed.emit();
     try {
       await action();
     } finally {
-      this._pending = false;
       await this.refresh();
+      this._pending = false;
+      if (!this.isDisposed) {
+        this._changed.emit();
+      }
     }
   }
 
   private async _load(): Promise<void> {
+    if (this.isDisposed) {
+      return;
+    }
+    const request = ++this._request;
     const project = this._project;
     try {
       const listing = await fetchCompute(this._settings, project);
-      if (project !== this._project || this.isDisposed) {
+      if (request !== this._request || this.isDisposed) {
         return;
       }
       this._report(listing);
       this._listing = listing;
       this._error = null;
     } catch (error) {
+      if (request !== this._request || this.isDisposed) {
+        return;
+      }
       this._error = error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
-      if (!this.isDisposed) {
+      if (request === this._request && !this.isDisposed) {
         this._changed.emit();
       }
     }
@@ -197,7 +216,11 @@ export class ComputeModel implements IDisposable {
   private async _restoreLastPreset(): Promise<void> {
     try {
       const saved = await this._state?.fetch(LAST_PRESET_KEY);
-      if (typeof saved === 'string' && this._lastPreset === null) {
+      if (
+        !this.isDisposed &&
+        typeof saved === 'string' &&
+        this._lastPreset === null
+      ) {
         this._lastPreset = saved;
         this._changed.emit();
       }
@@ -218,4 +241,5 @@ export class ComputeModel implements IDisposable {
   private _lastPreset: string | null = null;
   private _project: string | null = null;
   private _watched = new Set<string>();
+  private _request = 0;
 }

@@ -289,12 +289,20 @@ cluster's **⋯** menu opens its dashboard (through `jupyter-server-proxy`, when
 installed with `bokeh`) and stops it; a cluster that ends on its own (time
 limit, idle timeout) is reported as a notification. Clusters belong to you, not
 to a project, and every cluster is authenticated with its own TLS key.
+**Stop** and **Replace** both ask for confirmation because they interrupt runs
+in every project using the cluster. Gateway rows show their adaptive maximum
+as **Up to N workers**; their live worker count and load are unavailable.
 
 Clusters are recorded under `~/.lightcone/clusters/`, where `lc materialize`
 finds them from any terminal or agent; `lightcone-cli` releases that read these
 records attach to the cluster instead of starting their own, and until then the
-section says runs stay on this host. Presets are the `jupyterlab-lightcone:compute`
-settings, which a site ships in `overrides.json`, for example on NERSC
+section says runs stay on this host. Servers sharing this registry coordinate
+starts so only one cluster per backend and environment can start at a time.
+Saved cluster handles are kept if startup cleanup fails. Local clusters can
+only be stopped on their own host, after verifying the recorded processes;
+Gateway deployments must expose an `image` option to identify the workers'
+environment. Presets are the `jupyterlab-lightcone:compute` settings, which a
+site ships in `overrides.json`, for example on NERSC
 Perlmutter:
 
 ```json

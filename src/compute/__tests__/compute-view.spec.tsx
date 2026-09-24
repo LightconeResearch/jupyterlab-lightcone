@@ -1,6 +1,7 @@
 import { Dialog, showDialog } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
+import { MessageLoop } from '@lumino/messaging';
 import { Menu, Widget } from '@lumino/widgets';
 import { requestAPI } from '../../request';
 import { ComputeModel } from '../compute-model';
@@ -56,7 +57,8 @@ async function view(
   const widget = new ComputeView({ model, commands });
   Widget.attach(widget, document.body);
   widget.update();
-  await flush();
+  MessageLoop.flush();
+  await widget.renderPromise;
   return { widget, model, settingsOpened };
 }
 
@@ -186,5 +188,69 @@ test('a cancelled stop leaves the cluster alone', async () => {
   expect(
     request.mock.calls.some(([, , init]) => init?.method === 'DELETE')
   ).toBe(false);
+  widget.dispose();
+});
+
+test.each([false, true])(
+  'replacing asks before stopping and restarting (accepted: %s)',
+  async accept => {
+    const cluster = slurmTarget({
+      problem: { code: 'version', message: 'Workers need an update.' }
+    });
+    const { widget } = await view([hostTarget({ active: false }), cluster]);
+    dialog.mockResolvedValue({
+      button: accept ? Dialog.warnButton() : Dialog.cancelButton(),
+      value: null,
+      isChecked: null
+    } as never);
+    widget.node.querySelector<HTMLButtonElement>(`.${BASE}-fix`)?.click();
+    await flush();
+    await flush();
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: 'Runs using it, in every project, stop too. Outputs they already made are kept.'
+      })
+    );
+    const mutations = request.mock.calls.filter(([, , init]) => init?.method);
+    expect(mutations.map(([, , init]) => init?.method)).toEqual(
+      accept ? ['DELETE', 'POST'] : []
+    );
+    widget.dispose();
+  }
+);
+
+test('a failed stop prevents replacement', async () => {
+  const cluster = slurmTarget({
+    problem: { code: 'version', message: 'Workers need an update.' }
+  });
+  const { widget, model } = await view([
+    hostTarget({ active: false }),
+    cluster
+  ]);
+  const start = jest.spyOn(model, 'start');
+  jest.spyOn(model, 'stop').mockRejectedValue(new Error('Still running'));
+  dialog.mockResolvedValue({
+    button: Dialog.warnButton(),
+    value: null,
+    isChecked: null
+  } as never);
+  widget.node.querySelector<HTMLButtonElement>(`.${BASE}-fix`)?.click();
+  await flush();
+  expect(start).not.toHaveBeenCalled();
+  widget.dispose();
+});
+
+test('replacement is unavailable for an ambiguous preset label', async () => {
+  const cluster = slurmTarget({
+    problem: { code: 'version', message: 'Workers need an update.' }
+  });
+  const { widget, model } = await view([
+    hostTarget({ active: false }),
+    cluster
+  ]);
+  model.presets = [REGULAR, { ...REGULAR, nodes: 8 }];
+  MessageLoop.flush();
+  await widget.renderPromise;
+  expect(widget.node.querySelector(`.${BASE}-fix`)).toBeNull();
   widget.dispose();
 });

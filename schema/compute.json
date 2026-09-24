@@ -24,7 +24,11 @@
         "backend": {
           "title": "Backend",
           "type": "string",
-          "enum": ["local", "slurm", "gateway"]
+          "oneOf": [
+            { "const": "local", "title": "Local" },
+            { "const": "slurm", "title": "Slurm" },
+            { "const": "gateway", "title": "Dask Gateway" }
+          ]
         },
         "description": {
           "title": "Description",

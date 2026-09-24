@@ -28,6 +28,8 @@ export interface IComputeSize {
   threads: number | null;
   nodes: number | null;
   workers: number | null;
+  /** The adaptive ceiling, when the actual worker count is unavailable. */
+  maxWorkers?: number;
 }
 
 /** What a running cluster's scheduler reports. */
@@ -61,7 +63,6 @@ export interface IComputeTarget {
   dashboard?: string | null;
   /** Facts for the cluster's menu: job, queue, account, gateway name. */
   details?: string[];
-  created?: string | null;
 }
 
 /** A cluster that ended on its own since the listing before. */
@@ -71,18 +72,13 @@ export interface IEndedCluster {
   label: string | null;
   /** Words that follow "Your cluster …", such as "reached its time limit". */
   reason: string;
-  at: string;
 }
 
 /** Everything the Compute section shows. */
 export interface IComputeListing {
-  /** The cluster record format the server writes. */
-  format: string;
-  /** Whether the installed engine uses clusters of that format. */
+  /** Whether the installed engine can use these clusters. */
   attaches: boolean;
   lightcone: string | null;
-  /** Seconds a local or Slurm cluster may sit idle before it stops. */
-  idleTimeout: number;
   /** The backends this server can start clusters on. */
   backends: ComputeBackend[];
   /** This host first, then every known cluster. */
@@ -182,6 +178,8 @@ export function isComputeTarget(value: unknown): value is IComputeTarget {
     isCount(value.size.threads) &&
     isCount(value.size.nodes) &&
     isCount(value.size.workers) &&
+    (value.size.maxWorkers === undefined ||
+      typeof value.size.maxWorkers === 'number') &&
     isOptional(value.label, isString) &&
     isOptional(value.load, isLoad) &&
     isOptional(value.dashboard, isString) &&
@@ -198,8 +196,7 @@ function isEnded(value: unknown): value is IEndedCluster {
     typeof value.id === 'string' &&
     isBackend(value.backend) &&
     (value.label === null || typeof value.label === 'string') &&
-    typeof value.reason === 'string' &&
-    typeof value.at === 'string'
+    typeof value.reason === 'string'
   );
 }
 
@@ -207,10 +204,8 @@ function isEnded(value: unknown): value is IEndedCluster {
 export function isComputeListing(value: unknown): value is IComputeListing {
   return (
     isRecord(value) &&
-    typeof value.format === 'string' &&
     typeof value.attaches === 'boolean' &&
     (value.lightcone === null || typeof value.lightcone === 'string') &&
-    typeof value.idleTimeout === 'number' &&
     Array.isArray(value.backends) &&
     value.backends.every(isBackend) &&
     Array.isArray(value.targets) &&

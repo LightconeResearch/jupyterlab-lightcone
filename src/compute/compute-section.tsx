@@ -15,10 +15,10 @@ import type {
 } from './compute-api';
 import { dotState, startText, targetMeta, targetName } from './compute-labels';
 import {
-  buildComputeMenu,
-  type ComputeMenuItem,
+  buildDisposableMenu,
+  type DisposableMenuItem,
   openBelow
-} from './compute-menus';
+} from '../disposable-menu';
 import type { ComputeModel } from './compute-model';
 import { presetCaption, presetMenuLabel } from './compute-presets';
 import { askCustomCluster } from './custom-cluster';
@@ -98,17 +98,19 @@ function Detail({
       </div>
     );
   }
-  const waiting =
+  const status =
     target.state === 'queued'
       ? target.startEstimate
         ? startText(target.startEstimate, trans)
         : trans.__('Waiting in the queue')
       : target.state === 'starting'
         ? trans.__('Starting its scheduler and workers…')
-        : null;
-  return waiting ? (
+        : target.state === 'running'
+          ? trans.__('Load unavailable')
+          : null;
+  return status ? (
     <div className={`${BASE}-detail`}>
-      <span className={`${BASE}-caption`}>{waiting}</span>
+      <span className={`${BASE}-caption`}>{status}</span>
     </div>
   ) : null;
 }
@@ -278,7 +280,7 @@ export class ComputeView extends ReactWidget {
   private _newMenu() {
     const trans = this._trans;
     const model = this._model;
-    const items: ComputeMenuItem[] = model.offered.map(preset => ({
+    const items: DisposableMenuItem[] = model.offered.map(preset => ({
       kind: 'action',
       label: presetMenuLabel(preset, trans),
       caption: presetCaption(preset, trans),
@@ -310,13 +312,13 @@ export class ComputeView extends ReactWidget {
           )
       });
     }
-    return buildComputeMenu(items, `${BASE}-menu`);
+    return buildDisposableMenu(items, `${BASE}-menu`);
   }
 
   /** A cluster's facts, its dashboard and Stop. */
   private _targetMenu(target: IComputeTarget) {
     const trans = this._trans;
-    const items: ComputeMenuItem[] = [];
+    const items: DisposableMenuItem[] = [];
     const facts = [target.label, ...(target.details ?? [])].filter(Boolean);
     if (facts.length) {
       items.push({ kind: 'heading', label: facts.join(' · ') });
@@ -337,7 +339,7 @@ export class ComputeView extends ReactWidget {
         execute: () => this._stop(target)
       });
     }
-    return buildComputeMenu(items, `${BASE}-menu`);
+    return buildDisposableMenu(items, `${BASE}-menu`);
   }
 
   /**
@@ -375,25 +377,29 @@ export class ComputeView extends ReactWidget {
   }
 
   private _stop(target: IComputeTarget): void {
+    this._run(this._trans.__('Could not stop the cluster'), () =>
+      this._confirmStop(target)
+    );
+  }
+
+  /** Confirm the effect on every project before stopping or replacing a cluster. */
+  private async _confirmStop(target: IComputeTarget): Promise<boolean> {
     const trans = this._trans;
-    this._run(trans.__('Could not stop the cluster'), async () => {
-      const result = await showDialog({
-        title: trans.__(
-          'Stop the %1?',
-          targetName(target, trans).toLowerCase()
-        ),
-        body: trans.__(
-          'Runs using it, in every project, stop too. Outputs they already made are kept.'
-        ),
-        buttons: [
-          Dialog.cancelButton(),
-          Dialog.warnButton({ label: trans.__('Stop cluster') })
-        ]
-      });
-      if (result.button.accept) {
-        await this._model.stop(target.id);
-      }
+    const result = await showDialog({
+      title: trans.__('Stop the %1?', targetName(target, trans).toLowerCase()),
+      body: trans.__(
+        'Runs using it, in every project, stop too. Outputs they already made are kept.'
+      ),
+      buttons: [
+        Dialog.cancelButton(),
+        Dialog.warnButton({ label: trans.__('Stop cluster') })
+      ]
     });
+    if (!result.button.accept || this.isDisposed) {
+      return false;
+    }
+    await this._model.stop(target.id);
+    return true;
   }
 
   /** Stop a cluster whose workers run another engine, and start its preset again. */
@@ -403,18 +409,18 @@ export class ComputeView extends ReactWidget {
       return;
     }
     this._run(this._trans.__('Could not replace the cluster'), async () => {
-      await this._model.stop(target.id);
-      await this._model.start(preset);
+      if (await this._confirmStop(target)) {
+        await this._model.start(preset);
+      }
     });
   }
 
   private _presetOf(target: IComputeTarget): IClusterPreset | null {
-    return (
-      this._model.presets.find(
-        preset =>
-          preset.label === target.label && preset.backend === target.backend
-      ) ?? null
+    const matches = this._model.offered.filter(
+      preset =>
+        preset.label === target.label && preset.backend === target.backend
     );
+    return matches.length === 1 ? matches[0] : null;
   }
 
   private _run(title: string, action: () => Promise<unknown>): void {

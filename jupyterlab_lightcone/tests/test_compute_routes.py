@@ -65,7 +65,7 @@ async def test_starting_and_stopping_a_cluster(app, jp_fetch, slurm, project):
     assert response.code == 201
     cluster = json.loads(response.body)
     assert cluster["kind"] == "cluster" and cluster["state"] == "queued" and cluster["active"] is True
-    await fails(jp_fetch(*ENDPOINT, "clusters", method="POST", body=json.dumps({"preset": PRESET})), 409, "already running")
+    await fails(jp_fetch(*ENDPOINT, "clusters", method="POST", body=json.dumps({"preset": PRESET})), 409, "already exists")
     response = await jp_fetch(*ENDPOINT, "clusters", cluster["id"], method="DELETE")
     assert response.code == 204
     assert slurm.stopped == [cluster["id"]]

@@ -1,6 +1,7 @@
 """A backend whose clusters exist only in memory, for the service and route suites."""
 
 from jupyterlab_lightcone.compute.backend import BackendError, Status, integer
+from jupyterlab_lightcone.compute.records import write_record
 
 
 class FakeBackend:
@@ -27,6 +28,7 @@ class FakeBackend:
         if self.fail_start:
             raise BackendError(self.fail_start)
         record.data[self.name] = {"job": str(len(self.started)), **spec}
+        write_record(record)
 
     async def statuses(self, records):
         return {record.id: self.states.get(record.id, self.default) for record in records}

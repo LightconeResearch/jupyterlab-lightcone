@@ -1,7 +1,8 @@
 import { ServerConnection } from '@jupyterlab/services';
 import { StateDB } from '@jupyterlab/statedb';
+import { PromiseDelegate } from '@lumino/coreutils';
 import { requestAPI } from '../../request';
-import type { IEndedCluster } from '../compute-api';
+import type { IComputeListing, IEndedCluster } from '../compute-api';
 import { ComputeModel, LAST_PRESET_KEY } from '../compute-model';
 import { hostTarget, listing, slurmTarget } from './compute-fixtures';
 
@@ -62,6 +63,27 @@ test('a failed refresh keeps the error and the last listing', async () => {
   expect(model.listing?.targets).toHaveLength(1);
 });
 
+test.each(['success', 'failure'])(
+  'an older refresh %s cannot overwrite the latest listing',
+  async outcome => {
+    const older = new PromiseDelegate<IComputeListing>();
+    request.mockReturnValueOnce(older.promise);
+    const model = make();
+    const first = model.refresh();
+    const latest = listing([hostTarget({ active: false }), slurmTarget()]);
+    request.mockResolvedValueOnce(latest);
+    await model.refresh();
+    if (outcome === 'success') {
+      older.resolve(listing([hostTarget()]));
+    } else {
+      older.reject(new Error('stale error'));
+    }
+    await first;
+    expect(model.listing).toEqual(latest);
+    expect(model.error).toBeNull();
+  }
+);
+
 test('a cluster that ends on its own is reported once, and only if it was seen', async () => {
   const ended: IEndedCluster[] = [];
   const model = make({ onEnded: cluster => ended.push(cluster) });
@@ -69,8 +91,7 @@ test('a cluster that ends on its own is reported once, and only if it was seen',
     id: slurmTarget().id,
     backend: 'slurm',
     label: REGULAR.label,
-    reason: 'reached its time limit',
-    at: '2026-09-24T15:12:00Z'
+    reason: 'reached its time limit'
   };
   // Ended before this model ever listed it: not news.
   request.mockResolvedValueOnce(
@@ -128,4 +149,21 @@ test('stopping asks the server and refreshes', async () => {
     { method: 'DELETE' }
   );
   expect(request).toHaveBeenLastCalledWith('api/compute', expect.anything());
+});
+
+test('actions remain pending through their refresh and cannot overlap', async () => {
+  const refresh = new PromiseDelegate<IComputeListing>();
+  request.mockResolvedValueOnce(undefined).mockReturnValueOnce(refresh.promise);
+  const model = make();
+  const stopped = model.stop(slurmTarget().id);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(model.pending).toBe(true);
+  await expect(model.start(REGULAR)).rejects.toThrow('already in progress');
+  expect(request.mock.calls.some(([, , init]) => init?.method === 'POST')).toBe(
+    false
+  );
+  refresh.resolve(listing([hostTarget()]));
+  await stopped;
+  expect(model.pending).toBe(false);
 });

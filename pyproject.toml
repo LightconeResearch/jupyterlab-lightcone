@@ -28,6 +28,7 @@ dependencies = [
     # The engine is called in-process and promises no stable API: raise the
     # cap only once the suite passes against the new minor release.
     "lightcone-cli>=0.5.0rc2,<0.6",
+    "psutil>=5.9",
     "jupyter-ai>=3.2.0,<3.3"
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]

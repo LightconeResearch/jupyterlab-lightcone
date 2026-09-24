@@ -109,6 +109,25 @@ test('a queued cluster says when it should start', () => {
   expect(rows()[1].detail).toBe('Likely start 14:05');
 });
 
+test('a running cluster without telemetry states that its load is unavailable', () => {
+  const { node, rows } = render({
+    listing: listing([
+      hostTarget({ active: false }),
+      slurmTarget({
+        backend: 'gateway',
+        load: null,
+        timeLeft: null,
+        size: { threads: null, nodes: null, workers: null, maxWorkers: 6 }
+      })
+    ])
+  });
+  expect(rows()[1]).toMatchObject({
+    meta: 'Up to 6 workers',
+    detail: 'Load unavailable'
+  });
+  expect(node.querySelector('[role="meter"]')).toBeNull();
+});
+
 test('a problem is stated, with its one fix when there is one', () => {
   const problem = {
     code: 'version',

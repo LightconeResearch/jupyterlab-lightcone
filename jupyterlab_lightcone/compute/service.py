@@ -24,7 +24,8 @@ from urllib.parse import urlparse
 from jupyter_server.utils import url_path_join
 
 from .backend import LIVE_STATES, Backend, BackendError, PresetError, Status
-from .gateway import server_image
+from .gateway import server_gateway, server_image
+from .local import LocalBackend
 from .records import (
     FORMAT,
     Record,
@@ -33,6 +34,7 @@ from .records import (
     package_version,
     read_records,
     read_scheduler_file,
+    registry_lock,
     registry_root,
     remove,
     security,
@@ -175,7 +177,6 @@ class ComputeService:
         self._root = root
         self._stopping: set[str] = set()
         self._ended: deque[dict] = deque(maxlen=20)
-        self._lock = asyncio.Lock()
         self._survey_at = 0.0
         self._survey: list[tuple[Record, Status, dict | None, dict | None]] = []
 
@@ -206,10 +207,8 @@ class ComputeService:
                 }
         now = time.time()
         return {
-            "format": FORMAT,
             "attaches": attaches,
             "lightcone": package_version("lightcone-cli"),
-            "idleTimeout": self.idle_timeout,
             "backends": self._creatable(host),
             "targets": [host, *clusters],
             "ended": [
@@ -240,93 +239,137 @@ class ComputeService:
         label = preset.get("label")
         if not isinstance(label, str) or not label.strip() or len(label) > LABEL_LIMIT or not label.isprintable():
             raise PresetError(f"label must be a name of 1 to {LABEL_LIMIT} printable characters.")
-        for target in (await self.listing(project))["targets"]:
-            if (
-                target["backend"] == name
-                and target["other"] is None
-                and target["state"] in LIVE_STATES
-            ):
-                raise ConflictError(
-                    f"A {BACKEND_NAMES[name]} cluster is already running for this environment; "
-                    "stop it before starting another."
-                )
-        cluster_id = new_cluster_id()
-        directory = await asyncio.to_thread(make_directory, self.root, cluster_id)
-        hosted = name != "gateway"
-        record = Record(
-            directory,
-            {
-                "format": FORMAT,
-                "id": cluster_id,
-                "backend": name,
-                "label": label.strip(),
-                "created": utc_now(),
-                "host": socket.gethostname(),
-                "tls": await asyncio.to_thread(write_tls, directory) if hosted else None,
-                "workers": worker_environment(interpreter=sys.executable if hosted else None),
-            },
-        )
-        try:
-            # Written before anything starts, so no cluster ever runs unrecorded.
-            await asyncio.to_thread(write_record, record)
-            await backend.start(record, spec)
-            await asyncio.to_thread(write_record, record)
-        except BaseException:
-            await asyncio.to_thread(remove, record)
-            raise
-        self.invalidate()
+        async with registry_lock(self.root):
+            # Capacity belongs to the user and environment, regardless of the
+            # project being viewed. Never use a cached UI projection here.
+            for existing, status in await self._inspect():
+                if (
+                    existing.backend == name
+                    and self._same_environment(existing)
+                    and status.state != "stopping"
+                ):
+                    raise ConflictError(
+                        f"A {BACKEND_NAMES[name]} cluster already exists for this environment; "
+                        "stop it before starting another."
+                    )
+            cluster_id = new_cluster_id()
+            directory = await asyncio.to_thread(make_directory, self.root, cluster_id)
+            hosted = name != "gateway"
+            record = Record(
+                directory,
+                {
+                    "format": FORMAT,
+                    "id": cluster_id,
+                    "backend": name,
+                    "label": label.strip(),
+                    "created": utc_now(),
+                    "host": socket.gethostname(),
+                    "tls": None,
+                    "workers": worker_environment(
+                        image=None if hosted else server_image(),
+                        interpreter=sys.executable if hosted else None,
+                    ),
+                },
+            )
+            try:
+                if hosted:
+                    record.data["tls"] = await asyncio.to_thread(write_tls, directory)
+                await asyncio.to_thread(write_record, record)
+                # A cancelled request must not abandon an sbatch/client call
+                # whose accepted handle has not been recorded yet.
+                launch = asyncio.create_task(backend.start(record, spec))
+                try:
+                    await asyncio.shield(launch)
+                except asyncio.CancelledError:
+                    try:
+                        await launch
+                    finally:
+                        if record.section(name):
+                            try:
+                                await backend.stop(record)
+                            except Exception:
+                                pass  # The persisted handle remains available for Stop.
+                    raise
+            except BaseException:
+                if not record.section(name):
+                    await asyncio.to_thread(remove, record)
+                raise
+            finally:
+                self.invalidate()
         listing = await self.listing(project)
-        return next(target for target in listing["targets"] if target["id"] == cluster_id)
+        target = next((target for target in listing["targets"] if target["id"] == cluster_id), None)
+        if target is None:
+            raise BackendError("The cluster ended during startup. Check its backend's logs before retrying.")
+        return target
+
+    def _same_environment(self, record: Record) -> bool:
+        """Whether a record occupies the backend/environment a new cluster would use."""
+        if record.backend == "local":
+            return record.section("local").get("host", record.data.get("host")) == socket.gethostname()
+        if record.backend == "gateway":
+            address = record.section("gateway").get("address")
+            image = record.section("workers").get("image")
+            current_image = server_image()
+            return (address is None or address == server_gateway()) and (
+                image is None or current_image is None or image == current_image
+            )
+        return True
 
     async def stop(self, cluster_id: str) -> None:
         """Ask the cluster's backend to end it; the record goes once the backend agrees."""
-        record = next((r for r in await asyncio.to_thread(read_records, self.root) if r.id == cluster_id), None)
-        backend = self.backends.get(record.backend) if record else None
-        if record is None or backend is None:
-            raise KeyError(cluster_id)
-        self._stopping.add(cluster_id)
-        try:
-            await backend.stop(record)
-        except BackendError:
-            self._stopping.discard(cluster_id)
-            raise
-        if not record.directory.exists():
-            # Stopped and forgotten at once (local processes): nothing to wait for.
-            self._stopping.discard(cluster_id)
-        self.invalidate()
+        async with registry_lock(self.root):
+            record = next((r for r in await asyncio.to_thread(read_records, self.root) if r.id == cluster_id), None)
+            backend = self.backends.get(record.backend) if record else None
+            if record is None or backend is None:
+                raise KeyError(cluster_id)
+            self._stopping.add(cluster_id)
+            try:
+                await backend.stop(record)
+            except BaseException:
+                self._stopping.discard(cluster_id)
+                raise
+            finally:
+                self.invalidate()
+            if not record.directory.exists():
+                # Local processes stop synchronously: nothing to wait for.
+                self._stopping.discard(cluster_id)
 
     async def close(self) -> None:
         """Stop the local clusters this server launched; Jupyter is shutting down."""
         local = self.backends.get("local")
-        if local is not None:
-            records = await asyncio.to_thread(read_records, self.root)
-            await local.close([record for record in records if record.backend == "local"])
+        if isinstance(local, LocalBackend):
+            async with registry_lock(self.root):
+                records = await asyncio.to_thread(read_records, self.root)
+                await local.close([record for record in records if record.backend == "local"])
+
+    async def _inspect(self) -> list[tuple[Record, Status]]:
+        """Read authoritative backend states and reconcile while holding the registry lock."""
+        records = [r for r in await asyncio.to_thread(read_records, self.root) if r.backend in self.backends]
+        statuses = {r.id: _unlaunched(r) for r in records if not r.section(r.backend)}
+        groups: dict[str, list[Record]] = {}
+        for record in records:
+            if record.id not in statuses:
+                groups.setdefault(record.backend, []).append(record)
+        results = await asyncio.gather(*(self.backends[name].statuses(group) for name, group in groups.items()))
+        statuses.update({key: value for result in results for key, value in result.items()})
+        live = []
+        for record in records:
+            status = statuses.get(record.id, Status("unknown"))
+            if status.state == "gone":
+                await self._forget(record, status)
+                continue
+            if record.id in self._stopping:
+                status = Status("stopping")
+            live.append((record, status))
+        return live
 
     async def _look(self):
         """Join records with their backends' statuses, at most once per SURVEY_SECONDS."""
-        async with self._lock:
+        async with registry_lock(self.root):
             if time.monotonic() - self._survey_at < SURVEY_SECONDS:
                 return self._survey
-            records = [r for r in await asyncio.to_thread(read_records, self.root) if r.backend in self.backends]
-            # A record is written before its backend is asked, so one without a
-            # handle yet may be a start in progress: never ask the backend about it.
-            statuses = {record.id: _unlaunched(record) for record in records if not record.section(record.backend)}
-            groups: dict[str, list[Record]] = {}
-            for record in records:
-                if record.id not in statuses:
-                    groups.setdefault(record.backend, []).append(record)
-            results = await asyncio.gather(
-                *(self.backends[name].statuses(group) for name, group in groups.items())
-            )
-            statuses.update({key: value for result in results for key, value in result.items()})
             survey = []
-            for record in records:
-                status = statuses.get(record.id, Status("unknown"))
-                if status.state == "gone":
-                    await self._forget(record, status)
-                    continue
-                if record.id in self._stopping:
-                    status.state = "stopping"
+            for record, status in await self._inspect():
                 scheduler = read_scheduler_file(record) if record.data.get("tls") else None
                 survey.append((record, status, scheduler))
             loads = await asyncio.gather(
@@ -350,7 +393,6 @@ class ComputeService:
                     "backend": record.backend,
                     "label": record.data.get("label"),
                     "reason": status.reason or "ended",
-                    "at": utc_now(),
                     "time": time.time(),
                 }
             )
@@ -358,11 +400,11 @@ class ComputeService:
 
     def _target(self, record: Record, status: Status, scheduler, load, containerized: bool) -> dict:
         data = record.data
-        workers = data.get("workers") or {}
+        workers = record.section("workers")
         other = None
-        if status.state == "unknown" and record.backend == "local":
+        if record.backend == "local" and not self._same_environment(record):
             other = f"on {record.section('local').get('host')}"
-        elif status.state == "unknown" and record.backend == "gateway":
+        elif record.backend == "gateway" and record.section("gateway").get("address", server_gateway()) != server_gateway():
             other = "another gateway"
         elif record.backend == "gateway" and (containerized or workers.get("image") != server_image()):
             other = "another image"
@@ -392,14 +434,14 @@ class ComputeService:
             "size": {
                 "threads": load["threads"] if load else record.section("local").get("threads"),
                 "nodes": slurm.get("nodes"),
-                "workers": load["workers"] if load else gateway.get("workers"),
+                "workers": load["workers"] if load else None,
+                **({"maxWorkers": gateway["workers"]} if gateway.get("workers") is not None else {}),
             },
             "load": load,
             "timeLeft": status.time_left,
             "startEstimate": status.start_estimate,
             "dashboard": status.dashboard or (dashboard_url(record, scheduler, self.base_url) if scheduler else None),
             "details": details,
-            "created": data.get("created"),
         }
 
 

@@ -76,6 +76,26 @@ test('durations read as days, hours or minutes', () => {
   expect(duration(183600, trans)).toBe('2 d 3 h');
 });
 
+test('Gateway distinguishes an adaptive ceiling from its actual worker count', () => {
+  const gateway = slurmTarget({
+    backend: 'gateway',
+    timeLeft: null,
+    load: null,
+    size: { threads: null, nodes: null, workers: null, maxWorkers: 6 }
+  });
+  expect(targetMeta(gateway, trans)).toBe('Up to 6 workers');
+  expect(computeCount(listing([gateway]), trans)).toBe('Up to 6 workers');
+  expect(
+    targetMeta({ ...gateway, load: { workers: 0, threads: 0, busy: 0 } }, trans)
+  ).toBe('0 workers');
+  expect(
+    targetMeta(
+      { ...gateway, size: { ...gateway.size, maxWorkers: undefined } },
+      trans
+    )
+  ).toBe('Worker count unavailable');
+});
+
 test('a start estimate names the day only when it is not today', () => {
   const today = new Date(2026, 8, 24, 12, 0);
   expect(startText('2026-09-24T14:05:00', trans, today)).toBe(

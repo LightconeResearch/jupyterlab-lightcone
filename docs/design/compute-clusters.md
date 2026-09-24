@@ -186,6 +186,7 @@ This section is normative for both packages.
 
 ```
 ~/.lightcone/clusters/
+├── .lock                   # shared lock for extension registry mutations
 └── 20260924-141502-k3x9/
     ├── cluster.json        # the record (section 6.3); written by the extension
     ├── tls/
@@ -215,7 +216,7 @@ is the one readers connect to, and `services.dashboard` is the dashboard port.
 | `host`    | string                                | Host name of the Jupyter server that created the cluster.                                                                                                                                                                                             |
 | `tls`     | object \| null                        | Paths, relative to the cluster directory, of the TLS material: `ca`, `cert`, `key`. Null for Gateway clusters, whose credentials the gateway serves.                                                                                                  |
 | `workers` | object                                | What workers run: `interpreter` (absolute path, or null on Gateway), `image` (container image, or null for host-level clusters), `lightcone` (the `lightcone-cli` version), `distributed` (the `distributed` version), `python` (the Python version). |
-| `local`   | object                                | Local backend only: `host`, `pid` (scheduler), `worker` (worker), `threads`.                                                                                                                                                                          |
+| `local`   | object                                | Local backend only: `host`, `pid` (scheduler), `worker` (worker), `pid_started` and `worker_started` (process creation timestamps), `threads`.                                                                                                        |
 | `slurm`   | object                                | Slurm backend only: `job` (job id), `nodes`, `time`, and `qos`, `constraint`, `account` when set.                                                                                                                                                     |
 | `gateway` | object                                | Gateway backend only: `name` (Gateway cluster name), `address` (Gateway API address), `workers` (adaptive maximum), and `cores`, `memory` when set.                                                                                                   |
 
@@ -281,12 +282,18 @@ requires a new format string.
 
 - The extension is the only writer. The engine MUST NOT create, modify or
   delete anything under the registry root.
+- Create, stop and reconciliation hold an exclusive lock on the permanent
+  `.lock` file. Servers sharing the registry therefore check backend state
+  and reserve capacity together, independently of the project or cached UI.
 - Every write of `cluster.json` is atomic: a temporary file in the same
   directory, then `rename`. A reader never sees half a record.
 - The record is written **before** the backend starts anything, then rewritten
-  with the backend handle once the backend accepts the cluster. A failed start
-  removes the directory. A reader can therefore meet a record without a handle
-  (section 6.5).
+  by each backend immediately after it accepts a handle, before another
+  process launch or Gateway adaptation can fail. A failure before acceptance
+  removes the directory; after acceptance, cleanup is attempted and persisted
+  handles remain until the backend confirms the cluster gone. If persistence
+  and remote cleanup both fail, the error names the backend handle for manual
+  cleanup. A reader can meet a record without a handle (section 6.5).
 - The extension removes a cluster's directory once the cluster's backend
   reports it gone. Readers MUST tolerate a directory disappearing between
   listing and reading it.
@@ -346,11 +353,15 @@ engine's own worker contract (section 3.1). The scheduler's idle timeout is
 ### 7.1 Local
 
 - Scheduler and worker are two processes, each in a session of its own,
-  bound to `127.0.0.1`. The record keeps both process ids.
+  bound to `127.0.0.1`. The record keeps both process ids and creation times.
 - _State_: running when the scheduler process is alive and `scheduler.json`
-  exists; starting while it is alive without it; gone when it is dead. Where
-  `/proc` exists, a reused process id is told from the scheduler by its
-  command line. A record from another host is of unknown state from here.
+  exists; starting while it is alive without it; stopping while only its
+  worker survives; gone when both have exited. Identity checks use creation
+  time and working directory; older records require the exact Dask command
+  and scheduler-file path instead. A record from another host is unknown.
+- **Stop** refuses records from another host and verifies process identity
+  and process-group ownership before each signal, including escalation.
+  If identity or termination cannot be verified, the record stays available.
 - _Lifetime_: until **Stop**, until the Jupyter server shuts down cleanly
   (the extension stops the clusters it launched), or until the scheduler's
   idle timeout if the server dies.
@@ -413,19 +424,21 @@ engine's own worker contract (section 3.1). The scheduler's idle timeout is
 - Used when the `dask_gateway` client is installed and `gateway.address` is
   configured (`DASK_GATEWAY__ADDRESS`), as on a daskhub-style JupyterHub.
   Authentication is the gateway's own (JupyterHub tokens on the Lightcone hub).
-- The extension asks for the gateway's cluster options and sets, where the
-  deployment offers them: `image` to the server's own image
-  (`JUPYTER_IMAGE_SPEC`), `worker_cores` and `worker_memory` from the preset,
-  and `environment` extended with `LIGHTCONE_CLUSTER=<id>`. A preset field the
-  deployment has no option for is refused rather than dropped. The cluster is
-  submitted, then made adaptive between **one** worker (the worker the engine
-  verifies on attach, section 9.3) and the preset's `workers`.
-- _State_, from `Gateway.list_clusters()`: `PENDING` is starting, `RUNNING` is
-  running, `STOPPING` is stopping, absent is gone (`get_cluster` then says
-  whether it was stopped or failed). A record naming another gateway is of
-  unknown state.
+- The deployment must expose a nonempty `image` option. The extension sets it
+  to the server's own image (`JUPYTER_IMAGE_SPEC` or `JUPYTER_IMAGE`) when known,
+  otherwise records the gateway's default. It sets `worker_cores` and
+  `worker_memory` from the preset, and extends `environment` with
+  `LIGHTCONE_CLUSTER=<id>` when offered. Unsupported preset fields are refused.
+  Submission is recorded before adaptation between **one** worker (the worker
+  the engine verifies on attach, section 9.3) and the preset's `workers`.
+- _State_, from `Gateway.list_clusters(status=["pending", "running", "stopping"])`:
+  `PENDING` is starting, `RUNNING` is running, `STOPPING` is stopping, absent is
+  gone (`get_cluster` then says whether it was stopped or failed). An outage
+  leaves records unknown; only an address mismatch means another gateway.
 - _Lifetime_: the gateway's; its own idle timeout culls idle clusters (30
-  minutes on the Lightcone hub), and **Stop** calls `stop_cluster`.
+  minutes on the Lightcone hub), and **Stop** verifies the gateway address
+  before calling `stop_cluster`. Client connections use Gateway's native
+  async context manager.
 - The gateway publishes the dashboard link; TLS credentials come from the
   gateway on connect, so the record holds none.
 
@@ -480,7 +493,8 @@ A record is a candidate for the project when all of these hold:
 If more than one record is a candidate, the engine MUST refuse and name them
 all, rather than choose. The extension never starts a second cluster on the
 same backend for the same environment, so this happens only if clusters were
-started by other means.
+started by other means. Unknown backend state also blocks a new start in that
+environment; a stopping cluster permits its replacement.
 
 ### 8.3 Environment compatibility
 
@@ -674,7 +688,9 @@ Analysis. It lists every target, one row each:
   `aria-current`. Only the active target has a second line: the load of a
   running cluster, the start estimate of a queued one, or a problem with its
   single fix (**Replace**, for a cluster of another engine version, when a
-  preset of the same name exists).
+  preset of the same name exists). Gateway rows show **Up to N workers** for
+  their adaptive maximum and **Load unavailable**, without claiming a live
+  worker count.
 - **Status dot.** Green when ready (pulsing while tasks run), a gold ring while
   queued, pulsing blue while starting, gold where only checks can run (a login
   node, a containerized project without a container runtime), gold "!" for a
@@ -684,7 +700,8 @@ Analysis. It lists every target, one row each:
 - **Row actions** (⋯ on clusters): the cluster's facts (preset, job, QOS,
   account, gateway name), **Open dashboard** when a link is available, and
   **Stop…** (**Cancel…** while queued), which asks for confirmation and warns
-  that runs using the cluster, in every project, stop too.
+  that runs using the cluster, in every project, stop too. **Replace** uses
+  the same confirmation before stopping and recreating the cluster.
 - **New cluster** opens the presets this server can start, the last used
   first, with the node-hours a Slurm preset may charge; then **Custom…** (a
   one-off size, optionally saved as a preset) and **Edit presets…**. It
@@ -794,7 +811,7 @@ authentication. Listing requires `read` on the `lightcone` resource (and
 | `DELETE /api/compute/clusters/<id>`    |                                                 | `204`                          |
 
 Errors: `400` for an invalid preset or an unavailable backend, `409` when a
-cluster on the same backend and environment is already live, `502` when the
+cluster on the same backend and environment is live or unknown, `502` when the
 backend refuses (the message carries its error, such as Slurm's), `404` for an
 unknown cluster.
 
@@ -802,10 +819,8 @@ The listing:
 
 ```json
 {
-  "format": "lightcone.cluster/1",
   "attaches": true,
   "lightcone": "0.5.0",
-  "idleTimeout": 1800,
   "backends": ["slurm"],
   "targets": [
     {
@@ -836,8 +851,7 @@ The listing:
       "timeLeft": 6125,
       "startEstimate": null,
       "dashboard": "/user/someone/proxy/nid001234:40731/status",
-      "details": ["Job 31415926", "regular", "cpu"],
-      "created": "2026-09-24T14:15:02Z"
+      "details": ["Job 31415926", "regular", "cpu"]
     }
   ],
   "ended": [
@@ -845,8 +859,7 @@ The listing:
       "id": "20260924-101500-ab12",
       "backend": "slurm",
       "label": "Debug · 1 node · 30 min",
-      "reason": "reached its time limit",
-      "at": "2026-09-24T11:00:04Z"
+      "reason": "reached its time limit"
     }
   ]
 }
@@ -856,8 +869,11 @@ The listing:
 `running`, `stopping` and `unknown` (clusters). `problem.code` is one of
 `login-node`, `container-runtime`, `several-clusters` and `version`. `load` comes
 from the scheduler's `identity` call over the cluster's TLS connection and is
-null when the scheduler does not answer within three seconds. One look at the
-backends serves every request for two seconds, across browser tabs. `ended`
+null when the scheduler does not answer within three seconds. Gateway load
+and `size.workers` are null; `size.maxWorkers` is its adaptive maximum.
+`size.workers` always means an observed count. Registry metadata (`format`,
+`created`) stays in `cluster.json`, outside this UI contract. One look at the
+backends serves listing requests for two seconds, across browser tabs. `ended`
 lists clusters that ended on their own in the last fifteen minutes; clusters
 stopped by the user are not listed.
 
@@ -891,10 +907,11 @@ stopped by the user are not listed.
 | Failure                                                               | Behaviour                                                                                                                                                                                                            |
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The Jupyter server crashes                                            | Local processes run on until the scheduler's idle timeout; Slurm and Gateway clusters are unaffected. The next server reconciles the registry and shows them.                                                        |
-| The scheduler dies                                                    | Local: the record is removed and the ending reported. Slurm: the job ends (`wait -n`) and is reported through `sacct`. Workers exit after their 60-second death timeout.                                             |
+| The scheduler dies                                                    | Local: the record stays while a worker survives, then the ending is reported. Slurm: the job ends (`wait -n`) and is reported through `sacct`. Workers exit after their 60-second death timeout.                     |
 | Slurm controller or gateway unreachable                               | Clusters show as "no answer" and stay recorded; nothing is removed.                                                                                                                                                  |
 | Crash between `sbatch` and the record update                          | The job runs without a handle in its record; the record is dropped after two minutes and the job ends at its idle timeout or time limit. Known limitation; the job name (`lightcone-<id>`) allows adopting it later. |
-| Two Jupyter servers for one user (named servers, several login nodes) | Both reconcile the same registry; removals are idempotent; local clusters are managed only by their own host.                                                                                                        |
+| Two Jupyter servers for one user (named servers, several login nodes) | A shared registry lock serializes creates, stops and reconciliation; local processes can only be stopped from their own host.                                                                                        |
+| Failure after a backend handle is recorded                            | Cleanup is attempted and uncertain outcomes retain the record for a later Stop or reconciliation.                                                                                                                    |
 | The engine or `distributed` is upgraded under a running cluster       | The cluster shows the version problem with **Replace**; the engine refuses to attach (section 8.4).                                                                                                                  |
 | The idle timeout culls a cluster between runs                         | Reported once; the next run uses the host target, or refuses on a login node with the Compute section as remedy.                                                                                                     |
 | A stale `scheduler.json`                                              | Only a scheduler holding the cluster's key can complete the TLS handshake, so a reused address cannot be mistaken for the cluster; the connection fails within its timeout.                                          |

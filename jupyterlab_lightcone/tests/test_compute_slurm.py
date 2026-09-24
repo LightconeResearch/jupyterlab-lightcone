@@ -209,3 +209,35 @@ async def test_stop_cancels_the_job(tmp_path, slurm):
     slurm.set(scancel_code=1)
     with pytest.raises(BackendError):
         await backend().stop(record)
+
+
+def test_job_paths_are_literal_even_when_they_contain_shell_expansions(tmp_path):
+    import shlex
+
+    record = make_record(tmp_path / 'home $USER $(whoami)')
+    interpreter = '/opt/lc $ENV/bin/python'
+    script = job_script(record, SPEC, interpreter, 1800)
+    assert shlex.quote(interpreter) in script
+    assert shlex.quote(str(record.path(records.SCHEDULER_FILE))) in script
+    assert '--host "$host"' in script
+
+
+async def test_a_submitted_job_is_persisted_before_start_returns(tmp_path, slurm):
+    record = make_record(tmp_path)
+    await backend().start(record, SPEC)
+    saved = json.loads(record.path(records.RECORD_FILE).read_text())
+    assert saved["slurm"]["job"] == "4242"
+
+
+async def test_failed_persistence_cancels_the_accepted_job(tmp_path, slurm, monkeypatch):
+    from jupyterlab_lightcone.compute import slurm as slurm_module
+
+    def failed_write(record):
+        raise OSError("disk full")
+
+    record = make_record(tmp_path)
+    monkeypatch.setattr(slurm_module, "write_record", failed_write)
+    with pytest.raises(BackendError, match="Could not record Slurm job 4242"):
+        await backend().start(record, SPEC)
+    assert [call["tool"] for call in slurm.calls] == ["sbatch", "scancel"]
+    assert record.section("slurm")["job"] == "4242"
