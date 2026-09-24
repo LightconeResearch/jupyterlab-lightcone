@@ -2,13 +2,22 @@ import { ServerConnection } from '@jupyterlab/services';
 import { isRecord, RequestError } from '../api';
 import { apiUrl, requestAPI } from '../request';
 
-/** The DataLad run record the engine writes into a materialization commit. */
-export interface IRunCommand {
-  cmd: string;
-  exit: number;
-  inputs: string[];
-  outputs: string[];
+/** Where git-annex keeps a version's bytes. */
+export interface IAnnexedBytes {
+  /** The git-annex key of the bytes. */
+  key: string;
+  /** Whether this repository holds the bytes. */
+  here: boolean;
+  /** The other repositories git-annex knows to hold a copy, by description. */
+  remotes: string[];
 }
+
+/**
+ * Whether git-annex can be asked in the project's repository: `uninitialized`
+ * is a clone of an annexed repository nobody ran `git annex init` in, `none`
+ * a repository without an annex.
+ */
+export type AnnexState = 'initialized' | 'uninitialized' | 'none';
 
 /** One committed version of an output. */
 export interface IOutputVersion {
@@ -19,35 +28,67 @@ export interface IOutputVersion {
   time: string;
   /** First line of the commit message. */
   subject: string;
-  /** git-annex key of the bytes, when the file is annexed. */
-  key: string | null;
+  /** Size of the bytes, from git or from the annex key; null when unknown. */
   size: number | null;
-  /** Whether the bytes are available on this server. */
+  /** Whether the bytes can be served: held by git, or by git-annex here. */
   present: boolean;
-  run: IRunCommand | null;
+  /** Where git-annex keeps the bytes; null when git holds them, or nothing can be asked. */
+  annex: IAnnexedBytes | null;
   /** The manifest sidecar at that commit, when valid. */
   manifest: Record<string, unknown> | null;
+}
+
+/** Why a version's bytes cannot be shown, for a banner. */
+export function absentReason(version: IOutputVersion): string {
+  const held = version.annex;
+  if (held && !held.here) {
+    const copies = held.remotes.length
+      ? ` ${held.remotes.join(', ')} ${held.remotes.length === 1 ? 'has' : 'have'} a copy (git annex get).`
+      : '';
+    return `The bytes of this version are in git-annex but not in this repository.${copies}`;
+  }
+  return 'The bytes of this version are not in this repository.';
+}
+
+/** An output a commit under `results/` changed. */
+export interface ICommittedOutput {
+  universe: string;
+  output: string;
+}
+
+/** A commit that touched the project's results, and the outputs it changed. */
+export interface IResultsCommit {
+  commit: string;
+  short: string;
+  /** Commit time, ISO 8601. */
+  time: string;
+  subject: string;
+  outputs: ICommittedOutput[];
 }
 
 /** The history of one output. */
 export interface IVersionListing {
   /** Project-relative path of the output file. */
   file: string;
+  /** Whether git-annex could be asked about the versions' bytes. */
+  annex: AnnexState;
   /** Newest first. */
   versions: IOutputVersion[];
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(item => typeof item === 'string');
-}
-
-function isRunCommand(value: unknown): value is IRunCommand {
+function isAnnexedBytes(value: unknown): value is IAnnexedBytes {
   return (
     isRecord(value) &&
-    typeof value.cmd === 'string' &&
-    typeof value.exit === 'number' &&
-    isStringArray(value.inputs) &&
-    isStringArray(value.outputs)
+    typeof value.key === 'string' &&
+    typeof value.here === 'boolean' &&
+    Array.isArray(value.remotes) &&
+    value.remotes.every(remote => typeof remote === 'string')
+  );
+}
+
+function isAnnexState(value: unknown): value is AnnexState {
+  return (
+    value === 'initialized' || value === 'uninitialized' || value === 'none'
   );
 }
 
@@ -59,12 +100,69 @@ export function isOutputVersion(value: unknown): value is IOutputVersion {
     typeof value.short === 'string' &&
     typeof value.time === 'string' &&
     typeof value.subject === 'string' &&
-    (value.key === null || typeof value.key === 'string') &&
     (value.size === null || typeof value.size === 'number') &&
     typeof value.present === 'boolean' &&
-    (value.run === null || isRunCommand(value.run)) &&
+    (value.annex === null || isAnnexedBytes(value.annex)) &&
     (value.manifest === null || isRecord(value.manifest))
   );
+}
+
+function isCommittedOutput(value: unknown): value is ICommittedOutput {
+  return (
+    isRecord(value) &&
+    typeof value.universe === 'string' &&
+    typeof value.output === 'string'
+  );
+}
+
+/** Narrow a server payload to a results commit. */
+export function isResultsCommit(value: unknown): value is IResultsCommit {
+  return (
+    isRecord(value) &&
+    typeof value.commit === 'string' &&
+    typeof value.short === 'string' &&
+    typeof value.time === 'string' &&
+    typeof value.subject === 'string' &&
+    Array.isArray(value.outputs) &&
+    value.outputs.every(isCommittedOutput)
+  );
+}
+
+/** Bounds of a results history request; times are seconds since the epoch. */
+export interface IResultsWindow {
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+/**
+ * The commits that touched the project's results, newest first, with the
+ * outputs each one changed; bounded to the window when one is given.
+ */
+export async function listResultsCommits(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  window: IResultsWindow = {}
+): Promise<IResultsCommit[]> {
+  const params = new URLSearchParams({ path: entrypoint });
+  for (const [name, value] of Object.entries(window)) {
+    if (value !== undefined) {
+      params.set(name, String(Math.floor(value)));
+    }
+  }
+  try {
+    const data = await requestAPI(`api/versions/results?${params}`, settings);
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.commits) ||
+      !data.commits.every(isResultsCommit)
+    ) {
+      throw new Error('The server returned an invalid results history.');
+    }
+    return data.commits;
+  } catch (error) {
+    throw new RequestError('Results history', error);
+  }
 }
 
 function query(
@@ -96,12 +194,13 @@ export async function listVersions(
     if (
       !isRecord(data) ||
       typeof data.file !== 'string' ||
+      !isAnnexState(data.annex) ||
       !Array.isArray(data.versions) ||
       !data.versions.every(isOutputVersion)
     ) {
       throw new Error('The server returned an invalid version listing.');
     }
-    return { file: data.file, versions: data.versions };
+    return { file: data.file, annex: data.annex, versions: data.versions };
   } catch (error) {
     throw new RequestError('Versions', error);
   }

@@ -1,4 +1,4 @@
-"""Read-only materialization status from the Lightcone engine."""
+"""Read-only materialization status from the Lightcone engine: `lc status`, in process."""
 
 import asyncio
 from pathlib import Path
@@ -16,7 +16,9 @@ def read_status(project: Path) -> dict:
     """Ask the engine what state each output is in; it runs and commits nothing.
 
     The UI shows the engine's own states (current, behind, stale) and reasons,
-    so a marker and a line of `lc status` name the same thing.
+    so a marker and a line of `lc status` name the same thing. The report's
+    header travels with it: the execution mode, the image, the sandbox a run
+    here would get, the publication view, and the engine's warnings.
     """
     try:
         report = status(current_project(project))
@@ -24,10 +26,15 @@ def read_status(project: Path) -> dict:
         # The client is sent log_message unformatted, so it carries no arguments.
         raise web.HTTPError(503, f"Lightcone could not read this project's status:\n{error}") from error
     return {
+        "mode": report.mode,
+        "image": report.image,
+        "sandbox": report.sandbox,
+        "crate": report.crate,
+        "warnings": list(report.warnings),
         "outputs": {
-            output.output: {"state": output.status, "detail": output.why}
+            output.output: {"state": output.status, "detail": output.why, "commit": output.git_sha or None}
             for output in report.outputs
-        }
+        },
     }
 
 

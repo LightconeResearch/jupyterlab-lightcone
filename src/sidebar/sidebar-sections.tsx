@@ -294,8 +294,6 @@ export interface IResultsListProps {
   trans: TranslationBundle;
   onOpen: (output: ResolvedOutput) => void;
   onOpenAll: () => void;
-  /** An action below the list, such as rematerializing stale results. */
-  action?: React.ReactNode;
 }
 
 /** The project's outputs with their materialization state. */
@@ -305,8 +303,7 @@ export function ResultsList({
   statusFor,
   trans,
   onOpen,
-  onOpenAll,
-  action
+  onOpenAll
 }: IResultsListProps): React.ReactElement {
   if (!state.data) {
     return (
@@ -367,7 +364,6 @@ export function ResultsList({
           );
         })}
       </ul>
-      {action}
       <button type="button" className={`${BASE}-more`} onClick={onOpenAll}>
         {trans.__('All results →')}
       </button>

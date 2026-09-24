@@ -345,10 +345,13 @@ describe('recordVersion', () => {
     short: commit.slice(0, 7),
     time: '2026-09-23T10:00:00Z',
     subject: 'materialize',
-    key: `SHA256E-s8--${commit.slice(0, 4)}.png`,
     size: 8,
     present: true,
-    run: null,
+    annex: {
+      key: `SHA256E-s8--${commit.slice(0, 4)}.png`,
+      here: true,
+      remotes: []
+    },
     manifest: null
   });
 
@@ -374,6 +377,7 @@ describe('recordVersion', () => {
     const { contents } = createContents({});
     jest.mocked(listVersions).mockResolvedValue({
       file: 'results/baseline/hubble_diagram.png',
+      annex: 'initialized',
       versions: [version('c'.repeat(40)), version('d'.repeat(40))]
     });
     await expect(

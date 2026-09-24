@@ -45,8 +45,6 @@ import {
   type IProjectDataState
 } from '../project-data-service';
 import type { IProjectRoot } from '../project-root';
-import { RematerializeButton } from '../runs/rematerialize-button';
-import { listRuns } from '../runs/runs-api';
 import type { ISessionService } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
@@ -54,6 +52,7 @@ import { listOutputs } from '../sidebar/sidebar-helpers';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { PipelineCommandIDs } from '../versions/pipeline-commands';
 import { PipelineGlyph } from '../versions/pipeline-glyph';
+import { listResultsCommits } from '../versions/versions-api';
 import { lightconeIcon } from './icons';
 import {
   HOME_RESULT_LIMIT,
@@ -454,7 +453,7 @@ function useReportAvailable(
   return available;
 }
 
-/** The newest recorded materialization, for the freshness line. */
+/** The newest commit that touched the results, for the freshness line. */
 function useLatestRun(
   contents: Contents.IManager,
   entrypoint: string,
@@ -463,15 +462,15 @@ function useLatestRun(
   const [time, setTime] = useState<string>();
   useEffect(() => {
     let active = true;
-    // Run records come from the project's Git history, which only local files have.
+    // The history comes from the project's Git repository, which only local files have.
     if (contents.driveName(entrypoint)) {
       setTime(undefined);
       return;
     }
-    listRuns(contents.serverSettings, entrypoint)
-      .then(listing => {
+    listResultsCommits(contents.serverSettings, entrypoint, { limit: 1 })
+      .then(commits => {
         if (active) {
-          setTime(listing.runs[0]?.time);
+          setTime(commits[0]?.time);
         }
       })
       .catch(error => {
@@ -480,7 +479,7 @@ function useLatestRun(
         }
         setTime(undefined);
         if (!(error instanceof RequestError && error.status === 404)) {
-          console.warn('Could not list Lightcone runs.', error);
+          console.warn('Could not read the results history.', error);
         }
       });
     return () => {
@@ -570,12 +569,6 @@ function ResultsSection({
           ) : null}
           {freshness.text}
         </span>
-        <RematerializeButton
-          commands={commands}
-          entrypoint={entrypoint}
-          statuses={materialization.statuses}
-          className={`${CLASS}-rematerialize`}
-        />
         {outputs.length && pipelineAvailable ? (
           // The graph behind the freshness line: what each result is made
           // from, and which results are current.

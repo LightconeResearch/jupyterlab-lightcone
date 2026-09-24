@@ -15,16 +15,15 @@ const listed = listVersionsCached as jest.MockedFunction<
   typeof listVersionsCached
 >;
 
-function version(commit: string, key: string | null): IOutputVersion {
+function version(commit: string, key?: string): IOutputVersion {
   return {
+    annex: key ? { key, here: true, remotes: [] } : null,
     commit,
     short: commit.slice(0, 7),
     time: '2026-09-20T10:00:00Z',
     subject: '',
-    key,
     size: null,
     present: true,
-    run: null,
     manifest: null
   };
 }
@@ -63,9 +62,10 @@ beforeEach(() => {
 test('pins the newest committed version of a root output, freshly listed', async () => {
   listed.mockResolvedValue({
     file: 'results/baseline/figure.png',
+    annex: 'initialized',
     versions: [
       version('c'.repeat(40), 'SHA256E-s1--c.png'),
-      version('b'.repeat(40), null)
+      version('b'.repeat(40))
     ]
   });
   await expect(
@@ -79,7 +79,8 @@ test('pins the newest committed version of a root output, freshly listed', async
   );
   listed.mockResolvedValue({
     file: 'results/baseline/figure.png',
-    versions: [version('d'.repeat(40), null)]
+    annex: 'initialized',
+    versions: [version('d'.repeat(40))]
   });
   await expect(
     latestCardVersion(contents(), 'p/astra.yaml', data(), output)
@@ -98,7 +99,7 @@ test('pins nothing for other records, other drives, sub-analyses or no history',
     latestCardVersion(contents(), 'p/astra.yaml', data('$.sub'), output)
   ).resolves.toBeUndefined();
   expect(listed).not.toHaveBeenCalled();
-  listed.mockResolvedValue({ file: 'x', versions: [] });
+  listed.mockResolvedValue({ file: 'x', annex: 'none', versions: [] });
   await expect(
     latestCardVersion(contents(), 'p/astra.yaml', data(), output)
   ).resolves.toBeUndefined();

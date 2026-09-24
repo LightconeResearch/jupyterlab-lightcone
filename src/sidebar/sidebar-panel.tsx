@@ -22,7 +22,6 @@ import React from 'react';
 import { CommandIDs } from '../commands';
 import { HomeCommandIDs } from '../home/home-commands';
 import { outputMaterializationStatus } from '../materialization-status';
-import { RematerializeButton } from '../runs/rematerialize-button';
 import { SearchCommandIDs } from '../search';
 import {
   SESSION_FILE_EXTENSION,
@@ -485,16 +484,6 @@ export class LightconeSidebar extends SidePanel {
             })
           );
         }}
-        action={
-          entrypoint ? (
-            <RematerializeButton
-              commands={this._commands}
-              entrypoint={entrypoint}
-              statuses={state.statuses}
-              className="jp-jupyterlab-lightcone-Sidebar-rematerialize"
-            />
-          ) : null
-        }
       />
     );
   }

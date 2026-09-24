@@ -38,10 +38,9 @@ function version(extra: Partial<IOutputVersion> = {}): IOutputVersion {
     short: 'ccccccc',
     time: '2026-09-20T10:00:00Z',
     subject: '[DATALAD RUNCMD] fit [baseline]',
-    key: null,
     size: 100,
     present: true,
-    run: null,
+    annex: null,
     manifest: null,
     ...extra
   };
@@ -69,7 +68,7 @@ beforeEach(() => {
 });
 
 describe('previews of a committed version', () => {
-  it('explains content that is not available locally without a request', async () => {
+  it('explains content git-annex keeps without a request', async () => {
     const request = serve('');
     await expect(
       previewForVersion(
@@ -79,7 +78,7 @@ describe('previews of a committed version', () => {
       )
     ).resolves.toEqual({
       kind: 'unavailable',
-      reason: 'Content not available locally'
+      reason: 'The bytes of this version are not in this repository.'
     });
     expect(request).not.toHaveBeenCalled();
   });

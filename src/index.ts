@@ -17,10 +17,8 @@ import { chatPlugin } from './chat-plugin';
 import { chatLinksPlugin } from './chat-links';
 import { commentsPlugin } from './comments';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
-import { customizePlugin } from './customize';
 import { homePlugin } from './home';
 import { mentionsPlugin } from './mentions';
-import { runsPlugin } from './runs';
 import { searchPlugin } from './search';
 import {
   agentContinuityPlugin,
@@ -176,8 +174,6 @@ export default [
   sidebarPlugin,
   commentsPlugin,
   versionsPlugin,
-  runsPlugin,
   searchPlugin,
-  customizePlugin,
   tabLabelsPlugin
 ];

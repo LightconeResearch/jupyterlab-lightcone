@@ -7,8 +7,8 @@ methods, evidence, and computation. Inside a project it provides a
 [Home](#home) page, a [project sidebar](#lightcone-sidebar), agent
 [sessions](#sessions), [record tabs with result versions and
 provenance](#record-tabs-versions-and-provenance),
-[materialization](#materialization),
-[comments](#comments), [search](#search), a [settings page](#lightcone-settings)
+[materialization status](#materialization),
+[comments](#comments), [search](#search)
 and two [Lightcone themes](#appearance), on top of an ASTRA analysis
 inventory, materialized outputs, cited papers, and Jupyter AI integration.
 ASTRA is the analysis format; `astra.yaml` and its SDK contracts retain their
@@ -57,7 +57,9 @@ entered, as `lc init` would, then opened. Cancelling the form creates nothing.
 The extension installs `lightcone-cli` as a dependency and calls its engine
 directly, so no `lc` command has to be on the server's `PATH`.
 Initialization requires a local filesystem server, and the engine's own tools,
-`uv` and `git`, on the server's `PATH`; failures are displayed in the form and
+`uv` and `git`, on the server's `PATH` (`git-annex` comes with the extension,
+as a wheel installed beside the server's interpreter); failures are displayed
+in the form and
 can be retried. After closing the form or reloading JupyterLab, run **Finish
 project setup** from the command palette to resume setup, including when
 `astra.yaml` already exists; file presence alone does not imply setup
@@ -89,10 +91,9 @@ report** (only when the project has a `myst.yml` or `myst.yaml`; it opens the
 inventory. Result plates follow under one freshness line, with **Pipeline**
 (the graph behind that line, see [record tabs](#record-tabs-versions-and-provenance)) and **See all**
 leading to the inventory.
-When results are stale the freshness line names them and **Rematerialize stale
-(N)** (or **Refresh behind (N)** when they only lag the environment) starts
-`lc materialize` for them and follows it in a notification (see
-[materialization](#materialization)). The right
+When results are stale or behind, the freshness line names them (see
+[materialization](#materialization)); materializing is the agent's job, or
+yours in a terminal. The right
 column is the desk: a composer with an agent picker and **Start**, then recent
 sessions with a working or needs-input marker. **Start** is the only action on
 Home that sends a message. Home reads JupyterLab's theme variables, so it looks
@@ -109,8 +110,8 @@ Elyra's, conflict with it.
 The Lightcone icon in the left sidebar (or **Show Lightcone Sidebar** in the
 command palette) opens the project's navigation: its name with a project
 switcher (▾) and a Home button, **New session**, **Search**, the sessions
-(renamable, with activity markers), results with their materialization status
-and **Rematerialize stale (N)**, the analysis tree with record counts, the
+(renamable, with activity markers), results with their materialization status,
+the analysis tree with record counts, the
 number of pending [comments](#comments). The switcher lists recently visited projects and the other
 projects in the same folder, plus **Open project…** and **New Lightcone
 project**; choosing one moves the file browser there, and the current project
@@ -130,10 +131,10 @@ open, which it focuses instead. A session started empty is created as
 `chats/untitled.chat` and renamed after its first message once you send it;
 the open tab follows the rename. Tabs, the sidebar and Home show a session's
 title (the first line of its first message), and the sidebar can rename its
-file. Creating a session also creates `chats/` if needed and adds the
-project's `chats/` folder and `.chat` files to the repository's local
-`.git/info/exclude` (never to `.gitignore`), so chats stay out of the
-project's Git status and `lc materialize` still runs. Results opened from a
+file. Creating a session also creates `chats/` if needed; the extension never
+touches the project's Git configuration, so `chats/` has to be ignored by the
+project's own `.gitignore` for `lc materialize` to run with sessions present
+(see [docs/suggested_changes.md](docs/suggested_changes.md)). Results opened from a
 session split to its right, later results join that group, and closing them
 returns focus to the session. A session that finishes, or asks for
 permission, while you look elsewhere raises a notification with **Open
@@ -247,20 +248,24 @@ the run with what changed in the lock since). A record tab stacks an output:
 the result first, then its description and provenance below it, at every
 width. **Versions** steps
 through every committed version of the output file with ◀ and ▶; an older
-version shows its own bytes under a banner with **Latest**, and content missing
-from the local annex says so. **Compare with previous** shows images side by
-side, with a swipe slider or blinking between the two, numeric deltas for JSON
-metrics, and row, column and header changes for CSV/TSV tables. Only outputs
-`lc materialize` made have versions; older bytes last only while git-annex
-keeps their content, and files an agent wrote outside `lc materialize` have no
-history (the ⓘ beside the stepper says so).
+version shows its own bytes under a banner with **Latest**. **Compare with
+previous** shows images side by side, with a swipe slider or blinking between
+the two, numeric deltas for JSON metrics, and row, column and header changes
+for CSV/TSV tables. The history is read from the project's Git repository in
+process (with [dulwich](https://www.dulwich.io/)); the bytes of an annexed
+output are asked of git-annex itself (`lookupkey`, `whereis`,
+`contentlocation`), so a version whose content was dropped here says which
+repository still has a copy, and a clone nobody ran `git annex init` in is
+never touched. Only outputs `lc materialize` made have versions, and files an
+agent wrote outside `lc materialize` have no history (the ⓘ beside the
+stepper says so).
 
 **Show in pipeline**, on output and input tabs, opens the project's
 **Pipeline**: its inputs and outputs as a graph colored by materialization
 status, tracing the record. What the record is made from and what it feeds stay
 lit, the rest dims, and a line says so in words ("made from 5 inputs and 1
 output · feeds 1 output"). A record tab lists what an output depends on; only
-the graph also shows what depends on it, which is what rematerializing it
+the graph also shows what depends on it, which is what remaking it
 touches. The graph takes the column beside the record (a record alone splits
 to its left), so both stay in view: clicking a node traces it and opens its
 record in the record's column. **Show everything** or Escape ends the trace,
@@ -269,15 +274,13 @@ results line and the command palette.
 
 ### Materialization
 
-**Rematerialize stale (N)** on Home and in the sidebar, or **Materialize
-outputs** in the command palette, runs the engine's `materialize` in the
-project on the Jupyter server. One notification follows the job, with **Stop**
-while it runs, and then says what it made, what failed, or the engine's own
-refusal (a dirty tree, a login node, a missing committer). One job runs per
-project at a time. A `lc materialize` an agent starts in its own shell is not
-followed; its results show up once it commits. Materializing executes the
-project's recipes as the server user: an authorizer must permit `execute` on
-the `lightcone` resource and `write` on `contents`.
+The workbench never runs `lc materialize` itself: materializing is the agent's
+job, or yours in a terminal. What it shows is the engine's own `lc status`,
+read in process: each output's state (current, behind or stale) with the
+engine's reason, on Home, in the sidebar, the inventory, the pipeline and
+every record tab, and the last reply of a session lists the outputs whose
+commits landed while the agent replied. Results show up once the engine
+commits them.
 
 ### Comments
 
@@ -303,25 +306,6 @@ title, then, once you pause typing, the text of their messages under **In
 sessions**), records (results, decisions, inputs, findings, papers), files and
 Lightcone commands. Sessions open in the main area, records as record tabs,
 files in their default editor.
-
-### Lightcone settings
-
-**Lightcone Settings** in the command palette opens one page of the actual
-setup. **Agents**: for Claude and Codex, whether Jupyter AI's ACP client is
-installed, the adapter executable is found, Jupyter AI discovered the persona
-(it loads personas once, so an adapter installed later needs a server restart)
-and credentials are found, each reported on its own. **Skills**: the Lightcone
-and ASTRA skills installed for each harness, with their version. **Project
-instructions**: the project's `AGENTS.md` or `CLAUDE.md` (**Edit** opens it).
-**Environment**: whether `uv.lock` matches `pyproject.toml` and `.venv` matches
-the lock (as `lc status` checks them), and **Register project kernel**, which
-installs a user kernel spec (`lightcone-<folder>`) running notebooks in the
-project's `.venv`; it needs `ipykernel` declared in the project (`uv add --dev
-ipykernel`) and `execute` on `lightcone`. **Tools** the engine uses.
-**Execution boundary**: the sandbox, the container runtime and image, and
-whether the server runs in a SLURM allocation. **Storage**: the project's
-git-annex, its remotes and how many annexed results lack their content here.
-**Appearance**: the theme. **Refresh** checks again.
 
 ### Project updates
 
@@ -525,8 +509,8 @@ compatibility boundary and future ways to simplify it.
 Two JupyterLab themes, **Lightcone Light** and **Lightcone Dark**, restyle the
 whole shell in the Lightcone brand: parchment canvas, white documents, blue-ink
 actions, square corners and the brand fonts. Choose them under **Settings ›
-Theme** or in [Lightcone settings](#lightcone-settings); with **Settings ›
-Theme › Synchronize with System Settings** they can serve as the preferred
+Theme**; with **Settings › Theme › Synchronize with System Settings** they can
+serve as the preferred
 light and dark themes. Lightcone never switches your theme; a deployment can
 make one the default in `overrides.json`:
 

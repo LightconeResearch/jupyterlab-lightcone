@@ -12,11 +12,9 @@ from .provenance import setup_provenance_handlers
 from .mystra import MySTRAManager
 from .mystra_routes import setup_mystra_handlers
 from .routes import setup_route_handlers
-from .runs import close_jobs, setup_job_events, setup_runs_handlers
 from .project_routes import setup_project_handlers
 from .projects import expose_engine_tools
 from .sessions import setup_session_handlers
-from .setup_routes import setup_setup_handlers
 from .versions import setup_versions_handlers
 
 
@@ -98,11 +96,8 @@ class LightconeApp(ExtensionApp):
         setup_provenance_handlers(app)
         setup_session_handlers(app)
         setup_versions_handlers(app)
-        setup_job_events(self.serverapp)
-        setup_runs_handlers(app)
         setup_comment_handlers(app)
         setup_project_agent_handlers(app)
-        setup_setup_handlers(app, myst_command=list(self.mystra_command))
         self.manager = MySTRAManager(
             getattr(
                 self.serverapp.contents_manager, "root_dir", self.serverapp.root_dir
@@ -116,16 +111,12 @@ class LightconeApp(ExtensionApp):
         setup_mystra_handlers(app, self.manager)
 
     async def stop_extension(self):
-        """Stop all CLI and materialization processes before Jupyter exits.
+        """Stop the MySTRA viewer before Jupyter exits.
 
-        Each shutdown is isolated: Jupyter Server awaits this hook without a
-        guard before shutting kernels down, so a failure here must neither
-        orphan the other process groups nor skip the server's own cleanup.
+        Isolated: Jupyter Server awaits this hook without a guard before
+        shutting kernels down, so a failure here must not skip the server's
+        own cleanup.
         """
-        try:
-            await close_jobs(self.serverapp.web_app)
-        except Exception:
-            self.log.warning("Could not stop Lightcone materialization jobs.", exc_info=True)
         if hasattr(self, "manager"):
             try:
                 await self.manager.close()

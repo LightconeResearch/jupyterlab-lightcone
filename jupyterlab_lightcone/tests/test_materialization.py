@@ -17,13 +17,19 @@ def test_status_passes_the_engines_states_through(tmp_path, monkeypatch):
         ('baseline/b', 'behind', 'earlier environment'),
         ('baseline/c', 'stale', 'input changed'),
     ]
-    outputs = [OutputStatus(output, state, why, git_sha='', data_version='') for output, state, why in rows]
-    engine = Mock(return_value=StatusReport(outputs=outputs))
+    outputs = [OutputStatus(output, state, why, git_sha='c' * 40 if state != 'stale' else '', data_version='') for output, state, why in rows]
+    engine = Mock(return_value=StatusReport(outputs=outputs, warnings=['input data/raw.csv is not fetched'], mode='containerized', image={'tag': 'proj:1', 'state': 'present'}, sandbox='landlock', crate='maintained'))
     monkeypatch.setattr(materialization, 'current_project', lambda directory: directory)
     monkeypatch.setattr(materialization, 'status', engine)
-    report = materialization.read_status(tmp_path)['outputs']
-    assert [item['state'] for item in report.values()] == ['current', 'behind', 'stale']
-    assert report['baseline/b']['detail'] == 'earlier environment'
+    report = materialization.read_status(tmp_path)
+    assert [item['state'] for item in report['outputs'].values()] == ['current', 'behind', 'stale']
+    assert report['outputs']['baseline/b']['detail'] == 'earlier environment'
+    assert report['outputs']['baseline/b']['commit'] == 'c' * 40
+    assert report['outputs']['baseline/c']['commit'] is None
+    assert {key: report[key] for key in ('mode', 'image', 'sandbox', 'crate', 'warnings')} == {
+        'mode': 'containerized', 'image': {'tag': 'proj:1', 'state': 'present'}, 'sandbox': 'landlock',
+        'crate': 'maintained', 'warnings': ['input data/raw.csv is not fetched'],
+    }
     engine.assert_called_once_with(tmp_path)
 
 

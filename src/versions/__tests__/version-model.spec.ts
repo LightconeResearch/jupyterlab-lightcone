@@ -29,10 +29,9 @@ function version(
     short: commit.slice(0, 7),
     time,
     subject: `[DATALAD RUNCMD] fit [baseline]`,
-    key: null,
     size: null,
     present: true,
-    run: null,
+    annex: null,
     manifest: null,
     ...extra
   };
@@ -205,12 +204,6 @@ describe('run view', () => {
 
   it('prefers a committed version and its manifest over the current sidecar', () => {
     const committed = version('c'.repeat(40), '2026-09-20T10:00:00Z', {
-      run: {
-        cmd: 'uv run fit.py',
-        exit: 0,
-        inputs: ['data/x.csv'],
-        outputs: ['results/baseline/fit.json']
-      },
       manifest: {
         finished_at: '2026-09-20T09:59:00Z',
         started_at: '2026-09-20T09:58:00Z',
@@ -231,9 +224,7 @@ describe('run view', () => {
       short: 'ccccccc',
       time: '2026-09-20T09:59:00Z',
       started: '2026-09-20T09:58:00Z',
-      command: 'uv run fit.py',
       recipe: 'python fit.py --robust',
-      exit: 0,
       gitRevision: 'def456',
       engineVersion: '0.6',
       environmentVersion: 'sha256:newenv',
@@ -241,8 +232,7 @@ describe('run view', () => {
       image: 'ghcr.io/x:1',
       sandbox: 'backend: landlock · network: false',
       inputVersions: { catalog: 'sha256:input2' },
-      decisions: { method: 'robust' },
-      inputs: ['data/x.csv']
+      decisions: { method: 'robust' }
     });
   });
 
@@ -250,13 +240,11 @@ describe('run view', () => {
     expect(runView(record, undefined)).toMatchObject({
       source: 'record',
       time: record.finishedAt,
-      command: record.recipe,
       recipe: record.recipe,
       gitRevision: 'abc123',
       engineVersion: '0.5',
       environmentVersion: 'sha256:env',
-      inputVersions: { catalog: 'sha256:input' },
-      exit: undefined
+      inputVersions: { catalog: 'sha256:input' }
     });
     expect(runView(null, undefined)).toBeUndefined();
     expect(sandboxLine({ hermeticity: 'seatbelt' })).toBe('seatbelt');
@@ -264,23 +252,13 @@ describe('run view', () => {
   });
 
   it('never attributes the current sidecar to a version without a manifest', () => {
-    const older = version('a'.repeat(40), '2026-09-01T10:00:00Z', {
-      run: {
-        cmd: 'python fit_v1.py',
-        exit: 0,
-        inputs: ['data/x.csv'],
-        outputs: []
-      }
-    });
+    const older = version('a'.repeat(40), '2026-09-01T10:00:00Z');
     const view = runView(record, older)!;
     expect(view).toMatchObject({
       source: 'version',
       short: 'aaaaaaa',
       time: '2026-09-01T10:00:00Z',
-      command: 'python fit_v1.py',
-      exit: 0,
-      inputVersions: {},
-      inputs: ['data/x.csv']
+      inputVersions: {}
     });
     expect(view.gitRevision).toBeUndefined();
     expect(view.recipe).toBeUndefined();
@@ -290,7 +268,7 @@ describe('run view', () => {
       record,
       version('b'.repeat(40), '2026-09-02T10:00:00Z')
     )!;
-    expect(bare.command).toBeUndefined();
+    expect(bare.recipe).toBeUndefined();
     expect(bare.time).toBe('2026-09-02T10:00:00Z');
   });
 });

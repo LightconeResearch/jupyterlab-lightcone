@@ -4,7 +4,7 @@ import { ElementWidget } from '../../element-widget';
 import { ElementHistoryCommandIDs } from '../element-history';
 import { FakeThemeManager } from '../../home/__tests__/home-fixtures';
 import { requestAPI } from '../../request';
-import { until } from '../../runs/__tests__/runs-fixtures';
+import { until } from '../../__tests__/async-fixtures';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 
 jest.mock('../../pdf-runtime', () => ({}));

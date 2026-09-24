@@ -16,7 +16,11 @@ import {
   tableShapeFromRows,
   type ITableShape
 } from './version-model';
-import { versionContentUrl, type IOutputVersion } from './versions-api';
+import {
+  versionContentUrl,
+  type IOutputVersion,
+  absentReason
+} from './versions-api';
 
 const TABLE_PREVIEW_ROWS = 30;
 const TABLE_PREVIEW_COLUMNS = 30;
@@ -113,10 +117,7 @@ export async function previewForVersion(
   signal?: AbortSignal
 ): Promise<ArtifactPreviewData> {
   if (!version.present) {
-    return {
-      kind: 'unavailable',
-      reason: 'Content not available locally'
-    };
+    return { kind: 'unavailable', reason: absentReason(version) };
   }
   const format = outputFormat(output);
   if (output.type === 'figure' && isImageFormat(format)) {

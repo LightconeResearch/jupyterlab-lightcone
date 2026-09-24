@@ -13,8 +13,8 @@ jest.mock('../../materialization-status', () => ({
   useMaterializationStatus: () => ({}),
   outputMaterializationStatus: () => undefined
 }));
-jest.mock('../../runs/runs-api', () => ({
-  listRuns: jest.fn().mockResolvedValue({ runs: [], jobs: [] })
+jest.mock('../../versions/versions-api', () => ({
+  listResultsCommits: jest.fn().mockResolvedValue([])
 }));
 
 function host() {

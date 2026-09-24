@@ -3,7 +3,7 @@ import { Widget } from '@lumino/widgets';
 import { FakeThemeManager } from '../../home/__tests__/home-fixtures';
 import { requestAPI } from '../../request';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
-import { until } from '../../runs/__tests__/runs-fixtures';
+import { until } from '../../__tests__/async-fixtures';
 import { CommandIDs } from '../../commands';
 import { PipelineWidget } from '../pipeline-view';
 
