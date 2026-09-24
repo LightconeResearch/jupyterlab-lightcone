@@ -23,12 +23,13 @@ to open its result in a tab, or focus it and press Enter or Space. Embedded link
 and controls retain their own actions, and selecting text does not open the card.
 The agent can call `lightcone_open_element` to open a tab directly instead.
 
-**Lightcone Agent** uses the native chat icon in Lightcone gold and opens a
-conversation in the project's folder in the left Jupyter Chat sidebar with an
-empty composer. Outside an ASTRA project, it shows the same missing-project
-guidance as the inventory shortcut. Messages reach the agent exactly as written:
-there is no context block, message metadata, or project chip. The agent's session
-starts at the project root instead. Chats opened any other way, including Jupyter
+**Lightcone Agent** uses the native chat icon in Lightcone gold and focuses a
+session of the project already open in the main area, or creates one there
+(`chats/untitled.chat`), with an empty composer. Outside an ASTRA project, it
+shows the same missing-project guidance as the inventory shortcut. Messages
+reach the agent exactly as written: there is no context block, message
+metadata, or project chip. The agent's session starts at the project root
+instead. Chats opened any other way, including Jupyter
 Chat's own sidebar and launcher actions, join the current project that the status
 bar shows. Existing Jupyter AI model/persona selection continues to work normally.
 
@@ -258,8 +259,10 @@ serialized, with pin eligibility checked after data resolution.
 
 Use JupyterLab's native tab strip, docking, close controls, and restoration. The
 first result may split beside a sufficiently wide source; later results join the
-existing result group. There is no nested tab strip or Back/Forward navigation.
-Preview titles are italic; pinned titles have a pin marker. Pinning retains record
+existing result group. There is no nested tab strip. Following a link inside a
+record navigates the same tab and extends its history: **Back** and **Forward**
+in the record's toolbar (Alt+← and Alt+→) retrace it, and **Open in new tab**
+keeps the current record. Preview titles are italic; pinned titles have a pin marker. Pinning retains record
 identity, not a snapshot. Save the current reference and pin state under a stable
 widget ID, so replacing a preview does not leave old records in the workspace.
 Restoration does not require a readable project: removed records show an unavailable
@@ -315,13 +318,10 @@ authoring documents. No skill-package change is required.
 
 ## Future simplifications
 
-These are optional follow-ups, with no upstream PR planned now:
-
-- Jupyter AI's public rich-message publishing API could replace persona-registry access.
-- Correct MIME-widget disposal in Chat could remove our custom-element lifecycle adapter.
-- A shared message-body/role extension API with explicit project context could make inline references practical.
-- Publishing the shared path API in `@astra-spec/sdk` could remove the vendored grammar.
-- Workbench guidance in `agent-skills` could reduce repeated onboarding instructions.
+Every workaround this integration carries around Jupyter AI, Jupyter Chat,
+JupyterLab and the ASTRA packages, with the narrow upstream change that would
+remove it, is kept current in [`docs/workarounds.md`](../workarounds.md); no
+upstream PR is planned now.
 
 ## Validation boundaries
 
