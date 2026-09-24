@@ -57,7 +57,9 @@ entered, as `lc init` would, then opened. Cancelling the form creates nothing.
 The extension installs `lightcone-cli` as a dependency and calls its engine
 directly, so no `lc` command has to be on the server's `PATH`.
 Initialization requires a local filesystem server, and the engine's own tools,
-`uv` and `git`, on the server's `PATH`; failures are displayed in the form and
+`uv` and `git`, on the server's `PATH` (`git-annex` comes with the extension,
+as a wheel installed beside the server's interpreter); failures are displayed
+in the form and
 can be retried. After closing the form or reloading JupyterLab, run **Finish
 project setup** from the command palette to resume setup, including when
 `astra.yaml` already exists; file presence alone does not imply setup

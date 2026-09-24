@@ -11,6 +11,10 @@ Every git-annex command initializes a clone on first use and may merge fetched
 ``git-annex`` branches or upgrade the repository before answering; the reads
 here run with both turned off, and a repository git-annex has not initialized
 (no ``annex.uuid``, the mark ``git annex init`` leaves) is never asked.
+
+git-annex itself comes with the extension: the ``git-annex`` wheel is a
+dependency, and installs the executable beside this interpreter's scripts,
+where ``projects.expose_engine_tools`` puts it on ``PATH`` at load.
 """
 
 import json

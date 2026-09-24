@@ -29,8 +29,11 @@ dependencies = [
     # cap only once the suite passes against the new minor release.
     "lightcone-cli>=0.5.0rc2,<0.6",
     "jupyter-ai>=3.2.0,<3.3",
-    # Output versions are read from the project's git history in process.
-    "dulwich>=1.0"
+    # Output versions are read from the project's git history in process...
+    "dulwich>=1.0",
+    # ...and the bytes of annexed outputs are asked of git-annex, which the
+    # wheel installs beside this interpreter's scripts.
+    "git-annex>=10.2026"
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
