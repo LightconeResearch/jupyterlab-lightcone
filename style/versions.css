@@ -637,6 +637,47 @@
     --lc-pipeline-status: var(--astra-color-kind-input);
   }
 
+  /* The traced record, named above the graph, with the way back to it all. */
+  .jp-jupyterlab-lightcone-Pipeline-trace {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px 16px;
+    padding: 8px clamp(16px, 3vw, 40px);
+    border-bottom: 1px solid var(--astra-color-border);
+    background: var(--astra-color-surface);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-trace p {
+    margin: 0;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-trace strong {
+    color: var(--astra-color-text);
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-clear {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-clear:focus-visible {
+    outline: 2px solid var(--astra-color-focus);
+    outline-offset: 2px;
+  }
+
   .jp-jupyterlab-lightcone-Pipeline-scroll {
     flex: 1 1 auto;
     min-height: 0;
@@ -726,6 +767,17 @@
 
   .jp-jupyterlab-lightcone-Pipeline-node[data-dimmed] {
     opacity: 0.45;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-traced] rect {
+    stroke: var(--astra-color-accent);
+    stroke-width: 2.5;
+  }
+
+  /* The pipeline drawing in "Show in pipeline" sits like the other actions' glyphs. */
+  .jp-jupyterlab-lightcone-PipelineGlyph {
+    flex: 0 0 auto;
+    vertical-align: -1px;
   }
 
   @media (prefers-reduced-motion: reduce) {

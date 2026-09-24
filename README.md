@@ -85,7 +85,8 @@ ASTRA analysis holds (results, decisions, inputs, findings, papers, each with
 the kind mark the inventory uses), and its description. Below them, **Open
 report** (only when the project has a `myst.yml` or `myst.yaml`; it opens the
 [MySTRA Viewer](#mystra-viewer)) and **Open ASTRA**, which opens the ASTRA
-inventory. Result plates follow under one freshness line, with **See all**
+inventory. Result plates follow under one freshness line, with **Pipeline**
+(the graph behind that line, see [record tabs](#record-tabs-versions-and-provenance)) and **See all**
 leading to the inventory.
 When results are stale the freshness line names them and **Rematerialize stale
 (N)** (or **Refresh behind (N)** when they only lag the environment) starts
@@ -239,9 +240,19 @@ side, with a swipe slider or blinking between the two, numeric deltas for JSON
 metrics, and row, column and header changes for CSV/TSV tables. Only outputs
 `lc materialize` made have versions; older bytes last only while git-annex
 keeps their content, and files an agent wrote outside `lc materialize` have no
-history (the ⓘ beside the stepper says so). **Pipeline** in the command
-palette draws the project's inputs and outputs as a graph colored by
-materialization status; click a node to open its record.
+history (the ⓘ beside the stepper says so).
+
+**Show in pipeline**, on output and input tabs, opens the project's
+**Pipeline**: its inputs and outputs as a graph colored by materialization
+status, tracing the record. What the record is made from and what it feeds stay
+lit, the rest dims, and a line says so in words ("made from 5 inputs and 1
+output · feeds 1 output"). A record tab lists what an output depends on; only
+the graph also shows what depends on it, which is what rematerializing it
+touches. The graph takes the column beside the record (a record alone splits
+to its left), so both stay in view: clicking a node traces it and opens its
+record in the record's column. **Show everything** or Escape ends the trace,
+and the trace is kept with the layout. The graph also opens from Home's
+results line and the command palette.
 
 ### Runs
 

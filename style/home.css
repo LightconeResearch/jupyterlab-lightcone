@@ -297,6 +297,17 @@
   white-space: nowrap;
 }
 
+.jp-jupyterlab-lightcone-Home-link + .jp-jupyterlab-lightcone-Home-link {
+  margin-left: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-pipeline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: center;
+}
+
 .jp-jupyterlab-lightcone-Home-link:hover {
   text-decoration: underline;
   text-underline-offset: 3px;

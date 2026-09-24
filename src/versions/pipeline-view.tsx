@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactWidget,
   showErrorMessage,
@@ -6,6 +6,7 @@ import {
 } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import type { CommandRegistry } from '@lumino/commands';
+import { Signal, type ISignal } from '@lumino/signaling';
 import { AstraKindMark } from '../astra-kind';
 import { CommandIDs } from '../commands';
 import { useProject } from '../element-widget';
@@ -19,11 +20,15 @@ import { LightconeThemeBinding } from '../theme-adapter';
 import {
   buildPipelineGraph,
   downstreamOf,
+  edgeInTrace,
   edgeRoute,
+  inTrace,
+  traceOf,
   type IPipelineGeometry,
   type IPipelineGraph,
   type IPipelineNode,
-  type IPipelinePoint
+  type IPipelinePoint,
+  type IPipelineTrace
 } from './pipeline-graph';
 
 const PAD = 24;
@@ -80,16 +85,76 @@ function edgePath(points: readonly IPipelinePoint[]): string {
   return path;
 }
 
+/** "5 inputs and 1 output": the records of `paths` other than `self`. */
+function recordCount(
+  paths: ReadonlySet<string>,
+  self: string,
+  byPath: ReadonlyMap<string, IPipelineNode>
+): string {
+  let inputs = 0;
+  let outputs = 0;
+  for (const path of paths) {
+    if (path === self) continue;
+    if (byPath.get(path)?.kind === 'input') inputs += 1;
+    else outputs += 1;
+  }
+  const parts: string[] = [];
+  if (inputs) parts.push(`${inputs} input${inputs === 1 ? '' : 's'}`);
+  if (outputs) parts.push(`${outputs} output${outputs === 1 ? '' : 's'}`);
+  return parts.join(' and ');
+}
+
+/**
+ * What the trace shows, in words: what the record is made from and what it
+ * feeds, so the lit graph reads without counting nodes.
+ */
+export function describeTrace(
+  node: IPipelineNode,
+  trace: IPipelineTrace,
+  byPath: ReadonlyMap<string, IPipelineNode>
+): string {
+  const parts: string[] = [];
+  const upstream = recordCount(trace.upstream, node.path, byPath);
+  if (upstream) parts.push(`made from ${upstream}`);
+  else if (node.kind === 'output') parts.push('declares no inputs');
+  const downstream = recordCount(trace.downstream, node.path, byPath);
+  if (downstream) parts.push(`feeds ${downstream}`);
+  else
+    parts.push(
+      node.kind === 'input' ? 'used by no output' : 'feeds no other output'
+    );
+  return parts.join(' · ');
+}
+
+/** Scroll `container` so `target` sits in the middle of it, as far as it can. */
+function centerIn(container: HTMLElement, target: Element): void {
+  const box = container.getBoundingClientRect();
+  const node = target.getBoundingClientRect();
+  container.scrollLeft +=
+    node.left + node.width / 2 - (box.left + box.width / 2);
+  container.scrollTop +=
+    node.top + node.height / 2 - (box.top + box.height / 2);
+}
+
 interface IPipelineViewProps {
   entrypoint: string;
   contents: Contents.IManager;
   commands: CommandRegistry;
+  /** Canonical path of the traced record; the whole project when absent. */
+  focus?: string;
+  /** Bumped when the traced node should be scrolled into view. */
+  reveal: number;
+  /** Trace a record, or show everything with `undefined`. */
+  onFocus: (path: string | undefined) => void;
 }
 
 function PipelineGraph({
   entrypoint,
   contents,
   commands,
+  focus,
+  reveal,
+  onFocus,
   data
 }: IPipelineViewProps & { data: ILoadedProjectData }): React.ReactElement {
   const graph: IPipelineGraph = useMemo(
@@ -102,14 +167,41 @@ function PipelineGraph({
     data.document
   );
   const [hovered, setHovered] = useState<string>();
-  const highlighted = useMemo(
-    () => (hovered ? downstreamOf(graph, hovered) : undefined),
-    [graph, hovered]
-  );
   const byPath = useMemo(
     () => new Map(graph.nodes.map(node => [node.path, node])),
     [graph]
   );
+  // A record that left the project traces nothing: the view shows everything.
+  const traced = focus ? byPath.get(focus) : undefined;
+  const trace = useMemo(
+    () => (traced ? traceOf(graph, traced.path) : undefined),
+    [graph, traced]
+  );
+  // Hovering shows what a rerun of that node would touch, over the trace.
+  const lit: IPipelineTrace | undefined = useMemo(
+    () =>
+      hovered
+        ? {
+            upstream: new Set([hovered]),
+            downstream: downstreamOf(graph, hovered)
+          }
+        : trace,
+    [graph, hovered, trace]
+  );
+  const scroller = useRef<HTMLDivElement>(null);
+  const revealed = useRef(0);
+  useEffect(() => {
+    const container = scroller.current;
+    if (!traced || !container || reveal === revealed.current) return;
+    const target = Array.from(
+      container.querySelectorAll<SVGGElement>(
+        '.jp-jupyterlab-lightcone-Pipeline-node'
+      )
+    ).find(item => item.dataset.path === traced.path);
+    if (!target) return;
+    revealed.current = reveal;
+    centerIn(container, target);
+  }, [reveal, traced]);
   const statusOf = (node: IPipelineNode): NodeStatus => {
     if (node.kind === 'input') return 'input';
     const record = data.index.recordByPath.get(node.path);
@@ -127,6 +219,8 @@ function PipelineGraph({
     { current: 0, behind: 0, stale: 0, unknown: 0, input: 0 }
   );
   const open = (node: IPipelineNode, newTab: boolean) => {
+    // The graph follows what it opens: the record's lineage stays lit.
+    onFocus(node.path);
     void commands
       .execute(CommandIDs.openElement, {
         entrypoint,
@@ -176,12 +270,28 @@ function PipelineGraph({
           <li data-status="input">inputs</li>
         </ul>
       </header>
+      {traced && trace ? (
+        <div className="jp-jupyterlab-lightcone-Pipeline-trace">
+          <p role="status">
+            Tracing <AstraKindMark kind={traced.kind} />{' '}
+            <strong>{traced.label}</strong> ·{' '}
+            {describeTrace(traced, trace, byPath)}
+          </p>
+          <button
+            type="button"
+            className="jp-jupyterlab-lightcone-Pipeline-clear"
+            onClick={() => onFocus(undefined)}
+          >
+            Show everything
+          </button>
+        </div>
+      ) : null}
       {graph.nodes.length === 0 ? (
         <p className="jp-jupyterlab-lightcone-Pipeline-empty" role="status">
           This project declares no inputs or outputs yet.
         </p>
       ) : (
-        <div className="jp-jupyterlab-lightcone-Pipeline-scroll">
+        <div className="jp-jupyterlab-lightcone-Pipeline-scroll" ref={scroller}>
           <svg
             className="jp-jupyterlab-lightcone-Pipeline-graph"
             width={width}
@@ -201,9 +311,7 @@ function PipelineGraph({
                     d={edgePath(edgeRoute(graph, from, to, GEOMETRY))}
                     data-kind={edge.kind}
                     data-highlighted={
-                      highlighted?.has(edge.from) && highlighted.has(edge.to)
-                        ? ''
-                        : undefined
+                      lit && edgeInTrace(lit, edge) ? '' : undefined
                     }
                   />
                 );
@@ -212,7 +320,8 @@ function PipelineGraph({
             <g className="jp-jupyterlab-lightcone-Pipeline-nodes">
               {graph.nodes.map(node => {
                 const status = statusOf(node);
-                const dimmed = highlighted && !highlighted.has(node.path);
+                const dimmed = lit && !inTrace(lit, node.path);
+                const isTraced = node.path === traced?.path;
                 return (
                   <g
                     key={node.path}
@@ -221,9 +330,12 @@ function PipelineGraph({
                     role="button"
                     tabIndex={0}
                     aria-label={`Open ${node.kind}: ${node.label} (${status})`}
+                    aria-current={isTraced ? 'true' : undefined}
+                    data-path={node.path}
                     data-kind={node.kind}
                     data-status={status}
                     data-dimmed={dimmed ? '' : undefined}
+                    data-traced={isTraced ? '' : undefined}
                     onMouseEnter={() => setHovered(node.path)}
                     onMouseLeave={() => setHovered(undefined)}
                     onFocus={() => setHovered(node.path)}
@@ -285,8 +397,17 @@ function PipelineGraph({
 
 function PipelineView(props: IPipelineViewProps): React.ReactElement {
   const state = useProject(props.contents, { entrypoint: props.entrypoint });
+  const { focus, onFocus } = props;
   return (
-    <main className="jp-jupyterlab-lightcone-Pipeline-page">
+    <main
+      className="jp-jupyterlab-lightcone-Pipeline-page"
+      onKeyDown={event => {
+        if (event.key === 'Escape' && focus) {
+          event.stopPropagation();
+          onFocus(undefined);
+        }
+      }}
+    >
       {state.error && (
         <p className="jp-jupyterlab-lightcone-refresh-warning" role="status">
           Showing last valid data, if available: {state.error}
@@ -303,15 +424,21 @@ function PipelineView(props: IPipelineViewProps): React.ReactElement {
   );
 }
 
-/** The inputs → outputs graph of one project, as a main-area widget. */
+/**
+ * The inputs → outputs graph of one project, as a main-area widget. It can
+ * trace one record: that record's lineage stays lit and the rest dims.
+ */
 export class PipelineWidget extends ReactWidget {
   constructor(
     readonly entrypoint: string,
     private readonly contents: Contents.IManager,
     themes: IThemeManager,
-    private readonly commands: CommandRegistry
+    private readonly commands: CommandRegistry,
+    focus?: string
   ) {
     super();
+    this._focus = focus;
+    this._reveal = focus ? 1 : 0;
     this.addClass('jp-jupyterlab-lightcone-Pipeline');
     this.addClass('astra-ui');
     this.addClass('astra-isolate');
@@ -323,12 +450,39 @@ export class PipelineWidget extends ReactWidget {
     this._theme = new LightconeThemeBinding(themes, this.node);
   }
 
+  /** Canonical path of the traced record; the whole project when undefined. */
+  get focus(): string | undefined {
+    return this._focus;
+  }
+
+  /** Emitted with the traced record whenever it changes. */
+  get focusChanged(): ISignal<this, string | undefined> {
+    return this._focusChanged;
+  }
+
+  /**
+   * Trace a record, or show everything with `undefined`. `reveal` scrolls
+   * the traced node into view, for callers outside the graph; a click in the
+   * graph leaves the scroll where it is.
+   */
+  setFocus(path: string | undefined, reveal = false): void {
+    const changed = path !== this._focus;
+    if (!changed && !(reveal && path)) return;
+    this._focus = path;
+    if (reveal && path) this._reveal += 1;
+    if (changed) this._focusChanged.emit(path);
+    this.update();
+  }
+
   render(): React.ReactElement {
     return (
       <PipelineView
         entrypoint={this.entrypoint}
         contents={this.contents}
         commands={this.commands}
+        focus={this._focus}
+        reveal={this._reveal}
+        onFocus={path => this.setFocus(path)}
       />
     );
   }
@@ -340,4 +494,7 @@ export class PipelineWidget extends ReactWidget {
   }
 
   private readonly _theme: LightconeThemeBinding;
+  private _focus: string | undefined;
+  private _reveal: number;
+  private readonly _focusChanged = new Signal<this, string | undefined>(this);
 }

@@ -138,19 +138,69 @@ export function buildPipelineGraph(
   return { nodes, edges, layers, rows };
 }
 
-/** Outputs downstream of a node, including itself: what a rerun would touch. */
-export function downstreamOf(graph: IPipelineGraph, path: string): Set<string> {
+/** Every node reached from `path` along edges in one direction, with `path`. */
+function reachable(
+  graph: IPipelineGraph,
+  path: string,
+  direction: 'down' | 'up'
+): Set<string> {
   const result = new Set<string>([path]);
   const queue = [path];
   while (queue.length) {
     const current = queue.shift()!;
-    for (const edge of graph.edges)
-      if (edge.from === current && !result.has(edge.to)) {
-        result.add(edge.to);
-        queue.push(edge.to);
+    for (const edge of graph.edges) {
+      const [near, far] =
+        direction === 'down' ? [edge.from, edge.to] : [edge.to, edge.from];
+      if (near === current && !result.has(far)) {
+        result.add(far);
+        queue.push(far);
       }
+    }
   }
   return result;
+}
+
+/** Outputs downstream of a node, including itself: what a rerun would touch. */
+export function downstreamOf(graph: IPipelineGraph, path: string): Set<string> {
+  return reachable(graph, path, 'down');
+}
+
+/** Records upstream of a node, including itself: what it is made from. */
+export function upstreamOf(graph: IPipelineGraph, path: string): Set<string> {
+  return reachable(graph, path, 'up');
+}
+
+/** A node's lineage: what it is made from, and what is made from it. */
+export interface IPipelineTrace {
+  upstream: Set<string>;
+  downstream: Set<string>;
+}
+
+export function traceOf(graph: IPipelineGraph, path: string): IPipelineTrace {
+  return {
+    upstream: upstreamOf(graph, path),
+    downstream: downstreamOf(graph, path)
+  };
+}
+
+/** Whether a node lies on the trace. */
+export function inTrace(trace: IPipelineTrace, path: string): boolean {
+  return trace.upstream.has(path) || trace.downstream.has(path);
+}
+
+/**
+ * Whether an edge lies on a path through the traced node: both ends
+ * upstream of it, or both downstream. An edge that skips from an upstream
+ * record straight to a downstream one bypasses the node and stays unlit.
+ */
+export function edgeInTrace(
+  trace: IPipelineTrace,
+  edge: Pick<IPipelineEdge, 'from' | 'to'>
+): boolean {
+  return (
+    (trace.upstream.has(edge.from) && trace.upstream.has(edge.to)) ||
+    (trace.downstream.has(edge.from) && trace.downstream.has(edge.to))
+  );
 }
 
 /** Where the view draws nodes, in pixels. */

@@ -7,6 +7,7 @@ import { ElementWidget } from './element-widget';
 import { CommandIDs } from './commands';
 import { ElementHistoryCommandIDs } from './versions/element-history';
 import { isSessionWidget } from './sessions/session-manager';
+import { isPipelineTab } from './versions/pipeline-placement';
 
 export type ElementTab = MainAreaWidget<ElementWidget>;
 
@@ -183,12 +184,15 @@ export class ElementTabs {
   /** Add one native tab; split only the first result beside a sufficiently wide source. */
   add(tab: ElementTab, destination?: ElementTab, restoring = false): void {
     const source = destination ?? this.app.shell.currentWidget;
-    // A session always gets its results beside it, however narrow the chat is.
+    // A session or the pipeline always gets its results beside it, however
+    // narrow it is: both are for going back and forth with the records.
     const split =
       !restoring &&
       !destination &&
       !!source &&
-      (source.node.clientWidth >= 1000 || isSessionWidget(source));
+      (source.node.clientWidth >= 1000 ||
+        isSessionWidget(source) ||
+        isPipelineTab(source));
     this.app.shell.add(tab, 'main', {
       mode: split ? 'split-right' : 'tab-after',
       ...(source ? { ref: source.id } : {}),

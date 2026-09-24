@@ -3,7 +3,11 @@ import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import {
   buildPipelineGraph,
   downstreamOf,
+  edgeInTrace,
   edgeRoute,
+  inTrace,
+  traceOf,
+  upstreamOf,
   type IPipelineGeometry
 } from '../pipeline-graph';
 
@@ -100,6 +104,46 @@ test('finds what a rerun would touch downstream of a node', async () => {
     'outputs.table'
   ]);
   expect([...downstreamOf(graph, 'outputs.plot')]).toEqual(['outputs.plot']);
+});
+
+test('traces what a node is made from and what it feeds', async () => {
+  const graph = await graphFor(yaml);
+  expect([...upstreamOf(graph, 'outputs.plot')].sort()).toEqual([
+    'inputs.catalog',
+    'inputs.covariance',
+    'outputs.fit',
+    'outputs.plot'
+  ]);
+  expect([...upstreamOf(graph, 'inputs.catalog')]).toEqual(['inputs.catalog']);
+  const trace = traceOf(graph, 'outputs.fit');
+  expect([...trace.upstream].sort()).toEqual([
+    'inputs.catalog',
+    'inputs.covariance',
+    'outputs.fit'
+  ]);
+  expect([...trace.downstream].sort()).toEqual([
+    'outputs.fit',
+    'outputs.plot',
+    'outputs.table'
+  ]);
+  expect(graph.nodes.filter(node => !inTrace(trace, node.path))).toEqual([]);
+  const lit = graph.edges
+    .filter(edge => edgeInTrace(trace, edge))
+    .map(edge => `${edge.from}->${edge.to}`)
+    .sort();
+  // catalog -> table skips the traced fit, so it stays unlit.
+  expect(lit).toEqual([
+    'inputs.catalog->outputs.fit',
+    'inputs.covariance->outputs.fit',
+    'outputs.fit->outputs.plot',
+    'outputs.fit->outputs.table'
+  ]);
+  // A leaf output traces its whole upstream and nothing below.
+  const plot = traceOf(graph, 'outputs.plot');
+  expect(inTrace(plot, 'outputs.table')).toBe(false);
+  expect(
+    edgeInTrace(plot, { from: 'inputs.catalog', to: 'outputs.table' })
+  ).toBe(false);
 });
 
 test('handles a project without inputs or outputs', async () => {

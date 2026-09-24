@@ -1,4 +1,5 @@
 import {
+  ILabShell,
   ILayoutRestorer,
   type JupyterFrontEnd,
   type JupyterFrontEndPlugin
@@ -14,12 +15,11 @@ import { PathExt } from '@jupyterlab/coreutils';
 import { ICurrentProject } from '../current-project';
 import { astraIcon } from '../icons';
 import { findProjectRoot } from '../project-root';
+import { isRecordTab } from '../sessions/session-manager';
 import { ElementHistoryCommandIDs } from './element-history';
+import { PipelineCommandIDs } from './pipeline-commands';
+import { PIPELINE_TAB_PREFIX, pipelinePlacement } from './pipeline-placement';
 import { PipelineWidget } from './pipeline-view';
-
-export namespace VersionsCommandIDs {
-  export const openPipeline = 'jupyterlab_lightcone:open-pipeline';
-}
 
 const CATEGORY = 'Lightcone Lab';
 
@@ -33,19 +33,20 @@ export const versionsPlugin: JupyterFrontEndPlugin<void> = {
   description: 'Output versions, provenance tabs and the pipeline view.',
   autoStart: true,
   requires: [IThemeManager],
-  optional: [ICurrentProject, ILayoutRestorer, ICommandPalette],
+  optional: [ICurrentProject, ILayoutRestorer, ICommandPalette, ILabShell],
   activate: (
     app: JupyterFrontEnd,
     themes: IThemeManager,
     current: ICurrentProject | null,
     restorer: ILayoutRestorer | null,
-    palette: ICommandPalette | null
+    palette: ICommandPalette | null,
+    labShell: ILabShell | null
   ) => {
     const contents = app.serviceManager.contents;
     const tracker = new WidgetTracker<MainAreaWidget<PipelineWidget>>({
       namespace: 'lightcone-pipeline'
     });
-    app.commands.addCommand(VersionsCommandIDs.openPipeline, {
+    app.commands.addCommand(PipelineCommandIDs.openPipeline, {
       label: 'Pipeline',
       caption: 'Show how this project makes its outputs from its inputs',
       icon: astraIcon,
@@ -64,6 +65,11 @@ export const versionsPlugin: JupyterFrontEndPlugin<void> = {
             cwd: {
               type: 'string',
               description: 'A folder inside the project'
+            },
+            focus: {
+              type: 'string',
+              description:
+                'Canonical path of the input or output to trace, e.g. outputs.hubble_diagram'
             }
           }
         }
@@ -83,21 +89,39 @@ export const versionsPlugin: JupyterFrontEndPlugin<void> = {
             );
           }
           entrypoint = PathExt.normalize(entrypoint);
+          const focus =
+            typeof args.focus === 'string' && args.focus
+              ? args.focus
+              : undefined;
           let widget = tracker.find(
             item => item.content.entrypoint === entrypoint
           );
-          if (!widget) {
-            widget = new MainAreaWidget({
-              content: new PipelineWidget(
-                entrypoint,
-                contents,
-                themes,
-                app.commands
-              )
-            });
-            widget.id = `lightcone-pipeline-${entrypoint.replace(/[^a-zA-Z0-9]+/g, '-')}`;
-            app.shell.add(widget, 'main');
+          if (widget) {
+            // The open pipeline retraces in place: it keeps its spot.
+            widget.content.setFocus(focus, true);
+          } else {
+            const content = new PipelineWidget(
+              entrypoint,
+              contents,
+              themes,
+              app.commands,
+              focus
+            );
+            const created = new MainAreaWidget({ content });
+            widget = created;
+            widget.id = `${PIPELINE_TAB_PREFIX}${entrypoint.replace(/[^a-zA-Z0-9]+/g, '-')}`;
+            // From a record, the graph takes the column beside it, so the
+            // record stays in view (see `pipelinePlacement`).
+            const source = app.shell.currentWidget;
+            app.shell.add(
+              widget,
+              'main',
+              source && isRecordTab(source)
+                ? pipelinePlacement(source, app.shell.widgets('main'), labShell)
+                : undefined
+            );
             await tracker.add(widget);
+            content.focusChanged.connect(() => void tracker.save(created));
           }
           app.shell.activateById(widget.id);
           return widget;
@@ -112,13 +136,16 @@ export const versionsPlugin: JupyterFrontEndPlugin<void> = {
     });
     if (restorer) {
       void restorer.restore(tracker, {
-        command: VersionsCommandIDs.openPipeline,
-        args: widget => ({ entrypoint: widget.content.entrypoint }),
+        command: PipelineCommandIDs.openPipeline,
+        args: widget => ({
+          entrypoint: widget.content.entrypoint,
+          ...(widget.content.focus ? { focus: widget.content.focus } : {})
+        }),
         name: widget => `pipeline:${widget.content.entrypoint}`
       });
     }
     palette?.addItem({
-      command: VersionsCommandIDs.openPipeline,
+      command: PipelineCommandIDs.openPipeline,
       category: CATEGORY
     });
     for (const command of [

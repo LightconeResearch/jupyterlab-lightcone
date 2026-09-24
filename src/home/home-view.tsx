@@ -52,6 +52,8 @@ import type { ISessionInfo } from '../sessions/sessions-api';
 import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
 import { listOutputs } from '../sidebar/sidebar-helpers';
 import { LightconeThemeBinding } from '../theme-adapter';
+import { PipelineCommandIDs } from '../versions/pipeline-commands';
+import { PipelineGlyph } from '../versions/pipeline-glyph';
 import { lightconeIcon } from './icons';
 import {
   HOME_RESULT_LIMIT,
@@ -527,6 +529,20 @@ function ResultsSection({
     })),
     latestRun
   );
+  const pipelineAvailable = useHasCommand(
+    commands,
+    PipelineCommandIDs.openPipeline
+  );
+  const openPipeline = () => {
+    void commands
+      .execute(PipelineCommandIDs.openPipeline, { entrypoint })
+      .catch(reason => {
+        void showErrorMessage(
+          trans.__('Could not open the pipeline'),
+          reason instanceof Error ? reason : String(reason)
+        );
+      });
+  };
   const open = (output: ResolvedOutput) => {
     void commands
       .execute(CommandIDs.openElement, {
@@ -560,6 +576,21 @@ function ResultsSection({
           statuses={materialization.statuses}
           className={`${CLASS}-rematerialize`}
         />
+        {outputs.length && pipelineAvailable ? (
+          // The graph behind the freshness line: what each result is made
+          // from, and which results are current.
+          <button
+            type="button"
+            className={`${CLASS}-link ${CLASS}-pipeline`}
+            title={trans.__(
+              'How the results are made from the inputs, and which are current'
+            )}
+            onClick={openPipeline}
+          >
+            <PipelineGlyph />
+            {trans.__('Pipeline')}
+          </button>
+        ) : null}
         {outputs.length ? (
           <button
             type="button"

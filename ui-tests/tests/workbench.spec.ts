@@ -58,6 +58,7 @@ const PLATE_PREVIEW = '.jp-jupyterlab-lightcone-Home-platePreview';
 const TOOLS_MENU = '.jp-jupyterlab-lightcone-HomeTools';
 const SIDEBAR = '#jp-lightcone-sidebar';
 const RECORD = '.jp-jupyterlab-lightcone-ElementWidget';
+const PIPELINE = '.jp-jupyterlab-lightcone-Pipeline';
 const RECORD_TABS = '.lm-TabBar-tab[data-lightcone-element]';
 const TOOLBAR = '.jp-jupyterlab-lightcone-element-toolbar';
 const CONTENT = '.jp-jupyterlab-lightcone-element-content';
@@ -202,6 +203,63 @@ test('Home keeps its place while a result opens beside it and navigates its own 
   expect(await currentTitle(page)).toBe('Cosmological model');
   // Home was never touched, and the sidebar follows the current record.
   await expect(page.locator(HOME)).toContainText('Workbench project');
+});
+
+test('the pipeline traces a record beside it and follows the records it opens', async ({
+  page,
+  tmpPath
+}) => {
+  await openWorkbench(page, tmpPath);
+  await page
+    .locator('.jp-jupyterlab-lightcone-Home-plate', {
+      hasText: 'Hubble diagram'
+    })
+    .click();
+  await expect(page.locator(RECORD_TABS)).toHaveCount(1);
+  await page
+    .locator(RECORD)
+    .first()
+    .getByRole('button', { name: 'Show in pipeline' })
+    .click();
+  const pipeline = page.locator(PIPELINE);
+  const trace = pipeline.locator('.jp-jupyterlab-lightcone-Pipeline-trace');
+  await expect(trace).toContainText(
+    'Tracing ◆ Hubble diagram · made from 1 input · feeds no other output'
+  );
+  // The graph takes Home's column; the record stays in view beside it.
+  expect(await tabBars(page)).toEqual([
+    ['Home', 'Pipeline'],
+    ['Hubble diagram']
+  ]);
+  const fit = pipeline.locator('[data-path="outputs.cosmology_fit"]');
+  // The fit shares the catalog but is not on the diagram's lineage.
+  await expect(fit).toHaveAttribute('data-dimmed', '');
+  await expect(
+    pipeline.locator('[data-path="inputs.catalog"]')
+  ).not.toHaveAttribute('data-dimmed', '');
+
+  // A node opens its record in the record's column, and the graph traces it.
+  await fit.click();
+  await expect(trace).toContainText('Tracing ◆ Cosmology fit');
+  await expect(fit).toHaveAttribute('data-traced', '');
+  expect(await tabBars(page)).toEqual([
+    ['Home', 'Pipeline'],
+    ['Cosmology fit']
+  ]);
+  expect(await currentTitle(page)).toBe('Cosmology fit');
+
+  await pipeline.getByRole('button', { name: 'Show everything' }).click();
+  await expect(trace).toHaveCount(0);
+  await expect(pipeline.locator('[data-dimmed]')).toHaveCount(0);
+
+  // Home's results line leads to the same graph.
+  await page.locator('.lm-TabBar-tab', { hasText: 'Home' }).click();
+  await page.locator('.jp-jupyterlab-lightcone-Home-pipeline').click();
+  expect(await currentTitle(page)).toBe('Pipeline');
+  expect(await tabBars(page)).toEqual([
+    ['Home', 'Pipeline'],
+    ['Cosmology fit']
+  ]);
 });
 
 test('a session takes its results beside it and gets focus back when they close', async ({
