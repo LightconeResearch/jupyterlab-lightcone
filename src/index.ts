@@ -17,6 +17,7 @@ import { chatPlugin } from './chat-plugin';
 import { chatLinksPlugin } from './chat-links';
 import { commentsPlugin } from './comments';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
+import { computePlugin } from './compute';
 import { customizePlugin } from './customize';
 import { homePlugin } from './home';
 import { mentionsPlugin } from './mentions';
@@ -168,6 +169,7 @@ export default [
   lightconeDarkThemePlugin,
   focusLayoutPlugin,
   homePlugin,
+  computePlugin,
   sidebarPlugin,
   commentsPlugin,
   versionsPlugin,

@@ -3023,7 +3023,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jupyterlab/settingregistry@npm:^4.6.3":
+"@jupyterlab/settingregistry@npm:^4.5.10, @jupyterlab/settingregistry@npm:^4.6.3":
   version: 4.6.3
   resolution: "@jupyterlab/settingregistry@npm:4.6.3"
   dependencies:
@@ -8390,6 +8390,7 @@ __metadata:
     "@jupyterlab/rendermime-interfaces": ^3.13.0
     "@jupyterlab/running": ^4.5.10
     "@jupyterlab/services": ^7.5.10
+    "@jupyterlab/settingregistry": ^4.5.10
     "@jupyterlab/statedb": ^4.5.10
     "@jupyterlab/statusbar": ^4.5.10
     "@jupyterlab/testutils": ^4.0.0

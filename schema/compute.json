@@ -1,0 +1,88 @@
+{
+  "title": "Lightcone Compute",
+  "description": "Cluster presets for the Compute section of the Lightcone sidebar. A site ships its own through JupyterLab's overrides.json; only presets for a backend this server can use are offered.",
+  "properties": {
+    "presets": {
+      "title": "Cluster presets",
+      "description": "Named cluster sizes offered by New cluster. Local presets take threads; Slurm presets take nodes, time, qos, constraint and account; Dask Gateway presets take workers (the adaptive maximum), cores and memory (GB, per worker).",
+      "type": "array",
+      "items": { "$ref": "#/definitions/preset" },
+      "default": []
+    }
+  },
+  "definitions": {
+    "preset": {
+      "type": "object",
+      "required": ["label", "backend"],
+      "properties": {
+        "label": {
+          "title": "Name",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "backend": {
+          "title": "Backend",
+          "type": "string",
+          "enum": ["local", "slurm", "gateway"]
+        },
+        "description": {
+          "title": "Description",
+          "description": "Shown as the preset's tooltip.",
+          "type": "string"
+        },
+        "threads": {
+          "title": "Threads (local)",
+          "description": "Worker threads; every core when absent.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "nodes": {
+          "title": "Nodes (Slurm)",
+          "type": "integer",
+          "minimum": 1
+        },
+        "time": {
+          "title": "Time limit (Slurm)",
+          "description": "As Slurm writes it: 30, 2:00:00 or 1-00:00:00.",
+          "type": "string",
+          "pattern": "^(\\d+-)?\\d{1,3}(:\\d{2}){0,2}$"
+        },
+        "qos": {
+          "title": "QOS (Slurm)",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.\\-]{1,64}$"
+        },
+        "constraint": {
+          "title": "Constraint (Slurm)",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.\\-&|,\\[\\]*]{1,128}$"
+        },
+        "account": {
+          "title": "Account (Slurm)",
+          "description": "Your default account when absent.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.\\-]{1,64}$"
+        },
+        "workers": {
+          "title": "Maximum workers (Dask Gateway)",
+          "type": "integer",
+          "minimum": 1
+        },
+        "cores": {
+          "title": "Cores per worker (Dask Gateway)",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "memory": {
+          "title": "Memory per worker in GB (Dask Gateway)",
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "type": "object"
+}

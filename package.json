@@ -75,6 +75,7 @@
         "@jupyterlab/rendermime-interfaces": "^3.13.0",
         "@jupyterlab/running": "^4.5.10",
         "@jupyterlab/services": "^7.5.10",
+        "@jupyterlab/settingregistry": "^4.5.10",
         "@jupyterlab/statedb": "^4.5.10",
         "@jupyterlab/statusbar": "^4.5.10",
         "@jupyterlab/translation": "^4.5.10",

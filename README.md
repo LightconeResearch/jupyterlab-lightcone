@@ -108,8 +108,9 @@ The Lightcone icon in the left sidebar (or **Show Lightcone Sidebar** in the
 command palette) opens the project's navigation: its name with a project
 switcher (▾) and a Home button, **New session**, **Search**, the sessions
 (renamable, with activity markers), results with their materialization status
-and **Rematerialize stale (N)**, the analysis tree with record counts, the
-number of pending [comments](#comments), and links to **Files**, **Report** and
+and **Rematerialize stale (N)**, the analysis tree with record counts, where
+runs execute ([Compute](#compute)), the number of pending
+[comments](#comments), and links to **Files**, **Report** and
 [**Runs**](#runs). The switcher lists recently visited projects and the other
 projects in the same folder, plus **Open project…** and **New Lightcone
 project**; choosing one moves the file browser there, and the current project
@@ -274,6 +275,60 @@ JupyterLab's Running panel; **Stop All** there stops materializations only. A
 in the history once it commits. Materializing executes the project's recipes
 as the server user: an authorizer must permit `execute` on the `lightcone`
 resource and `write` on `contents`.
+
+### Compute
+
+The sidebar's **Compute** section lists where the project's runs can execute:
+this host (**This machine**, **This server** on JupyterHub, **Login node**, or
+**This allocation** inside a Slurm job) and the Dask clusters you started. The
+one `lc materialize` uses carries the active bar, with its load, its expected
+start, or what stops it. **New cluster** starts one from a preset: a local
+scheduler and worker on this host, one Slurm job (a scheduler on its first node
+and a worker on each node), or a Dask Gateway cluster on a JupyterHub. Each
+cluster's **⋯** menu opens its dashboard (through `jupyter-server-proxy`, when
+installed with `bokeh`) and stops it; a cluster that ends on its own (time
+limit, idle timeout) is reported as a notification. Clusters belong to you, not
+to a project, and every cluster is authenticated with its own TLS key.
+
+Clusters are recorded under `~/.lightcone/clusters/`, where `lc materialize`
+finds them from any terminal or agent; `lightcone-cli` releases that read these
+records attach to the cluster instead of starting their own, and until then the
+section says runs stay on this host. Presets are the `jupyterlab-lightcone:compute`
+settings, which a site ships in `overrides.json`, for example on NERSC
+Perlmutter:
+
+```json
+{
+  "jupyterlab-lightcone:compute": {
+    "presets": [
+      {
+        "label": "Debug · 1 node · 30 min",
+        "backend": "slurm",
+        "nodes": 1,
+        "time": "30",
+        "qos": "debug",
+        "constraint": "cpu"
+      },
+      {
+        "label": "Regular · 4 nodes · 2 h",
+        "backend": "slurm",
+        "nodes": 4,
+        "time": "2:00:00",
+        "qos": "regular",
+        "constraint": "cpu"
+      }
+    ]
+  }
+}
+```
+
+Gateway presets take `workers` (the adaptive maximum), `cores` and `memory`;
+local presets take `threads`. **New cluster › Custom…** starts a one-off size
+and can save it as a preset. Local and Slurm schedulers stop after 30 idle
+minutes (`c.LightconeApp.cluster_idle_timeout`, in seconds). Starting and
+stopping clusters needs `execute` on the `lightcone` resource. The design, and
+the contract with `lightcone-cli`, are in
+[docs/design/compute-clusters.md](docs/design/compute-clusters.md).
 
 ### Comments
 

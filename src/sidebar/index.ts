@@ -8,6 +8,7 @@ import { IStateDB } from '@jupyterlab/statedb';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { projectFolders } from '../api';
 import { ICommentService } from '../comments/comment-service';
+import { ICompute } from '../compute';
 import { ICurrentProject } from '../current-project';
 import { ISessionService } from '../sessions/session-service';
 import { SidebarCommandIDs } from './sidebar-commands';
@@ -29,8 +30,9 @@ const CATEGORY = 'Lightcone Lab';
 
 /**
  * The Lightcone sidebar: the navigation spine of the workbench. It shows the
- * current project, starts sessions and search, lists sessions, results and
- * analyses, and links to the files, the report and the runs.
+ * current project, starts sessions and search, lists sessions, results,
+ * analyses and where runs execute, and links to the files, the report and
+ * the runs.
  */
 export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:sidebar',
@@ -44,7 +46,8 @@ export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
     ITranslator,
     ICommentService,
     ICommandPalette,
-    IStateDB
+    IStateDB,
+    ICompute
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -55,7 +58,8 @@ export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
     translator: ITranslator | null,
     comments: ICommentService | null,
     palette: ICommandPalette | null,
-    state: IStateDB | null
+    state: IStateDB | null,
+    compute: ICompute | null
   ): void => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
     const model = new SidebarModel({
@@ -78,6 +82,7 @@ export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
       model,
       themes,
       translator,
+      compute,
       projects: {
         recent,
         siblings: folder =>

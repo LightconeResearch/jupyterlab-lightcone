@@ -16,10 +16,11 @@ import {
 } from '@jupyterlab/ui-components';
 import type { CommandRegistry } from '@lumino/commands';
 import type { IDisposable } from '@lumino/disposable';
-import type { Message } from '@lumino/messaging';
+import { type Message, MessageLoop } from '@lumino/messaging';
 import { PanelLayout, Widget } from '@lumino/widgets';
 import React from 'react';
 import { CommandIDs } from '../commands';
+import { computeCount, type ComputeView, type ICompute } from '../compute';
 import { HomeCommandIDs } from '../home/home-commands';
 import { outputMaterializationStatus } from '../materialization-status';
 import { RematerializeButton } from '../runs/rematerialize-button';
@@ -84,10 +85,10 @@ class ModelView extends ReactWidget {
 }
 
 /** One accordion section with a count in its title. */
-class SidebarSection extends PanelWithToolbar {
+class SidebarSection<T extends Widget = ModelView> extends PanelWithToolbar {
   constructor(
     label: string,
-    readonly body: ModelView
+    readonly body: T
   ) {
     super();
     this.title.label = label;
@@ -122,11 +123,14 @@ export interface ILightconeSidebarOptions {
   translator?: ITranslator | null;
   /** Absent: the header offers no project switcher. */
   projects?: IProjectSwitcherSource;
+  /** Absent: the sidebar has no Compute section. */
+  compute?: ICompute | null;
 }
 
 /**
- * The Lightcone sidebar: the project, its verbs, sessions, results, analysis
- * and links. Its content follows the current project; it never touches tabs.
+ * The Lightcone sidebar: the project, its verbs, sessions, results, analysis,
+ * compute and links. Its content follows the current project; it never
+ * touches tabs.
  */
 export class LightconeSidebar extends SidePanel {
   constructor(options: ILightconeSidebarOptions) {
@@ -168,6 +172,11 @@ export class LightconeSidebar extends SidePanel {
       trans.__('Analysis'),
       new ModelView(model, state => this._renderAnalysis(state))
     );
+    const compute = options.compute ?? null;
+    this._computeSection = compute
+      ? new SidebarSection(trans.__('Compute'), compute.createView())
+      : null;
+    compute?.model.changed.connect(this._onComputeChanged, this);
     this._footer = new ModelView(model, state => this._renderFooter(state));
     this._footer.addClass('jp-jupyterlab-lightcone-Sidebar-footerHost');
     // SidePanel stacks its header and content in a PanelLayout; the footer
@@ -177,6 +186,16 @@ export class LightconeSidebar extends SidePanel {
       throw new Error('The Lightcone sidebar needs a PanelLayout.');
     }
     layout.addWidget(this._footer);
+    // The accordion measures its space only when it is resized, but the
+    // header and footer grow once a project loads without resizing it: its
+    // last sections would then lie under the footer. Re-fit it whenever the
+    // content area changes size.
+    if (typeof ResizeObserver !== 'undefined') {
+      this._contentSize = new ResizeObserver(() => {
+        MessageLoop.sendMessage(this.content, Widget.ResizeMessage.UnknownSize);
+      });
+      this._contentSize.observe(this.content.node);
+    }
 
     model.changed.connect(this._onModelChanged, this);
     this._commands.commandChanged.connect(this._onCommandsChanged, this);
@@ -196,6 +215,11 @@ export class LightconeSidebar extends SidePanel {
     this._model.changed.disconnect(this._onModelChanged, this);
     this._commands.commandChanged.disconnect(this._onCommandsChanged, this);
     this._commands.keyBindingChanged.disconnect(this._onCommandsChanged, this);
+    this._computeSection?.body.model.changed.disconnect(
+      this._onComputeChanged,
+      this
+    );
+    this._contentSize?.disconnect();
     this._theme.dispose();
     this._switcher?.dispose();
     for (const section of this._sections) {
@@ -206,26 +230,51 @@ export class LightconeSidebar extends SidePanel {
 
   protected onAfterAttach(msg: Message): void {
     super.onAfterAttach(msg);
-    this._model.visible = this.isVisible;
+    this._setVisible(this.isVisible);
   }
 
   protected onBeforeDetach(msg: Message): void {
-    this._model.visible = false;
+    this._setVisible(false);
     super.onBeforeDetach(msg);
   }
 
   protected onAfterShow(msg: Message): void {
     super.onAfterShow(msg);
-    this._model.visible = true;
+    this._setVisible(true);
   }
 
   protected onBeforeHide(msg: Message): void {
-    this._model.visible = false;
+    this._setVisible(false);
     super.onBeforeHide(msg);
   }
 
-  private get _sections(): SidebarSection[] {
-    return [this._sessionsSection, this._resultsSection, this._analysisSection];
+  /** Models refresh on a schedule only while the sidebar can be seen. */
+  private _setVisible(visible: boolean): void {
+    this._model.visible = visible;
+    if (this._computeSection) {
+      this._computeSection.body.model.visible = visible;
+    }
+  }
+
+  private get _sections(): SidebarSection<Widget>[] {
+    const sections: SidebarSection<Widget>[] = [
+      this._sessionsSection,
+      this._resultsSection,
+      this._analysisSection
+    ];
+    if (this._computeSection) {
+      sections.push(this._computeSection);
+    }
+    return sections;
+  }
+
+  private _onComputeChanged(): void {
+    if (this._computeSection) {
+      this._computeSection.count = computeCount(
+        this._computeSection.body.model.listing,
+        this._bundle
+      );
+    }
   }
 
   private _onModelChanged(_sender: SidebarModel, state: ISidebarState): void {
@@ -587,6 +636,8 @@ export class LightconeSidebar extends SidePanel {
   private readonly _sessionsSection: SidebarSection;
   private readonly _resultsSection: SidebarSection;
   private readonly _analysisSection: SidebarSection;
+  private readonly _computeSection: SidebarSection<ComputeView> | null;
   private readonly _footer: ModelView;
+  private _contentSize: ResizeObserver | null = null;
   private _allSessions = false;
 }

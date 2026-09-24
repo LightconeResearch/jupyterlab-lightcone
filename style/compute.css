@@ -1,0 +1,231 @@
+/* The Compute section: where runs can go, one row each. Rows share the
+   sidebar's metrics; the row runs will use carries the sidebar's active bar. */
+
+.jp-jupyterlab-lightcone-Compute {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 6px;
+}
+
+.jp-jupyterlab-lightcone-Compute-targets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jp-jupyterlab-lightcone-Compute-target {
+  border-inline-start: 2px solid transparent;
+}
+
+.jp-jupyterlab-lightcone-Compute-target.jp-mod-active {
+  border-inline-start-color: var(--jp-brand-color1);
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-Compute-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 6px 2px 8px;
+}
+
+.jp-jupyterlab-lightcone-Compute-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Compute-target.jp-mod-other
+  .jp-jupyterlab-lightcone-Compute-name {
+  color: var(--jp-ui-font-color3);
+}
+
+.jp-jupyterlab-lightcone-Compute-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--jp-ui-font-color3);
+  font-size: var(--jp-ui-font-size0);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The status dot: green ready (pulsing while busy), a gold ring while
+   queued, gold when only checks can run here, gold "!" when a problem needs
+   the user, an empty ring otherwise. */
+.jp-jupyterlab-lightcone-Compute-dot {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 50%;
+  color: var(--jp-ui-inverse-font-color1);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.jp-jupyterlab-lightcone-Compute-dot[data-state='ok'],
+.jp-jupyterlab-lightcone-Compute-dot[data-state='busy'] {
+  border-color: var(--jp-success-color1);
+  background: var(--jp-success-color1);
+}
+
+.jp-jupyterlab-lightcone-Compute-dot[data-state='busy'],
+.jp-jupyterlab-lightcone-Compute-dot[data-state='starting'] {
+  animation: jp-jupyterlab-lightcone-sidebar-pulse 1.6s ease-in-out infinite;
+}
+
+.jp-jupyterlab-lightcone-Compute-dot[data-state='starting'] {
+  border-color: var(--jp-brand-color1);
+  background: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Compute-dot[data-state='waiting'] {
+  border: 2px solid var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Compute-dot[data-state='warn'],
+.jp-jupyterlab-lightcone-Compute-dot[data-state='attention'] {
+  border-color: var(--jp-warn-color1);
+  background: var(--jp-warn-color1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jp-jupyterlab-lightcone-Compute-dot[data-state='busy'],
+  .jp-jupyterlab-lightcone-Compute-dot[data-state='starting'] {
+    animation: none;
+  }
+}
+
+.jp-jupyterlab-lightcone-Compute-more {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  background: transparent;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Compute-more:hover,
+.jp-jupyterlab-lightcone-Compute-more:focus-visible {
+  background: var(--jp-layout-color3);
+}
+
+.jp-jupyterlab-lightcone-Compute-more svg {
+  width: 14px;
+  height: 14px;
+}
+
+.jp-jupyterlab-lightcone-Compute-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 8px 7px 24px;
+}
+
+.jp-jupyterlab-lightcone-Compute-meter {
+  align-self: stretch;
+  height: 4px;
+  background: var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Compute-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--jp-success-color1);
+}
+
+.jp-jupyterlab-lightcone-Compute-caption {
+  color: var(--jp-ui-font-color3);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-Compute-problem {
+  margin: 0;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Compute-fix {
+  height: 24px;
+  padding: 0 10px;
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-Compute-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-top: 2px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-brand-color1);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Compute-new:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jp-jupyterlab-lightcone-Compute-new:hover:not(:disabled),
+.jp-jupyterlab-lightcone-Compute-new:focus-visible:not(:disabled) {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-Compute-new .jp-icon3[fill] {
+  fill: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Compute-note {
+  margin: 4px 0 0;
+  padding: 0 10px;
+  color: var(--jp-ui-font-color3);
+  font-size: var(--jp-ui-font-size0);
+}
+
+/* The Custom… dialog. */
+.jp-jupyterlab-lightcone-CustomCluster-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 320px;
+}
+
+.jp-jupyterlab-lightcone-CustomCluster-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.jp-jupyterlab-lightcone-CustomCluster-help {
+  color: var(--jp-ui-font-color3);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-CustomCluster-save {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

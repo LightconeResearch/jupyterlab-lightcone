@@ -3,9 +3,10 @@
 import os
 
 from jupyter_server.extension.application import ExtensionApp
-from traitlets import Float, List, Unicode
+from traitlets import Float, Integer, List, Unicode
 
 from .comments import COMMENT_DELIVERY, setup_comment_handlers
+from .compute import close_compute, setup_compute_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
 from .mystra import MySTRAManager
@@ -40,6 +41,12 @@ class LightconeApp(ExtensionApp):
         min=1,
         config=True,
         help="Maximum seconds to install/build/start a MySTRA theme.",
+    )
+    cluster_idle_timeout = Integer(
+        1800,
+        min=60,
+        config=True,
+        help="Seconds a cluster's scheduler may sit idle before it shuts down (local and Slurm clusters).",
     )
 
     def initialize_settings(self):
@@ -101,6 +108,7 @@ class LightconeApp(ExtensionApp):
         setup_runs_handlers(app)
         setup_comment_handlers(app)
         setup_setup_handlers(app, myst_command=list(self.mystra_command))
+        setup_compute_handlers(app, self.cluster_idle_timeout)
         self.manager = MySTRAManager(
             getattr(
                 self.serverapp.contents_manager, "root_dir", self.serverapp.root_dir
@@ -114,7 +122,7 @@ class LightconeApp(ExtensionApp):
         setup_mystra_handlers(app, self.manager)
 
     async def stop_extension(self):
-        """Stop all CLI and materialization processes before Jupyter exits.
+        """Stop all CLI, materialization and local cluster processes before Jupyter exits.
 
         Each shutdown is isolated: Jupyter Server awaits this hook without a
         guard before shutting kernels down, so a failure here must neither
@@ -124,6 +132,10 @@ class LightconeApp(ExtensionApp):
             await close_jobs(self.serverapp.web_app)
         except Exception:
             self.log.warning("Could not stop Lightcone materialization jobs.", exc_info=True)
+        try:
+            await close_compute(self.serverapp.web_app)
+        except Exception:
+            self.log.warning("Could not stop the local Lightcone clusters.", exc_info=True)
         if hasattr(self, "manager"):
             try:
                 await self.manager.close()
