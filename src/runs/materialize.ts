@@ -11,8 +11,6 @@ export interface IMaterializeOptions {
   entrypoint: string;
   targets: string[];
   refresh: boolean;
-  /** Opens the project's Runs view; offered on every toast. */
-  openRuns: () => void;
 }
 
 function toast(message: string): string {
@@ -24,20 +22,30 @@ function toast(message: string): string {
 /**
  * Start `lc materialize` and follow it with one notification until it ends:
  * a success, the engine's refusal or failure, or a plain note when stopped.
- * Rejects only when the job cannot start, so the caller can say why in place.
+ * While it runs, the notification offers Stop. Rejects only when the job
+ * cannot start, so the caller can say why in place.
  */
 export async function startMaterialization(
   options: IMaterializeOptions
 ): Promise<IJob> {
-  const { service, entrypoint, targets, refresh, openRuns } = options;
+  const { service, entrypoint, targets, refresh } = options;
   const job = await service.start(entrypoint, { targets, refresh });
-  const actions: Notification.IAction[] = [
-    { label: 'Open runs', displayType: 'link', callback: () => openRuns() }
-  ];
+  const stop: Notification.IAction = {
+    label: 'Stop',
+    caption: 'Stop this materialization',
+    displayType: 'warn',
+    callback: event => {
+      // The notification stays until the job reports how it ended.
+      event.preventDefault();
+      void service.cancel(entrypoint, job.id).catch(error => {
+        console.warn('Could not stop the materialization.', error);
+      });
+    }
+  };
   const id = Notification.emit(
     toast(`Materializing ${describeTargets(targets)}…`),
     'in-progress',
-    { autoClose: false, actions }
+    { autoClose: false, actions: [stop] }
   );
   void service.whenFinished(entrypoint, job.id).then(
     finished => {
@@ -53,7 +61,7 @@ export async function startMaterialization(
         message: toast(jobOutcome(finished)),
         type,
         autoClose: type === 'error' ? false : 8000,
-        actions
+        actions: []
       });
     },
     reason => {
@@ -64,7 +72,7 @@ export async function startMaterialization(
         ),
         type: 'error',
         autoClose: false,
-        actions
+        actions: []
       });
     }
   );

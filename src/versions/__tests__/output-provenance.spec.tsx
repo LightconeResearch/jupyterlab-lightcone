@@ -5,7 +5,6 @@ import { ContentsManager } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
 import { resolveOutputCode } from '../../code-access';
 import { JupyterOutputProvenance } from '../../output-provenance';
-import { listSessions } from '../../sessions/sessions-api';
 import type { IOutputVersion } from '../versions-api';
 
 jest.mock('../../api', () => ({
@@ -14,9 +13,6 @@ jest.mock('../../api', () => ({
 }));
 jest.mock('../../code-access', () => ({
   resolveOutputCode: jest.fn(async () => undefined)
-}));
-jest.mock('../../sessions/sessions-api', () => ({
-  listSessions: jest.fn()
 }));
 
 declare global {
@@ -59,19 +55,6 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  jest.mocked(listSessions).mockResolvedValue({
-    directory: 'project/chats',
-    sessions: [
-      {
-        path: 'project/chats/hubble.chat',
-        title: 'Hubble diagram',
-        modified: '2026-09-20T10:05:00Z',
-        messages: 4,
-        lastAgent: null,
-        activity: 'idle'
-      }
-    ]
-  });
 });
 
 afterEach(() => {
@@ -87,49 +70,6 @@ function button(name: string): HTMLButtonElement {
   if (!match) throw new Error(`No button named ${name}`);
   return match;
 }
-
-async function showConversation(commands: CommandRegistry): Promise<void> {
-  await act(async () => {
-    root.render(
-      <JupyterOutputProvenance
-        contents={contents}
-        entrypoint="project/astra.yaml"
-        index={index}
-        universe="baseline"
-        output={output}
-        status={undefined}
-        version={version}
-        commands={commands}
-      />
-    );
-  });
-  await act(async () => button('Conversation').click());
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
-}
-
-test('a session found around the run opens through the sessions service', async () => {
-  const commands = new CommandRegistry();
-  const openSession = jest.fn();
-  const openDocument = jest.fn();
-  commands.addCommand('jupyterlab_lightcone:open-session', {
-    execute: openSession
-  });
-  commands.addCommand('docmanager:open', { execute: openDocument });
-  await showConversation(commands);
-  await act(async () => button('Hubble diagram').click());
-  expect(openSession).toHaveBeenCalledWith({
-    path: 'project/chats/hubble.chat'
-  });
-  expect(openDocument).not.toHaveBeenCalled();
-});
-
-test('without the sessions plugin, sessions are listed but not linked', async () => {
-  await showConversation(new CommandRegistry());
-  expect(container.textContent).toContain('Hubble diagram');
-  expect(() => button('Hubble diagram')).toThrow();
-});
 
 test('the Code tab locates the script from the recipe, not the worker command', async () => {
   const resolve = jest.mocked(resolveOutputCode);

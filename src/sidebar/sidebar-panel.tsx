@@ -17,13 +17,12 @@ import {
 import type { CommandRegistry } from '@lumino/commands';
 import type { IDisposable } from '@lumino/disposable';
 import type { Message } from '@lumino/messaging';
-import { PanelLayout, Widget } from '@lumino/widgets';
+import { Widget } from '@lumino/widgets';
 import React from 'react';
 import { CommandIDs } from '../commands';
 import { HomeCommandIDs } from '../home/home-commands';
 import { outputMaterializationStatus } from '../materialization-status';
 import { RematerializeButton } from '../runs/rematerialize-button';
-import { RunsCommandIDs } from '../runs/runs-commands';
 import { SearchCommandIDs } from '../search';
 import {
   SESSION_FILE_EXTENSION,
@@ -53,7 +52,6 @@ import {
   ResultsList,
   SessionsList,
   SidebarActions,
-  SidebarFooter,
   SidebarHeader
 } from './sidebar-sections';
 
@@ -168,15 +166,6 @@ export class LightconeSidebar extends SidePanel {
       trans.__('Analysis'),
       new ModelView(model, state => this._renderAnalysis(state))
     );
-    this._footer = new ModelView(model, state => this._renderFooter(state));
-    this._footer.addClass('jp-jupyterlab-lightcone-Sidebar-footerHost');
-    // SidePanel stacks its header and content in a PanelLayout; the footer
-    // goes below them.
-    const layout = this.layout;
-    if (!(layout instanceof PanelLayout)) {
-      throw new Error('The Lightcone sidebar needs a PanelLayout.');
-    }
-    layout.addWidget(this._footer);
 
     model.changed.connect(this._onModelChanged, this);
     this._commands.commandChanged.connect(this._onCommandsChanged, this);
@@ -249,7 +238,6 @@ export class LightconeSidebar extends SidePanel {
         this.addWidget(section);
       }
     }
-    this._footer.setHidden(!state.project);
     this._sessionsSection.count = state.sessionsLoaded
       ? `${state.sessions.length}`
       : '';
@@ -269,7 +257,6 @@ export class LightconeSidebar extends SidePanel {
   private _onCommandsChanged(): void {
     this._headerView.update();
     this._actionsView.update();
-    this._footer.update();
   }
 
   /**
@@ -535,47 +522,6 @@ export class LightconeSidebar extends SidePanel {
     );
   }
 
-  private _renderFooter(state: ISidebarState): React.ReactElement | null {
-    const trans = this._bundle;
-    const project = state.project;
-    if (!project) {
-      return null;
-    }
-    return (
-      <SidebarFooter
-        trans={trans}
-        reportAvailable={state.reportAvailable}
-        onFiles={() =>
-          this._run(trans.__('Could not show the project files'), () =>
-            this._commands.execute(WorkbenchCommandIDs.goToPath, {
-              path: project.path
-            })
-          )
-        }
-        onReport={
-          this._commands.hasCommand(CommandIDs.openMySTRA)
-            ? () =>
-                this._run(trans.__('Could not open the report'), () =>
-                  this._commands.execute(CommandIDs.openMySTRA, {
-                    cwd: project.path
-                  })
-                )
-            : undefined
-        }
-        onRuns={
-          this._commands.hasCommand(RunsCommandIDs.openRuns)
-            ? () =>
-                this._run(trans.__('Could not open the runs'), () =>
-                  this._commands.execute(RunsCommandIDs.openRuns, {
-                    entrypoint: project.entrypoint
-                  })
-                )
-            : undefined
-        }
-      />
-    );
-  }
-
   private readonly _commands: CommandRegistry;
   private readonly _model: SidebarModel;
   private readonly _projects: IProjectSwitcherSource | undefined;
@@ -587,6 +533,5 @@ export class LightconeSidebar extends SidePanel {
   private readonly _sessionsSection: SidebarSection;
   private readonly _resultsSection: SidebarSection;
   private readonly _analysisSection: SidebarSection;
-  private readonly _footer: ModelView;
   private _allSessions = false;
 }

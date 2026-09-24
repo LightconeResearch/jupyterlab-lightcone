@@ -584,17 +584,12 @@ describe('SessionManager activity', () => {
       expect(h.manager.activity('p/chats/plan.chat')).toBe('idle');
       expect(changes).toEqual(['p/astra.yaml']);
 
-      expect(h.manager.busy()).toEqual([]);
       session.model.writers = [{ user: agent }];
       session.model.writersChanged.emit(undefined);
       expect(h.manager.activity('p/chats/plan.chat')).toBe('working');
       expect((await h.manager.list('p/astra.yaml'))[0].activity).toBe(
         'working'
       );
-      // The Running panel lists it while the agent works.
-      expect(h.manager.busy()).toEqual([
-        { path: 'p/chats/plan.chat', title: 'Plan', state: 'working' }
-      ]);
 
       session.model.writers = [];
       session.model.writersChanged.emit(undefined);

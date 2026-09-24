@@ -13,27 +13,19 @@ import { fetchRunRecord } from './api';
 import { resolveOutputCode, type ICodeReference } from './code-access';
 import { isRootAnalysisOutput } from './materialization-status';
 import { projectDirectory } from './project-data';
-import { listSessions, type ISessionInfo } from './sessions/sessions-api';
 import {
   ProvenanceTabs,
   recordedRevision,
   type IProvenanceCode,
   type IProvenanceInput,
-  type IProvenancePackages,
-  type IProvenanceSessions
+  type IProvenancePackages
 } from './versions/provenance-tabs';
-import { runView, sessionsActiveAround } from './versions/version-model';
+import { runView } from './versions/version-model';
 import {
   fetchLockedPackages,
   fetchRevisionSource,
   type IOutputVersion
 } from './versions/versions-api';
-
-/**
- * `SessionsCommandIDs.openSession`, named here rather than imported so that
- * record views do not load the sessions plugin module and Jupyter Chat.
- */
-const OPEN_SESSION_COMMAND = 'jupyterlab_lightcone:open-session';
 
 /**
  * The record behind one of a run's input versions. The engine keys them by
@@ -78,7 +70,7 @@ export interface IJupyterOutputProvenanceProps {
   version?: IOutputVersion;
   /** Opens a record the run depends on in the host's record view. */
   onOpenRecord?: (record: ResolvedRecord) => void;
-  /** Lets the Code and Conversation tabs open files and sessions. */
+  /** Lets the Code tab open the script. */
   commands?: CommandRegistry;
 }
 
@@ -176,41 +168,6 @@ export function JupyterOutputProvenance({
       };
     });
   }, [view, index, output, onOpenRecord]);
-
-  const runTime = view?.time;
-  const [sessions, setSessions] = useState<IProvenanceSessions>();
-  const [wantSessions, setWantSessions] = useState(false);
-  useEffect(() => {
-    if (!wantSessions || !runTime) return;
-    let active = true;
-    setSessions({ loading: true, items: [], total: 0 });
-    listSessions(contents.serverSettings, entrypoint).then(
-      listing => {
-        if (!active) return;
-        const items: ISessionInfo[] = sessionsActiveAround(
-          listing.sessions,
-          runTime
-        );
-        setSessions({
-          loading: false,
-          items,
-          total: listing.sessions.length
-        });
-      },
-      reason => {
-        if (active)
-          setSessions({
-            loading: false,
-            items: [],
-            total: 0,
-            error: reason instanceof Error ? reason.message : String(reason)
-          });
-      }
-    );
-    return () => {
-      active = false;
-    };
-  }, [wantSessions, runTime, contents, entrypoint]);
 
   // The script as the run executed it, beside the file today: read once the
   // Code tab is shown, from the revision the run recorded.
@@ -314,15 +271,6 @@ export function JupyterOutputProvenance({
           : undefined
       }
       inputs={inputs}
-      sessions={sessions}
-      onOpenSession={
-        // The sessions service places the chat where every other entry point
-        // does, beside the results rather than among them.
-        openWith && commands?.hasCommand(OPEN_SESSION_COMMAND)
-          ? path => openWith(OPEN_SESSION_COMMAND, { path }, 'session')
-          : undefined
-      }
-      onShowConversation={() => setWantSessions(true)}
       recordedCode={recordedCode}
       onShowCode={() => setWantCode(true)}
       packages={packages}

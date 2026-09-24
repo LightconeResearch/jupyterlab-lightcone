@@ -1,7 +1,6 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { OutputRun } from '@astra-spec/ui/model';
 import { isRecord } from '../api';
-import type { ISessionInfo } from '../sessions/sessions-api';
 import type { IOutputVersion } from './versions-api';
 
 /** Where a commit sits in a newest-first history: "v2 of 3". */
@@ -318,35 +317,6 @@ export function tableShapeDiff(
     reordered,
     rowDelta: newer.rows - older.rows
   };
-}
-
-/** Sessions modified up to this long before a run count as possibly active. */
-export const SESSION_WINDOW_BEFORE_MS = 5 * 60 * 1000;
-/** Sessions modified up to this long after a run count as possibly active. */
-export const SESSION_WINDOW_AFTER_MS = 12 * 60 * 60 * 1000;
-
-/**
- * Sessions that may have been active during a run, judged only by their last
- * modification time: a session last written between five minutes before the
- * run and twelve hours after it. Closest first. This is a heuristic: the
- * server records no link between a run and the conversation that caused it.
- */
-export function sessionsActiveAround(
-  sessions: readonly ISessionInfo[],
-  time: string
-): ISessionInfo[] {
-  const run = Date.parse(time);
-  if (Number.isNaN(run)) return [];
-  return sessions
-    .map(session => ({ session, at: Date.parse(session.modified) }))
-    .filter(
-      ({ at }) =>
-        !Number.isNaN(at) &&
-        at >= run - SESSION_WINDOW_BEFORE_MS &&
-        at <= run + SESSION_WINDOW_AFTER_MS
-    )
-    .sort((a, b) => Math.abs(a.at - run) - Math.abs(b.at - run))
-    .map(({ session }) => session);
 }
 
 /** Read a string field of a manifest, or undefined. */

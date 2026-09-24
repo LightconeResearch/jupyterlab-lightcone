@@ -30,7 +30,6 @@ import {
   type ActivityTransition
 } from './session-activity';
 import type {
-  IBusySession,
   ISessionService,
   ISessionStartOptions,
   SessionState
@@ -44,6 +43,7 @@ import {
   UNTITLED_SLUG
 } from './session-titles';
 import {
+  fetchProjectAgent,
   listSessions,
   prepareSessions,
   type ISessionInfo,
@@ -285,20 +285,6 @@ export class SessionManager implements ISessionService, IDisposable {
     return this._live.get(this._contents.localPath(path))?.state;
   }
 
-  busy(): IBusySession[] {
-    const busy: IBusySession[] = [];
-    for (const live of this._live.values()) {
-      if (live.state === 'working' || live.state === 'attention') {
-        busy.push({
-          path: live.path,
-          title: this._liveTitle(live),
-          state: live.state
-        });
-      }
-    }
-    return busy;
-  }
-
   async createAndOpen(
     entrypoint: string,
     options: ISessionStartOptions = {}
@@ -333,7 +319,9 @@ export class SessionManager implements ISessionService, IDisposable {
     const panel = await this._open(created);
     const message = options.firstMessage?.trim() ?? '';
     if (message) {
-      await this._sendFirstMessage(panel, message, options.persona);
+      // Without a choice on Home, the session keeps the project's agent.
+      const persona = options.persona || (await this._projectAgent(key));
+      await this._sendFirstMessage(panel, message, persona);
     }
     return created;
   }
@@ -476,9 +464,6 @@ export class SessionManager implements ISessionService, IDisposable {
       stamped ||
       PageConfig.getOption(DEFAULT_PERSONA_OPTION) ||
       null;
-    if (target && target !== stamped) {
-      model.input.updateMetadata(personaMetadata(target));
-    }
     model.input.value = message;
     if (!target) {
       model.input.focus();
@@ -491,6 +476,10 @@ export class SessionManager implements ISessionService, IDisposable {
       return;
     }
     await this._chatCommands?.onSubmit(model.input);
+    // Stamped last: the picker may restamp while the providers run.
+    if (selectedPersona(model.input.getMetadata()) !== target) {
+      model.input.updateMetadata(personaMetadata(target));
+    }
     model.input.send(model.input.value);
     model.input.focus();
   }
@@ -537,6 +526,19 @@ export class SessionManager implements ISessionService, IDisposable {
       const timer = window.setTimeout(() => finish(null), COMPOSER_TIMEOUT);
       signal.connect(onChange);
     });
+  }
+
+  /** The persona the project's messages last went to; undefined when unknown. */
+  private async _projectAgent(entrypoint: string): Promise<string | undefined> {
+    try {
+      return (
+        (await fetchProjectAgent(this._contents.serverSettings, entrypoint)) ??
+        undefined
+      );
+    } catch (error) {
+      console.warn('Could not read the project agent.', error);
+      return undefined;
+    }
   }
 
   /** A caller's request for a listing: counts as activity, reuses a fresh one. */

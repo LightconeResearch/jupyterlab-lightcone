@@ -7,7 +7,6 @@ import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../../commands';
 import { HomeCommandIDs } from '../../home/home-commands';
 import { requestAPI } from '../../request';
-import { RunsCommandIDs } from '../../runs/runs-commands';
 import { SearchCommandIDs } from '../../search';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { SidebarCommandIDs, WorkbenchCommandIDs, sidebarPlugin } from '..';
@@ -84,7 +83,6 @@ function host(
   for (const command of [
     CommandIDs.openElement,
     CommandIDs.openInventory,
-    CommandIDs.openMySTRA,
     CommandIDs.createProject,
     WorkbenchCommandIDs.createLauncher,
     WorkbenchCommandIDs.goToPath,
@@ -226,10 +224,9 @@ describe('LightconeSidebar', () => {
       ).toEqual(['output', 'decision', 'input', 'finding', 'paper']);
       expect(tallies[1].title).toBe('Decisions 1');
       expect(h.text()).toContain('Systematics');
-      await until(() => h.text().includes('Files'));
-      expect(h.text()).toContain('Report');
-      // Runs is not registered, so its link is absent.
-      expect(h.text()).not.toContain('Runs');
+      // The project's files and report open from the launcher, not from here.
+      expect(h.panel.node.querySelector(`.${BASE}-footer`)).toBeNull();
+      expect(h.text()).not.toContain('Files');
       const working = h.panel.node.querySelector(
         `.${BASE}-marker[data-state='working']`
       );
@@ -241,24 +238,11 @@ describe('LightconeSidebar', () => {
 
   it('routes every action to the right command or service', async () => {
     const h = host();
-    h.commands.addCommand(RunsCommandIDs.openRuns, {
-      execute: args => {
-        h.executed.push([RunsCommandIDs.openRuns, args]);
-      }
-    });
     try {
       await until(
         () =>
           h.text().includes('Contour styling') &&
-          h.text().includes('hubble_diagram') &&
-          h.text().includes('Report') &&
-          h.text().includes('Runs')
-      );
-      await until(
-        () =>
-          !h.panel.node.querySelector<HTMLButtonElement>(
-            `.${BASE}-link[disabled]`
-          )
+          h.text().includes('hubble_diagram')
       );
       h.click(`.${BASE}-iconButton`);
       h.click(`.${BASE}-action`, 0);
@@ -267,9 +251,6 @@ describe('LightconeSidebar', () => {
       h.click(`.${BASE}-item`, 2);
       h.click(`.${BASE}-more`, 0);
       h.click(`.${BASE}-node`, 1);
-      h.click(`.${BASE}-link`, 0);
-      h.click(`.${BASE}-link`, 1);
-      h.click(`.${BASE}-link`, 2);
       await flush();
       expect(h.sessions!.createAndOpen).toHaveBeenCalledWith(
         'project/astra.yaml'
@@ -291,10 +272,7 @@ describe('LightconeSidebar', () => {
         [
           CommandIDs.openInventory,
           { path: 'project/astra.yaml', analysisPath: 'systematics' }
-        ],
-        [WorkbenchCommandIDs.goToPath, { path: 'project' }],
-        [CommandIDs.openMySTRA, { cwd: 'project' }],
-        [RunsCommandIDs.openRuns, { entrypoint: 'project/astra.yaml' }]
+        ]
       ]);
     } finally {
       h.dispose();

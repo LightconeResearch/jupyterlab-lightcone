@@ -141,7 +141,6 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
     decisions: { method: 'robust' },
     inputs: ['data/catalog.csv']
   };
-  const onShowConversation = jest.fn();
   const onOpenCode = jest.fn();
   const openInput = jest.fn();
   act(() => {
@@ -185,21 +184,6 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
           },
           { id: 'dropped', version: 'sha256:dropped' }
         ]}
-        sessions={{
-          loading: false,
-          total: 2,
-          items: [
-            {
-              path: 'chats/hubble.chat',
-              title: 'Hubble diagram',
-              modified: '2026-09-20T10:05:00Z',
-              messages: 4,
-              lastAgent: 'Lightcone Agent',
-              activity: 'idle'
-            }
-          ]
-        }}
-        onShowConversation={onShowConversation}
       />
     );
   });
@@ -244,17 +228,13 @@ test('provenance tabs show the run and switch panels, loading sessions on demand
       glyph => glyph.getAttribute('data-kind')
     )
   ).toEqual(['decision']);
-  expect(onShowConversation).not.toHaveBeenCalled();
-  act(() => button('Conversation').click());
-  expect(onShowConversation).toHaveBeenCalledTimes(1);
-  expect(panel().textContent).toContain('Hubble diagram');
-  expect(panel().textContent).toContain('Heuristic');
-  act(() => button('Run').click());
-  act(() => button('Conversation').click());
-  expect(onShowConversation).toHaveBeenCalledTimes(1);
+  // The tabs are the run's own records; no session is matched to a run.
   expect(
-    container.querySelector('[role="tab"][aria-selected="true"]')?.textContent
-  ).toBe('Conversation');
+    Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      tab => tab.textContent
+    )
+  ).toEqual(['Run', 'Code', 'Inputs', 'Environment']);
 });
 
 test('the Code tab shows the script as run and its changes since', () => {

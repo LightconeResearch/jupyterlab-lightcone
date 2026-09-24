@@ -32,8 +32,6 @@ import {
   type ICurrentView
 } from './sidebar-helpers';
 
-const REPORT_FILES = ['myst.yml', 'myst.yaml'];
-
 /** Everything the sidebar renders, as one immutable snapshot. */
 export interface ISidebarState {
   /** The current project; null outside every project, undefined while unknown. */
@@ -53,8 +51,6 @@ export interface ISidebarState {
   sessionsError: string | undefined;
   /** Number of pending comments in the project. */
   pendingComments: number;
-  /** Whether the project has a MyST configuration to open as a report. */
-  reportAvailable: boolean;
   /** The Lightcone view the current main-area widget shows. */
   view: ICurrentView;
 }
@@ -192,7 +188,6 @@ export class SidebarModel implements IDisposable {
       sessionsLoaded: this._sessionsLoaded,
       sessionsError: this._sessionsError,
       pendingComments: this._pendingComments,
-      reportAvailable: this._reportAvailable,
       view: this._view
     };
   }
@@ -251,8 +246,7 @@ export class SidebarModel implements IDisposable {
       this._lease?.service.refresh().catch(() => undefined),
       this._statusRunner.request().catch(() => undefined),
       this._sessionsRunner.request().catch(() => undefined),
-      this._refreshComments(entrypoint),
-      this._checkReport(entrypoint)
+      this._refreshComments(entrypoint)
     ]);
   }
 
@@ -311,7 +305,6 @@ export class SidebarModel implements IDisposable {
     this._sessionsLoaded = false;
     this._sessionsError = undefined;
     this._pendingComments = 0;
-    this._reportAvailable = false;
     if (this._visible) {
       this._acquire();
       void this.refresh();
@@ -436,34 +429,6 @@ export class SidebarModel implements IDisposable {
     }
   }
 
-  private async _checkReport(entrypoint: string): Promise<void> {
-    const generation = this._generation;
-    // Keeps the `drive:` prefix of a project at a drive root.
-    const directory = projectDirectory(entrypoint);
-    let available = false;
-    try {
-      for (const name of REPORT_FILES) {
-        const model = await findModel(
-          this._contents,
-          this._contents.resolvePath(directory, name)
-        );
-        if (model?.type === 'file') {
-          available = true;
-          break;
-        }
-      }
-    } catch (error) {
-      console.warn('Could not look for the project report.', error);
-    }
-    if (generation !== this._generation || this._isDisposed) {
-      return;
-    }
-    if (available !== this._reportAvailable) {
-      this._reportAvailable = available;
-      this._schedule();
-    }
-  }
-
   private _onFileChanged(
     _sender: Contents.IManager,
     change: Contents.IChangedArgs
@@ -489,9 +454,6 @@ export class SidebarModel implements IDisposable {
     this._request(this._statusRunner);
     if (inside.some(path => path.endsWith('.chat') || change.type !== 'save')) {
       this._request(this._sessionsRunner);
-    }
-    if (inside.some(path => REPORT_FILES.includes(PathExt.basename(path)))) {
-      void this._checkReport(entrypoint);
     }
   }
 
@@ -596,7 +558,6 @@ export class SidebarModel implements IDisposable {
   private _sessionsLoaded = false;
   private _sessionsError: string | undefined;
   private _pendingComments = 0;
-  private _reportAvailable = false;
   private _view: ICurrentView = {};
   private _followed: Widget | null = null;
   private _viewSignals: ISignal<unknown, unknown>[] = [];

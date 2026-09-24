@@ -10,7 +10,7 @@ from jupyter_ai_persona_manager.base_persona import BasePersona, PersonaDefaults
 from jupyterlab_chat.models import Message
 import pytest
 
-from jupyterlab_lightcone import agent_workspace, comments, sessions
+from jupyterlab_lightcone import agent_defaults, agent_workspace, comments, sessions
 from jupyterlab_lightcone.agent_workspace import (
     PersonaManager,
     comment_ids,
@@ -63,6 +63,9 @@ class Chat:
     def add_message(self, message):
         self.messages.append(message)
         return f"m{len(self.messages)}"
+
+    def get_messages(self):
+        return list(self.messages)
 
     def update_message(self, message, append=False):
         self.messages.append(message)
@@ -335,7 +338,8 @@ async def test_a_message_without_comments_is_routed_unchanged(root):
     manager.on_chat_message("chat", _message(persona.id))
     await asyncio.gather(*manager.tasks)
     assert persona.prompts == ["Fix the legend."]
-    assert not (root / "project" / ".lightcone").exists()
+    # The comment store is untouched; only the project's agent is recorded.
+    assert not comments.store_path(root / "project").exists()
 
 
 async def test_a_broken_store_still_routes_the_original_message(root, caplog):
@@ -366,6 +370,55 @@ async def test_a_message_to_an_unknown_persona_is_not_routed(root):
     manager.on_chat_message("chat", Message(body="?", id="m2", time=0.0, sender="user"))
     assert manager.tasks == []
     assert _activity(manager) == {}
+
+
+async def test_the_agent_a_message_goes_to_is_remembered_for_the_project_and_the_page(root):
+    manager, persona = _routing_manager(root, "project/chats/talk.chat")
+    manager.on_chat_message("chat", _message(persona.id))
+    await asyncio.gather(*manager.tasks)
+    assert agent_defaults.read_project_agent(root / "project") == persona.id
+    page = manager.parent.serverapp.web_app.settings["page_config_data"]
+    assert page[agent_defaults.DEFAULT_PERSONA_OPTION] == persona.id
+
+
+def _unaddressed(identifier="m9", persona_id=None):
+    return Message(body="And the residuals?", id=identifier, time=0.0, sender="user",
+                   metadata={"to_persona": persona_id})
+
+
+async def test_an_unaddressed_message_goes_to_the_agent_this_chat_last_named(root):
+    manager, persona = _routing_manager(root, "project/chats/talk.chat")
+    other = EchoPersona(parent=manager, chat=manager.chat)
+    other.prompts, other.gates = [], {}
+    other_id = "jupyter-ai-personas::other::Echo"
+    manager._personas[other_id] = other
+    # The chat named the first persona last; a reply from a persona does not count.
+    manager.chat.messages = [
+        _message(other_id, identifier="m1"),
+        _message(persona.id, identifier="m2"),
+        Message(body="Done.", id="m3", time=0.0, sender=other_id, metadata={"to_persona": other_id}),
+    ]
+    for identifier, named in (("m4", None), ("m5", "jupyter-ai-personas::gone::Persona")):
+        manager.on_chat_message("chat", _unaddressed(identifier, named))
+    await asyncio.gather(*manager.tasks)
+    assert persona.prompts == ["And the residuals?", "And the residuals?"]
+    assert other.prompts == []
+
+
+async def test_an_unaddressed_message_in_a_fresh_chat_goes_to_the_projects_agent(root):
+    manager, persona = _routing_manager(root, "project/chats/new.chat")
+    agent_defaults.write_project_agent(root / "project", persona.id)
+    manager.on_chat_message("chat", _unaddressed())
+    await asyncio.gather(*manager.tasks)
+    assert persona.prompts == ["And the residuals?"]
+
+
+async def test_a_recorded_agent_this_chat_does_not_have_is_not_used(root):
+    manager, persona = _routing_manager(root, "project/chats/new.chat")
+    agent_defaults.write_project_agent(root / "project", "jupyter-ai-personas::gone::Persona")
+    manager.on_chat_message("chat", _unaddressed())
+    assert manager.tasks == []
+    assert persona.prompts == []
 
 
 async def test_the_session_is_working_while_the_persona_replies(root):

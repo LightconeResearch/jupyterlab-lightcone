@@ -144,3 +144,28 @@ export async function searchSessions(
     throw new RequestError('Session search', error);
   }
 }
+
+/**
+ * The persona a project's messages last went to (`<project>/.lightcone/agent.json`),
+ * or null when none is recorded yet.
+ */
+export async function fetchProjectAgent(
+  settings: ServerConnection.ISettings,
+  entrypoint: string
+): Promise<string | null> {
+  try {
+    const data = await requestAPI(
+      `api/project-agent?${new URLSearchParams({ path: entrypoint })}`,
+      settings
+    );
+    if (
+      !isRecord(data) ||
+      (data.persona !== null && typeof data.persona !== 'string')
+    ) {
+      throw new Error('The server returned an invalid project agent.');
+    }
+    return data.persona;
+  } catch (error) {
+    throw new RequestError('Project agent', error);
+  }
+}

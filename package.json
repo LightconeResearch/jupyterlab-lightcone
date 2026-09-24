@@ -62,6 +62,7 @@
         "@astra-spec/ui": "0.0.7",
         "@codemirror/state": "^6.7.0",
         "@codemirror/view": "^6.42.0",
+        "@jupyter-ai/persona-manager": "^0.2.0",
         "@jupyter/chat": "~0.25.0",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
@@ -73,7 +74,6 @@
         "@jupyterlab/launcher": "^4.5.10",
         "@jupyterlab/rendermime": "^4.5.10",
         "@jupyterlab/rendermime-interfaces": "^3.13.0",
-        "@jupyterlab/running": "^4.5.10",
         "@jupyterlab/services": "^7.5.10",
         "@jupyterlab/statedb": "^4.5.10",
         "@jupyterlab/statusbar": "^4.5.10",
@@ -155,6 +155,10 @@
         "sharedPackages": {
             "@jupyter/chat": {
                 "bundled": true,
+                "singleton": true
+            },
+            "@jupyter-ai/persona-manager": {
+                "bundled": false,
                 "singleton": true
             }
         }

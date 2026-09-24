@@ -5,8 +5,10 @@ its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
 `select_project_persona_manager` sets that trait when Jupyter AI is installed.
 
 The same manager is where a message meets its agent, so it also delivers the
-project's pending comments with the message and records which sessions are
-busy, for the session list.
+project's pending comments with the message, records which sessions are busy,
+for the session list, and remembers the agent each project uses
+(`agent_defaults`): a message that names no installed agent goes to the one
+the chat, or else its project, last used, instead of being dropped.
 """
 
 from dataclasses import replace
@@ -14,7 +16,9 @@ from pathlib import Path
 
 from jupyter_ai_persona_manager import PersonaManager as JupyterAIPersonaManager
 from jupyter_ai_persona_manager.persona_manager import _safe_process as process_safely
+from jupyter_ai_persona_manager.persona_manager import is_persona
 
+from .agent_defaults import read_project_agent, remember_agent
 from .comments import COMMENT_LOCKS, deliver_comments, project_directory, timestamp
 from .projects import CURRENT_PROJECT, chat_project, project_entrypoint
 # The session listing reads this setting; one constant keeps writer and reader agreed.
@@ -87,15 +91,56 @@ class PersonaManager(JupyterAIPersonaManager):
         Upstream looks the persona up and schedules its processing; this does
         the same in one task, so the comment store is read on the event loop's
         terms and the session's activity brackets the persona's work.
+
+        Jupyter AI's picker forgets its choice whenever a chat's view is
+        rebuilt, and upstream drops a message that names no installed persona.
+        Here such a message goes to the agent this chat last addressed, else
+        the one its project last used; only a chat with neither drops it.
         """
         persona_id = (message.metadata or {}).get(self.TO_PERSONA_METADATA_KEY)
         persona = self.personas.get(persona_id) if persona_id else None
+        if persona is None:
+            persona = self._usual_persona()
+            if persona is not None:
+                self.log.info(
+                    "A message named %s, not an agent of this chat; it goes to %s, the agent last used here.",
+                    persona_id or "no agent",
+                    persona.name,
+                )
         self.log.debug("Routing message to persona: %s", persona.name if persona else None)
         if persona:
             self.event_loop.create_task(self._route(persona, message))
 
+    def _usual_persona(self):
+        """The persona this chat's messages last named, else its project's recorded one."""
+        try:
+            messages = self.chat.get_messages()
+        except Exception:
+            self.log.debug("Could not read this chat's messages.", exc_info=True)
+            messages = []
+        for earlier in reversed(messages):
+            sender = getattr(earlier, "sender", "")
+            if isinstance(sender, str) and is_persona(sender):
+                continue
+            named = (getattr(earlier, "metadata", None) or {}).get(self.TO_PERSONA_METADATA_KEY)
+            persona = self.personas.get(named) if isinstance(named, str) else None
+            if persona is not None:
+                return persona
+        project = self._project()
+        recorded = read_project_agent(project) if project is not None else None
+        return self.personas.get(recorded) if recorded else None
+
+    def _project(self) -> Path | None:
+        """This chat's ASTRA project, or None without one or when it cannot be read."""
+        try:
+            return chat_project(self, self._reported_project())
+        except OSError:
+            self.log.debug("Could not locate the ASTRA project for this chat.", exc_info=True)
+            return None
+
     async def _route(self, persona, message) -> None:
         """Deliver the message, with its comments, and track the session's activity."""
+        remember_agent(self._web_app(), self._project(), persona.id, self.log)
         ids = comment_ids(message.metadata)
         if ids:
             message = await self._with_comments(message, ids)

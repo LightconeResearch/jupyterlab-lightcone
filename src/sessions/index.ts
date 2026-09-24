@@ -22,11 +22,12 @@ import { ISessionService } from './session-service';
 
 export {
   ISessionService,
-  type IBusySession,
   type ISessionStartOptions,
   type SessionState
 } from './session-service';
+export { agentContinuityPlugin } from './agent-continuity';
 export {
+  fetchProjectAgent,
   listSessions,
   prepareSessions,
   type ISessionInfo,

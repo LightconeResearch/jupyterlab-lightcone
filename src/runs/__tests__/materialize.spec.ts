@@ -26,19 +26,17 @@ async function follow(
   targets: string[],
   record: IJob,
   lines: string[] = []
-): Promise<{ openRuns: jest.Mock; notification: Notification.INotification }> {
+): Promise<{ notification: Notification.INotification }> {
   const h = runsHost();
   try {
     jest.mocked(startRun).mockResolvedValue(job({ targets }));
     jest.mocked(getRun).mockResolvedValue(record);
     jest.mocked(listRuns).mockResolvedValue({ runs: [], jobs: [record] });
-    const openRuns = jest.fn();
     const started = await startMaterialization({
       service: h.service,
       entrypoint: ENTRYPOINT,
       targets,
-      refresh: false,
-      openRuns
+      refresh: false
     });
     expect(started.state).toBe('running');
     expect(toast().type).toBe('in-progress');
@@ -47,7 +45,7 @@ async function follow(
     }
     h.emit({ id: 'job-1', project: 'proj', state: record.state, line: null });
     await until(() => toast().type !== 'in-progress');
-    return { openRuns, notification: toast() };
+    return { notification: toast() };
   } finally {
     h.dispose();
   }
@@ -70,8 +68,7 @@ it('names what it materializes while the job runs', async () => {
       service: h.service,
       entrypoint: ENTRYPOINT,
       targets: ['a', 'b'],
-      refresh: true,
-      openRuns: jest.fn()
+      refresh: true
     });
     expect(startRun).toHaveBeenCalledWith(expect.anything(), ENTRYPOINT, {
       targets: ['a', 'b'],
@@ -83,8 +80,38 @@ it('names what it materializes while the job runs', async () => {
   }
 });
 
+it('offers Stop while the job runs, and keeps the toast until it ends', async () => {
+  const h = runsHost();
+  try {
+    jest.mocked(startRun).mockResolvedValue(job({ targets: ['a'] }));
+    jest.mocked(getRun).mockImplementation(() => new Promise(() => {}));
+    jest.mocked(cancelRun).mockResolvedValue(undefined);
+    await startMaterialization({
+      service: h.service,
+      entrypoint: ENTRYPOINT,
+      targets: ['a'],
+      refresh: false
+    });
+    const [stop] = toast().options.actions ?? [];
+    expect(stop?.label).toBe('Stop');
+    const click = new MouseEvent('click', { cancelable: true });
+    stop.callback(click);
+    // The toast stays: the job's end, not the click, closes it.
+    expect(click.defaultPrevented).toBe(true);
+    await until(() => jest.mocked(cancelRun).mock.calls.length === 1);
+    expect(cancelRun).toHaveBeenCalledWith(
+      expect.anything(),
+      ENTRYPOINT,
+      'job-1'
+    );
+    expect(toast().type).toBe('in-progress');
+  } finally {
+    h.dispose();
+  }
+});
+
 it('reports what a successful job made, from its record', async () => {
-  const { notification, openRuns } = await follow(
+  const { notification } = await follow(
     ['hubble_diagram'],
     job({
       state: 'succeeded',
@@ -98,8 +125,8 @@ it('reports what a successful job made, from its record', async () => {
     'Materialized 1 output: baseline/hubble_diagram'
   );
   expect(notification.options.autoClose).toBe(8000);
-  notification.options.actions?.[0].callback(new MouseEvent('click'));
-  expect(openRuns).toHaveBeenCalledTimes(1);
+  // A job that ended has nothing left to stop.
+  expect(notification.options.actions).toEqual([]);
 });
 
 it('reports the failed outputs of a failed job, not its first line', async () => {
@@ -113,7 +140,7 @@ it('reports the failed outputs of a failed job, not its first line', async () =>
   expect(notification.type).toBe('error');
   expect(notification.message).toBe('1 output failed: baseline/table');
   expect(notification.options.autoClose).toBe(false);
-  expect(notification.options.actions?.[0].label).toBe('Open runs');
+  expect(notification.options.actions).toEqual([]);
 });
 
 it('quotes the engine refusal and keeps long messages within a toast', async () => {
@@ -141,8 +168,7 @@ it('fails the toast when the server forgets the job', async () => {
       service: h.service,
       entrypoint: ENTRYPOINT,
       targets: [],
-      refresh: false,
-      openRuns: jest.fn()
+      refresh: false
     });
     await until(() => toast().type !== 'in-progress');
     expect(toast().type).toBe('error');
@@ -161,8 +187,7 @@ it('rejects without a toast when the job cannot start', async () => {
         service: h.service,
         entrypoint: ENTRYPOINT,
         targets: [],
-        refresh: false,
-        openRuns: jest.fn()
+        refresh: false
       })
     ).rejects.toThrow('403');
     expect(Notification.manager.notifications).toEqual([]);

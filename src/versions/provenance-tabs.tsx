@@ -4,7 +4,6 @@ import { OutputStatusIndicator } from '@astra-spec/ui/components';
 import { recordTitle, type OutputStatus } from '@astra-spec/ui/model';
 import { AstraKindMark } from '../astra-kind';
 import type { ICodeReference } from '../code-access';
-import type { ISessionInfo } from '../sessions/sessions-api';
 import {
   diffHunks,
   lineDiff,
@@ -15,15 +14,13 @@ import {
 import { relativeTime, type IRunView } from './version-model';
 import type { ILockedPackages, IRevisionSource } from './versions-api';
 
-export type ProvenanceTabId =
-  'run' | 'code' | 'inputs' | 'environment' | 'conversation';
+export type ProvenanceTabId = 'run' | 'code' | 'inputs' | 'environment';
 
 const TABS: readonly { id: ProvenanceTabId; label: string }[] = [
   { id: 'run', label: 'Run' },
   { id: 'code', label: 'Code' },
   { id: 'inputs', label: 'Inputs' },
-  { id: 'environment', label: 'Environment' },
-  { id: 'conversation', label: 'Conversation' }
+  { id: 'environment', label: 'Environment' }
 ];
 
 /** One recorded input of a run, resolved to its record when it still exists. */
@@ -33,15 +30,6 @@ export interface IProvenanceInput {
   /** The input or upstream output the version belongs to. */
   record?: ResolvedRecord;
   onOpen?: () => void;
-}
-
-export interface IProvenanceSessions {
-  loading: boolean;
-  error?: string;
-  /** Sessions possibly active around the run, closest first. */
-  items: readonly ISessionInfo[];
-  /** Every session of the project, for the count. */
-  total: number;
 }
 
 /** The recipe's script at the run's revision, and the same file now. */
@@ -69,10 +57,6 @@ export interface IProvenanceTabsProps {
   code?: ICodeReference;
   onOpenCode?: (relativePath: string) => void;
   inputs: readonly IProvenanceInput[];
-  sessions?: IProvenanceSessions;
-  onOpenSession?: (path: string) => void;
-  /** Called the first time the Conversation tab is shown. */
-  onShowConversation?: () => void;
   /** The script at the recorded revision, once the Code tab asked for it. */
   recordedCode?: IProvenanceCode;
   /** Called the first time the Code tab is shown. */
@@ -532,55 +516,7 @@ function EnvironmentFacts({ run }: { run: IRunView }): React.ReactElement {
   );
 }
 
-function ConversationTab({
-  run,
-  sessions,
-  onOpenSession
-}: Pick<
-  IProvenanceTabsProps,
-  'run' | 'sessions' | 'onOpenSession'
->): React.ReactElement {
-  if (!run?.time)
-    return <p>No run time is recorded to match sessions against.</p>;
-  if (!sessions || sessions.loading) return <p>Looking for sessions…</p>;
-  if (sessions.error)
-    return <p role="status">Sessions unavailable: {sessions.error}</p>;
-  return (
-    <div className="jp-jupyterlab-lightcone-Provenance-sessions">
-      <p className="jp-jupyterlab-lightcone-Provenance-note">
-        Heuristic: sessions last modified around the run (five minutes before to
-        twelve hours after), out of {sessions.total}. Nothing records which
-        conversation caused this run.
-      </p>
-      {sessions.items.length ? (
-        <ul>
-          {sessions.items.map(session => (
-            <li key={session.path}>
-              {onOpenSession ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenSession(session.path)}
-                >
-                  {session.title}
-                </button>
-              ) : (
-                <span>{session.title}</span>
-              )}
-              <small>
-                <Time value={session.modified} />
-                {session.lastAgent ? ` · ${session.lastAgent}` : ''}
-              </small>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p>No session was active around this run.</p>
-      )}
-    </div>
-  );
-}
-
-/** Run, Code, Inputs, Environment and Conversation tabs for one materialization. */
+/** Run, Code, Inputs and Environment tabs for one materialization. */
 export function ProvenanceTabs(
   props: IProvenanceTabsProps
 ): React.ReactElement {
@@ -594,8 +530,7 @@ export function ProvenanceTabs(
     if (shownTabs.has(id)) return;
     setShownTabs(new Set([...shownTabs, id]));
     // Each tab that reads more than the run record does so once, when first shown.
-    if (id === 'conversation') props.onShowConversation?.();
-    else if (id === 'code') props.onShowCode?.();
+    if (id === 'code') props.onShowCode?.();
     else if (id === 'environment') props.onShowEnvironment?.();
   };
   let panel: React.ReactNode;
@@ -615,15 +550,6 @@ export function ProvenanceTabs(
       break;
     case 'environment':
       panel = <EnvironmentTab run={props.run} packages={props.packages} />;
-      break;
-    case 'conversation':
-      panel = (
-        <ConversationTab
-          run={props.run}
-          sessions={props.sessions}
-          onOpenSession={props.onOpenSession}
-        />
-      );
       break;
     default:
       panel = (

@@ -36,7 +36,6 @@
   /* Link-like buttons: the trail crumbs and the provenance tabs' records. */
   .jp-jupyterlab-lightcone-element-trail button,
   .jp-jupyterlab-lightcone-Provenance-inputs button,
-  .jp-jupyterlab-lightcone-Provenance-sessions button,
   .jp-jupyterlab-lightcone-Provenance-code button {
     padding: 0;
     border: 0;
@@ -486,7 +485,6 @@
   }
 
   .jp-jupyterlab-lightcone-Provenance-inputs ul,
-  .jp-jupyterlab-lightcone-Provenance-sessions ul,
   .jp-jupyterlab-lightcone-Provenance-list {
     display: grid;
     gap: 4px;
@@ -495,8 +493,7 @@
     list-style: none;
   }
 
-  .jp-jupyterlab-lightcone-Provenance-inputs li,
-  .jp-jupyterlab-lightcone-Provenance-sessions li {
+  .jp-jupyterlab-lightcone-Provenance-inputs li {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -512,10 +509,6 @@
 
   .jp-jupyterlab-lightcone-Provenance-inputs p code {
     margin-inline-end: 6px;
-  }
-
-  .jp-jupyterlab-lightcone-Provenance-sessions small {
-    color: var(--astra-color-text-muted);
   }
 
   /* Version chip under a chat card. */

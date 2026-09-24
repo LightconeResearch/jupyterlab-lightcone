@@ -423,36 +423,3 @@
   align-items: baseline;
   gap: 3px;
 }
-
-.jp-jupyterlab-lightcone-Sidebar-footerHost {
-  flex: 0 0 auto;
-}
-
-.jp-jupyterlab-lightcone-Sidebar-footer {
-  display: flex;
-  gap: 2px;
-  padding: 4px 6px;
-  border-top: var(--jp-border-width) solid var(--jp-border-color2);
-}
-
-.jp-jupyterlab-lightcone-Sidebar-link {
-  flex: 1 1 0;
-  min-height: 26px;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: var(--jp-border-radius);
-  color: var(--jp-ui-font-color1);
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-
-.jp-jupyterlab-lightcone-Sidebar-link:disabled {
-  color: var(--jp-ui-font-color3);
-  cursor: default;
-}
-
-.jp-jupyterlab-lightcone-Sidebar-link:hover:not(:disabled),
-.jp-jupyterlab-lightcone-Sidebar-link:focus-visible:not(:disabled) {
-  background: var(--jp-layout-color2);
-}

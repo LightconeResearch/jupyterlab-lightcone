@@ -15,14 +15,6 @@ export interface ISessionStartOptions {
   persona?: string;
 }
 
-/** An open session whose agent is at work or waits for the user. */
-export interface IBusySession {
-  /** Contents path of the `.chat` file. */
-  path: string;
-  title: string;
-  state: 'working' | 'attention';
-}
-
 /** Project-scoped sessions: Jupyter AI chats stored under `<project>/chats/`. */
 export interface ISessionService {
   /** The sessions of the project owning `entrypoint`, newest first. */
@@ -38,8 +30,6 @@ export interface ISessionService {
   readonly changed: ISignal<ISessionService, string>;
   /** Live activity of a session, when the workbench knows it. */
   activity(path: string): SessionState | undefined;
-  /** Open sessions whose agent is working or waiting for input, in any project. */
-  busy?(): IBusySession[];
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { IThemeManager } from '@jupyterlab/apputils';
 import type { IChangedArgs } from '@jupyterlab/coreutils';
-import { Drive, type Contents } from '@jupyterlab/services';
+import type { Contents } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
 import { DisposableDelegate } from '@lumino/disposable';
 import { Signal } from '@lumino/signaling';
@@ -143,7 +143,7 @@ beforeEach(() => {
 });
 
 describe('SidebarModel', () => {
-  it('gathers project data, statuses, sessions, comments and the report', async () => {
+  it('gathers project data, statuses, sessions and comments', async () => {
     const h = host();
     try {
       h.model.visible = true;
@@ -151,8 +151,7 @@ describe('SidebarModel', () => {
         () =>
           !!h.model.state.data &&
           !!h.model.state.statuses &&
-          h.model.state.sessionsLoaded &&
-          h.model.state.reportAvailable
+          h.model.state.sessionsLoaded
       );
       const state = h.model.state;
       expect(state.project?.entrypoint).toBe('project/astra.yaml');
@@ -226,7 +225,7 @@ describe('SidebarModel', () => {
       expect(services).toHaveLength(0);
       expect(h.get).not.toHaveBeenCalled();
       h.model.visible = true;
-      await until(() => !!h.model.state.data && h.model.state.reportAvailable);
+      await until(() => !!h.model.state.data);
       expect(services).toHaveLength(1);
       h.model.visible = false;
       expect(services[0].isDisposed).toBe(true);
@@ -275,28 +274,6 @@ describe('SidebarModel', () => {
     }
   });
 
-  it('looks for the report of a project at a drive root on that drive', async () => {
-    const h = host({
-      entries: {
-        'archive:astra.yaml': fileModel(PROJECT_SPEC),
-        'archive:myst.yml': fileModel('project: {}')
-      }
-    });
-    h.contents.addDrive(new Drive({ name: 'archive' }));
-    try {
-      h.model.visible = true;
-      await until(() => h.model.state.reportAvailable);
-      h.current.set({ path: 'archive:', entrypoint: 'archive:astra.yaml' });
-      await until(() => h.model.state.reportAvailable);
-      expect(h.get).toHaveBeenCalledWith('archive:myst.yml', {
-        content: false
-      });
-      expect(h.get).not.toHaveBeenCalledWith('myst.yml', { content: false });
-    } finally {
-      h.dispose();
-    }
-  });
-
   it('clears everything when the project changes and ignores stale answers', async () => {
     const h = host();
     try {
@@ -313,7 +290,6 @@ describe('SidebarModel', () => {
       expect(h.model.state.sessions).toEqual([]);
       expect(h.model.state.data).toBeUndefined();
       expect(h.model.state.pendingComments).toBe(0);
-      expect(h.model.state.reportAvailable).toBe(false);
       // The slow listing for the previous project arrives too late to count.
       release([]);
       await until(() => h.model.state.sessionsLoaded);

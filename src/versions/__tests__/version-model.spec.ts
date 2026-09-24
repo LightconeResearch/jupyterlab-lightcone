@@ -1,6 +1,5 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { OutputRun } from '@astra-spec/ui/model';
-import type { ISessionInfo } from '../../sessions/sessions-api';
 import {
   delimiterFor,
   formatBytes,
@@ -12,8 +11,6 @@ import {
   relativeTime,
   runView,
   sandboxLine,
-  SESSION_WINDOW_AFTER_MS,
-  sessionsActiveAround,
   stepVersion,
   tableShape,
   tableShapeDiff,
@@ -295,37 +292,5 @@ describe('run view', () => {
     )!;
     expect(bare.command).toBeUndefined();
     expect(bare.time).toBe('2026-09-02T10:00:00Z');
-  });
-});
-
-describe('sessions around a run', () => {
-  const session = (path: string, modified: string): ISessionInfo => ({
-    path,
-    title: path,
-    modified,
-    messages: 1,
-    lastAgent: null,
-    activity: 'idle'
-  });
-
-  it('keeps sessions modified from shortly before to hours after the run, closest first', () => {
-    const run = '2026-09-20T10:00:00Z';
-    const sessions = [
-      session('old', '2026-09-19T10:00:00Z'),
-      session('after', '2026-09-20T11:30:00Z'),
-      session('right-after', '2026-09-20T10:02:00Z'),
-      session('just-before', '2026-09-20T09:57:00Z'),
-      session(
-        'too-late',
-        new Date(Date.parse(run) + SESSION_WINDOW_AFTER_MS + 1).toISOString()
-      ),
-      session('broken', 'no date')
-    ];
-    expect(sessionsActiveAround(sessions, run).map(item => item.path)).toEqual([
-      'right-after',
-      'just-before',
-      'after'
-    ]);
-    expect(sessionsActiveAround(sessions, 'no date')).toEqual([]);
   });
 });

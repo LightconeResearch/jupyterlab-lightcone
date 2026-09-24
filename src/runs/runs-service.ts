@@ -121,15 +121,6 @@ export class RunsService implements IDisposable {
     return pending;
   }
 
-  /** Re-read every project seen so far. */
-  async refreshAll(): Promise<void> {
-    await Promise.all(
-      [...this._entries.keys()].map(entrypoint =>
-        this.refresh(entrypoint).catch(() => undefined)
-      )
-    );
-  }
-
   /**
    * Start `lc materialize`; rejects when the server refuses (409 while one
    * runs). On a 409 the listing is re-read, so a job this window has not
@@ -179,15 +170,6 @@ export class RunsService implements IDisposable {
       this._upsert(key, await getRun(this._settings, key, id));
     } catch (error) {
       console.warn('Could not read the stopped Lightcone job.', error);
-    }
-  }
-
-  /** Stop every running job the service knows. */
-  cancelAll(): void {
-    for (const { entrypoint, job } of this.runningJobs()) {
-      void this.cancel(entrypoint, job.id).catch(error => {
-        console.warn('Could not stop a Lightcone job.', error);
-      });
     }
   }
 

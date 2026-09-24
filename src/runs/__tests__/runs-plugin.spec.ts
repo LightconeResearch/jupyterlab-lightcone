@@ -1,9 +1,8 @@
 import type { JupyterFrontEnd } from '@jupyterlab/application';
-import { MainAreaWidget, showErrorMessage } from '@jupyterlab/apputils';
+import { Notification, showErrorMessage } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { DocumentRegistry } from '@jupyterlab/docregistry';
 import { CommandRegistry } from '@lumino/commands';
-import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import type { ICurrentProject } from '../../current-project';
@@ -15,7 +14,6 @@ import {
 } from '../../__tests__/project-fixtures';
 import { runsPlugin, RunsCommandIDs } from '..';
 import { getRun, listRuns, startRun } from '../runs-api';
-import { RunsWidget } from '../runs-widget';
 import { FakeEvents, job, refused } from './runs-fixtures';
 
 jest.mock('../../pdf-runtime', () => ({}));
@@ -81,28 +79,14 @@ function host(
     options.current === undefined
       ? null
       : new FakeCurrentProject(options.current);
-  runsPlugin.activate(app, current, documents, null, null, null, null);
-  /** Run the open command; the tab and its Runs view, if it opened one. */
-  const open = async (
-    args: ReadonlyPartialJSONObject
-  ): Promise<{ tab: MainAreaWidget; content: RunsWidget } | undefined> => {
-    const tab: unknown = await commands.execute(RunsCommandIDs.openRuns, args);
-    if (tab === undefined) {
-      return undefined;
-    }
-    if (!(tab instanceof MainAreaWidget)) {
-      throw new Error('The Runs command returned something else.');
-    }
-    const content: unknown = tab.content;
-    if (!(content instanceof RunsWidget)) {
-      throw new Error('The Runs tab holds something else.');
-    }
-    return { tab, content };
-  };
+  runsPlugin.activate(app, current, documents, null, null);
+  /** Run the materialize command with `args`. */
+  const materialize = (args: Record<string, unknown>) =>
+    commands.execute(RunsCommandIDs.materialize, args as never);
   return {
     commands,
     shell,
-    open,
+    materialize,
     dispose: () => {
       disposed.emit();
       events.dispose();
@@ -120,43 +104,26 @@ beforeEach(() => {
   jest.mocked(getRun).mockImplementation(() => new Promise(() => {}));
 });
 
-it('opens one Runs tab per project, beside the current tab', async () => {
-  const h = host();
-  try {
-    const opened = await h.open({ cwd: 'project/data' });
-    expect(opened?.content.entrypoint).toBe(ENTRYPOINT);
-    expect(h.shell.add).toHaveBeenCalledWith(opened?.tab, 'main', {
-      mode: 'tab-after',
-      ref: 'home',
-      activate: true
-    });
-    const reads = jest.mocked(listRuns).mock.calls.length;
-    const again = await h.open({ entrypoint: './project/astra.yaml' });
-    expect(again?.tab).toBe(opened?.tab);
-    expect(h.shell.add).toHaveBeenCalledTimes(1);
-    expect(h.shell.activateById).toHaveBeenCalledWith(opened?.tab.id);
-    // Reopening re-reads the runs.
-    expect(listRuns).toHaveBeenCalledTimes(reads + 1);
-    expect(listRuns).toHaveBeenLastCalledWith(expect.anything(), ENTRYPOINT);
-    await h.open({ entrypoint: ENTRYPOINT, activate: false });
-    expect(h.shell.activateById).toHaveBeenCalledTimes(1);
-  } finally {
-    h.dispose();
-  }
-});
-
 it('finds the project of the focused document, then the browser’s', async () => {
+  jest.mocked(startRun).mockResolvedValue(job());
   let h = host({ documentPath: 'project/data/x.txt', current: null });
   try {
-    expect((await h.open({}))?.content.entrypoint).toBe(ENTRYPOINT);
+    await h.materialize({});
+    expect(startRun).toHaveBeenLastCalledWith(expect.anything(), ENTRYPOINT, {
+      targets: [],
+      refresh: false
+    });
   } finally {
     h.dispose();
   }
   h = host({ current: { path: 'project', entrypoint: ENTRYPOINT } });
   try {
-    // The browser's project is read at once, for the Running panel.
-    expect(listRuns).toHaveBeenCalledWith(expect.anything(), ENTRYPOINT);
-    expect((await h.open({}))?.content.entrypoint).toBe(ENTRYPOINT);
+    await h.materialize({});
+    expect(startRun).toHaveBeenCalledTimes(2);
+    expect(startRun).toHaveBeenLastCalledWith(expect.anything(), ENTRYPOINT, {
+      targets: [],
+      refresh: false
+    });
   } finally {
     h.dispose();
   }
@@ -165,27 +132,28 @@ it('finds the project of the focused document, then the browser’s', async () =
 it('says when no project can be found', async () => {
   const h = host({ documentPath: 'elsewhere/notes.txt', current: null });
   try {
-    expect(await h.open({ cwd: 'elsewhere' })).toBeUndefined();
+    expect(await h.materialize({ cwd: 'elsewhere' })).toBeUndefined();
     expect(showErrorMessage).toHaveBeenLastCalledWith(
-      'Could not open Lightcone runs',
+      'Could not start materialization',
       'No Lightcone project contains elsewhere.'
     );
-    expect(await h.open({})).toBeUndefined();
+    expect(await h.materialize({})).toBeUndefined();
     expect(showErrorMessage).toHaveBeenLastCalledWith(
-      'Could not open Lightcone runs',
+      'Could not start materialization',
       'Open a folder inside a Lightcone project first.'
     );
-    expect(h.shell.add).not.toHaveBeenCalled();
+    expect(startRun).not.toHaveBeenCalled();
   } finally {
     h.dispose();
   }
 });
 
-it('starts a materialization and follows it in the Runs tab', async () => {
+it('starts a materialization and follows it in a notification, not a tab', async () => {
+  Notification.manager.dismiss();
   const h = host();
   try {
     jest.mocked(startRun).mockResolvedValue(job({ targets: ['a'] }));
-    const started = await h.commands.execute(RunsCommandIDs.materialize, {
+    const started = await h.materialize({
       entrypoint: ENTRYPOINT,
       targets: ['a', 3],
       refresh: true
@@ -195,28 +163,26 @@ it('starts a materialization and follows it in the Runs tab', async () => {
       targets: ['a'],
       refresh: true
     });
-    expect(h.shell.add).toHaveBeenCalledTimes(1);
+    expect(h.shell.add).not.toHaveBeenCalled();
+    expect(
+      Notification.manager.notifications.map(item => [item.type, item.message])
+    ).toEqual([['in-progress', 'Materializing a…']]);
 
-    // Like the Runs tab, a folder inside the project names it.
-    await h.commands.execute(RunsCommandIDs.materialize, {
-      cwd: 'project/data'
-    });
+    // A folder inside the project names it.
+    await h.materialize({ cwd: 'project/data' });
     expect(startRun).toHaveBeenLastCalledWith(expect.anything(), ENTRYPOINT, {
       targets: [],
       refresh: false
     });
 
     jest.mocked(startRun).mockRejectedValue(refused(409));
-    expect(
-      await h.commands.execute(RunsCommandIDs.materialize, {
-        entrypoint: ENTRYPOINT
-      })
-    ).toBeUndefined();
+    expect(await h.materialize({ entrypoint: ENTRYPOINT })).toBeUndefined();
     expect(showErrorMessage).toHaveBeenLastCalledWith(
       'Could not start materialization',
       'A materialization is already running for this project. Wait for it to finish or stop it first.'
     );
   } finally {
     h.dispose();
+    Notification.manager.dismiss();
   }
 });

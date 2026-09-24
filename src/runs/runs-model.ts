@@ -1,14 +1,6 @@
 import { isRecord, RequestError } from '../api';
 import type { MaterializationStatuses } from '../materialization-status';
-import { projectDirectory } from '../project-data';
-import type {
-  IJob,
-  IJobEvent,
-  IRunRecord,
-  IServerUsage,
-  IVenue,
-  JobState
-} from './runs-api';
+import type { IJob, IJobEvent, JobState } from './runs-api';
 
 /** The server keeps this many lines per job; the client keeps the same. */
 export const JOB_LINE_LIMIT = 200;
@@ -27,34 +19,6 @@ const STATE_RANK: Record<JobState, number> = {
 /** Whether a job reached a terminal state. */
 export function isFinished(job: Pick<IJob, 'state'>): boolean {
   return job.state !== 'running';
-}
-
-/** Human duration: `12 s`, `3 min 4 s`, `1 h 2 min`. */
-export function formatDuration(milliseconds: number): string {
-  const total = Math.max(0, Math.round(milliseconds / 1000));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  if (hours > 0) {
-    return `${hours} h ${minutes} min`;
-  }
-  if (minutes > 0) {
-    return `${minutes} min ${seconds} s`;
-  }
-  return `${seconds} s`;
-}
-
-/** How long a job has run, or ran. */
-export function formatElapsed(
-  job: Pick<IJob, 'started' | 'finished'>,
-  now = Date.now()
-): string {
-  const started = Date.parse(job.started);
-  const end = job.finished === null ? now : Date.parse(job.finished);
-  if (Number.isNaN(started) || Number.isNaN(end)) {
-    return '';
-  }
-  return formatDuration(end - started);
 }
 
 /** `just now`, `5 min ago`, `yesterday`, `3 days ago`. */
@@ -87,127 +51,6 @@ export function formatRelativeTime(iso: string, now = Date.now()): string {
   return years === 1 ? '1 year ago' : `${years} years ago`;
 }
 
-/** A full local timestamp for tooltips. */
-export function formatTimestamp(iso: string): string {
-  const time = Date.parse(iso);
-  return Number.isNaN(time) ? iso : new Date(time).toLocaleString();
-}
-
-function localDay(time: number): string {
-  const date = new Date(time);
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-/** `Today`, `Yesterday`, or the date, in the viewer's time zone. */
-export function dayLabel(iso: string, now = Date.now()): string {
-  const time = Date.parse(iso);
-  if (Number.isNaN(time)) {
-    return iso;
-  }
-  const day = localDay(time);
-  if (day === localDay(now)) {
-    return 'Today';
-  }
-  if (day === localDay(now - 24 * 3600 * 1000)) {
-    return 'Yesterday';
-  }
-  return new Date(time).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-}
-
-export interface IRunGroup {
-  /** The local calendar day, `YYYY-MM-DD`. */
-  day: string;
-  label: string;
-  runs: IRunRecord[];
-}
-
-/** Runs made by one `lc materialize`, or a run alone. */
-export interface IInvocationGroup {
-  /** The commit the invocation started from; null for a run alone. */
-  invocation: string | null;
-  runs: IRunRecord[];
-}
-
-/**
- * Group consecutive runs of a newest-first history that one `lc materialize`
- * made (they share the commit their manifests record). Runs whose invocation
- * is unknown stay alone.
- */
-export function groupRunsByInvocation(
-  runs: readonly IRunRecord[]
-): IInvocationGroup[] {
-  const groups: IInvocationGroup[] = [];
-  for (const run of runs) {
-    const invocation = run.invocation ?? null;
-    const last = groups[groups.length - 1];
-    if (invocation !== null && last?.invocation === invocation) {
-      last.runs.push(run);
-    } else {
-      groups.push({ invocation, runs: [run] });
-    }
-  }
-  return groups;
-}
-
-/** Where runs execute, in words: this host, or a SLURM allocation. */
-export function venueText(venue: IVenue | undefined): string | undefined {
-  if (!venue) return undefined;
-  if (!venue.slurm) return 'Runs execute on this server’s host.';
-  return venue.nodes
-    ? `Runs execute across this SLURM allocation: ${plural(venue.nodes, 'node')}, one worker each.`
-    : 'Runs execute inside a SLURM allocation of unknown size.';
-}
-
-/** Bytes as a short size: `812 MB`, `1.4 GB`. */
-export function formatMemory(bytes: number): string {
-  const units = ['B', 'kB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000;
-    unit++;
-  }
-  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
-
-/** The server's use, as jupyter-resource-usage reports it, in one line. */
-export function usageText(usage: IServerUsage): string {
-  const memory = usage.memoryLimit
-    ? `${formatMemory(usage.rss)} of ${formatMemory(usage.memoryLimit)} memory`
-    : `${formatMemory(usage.rss)} memory`;
-  const cpu =
-    usage.cpuPercent === null
-      ? undefined
-      : usage.cpuCount
-        ? `${Math.round(usage.cpuPercent)}% CPU of ${plural(usage.cpuCount, 'core')}`
-        : `${Math.round(usage.cpuPercent)}% CPU`;
-  return `Server and kernels: ${[memory, cpu].filter(Boolean).join(' · ')}`;
-}
-
-/** Group a newest-first history by local day, keeping the order given. */
-export function groupRunsByDay(
-  runs: readonly IRunRecord[],
-  now = Date.now()
-): IRunGroup[] {
-  const groups: IRunGroup[] = [];
-  for (const run of runs) {
-    const time = Date.parse(run.time);
-    const day = Number.isNaN(time) ? run.time : localDay(time);
-    const last = groups[groups.length - 1];
-    if (last && last.day === day) {
-      last.runs.push(run);
-    } else {
-      groups.push({ day, label: dayLabel(run.time, now), runs: [run] });
-    }
-  }
-  return groups;
-}
-
 /** `everything`, `a, b, c`, or `a, b, c and 2 more`. */
 export function describeTargets(targets: readonly string[]): string {
   if (targets.length === 0) {
@@ -217,38 +60,6 @@ export function describeTargets(targets: readonly string[]): string {
     return targets.join(', ');
   }
   return `${targets.slice(0, 3).join(', ')} and ${targets.length - 3} more`;
-}
-
-/** `Materialize everything`, `Refresh hubble_diagram, cosmology_fit`. */
-export function jobTitle(job: Pick<IJob, 'targets' | 'refresh'>): string {
-  const verb = job.refresh ? 'Refresh' : 'Materialize';
-  return `${verb} ${describeTargets(job.targets)}`;
-}
-
-/** What the engine accepts: an output id, or `<universe>/<output>`. */
-const TARGET_PATTERN =
-  /^[A-Za-z0-9_][A-Za-z0-9_.-]*(\/[A-Za-z0-9_][A-Za-z0-9_.-]*)?$/;
-
-/** Split typed targets on spaces and commas; refuse anything the engine would misread. */
-export function parseTargets(text: string): {
-  targets: string[];
-  invalid: string[];
-} {
-  const targets: string[] = [];
-  const invalid: string[] = [];
-  for (const token of text.split(/[\s,]+/)) {
-    if (!token) {
-      continue;
-    }
-    if (!TARGET_PATTERN.test(token)) {
-      if (!invalid.includes(token)) {
-        invalid.push(token);
-      }
-    } else if (!targets.includes(token)) {
-      targets.push(token);
-    }
-  }
-  return { targets, invalid };
 }
 
 /** Fold one event bus emission into the job it concerns. */
@@ -285,17 +96,6 @@ export function mergeJob(existing: IJob, incoming: IJob): IJob {
     report: newer.report ?? older.report,
     finished: newer.finished ?? older.finished
   };
-}
-
-/**
- * Identifies the last end in a newest-first job list. A project runs one job
- * at a time, so its newest finished job is the last to end. The key changes
- * whenever a job ends or its final record arrives, even once the list is at
- * its cap and the number of finished jobs no longer changes.
- */
-export function lastEndKey(jobs: readonly IJob[]): string {
-  const ended = jobs.find(isFinished);
-  return ended ? `${ended.id}:${ended.finished ?? ''}` : '';
 }
 
 /** Insert or update a job, newest first, within the server's list cap. */
@@ -382,7 +182,7 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
-/** One line describing how a job ended, for toasts and the Running panel. */
+/** One line describing how a job ended, for the notification that follows it. */
 export function jobOutcome(job: IJob): string {
   const summary = summarizeReport(job.report);
   switch (job.state) {
@@ -468,50 +268,6 @@ export function rematerializeAction(
     };
   }
   return null;
-}
-
-/** A running job as the Running panel lists it; the section adds the icon. */
-export interface IJobRunningItem {
-  label(): string;
-  labelTitle(): string;
-  detail(): string;
-  /** The project's entrypoint, kept on the item's `data-context`. */
-  context: string;
-  open(): void;
-  shutdown(): void;
-}
-
-export interface IRunningJobActions {
-  open(entrypoint: string): void;
-  stop(entrypoint: string, id: string): void;
-}
-
-function projectLabel(entrypoint: string): string {
-  try {
-    return projectDirectory(entrypoint) || '/';
-  } catch {
-    return entrypoint;
-  }
-}
-
-/** Running-panel items for running jobs, one per job. */
-export function jobRunningItems(
-  jobs: readonly { entrypoint: string; job: IJob }[],
-  actions: IRunningJobActions
-): IJobRunningItem[] {
-  return jobs.map(({ entrypoint, job }) => ({
-    label: () => jobTitle(job),
-    labelTitle: () => `${jobTitle(job)} · ${projectLabel(entrypoint)}`,
-    detail: () => formatElapsed(job),
-    context: entrypoint,
-    open: () => actions.open(entrypoint),
-    shutdown: () => actions.stop(entrypoint, job.id)
-  }));
-}
-
-/** The ASTRA path of a root-analysis output. */
-export function outputTargetPath(outputId: string): string {
-  return `outputs.${outputId}`;
 }
 
 /** The `astra.yaml` of a project directory, as job events name projects. */

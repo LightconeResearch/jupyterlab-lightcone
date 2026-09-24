@@ -5,6 +5,7 @@ import os
 from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
+from .agent_defaults import setup_project_agent_handlers
 from .comments import COMMENT_DELIVERY, setup_comment_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
@@ -100,6 +101,7 @@ class LightconeApp(ExtensionApp):
         setup_job_events(self.serverapp)
         setup_runs_handlers(app)
         setup_comment_handlers(app)
+        setup_project_agent_handlers(app)
         setup_setup_handlers(app, myst_command=list(self.mystra_command))
         self.manager = MySTRAManager(
             getattr(

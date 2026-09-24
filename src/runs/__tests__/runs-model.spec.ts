@@ -1,31 +1,19 @@
 import { ServerConnection } from '@jupyterlab/services';
 import { RequestError } from '../../api';
-import type { IJob, IRunRecord } from '../runs-api';
+import type { IJob } from '../runs-api';
 import {
   applyJobEvent,
-  dayLabel,
   describeTargets,
   entrypointForProject,
-  formatDuration,
-  formatElapsed,
   formatRelativeTime,
-  formatMemory,
-  groupRunsByDay,
-  groupRunsByInvocation,
   jobOutcome,
-  jobRunningItems,
-  jobTitle,
-  lastEndKey,
   mergeJob,
-  parseTargets,
   refusalText,
   rematerializeAction,
   staleTargets,
   startErrorMessage,
   summarizeReport,
   upsertJob,
-  usageText,
-  venueText,
   JOB_LINE_LIMIT
 } from '../runs-model';
 
@@ -48,37 +36,7 @@ function job(overrides: Partial<IJob> = {}): IJob {
   };
 }
 
-function run(overrides: Partial<IRunRecord> = {}): IRunRecord {
-  return {
-    commit: 'a889877deadbeef',
-    short: 'a889877',
-    time: '2026-09-23T09:00:00.000Z',
-    output: 'hubble_diagram',
-    universe: 'baseline',
-    exit: 0,
-    cmd: 'python src/plot.py',
-    inputs: ['data/union.csv'],
-    outputs: ['results/baseline/hubble_diagram.png'],
-    ...overrides
-  };
-}
-
 describe('time formatting', () => {
-  it('formats durations in the largest useful unit', () => {
-    expect(formatDuration(12_400)).toBe('12 s');
-    expect(formatDuration(184_000)).toBe('3 min 4 s');
-    expect(formatDuration(3_720_000)).toBe('1 h 2 min');
-    expect(formatDuration(-5)).toBe('0 s');
-  });
-
-  it('measures elapsed time to now for running jobs and to the end otherwise', () => {
-    expect(formatElapsed(job(), NOW)).toBe('1 min 30 s');
-    expect(
-      formatElapsed(job({ finished: '2026-09-23T11:59:00.000Z' }), NOW)
-    ).toBe('30 s');
-    expect(formatElapsed(job({ started: 'nonsense' }), NOW)).toBe('');
-  });
-
   it('describes relative times', () => {
     expect(formatRelativeTime('2026-09-23T11:59:40.000Z', NOW)).toBe(
       'just now'
@@ -100,57 +58,13 @@ describe('time formatting', () => {
     );
     expect(formatRelativeTime('not a date', NOW)).toBe('not a date');
   });
-
-  it('labels today and yesterday and groups consecutive runs by day', () => {
-    // Days are the viewer's, so the fixtures are local times: the labels
-    // must not depend on the zone the tests run in.
-    const at = (day: number, hour: number) =>
-      new Date(2026, 8, day, hour).toISOString();
-    const noon = new Date(2026, 8, 23, 12).getTime();
-    expect(dayLabel(at(23, 0), noon)).toBe('Today');
-    expect(dayLabel(at(22, 23), noon)).toBe('Yesterday');
-    expect(dayLabel(at(1, 11), noon)).not.toMatch(/Today|Yesterday/);
-    const groups = groupRunsByDay(
-      [
-        run({ commit: '1', time: at(23, 11) }),
-        run({ commit: '2', time: at(23, 0) }),
-        run({ commit: '3', time: at(22, 23) })
-      ],
-      noon
-    );
-    expect(groups.map(group => [group.label, group.runs.length])).toEqual([
-      ['Today', 2],
-      ['Yesterday', 1]
-    ]);
-  });
 });
 
-describe('job titles and targets', () => {
-  it('names jobs by verb and targets', () => {
-    expect(jobTitle({ targets: [], refresh: false })).toBe(
-      'Materialize everything'
-    );
-    expect(jobTitle({ targets: ['a', 'b'], refresh: true })).toBe(
-      'Refresh a, b'
-    );
-    expect(
-      jobTitle({ targets: ['a', 'b', 'c', 'd', 'e'], refresh: false })
-    ).toBe('Materialize a, b, c and 2 more');
+describe('targets', () => {
+  it('describes targets', () => {
     expect(describeTargets(['baseline/x'])).toBe('baseline/x');
     expect(describeTargets([])).toBe('everything');
     expect(describeTargets(['a', 'b', 'c', 'd'])).toBe('a, b, c and 1 more');
-  });
-
-  it('parses typed targets and refuses what the engine would misread', () => {
-    expect(parseTargets('  hubble_diagram, baseline/fit\n fit ')).toEqual({
-      targets: ['hubble_diagram', 'baseline/fit', 'fit'],
-      invalid: []
-    });
-    expect(parseTargets('a a --check ../x')).toEqual({
-      targets: ['a'],
-      invalid: ['--check', '../x']
-    });
-    expect(parseTargets('')).toEqual({ targets: [], invalid: [] });
   });
 });
 
@@ -222,38 +136,6 @@ describe('job updates', () => {
       })
     );
     expect(many.reduce(upsertJob, [] as IJob[])).toHaveLength(20);
-  });
-
-  it('keys the last end so it changes even when the list is full', () => {
-    const ended = (i: number, finished: string | null = 'done') =>
-      job({
-        id: `j${i}`,
-        state: 'succeeded',
-        finished,
-        started: `2026-09-23T10:${String(i).padStart(2, '0')}:00.000Z`
-      });
-    const full = Array.from({ length: 20 }, (_, i) => ended(i)).reduce(
-      upsertJob,
-      [] as IJob[]
-    );
-    expect(lastEndKey(full)).toBe('j19:done');
-    // A job first seen already ended replaces the oldest: the list keeps
-    // its length and number of finished jobs, but the key moves.
-    const next = upsertJob(full, ended(20));
-    expect(next.filter(item => item.state !== 'running')).toHaveLength(20);
-    expect(lastEndKey(next)).toBe('j20:done');
-    // A running job has not ended; its end, then its final record, move it.
-    const started = upsertJob(next, job({ id: 'j21', started: NOW_ISO }));
-    expect(lastEndKey(started)).toBe('j20:done');
-    const stopped = upsertJob(started, {
-      ...started[0],
-      state: 'cancelled'
-    });
-    expect(lastEndKey(stopped)).toBe('j21:');
-    expect(
-      lastEndKey(upsertJob(stopped, { ...stopped[0], finished: 'later' }))
-    ).toBe('j21:later');
-    expect(lastEndKey([job()])).toBe('');
   });
 });
 
@@ -344,52 +226,6 @@ describe('helpers for other views', () => {
     expect(staleTargets(undefined)).toEqual({ stale: [], behind: [] });
   });
 
-  it('groups the runs one lc materialize made', () => {
-    const a = run({ commit: '1', invocation: 'aaaa' });
-    const b = run({ commit: '2', invocation: 'aaaa' });
-    const c = run({ commit: '3', invocation: null });
-    const d = run({ commit: '4' });
-    const e = run({ commit: '5', invocation: 'bbbb' });
-    const f = run({ commit: '6', invocation: 'aaaa' });
-    expect(groupRunsByInvocation([a, b, c, d, e, f])).toEqual([
-      { invocation: 'aaaa', runs: [a, b] },
-      { invocation: null, runs: [c] },
-      { invocation: null, runs: [d] },
-      { invocation: 'bbbb', runs: [e] },
-      { invocation: 'aaaa', runs: [f] }
-    ]);
-  });
-
-  it('says where runs execute and what the server uses', () => {
-    expect(venueText(undefined)).toBeUndefined();
-    expect(venueText({ slurm: false, nodes: null })).toBe(
-      'Runs execute on this server’s host.'
-    );
-    expect(venueText({ slurm: true, nodes: 4 })).toBe(
-      'Runs execute across this SLURM allocation: 4 nodes, one worker each.'
-    );
-    expect(venueText({ slurm: true, nodes: null })).toContain('unknown size');
-    expect(formatMemory(812_000_000)).toBe('812 MB');
-    expect(formatMemory(1_400_000_000)).toBe('1.4 GB');
-    expect(formatMemory(512)).toBe('512 B');
-    expect(
-      usageText({
-        rss: 1_400_000_000,
-        memoryLimit: 8_000_000_000,
-        cpuPercent: 35.4,
-        cpuCount: 8
-      })
-    ).toBe('Server and kernels: 1.4 GB of 8.0 GB memory · 35% CPU of 8 cores');
-    expect(
-      usageText({
-        rss: 812_000_000,
-        memoryLimit: null,
-        cpuPercent: null,
-        cpuCount: null
-      })
-    ).toBe('Server and kernels: 812 MB memory');
-  });
-
   it('offers to remake stale outputs first, then to refresh those behind', () => {
     expect(
       rematerializeAction({
@@ -423,29 +259,6 @@ describe('helpers for other views', () => {
     expect(entrypointForProject('')).toBe('astra.yaml');
     expect(entrypointForProject('work/proj')).toBe('work/proj/astra.yaml');
     expect(entrypointForProject('drive:')).toBe('drive:astra.yaml');
-  });
-
-  it('builds Running panel items for running jobs', () => {
-    const open = jest.fn();
-    const stop = jest.fn();
-    const items = jobRunningItems(
-      [
-        { entrypoint: 'proj/astra.yaml', job: job({ targets: ['a'] }) },
-        { entrypoint: 'astra.yaml', job: job({ id: 'job-2', refresh: true }) }
-      ],
-      { open, stop }
-    );
-    expect(items.map(item => item.label())).toEqual([
-      'Materialize a',
-      'Refresh everything'
-    ]);
-    expect(items[0].labelTitle()).toBe('Materialize a · proj');
-    expect(items[1].labelTitle()).toBe('Refresh everything · /');
-    expect(items[0].context).toBe('proj/astra.yaml');
-    items[0].open();
-    expect(open).toHaveBeenCalledWith('proj/astra.yaml');
-    items[1].shutdown();
-    expect(stop).toHaveBeenCalledWith('astra.yaml', 'job-2');
   });
 
   it('explains why a job could not start', () => {

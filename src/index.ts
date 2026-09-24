@@ -22,7 +22,11 @@ import { homePlugin } from './home';
 import { mentionsPlugin } from './mentions';
 import { runsPlugin } from './runs';
 import { searchPlugin } from './search';
-import { sessionPlaceholderPlugin, sessionsPlugin } from './sessions';
+import {
+  agentContinuityPlugin,
+  sessionPlaceholderPlugin,
+  sessionsPlugin
+} from './sessions';
 import { sidebarPlugin } from './sidebar';
 import { tabLabelsPlugin } from './tab-labels';
 import {
@@ -160,6 +164,7 @@ export default [
   astraMimePlugin,
   sessionsPlugin,
   sessionPlaceholderPlugin,
+  agentContinuityPlugin,
   chatPlugin,
   chatLinksPlugin,
   mentionsPlugin,

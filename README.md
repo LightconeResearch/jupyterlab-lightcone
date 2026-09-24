@@ -6,7 +6,8 @@ The open AI-assisted research workbench
 methods, evidence, and computation. Inside a project it provides a
 [Home](#home) page, a [project sidebar](#lightcone-sidebar), agent
 [sessions](#sessions), [record tabs with result versions and
-provenance](#record-tabs-versions-and-provenance), [runs](#runs),
+provenance](#record-tabs-versions-and-provenance),
+[materialization](#materialization),
 [comments](#comments), [search](#search), a [settings page](#lightcone-settings)
 and two [Lightcone themes](#appearance), on top of an ASTRA analysis
 inventory, materialized outputs, cited papers, and Jupyter AI integration.
@@ -90,7 +91,8 @@ inventory. Result plates follow under one freshness line, with **Pipeline**
 leading to the inventory.
 When results are stale the freshness line names them and **Rematerialize stale
 (N)** (or **Refresh behind (N)** when they only lag the environment) starts
-`lc materialize` for them and opens [Runs](#runs) to follow it. The right
+`lc materialize` for them and follows it in a notification (see
+[materialization](#materialization)). The right
 column is the desk: a composer with an agent picker and **Start**, then recent
 sessions with a working or needs-input marker. **Start** is the only action on
 Home that sends a message. Home reads JupyterLab's theme variables, so it looks
@@ -109,8 +111,7 @@ command palette) opens the project's navigation: its name with a project
 switcher (▾) and a Home button, **New session**, **Search**, the sessions
 (renamable, with activity markers), results with their materialization status
 and **Rematerialize stale (N)**, the analysis tree with record counts, the
-number of pending [comments](#comments), and links to **Files**, **Report** and
-[**Runs**](#runs). The switcher lists recently visited projects and the other
+number of pending [comments](#comments). The switcher lists recently visited projects and the other
 projects in the same folder, plus **Open project…** and **New Lightcone
 project**; choosing one moves the file browser there, and the current project
 follows. The sidebar never closes or swaps tabs when the project changes. When
@@ -136,9 +137,20 @@ project's Git status and `lc materialize` still runs. Results opened from a
 session split to its right, later results join that group, and closing them
 returns focus to the session. A session that finishes, or asks for
 permission, while you look elsewhere raises a notification with **Open
-session**, and while its agent works it is listed under **Lightcone** in
-JupyterLab's Running panel. An empty session shows the project name and "What
+session**. An empty session shows the project name and "What
 would you like to explore?".
+
+Every chat opens with the agent it last addressed, or else the one its project
+last used, wherever it opens: the main area, the side panel, after a move
+between them, when reopened or after a reload. Jupyter AI's own picker starts
+each new view from the server's default persona, which is often not an
+installed one. The server records each project's agent in
+`<project>/.lightcone/agent.json` (an ignored folder, beside the comment
+store), keeps Jupyter AI's page default on the agent last used, and sends a
+message that names no installed agent (the picker on **No one**, say) to the
+chat's usual agent instead of dropping it. **Start** on Home with **Default
+agent** uses the project's agent too. A chat open in two views at once keeps
+each view's own choice.
 
 A session's toolbar states the agent's permission mode as Jupyter AI records
 it (for example "Codex: agent full access") and that the engine's sandbox
@@ -229,10 +241,11 @@ times, command, exit code, commit and Git tree), **Code** (the recorded command
 and the script it names: **As run** shows the script at the commit the run
 started from, **Changes since** its diff against the file now, and **Open
 current file** opens it), **Inputs** (the recorded input versions, each
-linking to its record), **Environment** (environment, engine, uv, image,
+linking to its record) and **Environment** (environment, engine, uv, image,
 sandbox, definition and data versions, and the packages `uv.lock` pinned for
-the run with what changed in the lock since) and **Conversation** (sessions
-active around the run, matched by time, so a heuristic). **Versions** steps
+the run with what changed in the lock since). A record tab stacks an output:
+the result first, then its description and provenance below it, at every
+width. **Versions** steps
 through every committed version of the output file with ◀ and ▶; an older
 version shows its own bytes under a banner with **Latest**, and content missing
 from the local annex says so. **Compare with previous** shows images side by
@@ -254,26 +267,17 @@ record in the record's column. **Show everything** or Escape ends the trace,
 and the trace is kept with the layout. The graph also opens from Home's
 results line and the command palette.
 
-### Runs
+### Materialization
 
-**Runs** (sidebar footer or command palette) lists the project's
-materialization jobs started from JupyterLab, with their live log and **Stop**,
-the outputs that are stale or behind with actions to rematerialize them, and the
-run history recorded in Git, by day, with the outputs one `lc materialize` made
-grouped together; a run opens its output at the version it made. **Materialize**
-in its toolbar, or **Materialize outputs** in the command palette, runs the
-engine's `materialize` in the project on the Jupyter server; Home and the
-sidebar start the same job for stale results. One job runs per project at a
-time; the engine's refusals (a dirty tree, a login node, a missing committer)
-are shown as it prints them. Runs says where recipes execute (this host, or the
-SLURM allocation the server runs in, with its node count) and, when
-`jupyter-resource-usage` is installed, the server's memory and CPU use. Running
-jobs, and sessions whose agent is working, appear under **Lightcone** in
-JupyterLab's Running panel; **Stop All** there stops materializations only. A
-`lc materialize` an agent starts in its own shell is not followed; it appears
-in the history once it commits. Materializing executes the project's recipes
-as the server user: an authorizer must permit `execute` on the `lightcone`
-resource and `write` on `contents`.
+**Rematerialize stale (N)** on Home and in the sidebar, or **Materialize
+outputs** in the command palette, runs the engine's `materialize` in the
+project on the Jupyter server. One notification follows the job, with **Stop**
+while it runs, and then says what it made, what failed, or the engine's own
+refusal (a dirty tree, a login node, a missing committer). One job runs per
+project at a time. A `lc materialize` an agent starts in its own shell is not
+followed; its results show up once it commits. Materializing executes the
+project's recipes as the server user: an authorizer must permit `execute` on
+the `lightcone` resource and `write` on `contents`.
 
 ### Comments
 
