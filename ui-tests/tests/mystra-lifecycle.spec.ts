@@ -1,5 +1,5 @@
 import { expect, test } from '@jupyterlab/galata';
-import type { IMySTRASession } from '../../src/api';
+import type { IMySTRASession } from '../../src/mystra/api';
 
 // Exercise the real viewer command, tab close button, tracker and iframe without
 // requiring a downloaded theme. The actual CLI/theme has its own integration test.

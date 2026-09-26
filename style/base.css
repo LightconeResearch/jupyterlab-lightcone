@@ -460,33 +460,6 @@
   }
 }
 
-.jp-jupyterlab-lightcone-MySTRA {
-  display: flex;
-  flex-direction: column;
-  background: var(--jp-layout-color0);
-}
-
-.jp-jupyterlab-lightcone-MySTRAControls {
-  flex: 0 0 auto;
-  padding: 8px;
-  border-bottom: 1px solid var(--jp-border-color2);
-}
-
-.jp-jupyterlab-lightcone-MySTRAControls button {
-  margin-left: 12px;
-}
-
-.jp-jupyterlab-lightcone-MySTRAControls pre {
-  max-height: 180px;
-  overflow: auto;
-  white-space: pre-wrap;
-}
-
-.jp-jupyterlab-lightcone-MySTRA > .jp-IFrame {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
 /* Project setup uses the host's theme and native controls. */
 .jp-jupyterlab-lightcone-ProjectSetup {
   overflow: auto;

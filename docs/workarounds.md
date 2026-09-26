@@ -7,16 +7,25 @@ are confined to this extension; no dependency source is modified.
 
 ## MySTRA viewer embedding
 
-**Where.** `jupyterlab_lightcone/mystra.py`, `mystra_routes.py`,
-`src/mystra-viewer.ts`, and the viewer commands in `src/commands.ts`.
+**Where.** The self-contained `jupyterlab_lightcone/mystra/` server extension
+(`MySTRAApp`) and `src/mystra/` frontend plugin, with `style/mystra.css`.
+Nothing else imports them; each is registered once, in
+`jupyterlab_lightcone/__init__.py`, `src/index.ts` and `style/index.css`.
 
 **What and why.** MyST has no supported JupyterLab embedding API for a running
 `myst start` application. The extension supervises the CLI's process group and
 proxies its theme, content and reload WebSocket through authenticated Jupyter
 routes. This works only with ASTRA themes implementing `mystra-viewer.v1`;
 `MYSTRA_BASE_URL`, `MYSTRA_CONTENT_URL`, `MYSTRA_RELOAD_URL` and the capability
-endpoint are a private contract, not a general MyST interface. Keep this
-stopgap limited to bug fixes, as required by `AGENTS.md`.
+endpoint are a private contract, not a general MyST interface. The CLI comes
+from the `mystmd` dependency and is resolved from the server's own environment
+before `PATH`. The viewer relies on `myst start`'s `--port` and
+`--server-port` options and its "Server started on port" log line;
+`ui-tests/tests/mystra.spec.ts`, run against the real CLI, fails if a MyST
+release changes them. Node.js 20 or later remains a
+system requirement, and mystmd's offer to download it is declined because it
+would prompt on the server's terminal. Keep this stopgap limited to bug fixes,
+as required by `AGENTS.md`.
 
 **Public APIs retained.** Viewer activation and closure use Lumino's widget
 lifecycle hooks. Closing disposes the widget and its heartbeat; the server's
@@ -27,11 +36,13 @@ Jupyter Server's `authorized` decorators and the ContentsManager's checks.
 
 **Upstream and removal.** A first-party MyST/JupyterLab proxy or static preview
 would replace process supervision, proxy routes, capability negotiation and
-the companion theme contract. Delete these together; do not add theme adapters.
+the companion theme contract. Delete the two plugin directories, the stylesheet
+and their three registrations together with the `mystmd` dependency; do not
+add theme adapters.
 
 ### Same-server module and font requests under JupyterHub
 
-**Where.** `MySTRAProxyHandler.check_xsrf_cookie` in `mystra_routes.py`.
+**Where.** `MySTRAProxyHandler.check_xsrf_cookie` in `mystra/routes.py`.
 
 **What and why.** JupyterHub applies its XSRF check during authentication to
 cookie-authenticated CORS resource reads. Browser module imports and fonts
@@ -46,9 +57,10 @@ because that method itself asks for the current user.
 policy for authenticated proxied applications. Adopt that policy and remove
 this override once available.
 
-**Coverage.** `test_mystra.py` and `test_mystra_auth.py` cover process cleanup,
+**Coverage.** `mystra/tests/test_mystra.py` and `test_mystra_auth.py` cover process cleanup,
 resource reads, denied origins/base paths and session ownership;
-`mystra-viewer.spec.ts` covers disposal and asynchronous restart races.
+`src/mystra/__tests__/viewer.spec.ts` covers focus, disposal and asynchronous
+restart races.
 `ui-tests/tests/mystra-lifecycle.spec.ts` exercises real shell close/reopen,
 expiry and failure recovery with a controlled upstream. `mystra.spec.ts` also
 checks saved-content live reload against the real CLI and compatible theme
@@ -106,16 +118,20 @@ the native lifecycle suite exercises readiness with the test configuration.
 **Where.** `jupyterlab_lightcone/routes.py` (`fetch_cached_paper`,
 `cached_paper_index`).
 
-**What and why.** Paper lookup and download use astra-tools 0.2.17 in process.
-The dependency promises no stable Python API, so its existing exact pin is
-retained and imports fail visibly if installation is incomplete. Download
-failures and cache I/O failures are handled separately from programming errors.
-The extension still re-indexes the cache for case-insensitive, containment-checked
-DOI lookup and restores the case of the arXiv prefix expected by the downloader.
+**What and why.** Paper lookup and download use astra-tools 0.2.17 in process,
+in ASTRA's conventional cache (`PaperCache().cache_dir`). The dependency
+promises no stable Python API, so its existing exact pin is retained. It also
+documents no exception contract for downloads: any error raised inside
+`download_paper_to_cache` (network, provider parsing, a non-PDF body, a cache
+write) is reported as an upstream failure, while errors in the extension's own
+code remain server errors. The extension still re-indexes the cache for
+case-insensitive, containment-checked DOI lookup and restores the case of the
+arXiv prefix expected by the downloader.
 
 **Upstream and removal.** A public `PaperCache.find(doi)` with containment checks
 and case-insensitive DOI normalization would replace those adapters. A stable
-cache/downloader API would allow relaxing the exact dependency pin after tests.
+cache/downloader API with documented failures would allow relaxing the exact
+dependency pin and the broad download error mapping after tests.
 
 **Coverage.** `test_routes.py` checks cache lookup, invalid DOI input, bounded PDF
 streaming, authorization and failed downloads without fetching external papers.

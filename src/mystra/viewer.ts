@@ -1,15 +1,17 @@
 import { IFrame } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
+import { LabIcon } from '@jupyterlab/ui-components';
 import { PanelLayout, Widget } from '@lumino/widgets';
-import {
-  IMySTRASession,
-  RequestError,
-  readMySTRA,
-  startMySTRA,
-  stopMySTRA
-} from './api';
-import { mystIcon } from './icons';
+import mystLogoSvg from '../../style/myst-logo.svg';
+import { RequestError } from '../api';
+import { IMySTRASession, readMySTRA, startMySTRA, stopMySTRA } from './api';
+
+/** The official MyST mark used for the MySTRA publication viewer. */
+export const mystIcon = new LabIcon({
+  name: 'jupyterlab-lightcone:myst',
+  svgstr: mystLogoSvg
+});
 
 /** The selected ASTRA theme, isolated from the workbench's CSS and React tree. */
 export class MySTRAViewer extends Widget {
@@ -76,9 +78,14 @@ export class MySTRAViewer extends Widget {
     this.dispose();
   }
 
-  /** Let the shell's focus tracker target Close and Restart at this viewer. */
+  /**
+   * Let the shell's focus tracker target Close and Restart at this viewer,
+   * without taking focus from the report or controls already focused in it.
+   */
   protected onActivateRequest(): void {
-    this.node.focus();
+    if (this.isAttached && !this.node.contains(document.activeElement)) {
+      this.node.focus();
+    }
   }
 
   /**

@@ -3,18 +3,11 @@ import { WidgetTracker } from '@jupyterlab/apputils';
 import { PromiseDelegate } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
 import { MessageLoop } from '@lumino/messaging';
-import { MySTRAViewer } from '../mystra-viewer';
-import {
-  IMySTRASession,
-  RequestError,
-  readMySTRA,
-  startMySTRA,
-  stopMySTRA
-} from '../api';
+import { RequestError } from '../../api';
+import { MySTRAViewer } from '../viewer';
+import { IMySTRASession, readMySTRA, startMySTRA, stopMySTRA } from '../api';
 
-// Keep the real RequestError so the viewer can branch on HTTP status.
 jest.mock('../api', () => ({
-  ...jest.requireActual('../api'),
   readMySTRA: jest.fn(),
   startMySTRA: jest.fn(),
   stopMySTRA: jest.fn()
@@ -44,6 +37,39 @@ test('activation focuses the viewer so shell commands target its tab', () => {
     expect(document.activeElement).toBe(widget.node);
   } finally {
     widget.dispose();
+  }
+});
+
+test('reactivation leaves focus inside the viewer where it is', () => {
+  const widget = new MySTRAViewer(
+    { ...session, state: 'ready' },
+    ServerConnection.makeSettings()
+  );
+  Widget.attach(widget, document.body);
+  try {
+    const frame = widget.node.querySelector('iframe');
+    frame?.focus();
+    expect(document.activeElement).toBe(frame);
+    widget.activate();
+    MessageLoop.flush();
+    expect(document.activeElement).toBe(frame);
+  } finally {
+    widget.dispose();
+  }
+});
+
+test('activating a detached viewer does not take focus', () => {
+  const outside = document.createElement('input');
+  document.body.append(outside);
+  outside.focus();
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  try {
+    widget.activate();
+    MessageLoop.flush();
+    expect(document.activeElement).toBe(outside);
+  } finally {
+    widget.dispose();
+    outside.remove();
   }
 });
 

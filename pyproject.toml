@@ -31,7 +31,10 @@ dependencies = [
     "jupyter-ai>=3.2.0,<3.3",
     # Existing agent tools use these packages directly.
     "jupyter-server-mcp>=0.3.0,<0.4",
-    "jupyterlab-commands-toolkit>=0.2.0,<0.3"
+    "jupyterlab-commands-toolkit>=0.2.0,<0.3",
+    # TEMPORARY, for the MySTRA Viewer: the MyST CLI it runs (Node.js >= 20 is
+    # still required).
+    "mystmd>=1.10.1"
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 

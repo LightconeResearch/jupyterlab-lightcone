@@ -49,9 +49,8 @@ def validate_doi(value: str) -> str:
 
 
 def paper_cache_root() -> Path:
-    """Share ASTRA's paper cache, unless ``LIGHTCONE_PAPER_CACHE_DIR`` names another folder."""
-    configured = os.environ.get("LIGHTCONE_PAPER_CACHE_DIR")
-    return Path(configured).expanduser() if configured else PaperCache().cache_dir
+    """ASTRA's conventional paper cache, shared with the astra command line."""
+    return PaperCache().cache_dir
 
 
 def cached_paper_index(cache_root: Path) -> dict[str, CachedPaper]:
@@ -114,8 +113,18 @@ def paper_payload(doi: str, metadata: PaperMetadata) -> dict[str, str]:
     return payload
 
 
+class PaperFetchError(Exception):
+    """astra-tools could not download a paper or store it in the cache."""
+
+
 def fetch_cached_paper(doi: str, cache_root: Path) -> CachedPaper:
-    """Fetch one missing paper through astra-tools, reusing its cache format."""
+    """Fetch one missing paper through astra-tools, reusing its cache format.
+
+    Raises PaperFetchError for any failure inside the download: astra-tools
+    documents no exception contract, and its providers, parsers and cache
+    writes raise a variety of errors, such as ValueError for a non-JSON
+    response or a non-PDF body.
+    """
     existing = find_cached_paper(doi, cache_root)
     if existing:
         return existing
@@ -126,12 +135,15 @@ def fetch_cached_paper(doi: str, cache_root: Path) -> CachedPaper:
         if doi.startswith(arxiv_prefix)
         else doi
     )
-    _, result = download_paper_to_cache(download_doi, cache_dir=cache_root)
+    try:
+        _, result = download_paper_to_cache(download_doi, cache_dir=cache_root)
+    except Exception as error:
+        raise PaperFetchError(str(error)) from error
     if not result.success:
-        raise RuntimeError(result.error or "astra-tools could not fetch this paper")
+        raise PaperFetchError(result.error or "astra-tools could not fetch this paper")
     cached = find_cached_paper(doi, cache_root)
     if cached is None:
-        raise RuntimeError("astra-tools did not create a readable cached PDF")
+        raise PaperFetchError("astra-tools did not create a readable cached PDF")
     return cached
 
 
@@ -216,10 +228,9 @@ class PaperFetchRouteHandler(PaperRouteHandler):
                 cached = await asyncio.to_thread(
                     fetch_cached_paper, doi, self.cache_root
                 )
-        except (RuntimeError, OSError) as error:
-            # astra-tools answers a failed download with success=False, which
-            # fetch_cached_paper raises as RuntimeError; writing the cache may
-            # fail on its own. Anything else is a defect and reported as one.
+        except PaperFetchError as error:
+            # Only failures inside astra-tools are upstream failures; anything
+            # else is a defect of this route and reported as one.
             self.log.warning("Could not fetch paper %s", doi, exc_info=True)
             raise web.HTTPError(
                 502, "Could not fetch this paper. Check the server log for details."

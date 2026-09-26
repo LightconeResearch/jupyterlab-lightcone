@@ -7,12 +7,10 @@ from jupyter_server.auth import authorized
 from jupyter_server.auth.decorator import ws_authenticated
 from jupyter_server.base.handlers import APIHandler, JupyterHandler
 from jupyter_server.base.websocket import WebSocketMixin
-from jupyter_server.utils import url_path_join
 from jupyter_server.services.contents.filemanager import FileContentsManager
+from jupyter_server.utils import ensure_async, url_path_join
 from tornado import web, websocket
 from tornado.httpclient import AsyncHTTPClient, HTTPClientError, HTTPRequest
-
-from .project_routes import contents_call
 
 # Request headers a browser may send that are safe to relay to a local theme.
 FORWARDED_REQUEST_HEADERS = (
@@ -81,7 +79,7 @@ class MySTRASessionsHandler(MySTRARouteHandler):
             self.manager.project_root, path
         )
         # The contents manager applies the server's hidden-file policy.
-        await contents_call(self.contents_manager.get, config_path, content=False)
+        await ensure_async(self.contents_manager.get(config_path, content=False))
         session = await self.manager.start(
             self.current_user.username, project, config_path
         )
@@ -125,23 +123,27 @@ class MySTRAProxyHandler(MySTRARouteHandler):
         while it authenticates, and `check_referer` asks for the current user.
         Authentication, authorization and session ownership still apply.
         """
+        if not self._same_server_resource_read():
+            super().check_xsrf_cookie()
+
+    def _same_server_resource_read(self):
+        """A GET/HEAD the browser marks same-origin, from a page of this server."""
         referer = self.request.headers.get("Referer")
-        if (
+        if not (
             referer
             and self.request.method in {"GET", "HEAD"}
             and self.request.headers.get("Sec-Fetch-Site") == "same-origin"
         ):
-            try:
-                parsed = urlsplit(referer)
-            except ValueError:
-                return super().check_xsrf_cookie()
-            if (
-                parsed.scheme == self.request.protocol
-                and parsed.netloc == self.request.headers.get("Host")
-                and parsed.path.startswith(self.base_url.rstrip("/") + "/")
-            ):
-                return None
-        return super().check_xsrf_cookie()
+            return False
+        try:
+            parsed = urlsplit(referer)
+        except ValueError:
+            return False
+        return (
+            parsed.scheme == self.request.protocol
+            and parsed.netloc == self.request.headers.get("Host")
+            and parsed.path.startswith(self.base_url.rstrip("/") + "/")
+        )
 
     @web.authenticated
     @authorized

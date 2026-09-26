@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 
 from astra.papers.cache import PaperCache
 from jupyterlab.galata import configure_jupyter_server
+from jupyterlab_lightcone import routes as paper_routes
 
 configure_jupyter_server(c)
 
@@ -21,7 +22,8 @@ c.LabApp.extension_manager = "readonly"
 # Keep the user's real ASTRA cache untouched and avoid external PDF downloads.
 paper_cache = TemporaryDirectory(prefix="lightcone-galata-papers-")
 atexit.register(paper_cache.cleanup)
-os.environ["LIGHTCONE_PAPER_CACHE_DIR"] = paper_cache.name
+# Lightcone always serves ASTRA's conventional cache, so only a test may redirect it.
+paper_routes.paper_cache_root = lambda: Path(paper_cache.name)
 PaperCache(Path(paper_cache.name)).add_from_file(
     "10.1234/continuous-test",
     Path(__file__).parent / "fixtures" / "paper.pdf",

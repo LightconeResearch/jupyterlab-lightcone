@@ -12,6 +12,7 @@ import { configureProjectLauncher } from '../project-launcher';
 import { fileModel } from './project-fixtures';
 
 jest.mock('../pdf-runtime', () => ({}));
+const VIEWER = 'test:project-viewer';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function host() {
@@ -20,7 +21,7 @@ function host() {
     CommandIDs.createProject,
     CommandIDs.openExistingProject,
     CommandIDs.openInventory,
-    CommandIDs.openMySTRA
+    VIEWER
   ]) {
     commands.addCommand(command, { execute: () => undefined });
   }
@@ -55,15 +56,21 @@ function host() {
       return { dispose: () => visible.delete(item.command) };
     }
   };
-  configureProjectLauncher(
-    {
-      commands,
-      shell,
-      serviceManager: { contents }
-    } as unknown as JupyterFrontEnd,
-    launcher as unknown as ILauncher,
-    current
-  );
+  const app = {
+    commands,
+    shell,
+    serviceManager: { contents }
+  } as unknown as JupyterFrontEnd;
+  configureProjectLauncher(app, launcher as unknown as ILauncher, current, {
+    project: [CommandIDs.discuss, CommandIDs.openInventory],
+    outside: [CommandIDs.createProject, CommandIDs.openExistingProject]
+  });
+  // A second plugin contributing a project card after the core ones.
+  configureProjectLauncher(app, launcher as unknown as ILauncher, current, {
+    project: [VIEWER],
+    outside: [],
+    rank: 2
+  });
   return {
     commands,
     model,
@@ -82,15 +89,13 @@ it('ignores filters, retains project root in subfolders, and updates late chat r
   const h = host();
   try {
     await flush();
-    expect([...h.visible.keys()]).toEqual([
-      CommandIDs.openInventory,
-      CommandIDs.openMySTRA
-    ]);
+    expect([...h.visible.keys()]).toEqual([CommandIDs.openInventory, VIEWER]);
+    expect(h.visible.get(VIEWER)?.rank).toBe(2);
     h.model.path = 'project/data';
     h.model.refreshed.emit();
     await flush();
     expect(h.visible.get(CommandIDs.openInventory)?.args).toEqual({});
-    expect(h.visible.get(CommandIDs.openMySTRA)?.args).toEqual({});
+    expect(h.visible.get(VIEWER)?.args).toEqual({});
     expect(h.visible.get(CommandIDs.openInventory)?.category).toBe(
       'Lightcone Lab · project'
     );

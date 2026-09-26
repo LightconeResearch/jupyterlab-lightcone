@@ -13,9 +13,9 @@ import pytest
 from tornado import web
 from tornado.web import HTTPError
 
-from jupyterlab_lightcone import mystra
-from jupyterlab_lightcone.mystra import MySTRAManager
-from jupyterlab_lightcone.mystra_routes import MySTRASocketHandler
+from .. import manager as mystra
+from ..manager import MySTRAManager
+from ..routes import MySTRASocketHandler
 
 
 class Capabilities(web.RequestHandler):
@@ -33,9 +33,55 @@ class Capabilities(web.RequestHandler):
 @pytest.fixture
 def manager(tmp_path):
     (tmp_path / "myst.yml").write_text("version: 1\n")
-    return MySTRAManager(
-        tmp_path, "/user/researcher/", ["no-such-myst-executable"], logging.getLogger()
+    manager = MySTRAManager(tmp_path, "/user/researcher/", logging.getLogger())
+    manager.command = ["no-such-myst-executable"]
+    return manager
+
+
+def executable(directory, name="myst"):
+    """An executable file named like a CLI, in its own directory."""
+    directory.mkdir()
+    path = directory / name
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_the_packaged_cli_shadows_one_on_path(tmp_path, monkeypatch):
+    packaged = executable(tmp_path / "scripts")
+    elsewhere = executable(tmp_path / "npm-global")
+    monkeypatch.setattr(mystra.sysconfig, "get_path", lambda name: str(packaged.parent))
+    monkeypatch.setenv("PATH", str(elsewhere.parent))
+    assert mystra.find_executable("myst") == str(packaged)
+
+
+def test_a_cli_on_path_is_found_without_the_packaged_one(tmp_path, monkeypatch):
+    elsewhere = executable(tmp_path / "npm-global")
+    monkeypatch.setattr(mystra.sysconfig, "get_path", lambda name: str(tmp_path / "empty"))
+    monkeypatch.setenv("PATH", str(elsewhere.parent))
+    assert mystra.find_executable("myst") == str(elsewhere)
+
+
+async def test_the_cli_cannot_prompt_to_install_nodejs(manager, tmp_path, monkeypatch):
+    """Without Node.js, mystmd asks on stdin; the server's terminal must never be asked."""
+    monkeypatch.delenv("MYSTMD_ALLOW_NODEENV", raising=False)
+    cli = tmp_path / "prompting_cli.py"
+    cli.write_text(
+        "import os, sys, time\n"
+        "print('nodeenv:', os.environ.get('MYSTMD_ALLOW_NODEENV'), flush=True)\n"
+        "print('stdin:', repr(sys.stdin.read()), flush=True)\n"
+        "time.sleep(120)\n"
     )
+    manager.command = [sys.executable, str(cli)]
+    session = await manager.start("alice", *manager.project_root(""))
+    try:
+        for _ in range(500):
+            if len(session.logs) == 2:
+                break
+            await asyncio.sleep(0.01)
+        assert list(session.logs) == ["nodeenv: no", "stdin: ''"]
+    finally:
+        await manager.close()
 
 
 def test_discovers_nearest_config_and_yaml(manager, tmp_path):
@@ -289,7 +335,7 @@ async def test_start_checks_readable_config_before_launching(
     project = Path(jp_serverapp.contents_manager.root_dir) / directory
     project.mkdir()
     (project / "myst.yml").write_text("version: 1\n")
-    manager = jp_serverapp.web_app.settings["jupyterlab_lightcone"].manager
+    manager = jp_serverapp.web_app.settings["jupyterlab_lightcone_mystra"].manager
     run = AsyncMock()
     monkeypatch.setattr(manager, "_run", run)
     response = await jp_fetch(

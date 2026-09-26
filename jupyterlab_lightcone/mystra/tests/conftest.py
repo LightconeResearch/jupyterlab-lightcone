@@ -6,7 +6,7 @@ from jupyter_server.utils import url_path_join
 from tornado import httpserver, web
 from tornado.testing import bind_unused_port
 
-from jupyterlab_lightcone.mystra import ViewerSession
+from ..manager import ViewerSession
 
 SESSION_ID = "a" * 32
 OWNER = "owner"
@@ -38,7 +38,7 @@ def ready_viewer_session(jp_serverapp, jp_base_url, monkeypatch):
     Ownership is exercised: the token-authenticated requests of the tests are
     given the session owner's username, so the manager's scoping applies.
     """
-    manager = jp_serverapp.web_app.settings["jupyterlab_lightcone"].manager
+    manager = jp_serverapp.web_app.settings["jupyterlab_lightcone_mystra"].manager
     monkeypatch.setattr(
         jp_serverapp.identity_provider, "generate_anonymous_user", lambda handler: User(username=OWNER)
     )

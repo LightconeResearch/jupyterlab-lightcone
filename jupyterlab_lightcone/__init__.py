@@ -8,6 +8,7 @@ except ImportError:
     warnings.warn("Importing 'jupyterlab_lightcone' outside a proper installation.")
     __version__ = "dev"
 from .application import LightconeApp
+from .mystra import MySTRAApp
 
 
 def _jupyter_labextension_paths():
@@ -19,7 +20,9 @@ def _jupyter_labextension_paths():
 
 
 def _jupyter_server_extension_points():
-    """The server extension Jupyter Server loads for this package."""
-    return [{
-        "module": "jupyterlab_lightcone", "app": LightconeApp
-    }]
+    """The server extensions Jupyter Server loads for this package."""
+    return [
+        {"module": "jupyterlab_lightcone", "app": LightconeApp},
+        # TEMPORARY: the MySTRA Viewer workaround; see its package docstring.
+        {"module": "jupyterlab_lightcone.mystra", "app": MySTRAApp},
+    ]

@@ -1,4 +1,4 @@
-"""Own the CLI process groups used by local MySTRA viewer sessions."""
+"""Own the MyST CLI process groups behind local MySTRA viewer sessions."""
 
 import asyncio
 import codecs
@@ -11,14 +11,13 @@ import re
 import shutil
 import signal
 import socket
+import sysconfig
 import time
 from uuid import uuid4
 
 from jupyter_server.utils import url_path_join
 from tornado.httpclient import AsyncHTTPClient, HTTPClientError, HTTPRequest
 from tornado.web import HTTPError
-
-from .projects import inside_root
 
 # MyST's theme logger reports the port its application server actually bound.
 THEME_PORT_LINE = re.compile(r"Server started on port (\d+)")
@@ -55,6 +54,19 @@ class ViewerSession:
         }
 
 
+def find_executable(name):
+    """Resolve a CLI, preferring the one installed beside this interpreter.
+
+    The ``mystmd`` dependency installs ``myst`` into this environment's scripts
+    directory, which a server started without activating its environment may
+    lack on PATH; a MyST CLI installed elsewhere on PATH must not shadow it.
+    """
+    search = os.pathsep.join(
+        [sysconfig.get_path("scripts"), os.environ.get("PATH", os.defpath)]
+    )
+    return shutil.which(name, path=search)
+
+
 def free_port():
     """Choose a loopback port; startup verifies that MyST actually bound it."""
     with socket.socket() as listener:
@@ -65,15 +77,16 @@ def free_port():
 class MySTRAManager:
     """Start on demand, reuse per owner/project, and reap abandoned viewers."""
 
-    def __init__(
-        self, root, base_url, command, log, idle_timeout=120, startup_timeout=120
-    ):
+    def __init__(self, root, base_url, log):
         self.root = Path(root).resolve()
         self.base_url = base_url
-        self.command = command
         self.log = log
-        self.idle_timeout = idle_timeout
-        self.startup_timeout = startup_timeout
+        self.command = ["myst"]
+        """The CLI and any fixed arguments; ``start`` and its ports are appended."""
+        self.idle_timeout = 120
+        """Seconds without a viewer heartbeat before stopping MyST."""
+        self.startup_timeout = 120
+        """Seconds allowed to install, build and start a theme."""
         self.sessions: dict[str, ViewerSession] = {}
         self.lock = asyncio.Lock()
         self.reaper = None
@@ -96,7 +109,11 @@ class MySTRAManager:
                 400,
                 log_message="Use a relative project path inside the Jupyter contents root",
             )
-        target = inside_root(self.root, Path(path), "The project is outside the Jupyter contents root")
+        target = (self.root / path).resolve()
+        if not target.is_relative_to(self.root):
+            raise HTTPError(
+                403, log_message="The project is outside the Jupyter contents root"
+            )
         if not target.exists():
             raise HTTPError(404, log_message="The selected project path does not exist")
         target = target if target.is_dir() else target.parent
@@ -104,11 +121,12 @@ class MySTRAManager:
             for name in ("myst.yml", "myst.yaml"):
                 config = target / name
                 if config.is_file():
-                    inside_root(
-                        self.root,
-                        config.relative_to(self.root),
-                        "The MyST configuration is outside the contents root",
-                    )
+                    # A symlinked configuration must not lead outside the root.
+                    if not config.resolve().is_relative_to(self.root):
+                        raise HTTPError(
+                            403,
+                            log_message="The MyST configuration is outside the contents root",
+                        )
                     return target, config.relative_to(self.root).as_posix()
             if target == self.root:
                 break
@@ -216,16 +234,19 @@ class MySTRAManager:
         reader = None
         client = AsyncHTTPClient(force_instance=True)
         try:
-            executable = shutil.which(self.command[0]) if self.command else None
+            executable = find_executable(self.command[0])
             if executable is None:
                 raise RuntimeError(
-                    "MyST CLI is unavailable. Install Node.js and MyST in the Jupyter server environment,"
-                    " or configure LightconeApp.mystra_command."
+                    "MyST CLI is unavailable. Reinstall jupyterlab-lightcone, which installs it"
+                    " with the mystmd package."
                 )
             env = dict(
                 os.environ,
                 HOST="127.0.0.1",
                 CI="true",
+                # Without Node.js, mystmd would otherwise ask on stdin whether
+                # to download it; report the missing requirement instead.
+                MYSTMD_ALLOW_NODEENV=os.environ.get("MYSTMD_ALLOW_NODEENV", "no"),
                 MYSTRA_BASE_URL=session.prefix + "/site",
                 MYSTRA_CONTENT_URL=session.prefix + "/content",
                 MYSTRA_RELOAD_URL=session.prefix + "/socket",
@@ -240,6 +261,7 @@ class MySTRAManager:
                 str(session.content_port),
                 cwd=session.project,
                 env=env,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 start_new_session=True,

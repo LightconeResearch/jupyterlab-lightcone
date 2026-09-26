@@ -25,11 +25,10 @@ def jp_base_url():
 
 
 @pytest.fixture(autouse=True)
-def paper_cache(tmp_path, monkeypatch):
-    """Isolate every test from the user's actual paper cache."""
-    cache = tmp_path / "papers"
-    cache.mkdir()
-    monkeypatch.setenv("LIGHTCONE_PAPER_CACHE_DIR", str(cache))
+def paper_cache(jp_environ, jp_home_dir):
+    """ASTRA's conventional cache, under the temporary HOME every test runs in."""
+    cache = jp_home_dir / ".cache" / "astra" / "papers"
+    cache.mkdir(parents=True)
     return cache
 
 
@@ -94,11 +93,8 @@ def test_rejects_invalid_dois(doi):
         routes.validate_doi(doi)
 
 
-def test_the_cache_is_astras_unless_the_server_names_another(monkeypatch):
-    monkeypatch.setenv("LIGHTCONE_PAPER_CACHE_DIR", "/srv/lightcone-papers")
-    assert routes.paper_cache_root() == Path("/srv/lightcone-papers")
-    monkeypatch.delenv("LIGHTCONE_PAPER_CACHE_DIR")
-    assert routes.paper_cache_root() == Path.home() / ".cache" / "astra" / "papers"
+def test_the_cache_is_astras_conventional_one(paper_cache):
+    assert routes.paper_cache_root() == paper_cache
 
 
 async def test_returns_only_requested_cached_metadata(jp_fetch, paper_cache):
@@ -177,11 +173,18 @@ async def test_fetches_missing_paper_once_for_concurrent_requests(jp_fetch, down
 
 
 @pytest.mark.parametrize(
-    "failure", [RuntimeError("/private/cache/path"), OSError("/private/cache/path is read-only")]
+    "download",
+    [
+        Mock(return_value=(Path(), SimpleNamespace(success=False, error="/private/cache/path"))),
+        Mock(side_effect=OSError("/private/cache/path is read-only")),
+        # A provider answering with a page that is not JSON, or a body that is not a PDF.
+        Mock(side_effect=json.JSONDecodeError("/private/cache/path", "<html>", 0)),
+        Mock(side_effect=ValueError("/private/cache/path is not a PDF")),
+    ],
 )
-async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, failure):
-    """A failed download or cache write is the upstream's failure; the details stay in the server log."""
-    monkeypatch.setattr(routes, "fetch_cached_paper", Mock(side_effect=failure))
+async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, download):
+    """Any failure inside astra-tools is the upstream's; the details stay in the server log."""
+    monkeypatch.setattr(routes, "download_paper_to_cache", download)
     response = await jp_fetch(
         *ENDPOINT,
         "fetch",
