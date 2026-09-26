@@ -118,10 +118,11 @@ class MySTRAProxyHandler(MySTRARouteHandler):
         Referer (`check_referer`); JupyterHub's replaces that check and refuses
         cookie-authenticated requests in CORS mode, including module imports
         and fonts, which cannot add an XSRF header. So, for a GET or HEAD the
-        browser marks same-origin, the Referer is checked here with
-        `check_referer` and two things it does not test: the scheme, which a
-        forwarding proxy may have downgraded, and a path within this server's
-        base URL, since another Hub user's page shares our origin.
+        browser marks same-origin, the Referer must name this server's host
+        and scheme, which a forwarding proxy may have downgraded, and a path
+        within its base URL, since another Hub user's page shares our origin.
+        `check_referer` cannot test the host here: the Hub runs this check
+        while it authenticates, and `check_referer` asks for the current user.
         Authentication, authorization and session ownership still apply.
         """
         referer = self.request.headers.get("Referer")
@@ -136,8 +137,8 @@ class MySTRAProxyHandler(MySTRARouteHandler):
                 return super().check_xsrf_cookie()
             if (
                 parsed.scheme == self.request.protocol
+                and parsed.netloc == self.request.headers.get("Host")
                 and parsed.path.startswith(self.base_url.rstrip("/") + "/")
-                and self.check_referer()
             ):
                 return None
         return super().check_xsrf_cookie()
