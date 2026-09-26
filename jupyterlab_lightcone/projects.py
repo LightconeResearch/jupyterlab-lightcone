@@ -16,6 +16,9 @@ CHAT_PROJECT = "lightcone_project"
 """The chat metadata entry recording the project a chat joined when first opened."""
 
 
+LIGHTCONE_DIRECTORY = ".lightcone"
+"""The ignored project folder holding the workbench's stores."""
+
 def inside_root(root: Path, candidate: Path, message: str) -> Path:
     """Resolve symlinks first, then refuse anything outside `root`."""
     root = root.resolve()

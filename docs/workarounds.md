@@ -178,7 +178,7 @@ accommodations; keep only what the hook needs.
 ### The persona id prefix is restated
 
 **Where.** `jupyterlab_lightcone/sessions.py` (`PERSONA_PREFIX`) and
-`src/sessions/session-user.ts` (`PERSONA_USERNAME_PREFIX`).
+`src/sessions/session-activity.ts` (`PERSONA_USERNAME_PREFIX`).
 
 **What.** Persona senders are told from people by the documented
 `jupyter-ai-personas::` prefix of `BasePersona.id`, spelled once per language.
@@ -315,3 +315,132 @@ ignore chat documents before materialization; this extension does not change
 their Git configuration.
 
 **Coverage.** Session unit tests cover listing, summaries reused while files are unchanged, malformed documents, hidden files, symlinked project paths, titles, chat projects, quiet and repeated untitled renames, stale listing requests and command availability. Agent workspace tests exercise manager selection, deployment-configured managers, loading without Jupyter AI and project binding without preparing real agents.
+
+## Agent continuity and activity
+
+### Messages naming no installed agent are re-addressed
+
+**Where.** `agent_workspace.py` (`on_chat_message`, `_usual_persona`,
+`_deliver`) and `agent_defaults.py`.
+
+**What.** Upstream drops a message whose `to_persona` names no installed
+persona, and its picker restarts from the server default every time a chat's
+view is rebuilt. The override sends such a message to the agent the chat last
+addressed, else the one recorded for its project (`.lightcone/agent.json`),
+calls upstream's own `on_chat_message` with an addressed copy, so upstream still does the processing.
+
+**Why.** persona-manager 0.2 resolves the persona and schedules processing in
+one method with no hook between them, and never consults `default_persona`
+although its trait help says it does.
+
+**Upstream.** persona-manager: fall back to `self.default_persona` in
+`on_chat_message`, and split it into overridable `resolve_persona(message)`
+and `prepare_message(persona, message)` hooks.
+
+**Removal.** The override shrinks to the two hooks; `_deliver` disappears.
+
+### The picker's selection is forced through the persona list
+
+**Where.** `src/sessions/persona-registry.ts` (`selectPersona`,
+`selectComposerPersona`) and
+`src/sessions/agent-continuity.ts` (`whenListed`). The first-message handoff
+also selects the chosen agent in the chat picker for subsequent messages.
+
+**What.** To open a chat on its usual agent, the extension publishes a
+one-element persona list to `PersonaManagerSessionState.updatePersonas`, then
+the full list again: the picker's observed `reconcileSelection` rule selects
+a chat's sole persona when the user has not picked one. `whenListed` waits for
+the persona to be advertised, following the registry when it discards a chat's
+state. Since disposal clears the old state's signals without emitting,
+this bounded wait also checks for replacement every 100 ms. Activity follows
+the shared persona event stream to reconnect to a replaced state. Restored
+views are visited when the optional registry finishes loading.
+
+For initial messages and reopened or moved chat views, a shared handoff retries
+this selection until the toolbar
+stamps the requested agent (bounded by the composer timeout). The toolbar's
+initial metadata stamp can precede its registry subscription, so a single
+list update can otherwise be missed during mounting.
+
+**Why.** `@jupyter-ai/persona-manager` 0.2 keeps the selection in React state
+with no getter, setter or signal, and `PersonaSessionRegistry.discard` runs
+when any one view of a chat closes, so other consumers' state vanishes.
+
+**Upstream.** persona-manager: `selectedPersonaId`, `selectPersona(id)` and a
+`selectionChanged` signal on `PersonaManagerSessionState`; reference-counted
+registry states per view.
+
+**Removal.** Replace `selectPersona` and the bounded `selectComposerPersona`
+handshake with the selection API; `whenListed` drops its re-subscription.
+
+**Reference.** The [upstream selector](https://github.com/jupyter-ai-contrib/jupyter-ai-persona-manager/blob/main/src/persona-controls.tsx)
+was checked against persona-manager 0.2.1. The moved-view regression is covered
+by `agent-continuity.spec.ts` and the native two-persona browser test.
+
+### The first message validates the picker's stamp and copies its metadata shape
+
+**Where.** `src/sessions/session-manager.ts` (`_sendFirstMessage`,
+`_awaitPersonaSelection`), `src/sessions/persona-metadata.ts` (`personaMetadata`)
+and `src/sessions/persona-registry.ts`
+(`waitForPersonas`).
+
+**What.** The new-session command can send an initial message the way the
+composer would: it
+waits for the chat's live persona list, validates the chosen agent, runs the
+chat command providers, re-stamps the chosen persona in the same shape the
+picker uses, then calls `IInputModel.send`. The default persona is read from
+the page option persona-manager documents for that purpose, but may initially
+name an uninstalled persona before the picker reconciles it with the live list.
+
+**Why.** The picker stamps from a React effect with no signal saying it has
+mounted or chosen; `buildMessageMetadata` is not exported from the package
+index; `IInputModel.send` does not run the command providers itself.
+
+**Upstream.** persona-manager: export `buildMessageMetadata` and stamp the
+selection when the state becomes `ready`; Jupyter Chat: `IInputModel.send`
+running `IChatCommandRegistry.onSubmit`.
+
+**Removal.** Delete the wait and the copied shape; call the exported builder.
+
+### Message metadata is read without a published schema
+
+**Where.** `src/sessions/acp-metadata.ts` (readers of `tool_calls[]`,
+`permission_status` and `diffs[].path`), used by the session activity markers.
+
+**What.** Activity and edited files come from metadata `jupyter-ai-acp-client`
+0.3 writes on messages.
+
+**Why.** The client publishes no schema or types for that metadata.
+
+**Upstream.** jupyter-ai-acp-client: a versioned schema (JSON schema or a small
+types package) for the message metadata.
+
+**Removal.** Type the readers against the published schema.
+
+### An optional shared package is imported lazily
+
+**Where.** `src/sessions/agent-continuity.ts`, `src/sessions/index.ts`
+(`await import('@jupyter-ai/persona-manager')`).
+
+**Why.** A shared module that is not bundled rejects the whole extension when
+absent, and bundling would create a second `Token`.
+
+**Upstream.** JupyterLab builder: `optional: true` in `sharedPackages`.
+
+### The project agent is stored in a hidden folder
+
+**Where.** `jupyterlab_lightcone/project_store.py` and `agent_defaults.py`.
+
+**What.** The last-used persona id is saved atomically in `<project>/.lightcone/agent.json`; reads are bounded and malformed stores act as an absent preference. A read-only project still receives its agent response.
+
+**Why.** The engine already ignores `.lightcone/`, but the Contents API refuses hidden paths unless `allow_hidden` is enabled server-wide. The route authorizes the project through its ContentsManager before reading the small preference store from disk.
+
+The private store directory and files cannot be symbolic links. Resolving
+the authorized project first still supports a project reached through a link,
+without allowing its private store to redirect reads or writes elsewhere.
+
+**Upstream.** lightcone-cli: a visible ignored directory for project preferences.
+
+**Removal.** Store the preference through ordinary Contents paths once the project template offers that directory.
+
+**Coverage.** The routing suite uses a local echo persona, covering absent or stale choices, remembered agents, read-only storage and processing failures. Frontend suites exercise late picker mounting, stale defaults, list disposal, initial-message handoff, activity transitions and multiple views of one chat. The browser continuity test moves a deterministic test persona between the main area and sidebar without contacting a real agent.

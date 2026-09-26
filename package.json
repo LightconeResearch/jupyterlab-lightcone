@@ -59,6 +59,7 @@
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
         "@astra-spec/ui": "0.0.7",
+        "@jupyter-ai/persona-manager": "^0.2.0",
         "@jupyter/chat": "~0.25.0",
         "@jupyterlab/application": "^4.5.10",
         "@jupyterlab/apputils": "^4.6.10",
@@ -142,6 +143,10 @@
         "sharedPackages": {
             "@jupyter/chat": {
                 "bundled": true,
+                "singleton": true
+            },
+            "@jupyter-ai/persona-manager": {
+                "bundled": false,
                 "singleton": true
             },
             "yaml": false

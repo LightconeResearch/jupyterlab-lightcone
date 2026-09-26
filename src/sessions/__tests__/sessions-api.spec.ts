@@ -12,7 +12,8 @@ const session = {
   title: 'Plot the Hubble diagram',
   modified: '2026-09-23T10:00:00+00:00',
   messages: 2,
-  lastAgent: null
+  lastAgent: null,
+  activity: 'working'
 };
 
 function respond(body: unknown, status = 200) {
@@ -43,6 +44,7 @@ describe('listSessions', () => {
   });
 
   it.each([
+    ['an unknown activity', { ...session, activity: 'busy' }],
     ['a numeric agent', { ...session, lastAgent: 5 }],
     ['a missing title', { ...session, title: undefined }],
     ['a textual message count', { ...session, messages: '2' }]

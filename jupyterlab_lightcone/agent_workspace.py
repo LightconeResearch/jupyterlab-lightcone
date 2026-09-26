@@ -3,12 +3,18 @@
 Jupyter AI starts each agent session in the chat file's own folder. It exposes
 its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
 `select_project_persona_manager` sets that trait when Jupyter AI is installed.
+
+The manager also remembers the agent each project uses (`agent_defaults`):
+a message that names no installed agent goes to the one the chat, or else its
+project, last used, instead of being dropped.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 from jupyter_ai_persona_manager import PersonaManager as JupyterAIPersonaManager
 
+from .agent_defaults import read_project_agent, remember_agent
 from .projects import CURRENT_PROJECT, join_project
 
 
@@ -45,9 +51,60 @@ class PersonaManager(JupyterAIPersonaManager):
         project = self._project()
         return str(project) if project else super().get_chat_dir()
 
+    def on_chat_message(self, chat_id: str, message):
+        """Route a message through upstream after resolving its intended agent.
+
+        Jupyter AI's picker forgets its choice whenever a chat's view is
+        rebuilt, and upstream drops a message that names no installed persona.
+        Here such a message goes to the agent this chat last addressed, else
+        the one its project last used; only a chat with neither drops it. The
+        copy handed to upstream names that agent, so upstream's own routing
+        and processing boundary deliver it.
+        """
+        persona_id = (message.metadata or {}).get(self.TO_PERSONA_METADATA_KEY)
+        persona = self.personas.get(persona_id) if persona_id else None
+        if persona is None:
+            persona = self._usual_persona()
+            if persona is None:
+                self.log.debug("A message named %s, not an agent of this chat, and it has no usual agent.", persona_id)
+                return
+            self.log.info(
+                "A message named %s, not an agent of this chat; it goes to %s, the agent last used here.",
+                persona_id or "no agent",
+                persona.name,
+            )
+        self.event_loop.create_task(self._deliver(chat_id, persona, message))
+
+    def _usual_persona(self):
+        """The persona this chat's messages last named, else its project's recorded one."""
+        try:
+            messages = self.chat.get_messages()
+        except TypeError:
+            # Jupyter Chat rebuilds each stored message with Message(**dict); a
+            # chat file another tool wrote may hold fields the model lacks.
+            self.log.warning("Could not read this chat's messages.", exc_info=True)
+            messages = []
+        for earlier in reversed(messages):
+            if earlier.sender in self.personas:
+                continue
+            named = (earlier.metadata or {}).get(self.TO_PERSONA_METADATA_KEY)
+            persona = self.personas.get(named) if isinstance(named, str) else None
+            if persona is not None:
+                return persona
+        project = self._project()
+        recorded = read_project_agent(project) if project is not None else None
+        return self.personas.get(recorded) if recorded else None
+
+    async def _deliver(self, chat_id: str, persona, message) -> None:
+        """Hand upstream a copy addressed to `persona` and remember the choice."""
+        remember_agent(self._project(), persona.id, self.log)
+        addressed = replace(message, metadata={**(message.metadata or {}), self.TO_PERSONA_METADATA_KEY: persona.id})
+        super().on_chat_message(chat_id, addressed)
+
     def _project(self) -> Path | None:
         """This chat's ASTRA project, joining the current one when it has none.
 
+        The one lookup behind the working directory and the usual agent.
         Upstream's `get_chat_dir` cannot fail and is called while a
         manager is built, so an unreadable parent folder is logged and the
         chat is treated as belonging to no project rather than losing its

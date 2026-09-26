@@ -389,3 +389,19 @@ not change the agent's working directory.
 Chat documents must be ignored by Git before materialization; the extension
 never changes a project's Git configuration. Compatibility details and upstream
 removal conditions are in [the workaround inventory](docs/workarounds.md).
+
+### Agent continuity and activity
+
+Sessions reopen with the agent they last addressed, falling back to the agent
+last used by their project. A message that names an unavailable agent is routed
+to an installed remembered agent when one exists. Starting a session through
+`jupyterlab_lightcone:new-session` can include `firstMessage` and `persona`
+arguments; the handoff waits for the live agent listing and runs the same input
+providers as Jupyter Chat. If the selected agent is unavailable, the text stays
+in the composer so the user can select another agent and send it.
+
+The session service follows Jupyter AI's public persona-state events. It
+notifies the user when a session they are not viewing finishes or needs input.
+The project preference is a small ignored `.lightcone/agent.json` file; no
+messages or agent credentials are stored there. The workaround inventory
+explains the remaining picker-selection and metadata limitations.

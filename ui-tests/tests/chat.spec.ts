@@ -355,6 +355,137 @@ decisions:
   );
 });
 
+test('a new session delivers its first message after its agent controls mount', async ({
+  page,
+  tmpPath
+}) => {
+  await page.contents.uploadContent(
+    fs.readFileSync(
+      path.resolve(__dirname, '../fixtures/personas/second_persona.py'),
+      'utf8'
+    ),
+    'text',
+    `${tmpPath}/.jupyter/personas/second_persona.py`
+  );
+  await page.contents.uploadContent(
+    'version: "0.0.14"\nname: Initial message\ninputs: []\noutputs: []\n',
+    'text',
+    `${tmpPath}/astra.yaml`
+  );
+  await page.evaluate(async entrypoint => {
+    await window.jupyterapp.commands.execute(
+      'jupyterlab_lightcone:new-session',
+      {
+        entrypoint,
+        firstMessage: 'Hello from the start',
+        persona: 'jupyter-ai-personas::second_persona::SecondPersona'
+      }
+    );
+  }, `${tmpPath}/astra.yaml`);
+  await expect(
+    page.locator('.jp-chat-rendered-message').filter({
+      hasText: 'Second test agent received: Hello from the start'
+    })
+  ).toHaveCount(1, { timeout: 30000 });
+  await expect(page.locator('.jp-jai-personaControls-persona-btn')).toHaveText(
+    'Second test agent'
+  );
+  await page
+    .locator('.jp-chat-input-container')
+    .getByRole('combobox')
+    .fill('And next?');
+  await page.locator('.jp-chat-send-button').click();
+  await expect(
+    page.locator('.jp-chat-rendered-message').filter({
+      hasText: 'Second test agent received: And next?'
+    })
+  ).toHaveCount(1, { timeout: 30000 });
+});
+
+test('a chat keeps the agent it last used when it moves to the side panel and back', async ({
+  page,
+  tmpPath
+}) => {
+  // Two agents start, one message is answered and the chat moves twice.
+  test.setTimeout(150000);
+  const entrypoint = `${tmpPath}/astra.yaml`;
+  for (const persona of ['lightcone_persona.py', 'second_persona.py']) {
+    await page.contents.uploadContent(
+      fs.readFileSync(
+        path.resolve(__dirname, `../fixtures/personas/${persona}`),
+        'utf8'
+      ),
+      'text',
+      `${tmpPath}/.jupyter/personas/${persona}`
+    );
+  }
+  await page.contents.uploadContent(
+    'version: "0.0.14"\nname: Agents\ninputs: []\noutputs: []\n',
+    'text',
+    entrypoint
+  );
+  await page.contents.createDirectory(`${tmpPath}/chats`);
+  await page.evaluate(async directory => {
+    const created = await window.jupyterapp.commands.execute(
+      'jupyterlab-chat:create',
+      { path: directory }
+    );
+    await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
+      filepath: created
+    });
+  }, `${tmpPath}/chats`);
+  const mainPicker = page.locator(
+    '#jp-main-dock-panel .jp-chat-input-container .jp-jai-personaControls-persona-btn'
+  );
+  await expect(mainPicker).toHaveText('Lightcone test agent', {
+    timeout: 30000
+  });
+  await mainPicker.click();
+  await page.getByRole('menuitem', { name: 'Second test agent' }).click();
+  await expect(mainPicker).toHaveText('Second test agent');
+  await page
+    .locator('.jp-chat-input-container')
+    .getByRole('combobox')
+    .fill('Who answers?');
+  await page.locator('.jp-chat-send-button').click();
+  await expect(
+    page
+      .locator('.jp-chat-rendered-message')
+      .filter({ hasText: 'Second test agent received: Who answers?' })
+  ).toHaveCount(1, { timeout: 30000 });
+  // The server remembers the project's agent for chats opened later.
+  const recorded = await page.evaluate(async path => {
+    const response = await fetch(
+      `/jupyterlab_lightcone/api/project-agent?path=${encodeURIComponent(path)}`
+    );
+    return response.json();
+  }, entrypoint);
+  expect(recorded).toEqual({
+    persona: 'jupyter-ai-personas::second_persona::SecondPersona'
+  });
+
+  // Moved to the side panel, the chat opens with the same agent...
+  await page
+    .locator('#jp-main-dock-panel [data-command="jupyterlab-chat:moveChat"]')
+    .click();
+  const sidePicker = page.locator(
+    '#jp-left-stack .jp-jai-personaControls-persona-btn'
+  );
+  await expect(sidePicker).toHaveText('Second test agent', {
+    timeout: 30000
+  });
+  // ...and again once it is back in the main area.
+  // The side panel's own move command, which its toolbar button runs.
+  await page.evaluate(() =>
+    window.jupyterapp.commands.execute('jupyterlab-chat:moveChat', {
+      area: 'sidebar'
+    })
+  );
+  await expect(mainPicker).toHaveText('Second test agent', {
+    timeout: 30000
+  });
+});
+
 test('a chat created outside every project joins the current project and keeps it', async ({
   page,
   tmpPath

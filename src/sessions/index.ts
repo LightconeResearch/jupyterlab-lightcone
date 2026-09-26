@@ -1,6 +1,7 @@
 import {
   chatIcon,
   IChatBodyPlaceholderFactory,
+  IChatCommandRegistry,
   IChatTracker
 } from '@jupyter/chat';
 import {
@@ -17,21 +18,32 @@ import { CommandIDs, requireProject } from '../commands';
 import { ICurrentProject } from '../current-project';
 import type { IProjectRoot } from '../project-root';
 import { PALETTE_CATEGORY } from '../workbench-ids';
+import { resolvePersonaRegistry } from './persona-registry';
 import { SessionManager } from './session-manager';
 import { SessionPlaceholderFactory } from './session-placeholder';
 import { ISessionService } from './session-service';
 
-export { ISessionService, type ISessionStartOptions } from './session-service';
 export {
+  ISessionService,
+  type ISessionStartOptions,
+  type SessionState
+} from './session-service';
+export { agentContinuityPlugin } from './agent-continuity';
+export {
+  fetchProjectAgent,
   listSessions,
   type ISessionInfo,
-  type ISessionListing
+  type ISessionListing,
+  type SessionActivity
 } from './sessions-api';
 export {
   SessionManager,
   isChatPanel,
+  isComposerStamp,
   isRecordTab,
   isSessionWidget,
+  personaMetadata,
+  selectedPersona,
   trackedSession,
   type ISessionManagerOptions
 } from './session-manager';
@@ -42,6 +54,16 @@ export {
   titleFromMessage,
   uniqueSessionName
 } from './session-titles';
+export {
+  activityTransition,
+  deriveSessionState,
+  hasPendingPermission,
+  isPersonaUser,
+  listActivity,
+  type ActivityTransition,
+  type ISessionSnapshot
+} from './session-activity';
+export { readToolCalls, type IToolCall } from './acp-metadata';
 
 export namespace SessionsCommandArguments {
   export interface INewSession {
@@ -50,6 +72,8 @@ export namespace SessionsCommandArguments {
     /** A folder to locate the project from when `entrypoint` is absent. */
     cwd?: string;
     title?: string;
+    firstMessage?: string;
+    persona?: string;
   }
 
   export interface IOpenSession {
@@ -73,7 +97,9 @@ export function readNewSessionArgs(
   return {
     entrypoint: optionalString(args, 'entrypoint'),
     cwd: optionalString(args, 'cwd'),
-    title: optionalString(args, 'title')
+    title: optionalString(args, 'title'),
+    firstMessage: optionalString(args, 'firstMessage'),
+    persona: optionalString(args, 'persona')
   };
 }
 
@@ -86,9 +112,10 @@ export function readOpenSessionArgs(
 }
 
 /**
- * Provide project-session commands and `ISessionService` when Jupyter Chat's
- * tracker is available. Consumers can take the service optionally and omit
- * session controls when chat support is absent.
+ * Provide project-session commands and `ISessionService` when Jupyter Chat is
+ * available. Consumers can take the service optionally and omit session
+ * controls when chat support is absent. The persona manager's public registry
+ * supplies live activity, with the server event stream as a fallback.
  */
 export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
   id: 'jupyterlab_lightcone:sessions',
@@ -97,25 +124,36 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
   autoStart: true,
   provides: ISessionService,
   requires: [ICurrentProject, IChatTracker, IDocumentManager],
-  optional: [ILabShell, ICommandPalette, IFileBrowserFactory, ITranslator],
+  optional: [
+    IChatCommandRegistry,
+    ILabShell,
+    ICommandPalette,
+    IFileBrowserFactory,
+    ITranslator
+  ],
   activate: async (
     app: JupyterFrontEnd,
     current: ICurrentProject,
     tracker: IChatTracker,
     documents: IDocumentManager,
+    chatCommands: IChatCommandRegistry | null,
     labShell: ILabShell | null,
     palette: ICommandPalette | null,
     browser: IFileBrowserFactory | null,
     translator: ITranslator | null
   ): Promise<ISessionService> => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
+    const registry = await resolvePersonaRegistry(app);
     const sessions = new SessionManager({
       commands: app.commands,
       shell: app.shell,
       contents: app.serviceManager.contents,
       documents,
       tracker,
+      chatCommands,
       labShell,
+      events: app.serviceManager.events,
+      registry,
       translator: translator ?? undefined
     });
     app.shell.disposed.connect(() => {
@@ -134,13 +172,16 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
           properties: {
             entrypoint: { type: 'string' },
             cwd: { type: 'string' },
-            title: { type: 'string' }
+            title: { type: 'string' },
+            firstMessage: { type: 'string' },
+            persona: { type: 'string' }
           }
         }
       },
       execute: async args => {
         try {
-          const { entrypoint, cwd, title } = readNewSessionArgs(args);
+          const { entrypoint, cwd, title, firstMessage, persona } =
+            readNewSessionArgs(args);
           let root: IProjectRoot | undefined;
           if (entrypoint) {
             root = await requireProject(app, { entrypoint });
@@ -169,7 +210,9 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
             return null;
           }
           return await sessions.createAndOpen(root.entrypoint, {
-            title
+            title,
+            firstMessage,
+            persona
           });
         } catch (error) {
           await showErrorMessage(

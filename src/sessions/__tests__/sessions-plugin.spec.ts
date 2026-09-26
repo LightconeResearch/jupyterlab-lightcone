@@ -30,6 +30,12 @@ jest.mock('@jupyter/chat', () => {
     useChatContext: jest.fn()
   };
 });
+jest.mock('@jupyter-ai/persona-manager', () => {
+  const { Token } = jest.requireActual('@lumino/coreutils');
+  return {
+    IPersonaSessionRegistry: new Token('@jupyter-ai/persona-manager:registry')
+  };
+});
 jest.mock('../../commands', () => ({
   CommandIDs: {
     discuss: 'jupyterlab_lightcone:discuss',
@@ -152,10 +158,14 @@ beforeEach(() => {
 
 describe('command arguments', () => {
   it('reads strings and ignores values of other types', () => {
-    expect(readNewSessionArgs({ cwd: 'p/data', title: 3 })).toEqual({
+    expect(
+      readNewSessionArgs({ cwd: 'p/data', firstMessage: 'Hi', persona: 3 })
+    ).toEqual({
       entrypoint: undefined,
       cwd: 'p/data',
-      title: undefined
+      title: undefined,
+      firstMessage: 'Hi',
+      persona: undefined
     });
     expect(readOpenSessionArgs({ path: 'p/chats/a.chat' })).toEqual({
       path: 'p/chats/a.chat'
@@ -201,18 +211,24 @@ describe('sessionsPlugin', () => {
         directory: 'p/data'
       });
       expect(create).toHaveBeenLastCalledWith('p/astra.yaml', {
-        title: undefined
+        title: undefined,
+        firstMessage: undefined,
+        persona: undefined
       });
 
       await host.commands.execute(CommandIDs.newSession, {
         entrypoint: 'p/astra.yaml',
-        title: 'Plan'
+        title: 'Plan',
+        firstMessage: 'Hi',
+        persona: 'x'
       });
       expect(requireProject).toHaveBeenLastCalledWith(host.app, {
         entrypoint: 'p/astra.yaml'
       });
       expect(create).toHaveBeenLastCalledWith('p/astra.yaml', {
-        title: 'Plan'
+        title: 'Plan',
+        firstMessage: 'Hi',
+        persona: 'x'
       });
 
       // A project the user declined to set up starts nothing.
@@ -283,10 +299,15 @@ describe('sessionsPlugin', () => {
       .spyOn(SessionManager.prototype, 'openSession')
       .mockResolvedValue(undefined);
     try {
-      await host.commands.execute(CommandIDs.newSession, {});
+      await host.commands.execute(CommandIDs.newSession, {
+        firstMessage: 'Hi',
+        persona: 'x'
+      });
       expect(requireProject).not.toHaveBeenCalled();
       expect(create).toHaveBeenCalledWith('p/astra.yaml', {
-        title: undefined
+        title: undefined,
+        firstMessage: 'Hi',
+        persona: 'x'
       });
 
       await expect(

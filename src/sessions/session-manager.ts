@@ -1,8 +1,18 @@
-import type { IChatModel, IChatPanel, IChatTracker } from '@jupyter/chat';
+import type {
+  IChatCommandRegistry,
+  IChatModel,
+  IChatPanel,
+  IChatTracker
+} from '@jupyter/chat';
+import type {
+  PersonaManagerSessionState,
+  PersonaSessionRegistry
+} from '@jupyter-ai/persona-manager';
 import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
-import { PathExt } from '@jupyterlab/coreutils';
+import { Notification } from '@jupyterlab/apputils';
+import { PageConfig, PathExt } from '@jupyterlab/coreutils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
-import type { Contents } from '@jupyterlab/services';
+import type { Contents, Event } from '@jupyterlab/services';
 import {
   nullTranslator,
   type ITranslator,
@@ -15,28 +25,60 @@ import { Signal, type ISignal } from '@lumino/signaling';
 import { Widget, type DockLayout } from '@lumino/widgets';
 import { isRecord } from '../api';
 import { isUnderProject, projectDirectory } from '../project-data';
+import { findProjectRoot } from '../project-root';
+import {
+  COMPOSER_TIMEOUT,
+  selectComposerPersona,
+  waitForPersonas
+} from './persona-registry';
+import {
+  isComposerStamp,
+  selectedPersona,
+  personaMetadata
+} from './persona-metadata';
+export {
+  isComposerStamp,
+  selectedPersona,
+  personaMetadata
+} from './persona-metadata';
 import {
   CHAT_FACTORY,
   CREATE_CHAT_COMMAND,
   ELEMENT_TAB_DATASET_KEY,
   SESSION_TITLE_DATASET_KEY
 } from '../workbench-ids';
-import type { ISessionService, ISessionStartOptions } from './session-service';
+import {
+  activityTransition,
+  deriveSessionState,
+  isPersonaUser,
+  listActivity,
+  readPersonaStateEvent,
+  type ActivityTransition
+} from './session-activity';
+import type {
+  ISessionService,
+  ISessionStartOptions,
+  SessionState
+} from './session-service';
 import {
   slugForTitle,
+  titleForSession,
   titleFromMessage,
   uniqueSessionName,
   SESSION_FILE_EXTENSION,
   UNTITLED_SLUG
 } from './session-titles';
 import {
+  fetchProjectAgent,
   listSessions,
   type ISessionInfo,
   type ISessionListing
 } from './sessions-api';
-import { isPersonaUser } from './session-user';
 
 export { CHAT_FACTORY, SESSION_TITLE_DATASET_KEY } from '../workbench-ids';
+
+/** PageConfig option the persona manager uses to advertise its default persona. */
+const DEFAULT_PERSONA_OPTION = 'jupyter_ai_default_persona';
 
 /** A listing this recent is reused instead of fetched again. */
 const LISTING_TTL = 2000;
@@ -56,6 +98,9 @@ const POLL_INTERVAL = 15000;
 export const RENAME_QUIET_PERIOD = 2000;
 /** The project folder that holds sessions (`CHATS_DIRECTORY` in `sessions.py`). */
 const CHATS_DIRECTORY = 'chats';
+const FINISHED_TOAST_DURATION = 8000;
+const ATTENTION_TOAST_DURATION = 15000;
+
 /** Dependencies of the session manager, narrowed for testing. */
 export interface ISessionManagerOptions {
   commands: CommandRegistry;
@@ -65,8 +110,21 @@ export interface ISessionManagerOptions {
   documents: IDocumentManager;
   /** Jupyter Chat's panel tracker; null when Jupyter Chat is absent. */
   tracker: IChatTracker | null;
+  /** Command providers run before a message is sent, as the composer does. */
+  chatCommands: IChatCommandRegistry | null;
   /** The Lab shell, for focus changes; null in other shells. */
   labShell: ILabShell | null;
+  /**
+   * The server's event stream, carrying persona activity; read only without
+   * `registry`, and null to ignore it.
+   */
+  events: Event.IManager | null;
+  /**
+   * Jupyter AI's persona session registry, whose per-chat state says whether
+   * a persona is processing; null without the persona manager, when the
+   * event stream is read instead.
+   */
+  registry?: PersonaSessionRegistry | null;
   translator?: ITranslator;
 }
 
@@ -99,7 +157,15 @@ interface ILiveSession {
   panel: IChatPanel;
   /** Local Contents path of the chat file, the key of `_live`. */
   path: string;
-  /** Name only chats whose first human message arrives while open. */
+  chatId: string | null;
+  entrypoint: Promise<string | null>;
+  state: SessionState;
+  initialized: boolean;
+  /**
+   * Whether the chat had a first message when its content loaded; undefined
+   * until then. Only a session that gets its first message while open is
+   * named after it.
+   */
   titledWhenLoaded?: boolean;
   /**
    * Whether this window tried to name the file after its first message. It
@@ -108,6 +174,9 @@ interface ILiveSession {
   named?: boolean;
   /** The rename waiting for the session to go quiet. */
   naming?: ReturnType<typeof setTimeout>;
+  /** The persona manager's state for the chat, when the registry serves one. */
+  personaState?: PersonaManagerSessionState;
+  onPersonaChanged: () => void;
   disconnect: () => void;
 }
 
@@ -121,7 +190,7 @@ const UNTITLED_SESSION = new RegExp(
 
 /**
  * Whether a session is still named `untitled`: created in `chats/` before its
- * first message was written, as New session and Lightcone Agent create them.
+ * first message was written, as the sidebar and Lightcone Agent create them.
  */
 export function isUntitledSession(localPath: string): boolean {
   return UNTITLED_SESSION.test(localPath);
@@ -207,7 +276,8 @@ export function syncSessionTabTitle(panel: IChatPanel): void {
 
 /**
  * Project-scoped sessions: lists them through the server, opens them as
- * main-area chat documents, and names new sessions after their first message.
+ * main-area chat documents, follows the activity of open chats and tells the
+ * user when a session they are not looking at finishes or needs them.
  */
 export class SessionManager implements ISessionService, IDisposable {
   constructor(options: ISessionManagerOptions) {
@@ -216,12 +286,16 @@ export class SessionManager implements ISessionService, IDisposable {
     this._contents = options.contents;
     this._documents = options.documents;
     this._tracker = options.tracker;
+    this._chatCommands = options.chatCommands;
     this._labShell = options.labShell;
+    this._registry = options.registry ?? null;
+    this._events = options.events;
     this._trans = (options.translator ?? nullTranslator).load(
       'jupyterlab_lightcone'
     );
     this._tracker?.forEach(panel => this._track(panel));
     this._tracker?.widgetAdded.connect(this._onPanelAdded, this);
+    this._events?.stream.connect(this._onEvent, this);
     this._labShell?.currentChanged.connect(this._onCurrentChanged, this);
     this._contents.fileChanged.connect(this._onFileChanged, this);
     this._poll = new Poll<void, unknown>({
@@ -240,9 +314,19 @@ export class SessionManager implements ISessionService, IDisposable {
     return this._isDisposed;
   }
 
-  /** The sessions of a project, newest first. */
+  /** The sessions of a project, with live activity for the open ones. */
   async list(entrypoint: string): Promise<ISessionInfo[]> {
-    return (await this._listing(entrypoint)).sessions;
+    const listing = await this._listing(entrypoint);
+    return listing.sessions.map(info => {
+      const live = this.activity(info.path);
+      return live === undefined
+        ? info
+        : { ...info, activity: listActivity(live) };
+    });
+  }
+
+  activity(path: string): SessionState | undefined {
+    return this._live.get(this._contents.localPath(path))?.state;
   }
 
   async createAndOpen(
@@ -264,7 +348,8 @@ export class SessionManager implements ISessionService, IDisposable {
       CHATS_DIRECTORY
     );
     await this._contents.save(directory, { type: 'directory' });
-    const title = options.title?.trim() ?? '';
+    const title =
+      options.title?.trim() || titleFromMessage(options.firstMessage ?? '');
     const name = await uniqueSessionName(
       this._contents,
       directory,
@@ -279,7 +364,12 @@ export class SessionManager implements ISessionService, IDisposable {
     }
     this._invalidate(key);
     const panel = await this._open(created);
-    if (options.draft) {
+    const message = options.firstMessage?.trim() ?? '';
+    if (message) {
+      // Without an explicit choice, the session keeps the project's agent.
+      const persona = options.persona || (await this._projectAgent(key));
+      await this._sendFirstMessage(panel, message, persona);
+    } else if (options.draft) {
       await this._draft(panel, options.draft);
     }
     return created;
@@ -296,12 +386,15 @@ export class SessionManager implements ISessionService, IDisposable {
     this._isDisposed = true;
     this._poll.dispose();
     this._tracker?.widgetAdded.disconnect(this._onPanelAdded, this);
+    this._events?.stream.disconnect(this._onEvent, this);
     this._labShell?.currentChanged.disconnect(this._onCurrentChanged, this);
     this._contents.fileChanged.disconnect(this._onFileChanged, this);
     for (const live of this._live.values()) {
       live.disconnect();
     }
     this._live.clear();
+    this._byChatId.clear();
+    this._processing.clear();
     this._listings.clear();
     this._fetches.clear();
     Signal.clearData(this);
@@ -403,6 +496,124 @@ export class SessionManager implements ISessionService, IDisposable {
     model.input.focus();
   }
 
+  /**
+   * Send the first message the way the composer would: through the chat
+   * command providers, then through the input model, addressed to `persona`
+   * when the caller chose one and otherwise to the persona the picker
+   * selects. A message nobody would receive stays in the composer instead of
+   * vanishing.
+   */
+  private async _sendFirstMessage(
+    panel: IChatPanel,
+    message: string,
+    persona: string | undefined
+  ): Promise<void> {
+    const model = panel.model;
+    await model.ready;
+    if (panel.isDisposed) {
+      return;
+    }
+    const available = this._registry
+      ? await waitForPersonas(this._registry, panel)
+      : undefined;
+    const stamped = persona
+      ? null
+      : this._registry
+        ? selectedPersona(model.input.getMetadata())
+        : await this._awaitPersonaSelection(model);
+    if (panel.isDisposed) {
+      return;
+    }
+    let target =
+      persona ||
+      stamped ||
+      PageConfig.getOption(DEFAULT_PERSONA_OPTION) ||
+      null;
+    if (this._registry) {
+      const listed = available?.personas ?? [];
+      if (!listed.some(option => option.id === target)) {
+        // An explicit choice is never silently replaced by a different agent.
+        // A stale default can yield to the chat's sole available agent.
+        target = !persona && listed.length === 1 ? listed[0].id : null;
+      }
+    }
+    model.input.value = message;
+    if (!target) {
+      model.input.focus();
+      Notification.warning(
+        this._trans.__(
+          'The selected agent is unavailable. Choose an available agent and press Send.'
+        ),
+        { autoClose: ATTENTION_TOAST_DURATION }
+      );
+      return;
+    }
+    if (available && selectedPersona(model.input.getMetadata()) !== target) {
+      await selectComposerPersona(panel, available, target);
+      if (panel.isDisposed) return;
+    }
+    await this._chatCommands?.onSubmit(model.input);
+    // Stamped last: the picker may restamp while the providers run, and
+    // `send` snapshots the metadata synchronously, so nothing can overwrite
+    // this stamp on the message itself.
+    if (selectedPersona(model.input.getMetadata()) !== target) {
+      model.input.updateMetadata(personaMetadata(target));
+    }
+    model.input.send(model.input.value);
+    model.input.focus();
+  }
+
+  /**
+   * Wait for the persona picker to stamp a chosen persona on the composer,
+   * and resolve with it (null after a timeout, when no picker is mounted or
+   * it keeps "No one").
+   *
+   * The picker stamps `to_persona` as soon as its toolbar mounts, but a
+   * `to_persona: null` stamp is not final yet: the picker still selects a
+   * chat's sole persona once its persona list arrives. Only a chosen persona
+   * ends the wait early.
+   */
+  private _awaitPersonaSelection(model: IChatModel): Promise<string | null> {
+    const decided = (metadata: unknown): boolean =>
+      isComposerStamp(metadata) && selectedPersona(metadata) !== null;
+    const current = model.input.getMetadata();
+    if (decided(current)) {
+      return Promise.resolve(selectedPersona(current));
+    }
+    const signal = model.input.metadataChanged;
+    if (!signal) {
+      return Promise.resolve(null);
+    }
+    return new Promise<string | null>(resolve => {
+      const finish = (value: string | null) => {
+        window.clearTimeout(timer);
+        signal.disconnect(onChange);
+        resolve(value);
+      };
+      const onChange = () => {
+        const metadata = model.input.getMetadata();
+        if (decided(metadata)) {
+          finish(selectedPersona(metadata));
+        }
+      };
+      const timer = window.setTimeout(() => finish(null), COMPOSER_TIMEOUT);
+      signal.connect(onChange);
+    });
+  }
+
+  /** The persona the project's messages last went to; undefined when unknown. */
+  private async _projectAgent(entrypoint: string): Promise<string | undefined> {
+    try {
+      return (
+        (await fetchProjectAgent(this._contents.serverSettings, entrypoint)) ??
+        undefined
+      );
+    } catch (error) {
+      console.warn('Could not read the project agent.', error);
+      return undefined;
+    }
+  }
+
   /** A caller's request for a listing: counts as activity, reuses a fresh one. */
   private async _listing(entrypoint: string): Promise<ISessionListing> {
     const key = this._contents.normalize(entrypoint);
@@ -487,45 +698,192 @@ export class SessionManager implements ISessionService, IDisposable {
     this._track(panel);
   }
 
-  /** Follow message changes so newly written sessions acquire a title. */
-  private _track(panel: IChatPanel): void {
-    if (panel.isDisposed || panel.area !== 'main') return;
+  /**
+   * Follow the activity of an open chat. A chat already followed through
+   * another panel keeps that panel, unless this one is a main-area session
+   * and the other is not: then this one takes over. `inherited` is the live
+   * state of the panel being replaced; the new panel starts from it, so the
+   * handover itself raises no notification.
+   */
+  private _track(panel: IChatPanel, inherited?: ILiveSession): void {
+    if (panel.isDisposed) {
+      return;
+    }
     const path = this._contents.localPath(panel.model.name);
-    if (this._live.has(path)) return;
+    const existing = this._live.get(path);
+    if (existing) {
+      if (
+        existing.panel === panel ||
+        existing.panel.area === 'main' ||
+        panel.area !== 'main'
+      ) {
+        return;
+      }
+      this._release(existing);
+      inherited = existing;
+    }
     const model = panel.model;
-    const update = () => {
-      syncSessionTabTitle(panel);
-      this._scheduleNaming(live);
-    };
-    const onDisposed = () => {
-      live.disconnect();
-      this._live.delete(live.path);
-      if (this._lastSession === panel) this._lastSession = null;
-    };
+    const update = () => this._update(live);
+    const onDisposed = () => this._untrack(live);
     const live: ILiveSession = {
       panel,
       path,
+      chatId: inherited?.chatId ?? null,
+      entrypoint: inherited?.entrypoint ?? this._resolveEntrypoint(path),
+      state: inherited?.state ?? 'idle',
+      initialized: inherited?.initialized ?? false,
+      titledWhenLoaded: inherited?.titledWhenLoaded,
+      named: inherited?.named,
+      onPersonaChanged: update,
       disconnect: () => {
         clearTimeout(live.naming);
         model.messagesUpdated.disconnect(update);
         model.messageChanged.disconnect(update);
         model.writersChanged?.disconnect(update);
         panel.disposed.disconnect(onDisposed);
+        live.personaState?.changed.disconnect(live.onPersonaChanged);
+        live.personaState = undefined;
       }
     };
-    this._live.set(path, live);
     model.messagesUpdated.connect(update);
     model.messageChanged.connect(update);
     model.writersChanged?.connect(update);
     panel.disposed.connect(onDisposed);
-    void model.ready
-      .then(() => {
-        if (this._isDisposed || this._live.get(live.path) !== live) return;
-        live.titledWhenLoaded = !!messagesTitle(model.messages);
-        update();
+    this._live.set(path, live);
+    if (live.chatId !== null) {
+      this._byChatId.set(live.chatId, live);
+    }
+    model.ready
+      .then(id => {
+        if (this._isDisposed || this._live.get(live.path) !== live) {
+          return;
+        }
+        if (
+          live.chatId !== null &&
+          live.chatId !== id &&
+          this._byChatId.get(live.chatId) === live
+        ) {
+          this._byChatId.delete(live.chatId);
+        }
+        live.chatId = id;
+        this._byChatId.set(id, live);
+        live.titledWhenLoaded ??= !!messagesTitle(live.panel.model.messages);
+        // Apply persona activity reported before the chat was ready.
+        this._update(live);
       })
-      .catch(error => console.warn('Could not load the session title.', error));
-    syncSessionTabTitle(panel);
+      .catch(() => undefined);
+    // A panel taking over keeps the state it inherited until its own model
+    // has loaded the chat: an empty model would read as a finished session.
+    if (!inherited) {
+      this._update(live);
+    }
+  }
+
+  /** Stop following a panel, without announcing anything. */
+  private _release(live: ILiveSession): void {
+    live.disconnect();
+    if (this._live.get(live.path) === live) {
+      this._live.delete(live.path);
+    }
+    if (live.chatId !== null && this._byChatId.get(live.chatId) === live) {
+      this._byChatId.delete(live.chatId);
+    }
+    if (this._lastSession === live.panel) {
+      this._lastSession = null;
+    }
+  }
+
+  /**
+   * A followed panel closed. Another open panel of the same chat, e.g. the
+   * main-area document Jupyter Chat's "move to the main area" opens before
+   * closing the side panel, takes over its state; otherwise the listings fall
+   * back to the server's view.
+   */
+  private _untrack(live: ILiveSession): void {
+    this._release(live);
+    const successor = this._successor(live);
+    if (successor) {
+      this._track(successor, live);
+    } else {
+      this._announce(live);
+    }
+  }
+
+  /** Another open panel of the chat `live` followed, preferring the main area. */
+  private _successor(live: ILiveSession): IChatPanel | undefined {
+    const candidates: IChatPanel[] = [];
+    this._tracker?.forEach(panel => {
+      if (
+        panel !== live.panel &&
+        !panel.isDisposed &&
+        this._contents.localPath(panel.model.name) === live.path
+      ) {
+        candidates.push(panel);
+      }
+    });
+    return candidates.find(panel => panel.area === 'main') ?? candidates[0];
+  }
+
+  private _update(live: ILiveSession): void {
+    syncSessionTabTitle(live.panel);
+    this._scheduleNaming(live);
+    const model = live.panel.model;
+    const next = deriveSessionState({
+      messages: model.messages,
+      writers: model.writers,
+      processing: this._processingIn(live)
+    });
+    if (live.initialized && next === live.state) {
+      return;
+    }
+    const transition = activityTransition(
+      live.initialized ? live.state : undefined,
+      next
+    );
+    live.state = next;
+    live.initialized = true;
+    if (transition) {
+      this._notify(live, transition);
+    }
+    this._announce(live);
+  }
+
+  /**
+   * Whether a persona reports processing a message in the chat: from the
+   * persona manager's registry when there is one, else from the personas the
+   * event stream reported.
+   */
+  private _processingIn(live: ILiveSession): boolean {
+    if (live.chatId === null) {
+      return false;
+    }
+    const state = this._personaState(live, live.chatId);
+    if (state) {
+      return state.processing;
+    }
+    return !!this._processing.get(live.chatId)?.size;
+  }
+
+  /**
+   * The registry's state for the chat, followed for its changes. The
+   * registry discards a chat's state when any view of the chat closes and
+   * hands out a fresh one on the next `get`, so the state is looked up on
+   * every update and the `changed` connection moves along with it.
+   */
+  private _personaState(
+    live: ILiveSession,
+    chatId: string
+  ): PersonaManagerSessionState | undefined {
+    if (!this._registry) {
+      return undefined;
+    }
+    const state = this._registry.get(chatId);
+    if (live.personaState !== state) {
+      live.personaState?.changed.disconnect(live.onPersonaChanged);
+      live.personaState = state;
+      state.changed.connect(live.onPersonaChanged);
+    }
+    return state;
   }
 
   /**
@@ -601,6 +959,112 @@ export class SessionManager implements ISessionService, IDisposable {
     });
   }
 
+  private _announce(live: ILiveSession): void {
+    void live.entrypoint.then(entrypoint => {
+      if (entrypoint !== null && !this._isDisposed) {
+        this._changed.emit(entrypoint);
+      }
+    });
+  }
+
+  /** Tell the user about a session they are not looking at. */
+  private _notify(live: ILiveSession, transition: ActivityTransition): void {
+    const watching =
+      this._shell.currentWidget === live.panel &&
+      document.visibilityState === 'visible' &&
+      document.hasFocus();
+    if (watching) {
+      return;
+    }
+    const title = this._liveTitle(live);
+    const path = live.path;
+    const actions: Notification.IAction[] = [
+      {
+        label: this._trans.__('Open session'),
+        callback: () => {
+          this.openSession(path).catch(error => {
+            console.warn('Could not open the Lightcone session.', error);
+          });
+        }
+      }
+    ];
+    if (transition === 'finished') {
+      Notification.info(this._trans.__('%1 finished', title), {
+        actions,
+        autoClose: FINISHED_TOAST_DURATION
+      });
+    } else {
+      Notification.warning(this._trans.__('%1 needs your input', title), {
+        actions,
+        autoClose: ATTENTION_TOAST_DURATION
+      });
+    }
+  }
+
+  /** The title the server would give this chat, computed from its messages. */
+  private _liveTitle(live: ILiveSession): string {
+    for (const cached of this._listings.values()) {
+      const listed = cached.listing.sessions.find(
+        info => this._contents.localPath(info.path) === live.path
+      );
+      if (listed) {
+        return titleForSession(listed);
+      }
+    }
+    return titleForSession({
+      path: live.path,
+      title: messagesTitle(live.panel.model.messages)
+    });
+  }
+
+  private _resolveEntrypoint(path: string): Promise<string | null> {
+    let directory: string;
+    try {
+      directory = projectDirectory(path);
+    } catch {
+      return Promise.resolve(null);
+    }
+    return findProjectRoot(this._contents, directory)
+      .then(root => root?.entrypoint ?? null)
+      .catch(() => null);
+  }
+
+  /**
+   * Without the persona manager's registry, record which personas report
+   * processing a message, per chat id, whether or not a panel of that chat is
+   * ready yet: the persona manager re-emits its state when a client connects
+   * to a chat, which can arrive before the chat's `ready` resolves.
+   */
+  private _onEvent(_manager: Event.IManager, emission: Event.Emission): void {
+    const event = readPersonaStateEvent(emission);
+    if (!event || event.processing === undefined) {
+      return;
+    }
+    const live = this._byChatId.get(event.chatId);
+    if (this._registry) {
+      // Closing another view silently disposes the subscribed state. The
+      // shared event stream wakes us when its replacement receives activity.
+      if (live) this._update(live);
+      return;
+    }
+    let personas = this._processing.get(event.chatId);
+    if (event.processing) {
+      if (!personas) {
+        personas = new Set();
+        this._processing.set(event.chatId, personas);
+      }
+      personas.add(event.personaId);
+    } else if (personas) {
+      personas.delete(event.personaId);
+      if (!personas.size) {
+        this._processing.delete(event.chatId);
+      }
+    }
+    if (live) {
+      this._update(live);
+    }
+  }
+
   /**
    * Remember the session the user works in, and put the cursor back in its
    * composer when closing another tab hands the focus back to it.
@@ -652,6 +1116,7 @@ export class SessionManager implements ISessionService, IDisposable {
       if (live) {
         this._live.delete(live.path);
         live.path = this._contents.localPath(newPath);
+        live.entrypoint = this._resolveEntrypoint(live.path);
         this._live.set(live.path, live);
       }
     }
@@ -668,7 +1133,10 @@ export class SessionManager implements ISessionService, IDisposable {
   private readonly _contents: Contents.IManager;
   private readonly _documents: IDocumentManager;
   private readonly _tracker: IChatTracker | null;
+  private readonly _chatCommands: IChatCommandRegistry | null;
   private readonly _labShell: ILabShell | null;
+  private readonly _events: Event.IManager | null;
+  private readonly _registry: PersonaSessionRegistry | null;
   private readonly _trans: TranslationBundle;
   private readonly _poll: Poll<void, unknown>;
   private readonly _changed = new Signal<this, string>(this);
@@ -677,6 +1145,9 @@ export class SessionManager implements ISessionService, IDisposable {
   /** How often each project's chats changed, so older requests are not reused. */
   private readonly _versions = new Map<string, number>();
   private readonly _live = new Map<string, ILiveSession>();
+  private readonly _byChatId = new Map<string, ILiveSession>();
+  /** Without the registry: personas reporting that they process a message, by chat id. */
+  private readonly _processing = new Map<string, Set<string>>();
   private _lastSession: IChatPanel | null = null;
   private _isDisposed = false;
 }

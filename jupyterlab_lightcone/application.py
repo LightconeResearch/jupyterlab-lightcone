@@ -2,6 +2,8 @@
 
 from jupyter_server.extension.application import ExtensionApp
 
+from .agent_activity import watch_persona_activity
+from .agent_defaults import setup_project_agent_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
 from .routes import setup_route_handlers
@@ -19,6 +21,7 @@ class LightconeApp(ExtensionApp):
         """Prepare the environment the in-process Lightcone engine relies on."""
         expose_engine_tools()
         self._root_agents_in_projects()
+        watch_persona_activity(self.serverapp)
 
     def _root_agents_in_projects(self):
         """Start Jupyter AI agents at their project root; a no-op without Jupyter AI.
@@ -51,3 +54,4 @@ class LightconeApp(ExtensionApp):
         setup_materialization_handlers(app)
         setup_provenance_handlers(app)
         setup_session_handlers(app)
+        setup_project_agent_handlers(app)

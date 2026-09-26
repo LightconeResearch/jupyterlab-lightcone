@@ -2,6 +2,9 @@ import type { ServerConnection } from '@jupyterlab/services';
 import { isRecord, RequestError } from '../api';
 import { requestAPI } from '../request';
 
+/** Activity of a session as the server reports it. */
+export type SessionActivity = 'working' | 'idle';
+
 /** One conversation stored as a `.chat` file inside a project. */
 export interface ISessionInfo {
   /** Contents path of the `.chat` file. */
@@ -17,6 +20,8 @@ export interface ISessionInfo {
   messages: number | null;
   /** Display name of the last agent that replied, when known. */
   lastAgent: string | null;
+  /** Whether an agent is processing a message in this session. */
+  activity: SessionActivity;
 }
 
 /** The server's listing of a project's sessions. */
@@ -31,7 +36,8 @@ function isSessionInfo(value: unknown): value is ISessionInfo {
     typeof value.title === 'string' &&
     typeof value.modified === 'string' &&
     (value.messages === null || typeof value.messages === 'number') &&
-    (value.lastAgent === null || typeof value.lastAgent === 'string')
+    (value.lastAgent === null || typeof value.lastAgent === 'string') &&
+    (value.activity === 'working' || value.activity === 'idle')
   );
 }
 
@@ -81,5 +87,30 @@ export async function fetchChatProject(
     return data.entrypoint;
   } catch (error) {
     throw new RequestError('Chat project', error);
+  }
+}
+
+/**
+ * The persona a project's messages last went to (`<project>/.lightcone/agent.json`),
+ * or null when none is recorded yet.
+ */
+export async function fetchProjectAgent(
+  settings: ServerConnection.ISettings,
+  entrypoint: string
+): Promise<string | null> {
+  try {
+    const data = await requestAPI(
+      `api/project-agent?${new URLSearchParams({ path: entrypoint })}`,
+      settings
+    );
+    if (
+      !isRecord(data) ||
+      (data.persona !== null && typeof data.persona !== 'string')
+    ) {
+      throw new Error('The server returned an invalid project agent.');
+    }
+    return data.persona;
+  } catch (error) {
+    throw new RequestError('Project agent', error);
   }
 }

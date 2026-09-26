@@ -1,14 +1,18 @@
 """Agents start in the project their chat belongs to, wherever the chat is stored."""
+import asyncio
 import logging
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
 
 from jupyter_ai_persona_manager import PersonaManager as Upstream, extension
+from jupyter_ai_persona_manager.base_persona import BasePersona, PersonaDefaults
+from jupyterlab_chat.models import Message
 import pytest
 from traitlets.config import Config
 
-from jupyterlab_lightcone import projects
+from jupyterlab_lightcone import agent_defaults, projects
 from jupyterlab_lightcone.agent_workspace import PersonaManager, select_project_persona_manager
 from jupyterlab_lightcone.projects import CHAT_PROJECT, CURRENT_PROJECT
 
@@ -183,13 +187,24 @@ def test_a_server_without_the_persona_manager_extension_is_left_alone():
     assert select_project_persona_manager(server) is False
 
 
-def test_the_extension_loads_without_jupyter_ai(monkeypatch):
-    from jupyterlab_lightcone.application import LightconeApp
-
-    # A None entry makes the import fail, as it does when Jupyter AI is absent.
-    monkeypatch.setitem(sys.modules, "jupyter_ai_persona_manager", None)
-    monkeypatch.delitem(sys.modules, "jupyterlab_lightcone.agent_workspace", raising=False)
-    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=None, log=None))
+def test_the_extension_loads_without_jupyter_ai():
+    # A fresh interpreter ensures no earlier test imported the application or
+    # persona event module before Jupyter AI became unavailable.
+    result = subprocess.run(
+        [sys.executable, "-c", """
+import sys
+from types import SimpleNamespace
+sys.modules["jupyter_ai_persona_manager"] = None
+from jupyterlab_lightcone.application import LightconeApp
+from jupyterlab_lightcone.agent_activity import watch_persona_activity
+LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=None, log=None))
+watch_persona_activity(None)
+"""],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_a_failing_selection_leaves_the_extension_loading(monkeypatch, caplog):
@@ -227,3 +242,129 @@ def test_an_unreadable_parent_still_yields_a_working_directory(root, monkeypatch
     monkeypatch.setattr(projects, "owning_project", denied)
     manager = _manager(root, "project/chats/talk.chat", current="project/astra.yaml")
     assert Path(manager.get_chat_dir()) == root / "project" / "chats"
+
+
+# --- agent routing -------------------------------------------------------
+
+
+class EchoPersona(BasePersona):
+    """A real persona, so upstream's processing boundary runs around ours."""
+
+    @property
+    def defaults(self):
+        return PersonaDefaults(name="Echo", description="Records its prompts.", avatar_path="", system_prompt="")
+
+    async def process_message(self, message):
+        self.received.append(message)
+        gate = self.gates.get(message.id)
+        if gate is not None:
+            await gate.wait()
+
+    @property
+    def prompts(self):
+        return [message.body for message in self.received]
+
+
+def _routing_manager(root, chat, current=None):
+    """A manager whose scheduled tasks the test can await, with one real persona."""
+    manager = _manager(root, chat, current)
+    loop = asyncio.get_running_loop()
+    manager.tasks = []
+    manager.event_loop = SimpleNamespace(
+        create_task=lambda coroutine: manager.tasks.append(loop.create_task(coroutine)) or manager.tasks[-1]
+    )
+    persona = _persona(manager)
+    manager._personas = {persona.id: persona}
+    return manager, persona
+
+
+def _persona(manager):
+    persona = EchoPersona(parent=manager, chat=manager.chat)
+    persona.received, persona.gates = [], {}
+    return persona
+
+
+async def _settled(manager):
+    """Await every task the manager scheduled, including those a task scheduled itself."""
+    done = set()
+    while True:
+        pending = [task for task in manager.tasks if task not in done]
+        if not pending:
+            return
+        await asyncio.gather(*pending)
+        done.update(pending)
+
+
+def _message(persona_id, body="Fix the legend.", identifier="m1"):
+    metadata = {"to_persona": persona_id}
+    return Message(body=body, id=identifier, time=0.0, sender="user", metadata=metadata)
+
+
+async def test_an_addressed_message_is_routed_unchanged(root):
+    manager, persona = _routing_manager(root, "project/chats/talk.chat")
+    manager.on_chat_message("chat", _message(persona.id))
+    await _settled(manager)
+    assert persona.prompts == ["Fix the legend."]
+    assert persona.received[0].metadata["to_persona"] == persona.id
+    assert agent_defaults.read_project_agent(root / "project") == persona.id
+
+
+async def test_a_message_to_an_unknown_persona_is_not_routed(root):
+    manager, _ = _routing_manager(root, "project/chats/talk.chat")
+    manager.on_chat_message("chat", _message("jupyter-ai-personas::other::Persona"))
+    manager.on_chat_message("chat", Message(body="?", id="m2", time=0.0, sender="user"))
+    assert manager.tasks == []
+
+
+def _unaddressed(identifier="m9", persona_id=None):
+    return Message(body="And the residuals?", id=identifier, time=0.0, sender="user",
+                   metadata={"to_persona": persona_id})
+
+
+async def test_an_unaddressed_message_goes_to_the_agent_this_chat_last_named(root):
+    manager, persona = _routing_manager(root, "project/chats/talk.chat")
+    other = _persona(manager)
+    other_id = "jupyter-ai-personas::other::Echo"
+    manager._personas[other_id] = other
+    # The chat named the first persona last; a reply from a persona does not count.
+    manager.chat.messages = [
+        _message(other_id, identifier="m1"),
+        _message(persona.id, identifier="m2"),
+        Message(body="Done.", id="m3", time=0.0, sender=other_id, metadata={"to_persona": other_id}),
+    ]
+    for identifier, named in (("m4", None), ("m5", "jupyter-ai-personas::gone::Persona")):
+        manager.on_chat_message("chat", _unaddressed(identifier, named))
+    await _settled(manager)
+    assert persona.prompts == ["And the residuals?", "And the residuals?"]
+    # Upstream received copies addressed to the agent that answered.
+    assert [message.metadata["to_persona"] for message in persona.received] == [persona.id, persona.id]
+    assert other.prompts == []
+
+
+async def test_an_unaddressed_message_in_a_fresh_chat_goes_to_the_projects_agent(root):
+    manager, persona = _routing_manager(root, "project/chats/new.chat")
+    agent_defaults.write_project_agent(root / "project", persona.id)
+    manager.on_chat_message("chat", _unaddressed())
+    await _settled(manager)
+    assert persona.prompts == ["And the residuals?"]
+
+
+async def test_a_recorded_agent_this_chat_does_not_have_is_not_used(root):
+    manager, persona = _routing_manager(root, "project/chats/new.chat")
+    agent_defaults.write_project_agent(root / "project", "jupyter-ai-personas::gone::Persona")
+    manager.on_chat_message("chat", _unaddressed())
+    assert manager.tasks == []
+    assert persona.prompts == []
+
+
+async def test_a_failing_persona_does_not_break_routing(root):
+    """Upstream's processing boundary reports the failure; the manager's task completes."""
+    manager, persona = _routing_manager(root, "project/chats/talk.chat")
+
+    async def explode(message):
+        raise RuntimeError("agent gone")
+
+    persona.process_message = explode
+    manager.on_chat_message("chat", _message(persona.id))
+    await _settled(manager)
+    assert all(task.exception() is None for task in manager.tasks)

@@ -24,7 +24,11 @@ import { configureProjectLauncher } from './project-launcher';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
 import { mystraPlugin } from './mystra';
-import { sessionPlaceholderPlugin, sessionsPlugin } from './sessions';
+import {
+  agentContinuityPlugin,
+  sessionPlaceholderPlugin,
+  sessionsPlugin
+} from './sessions';
 import { PALETTE_CATEGORY } from './workbench-ids';
 import {
   ASTRA_FILE_TYPE,
@@ -157,6 +161,7 @@ export default [
   astraMimePlugin,
   sessionsPlugin,
   sessionPlaceholderPlugin,
+  agentContinuityPlugin,
   chatProjectPlugin,
   chatPlugin,
   projectNotificationsPlugin,
