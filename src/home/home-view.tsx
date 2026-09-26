@@ -65,6 +65,7 @@ import { PipelineGlyph } from '../versions/pipeline-glyph';
 import { listResultsCommits } from '../versions/versions-api';
 import { CREATE_CHAT_COMMAND } from '../workbench-ids';
 import {
+  HOME_MORE_LIMIT,
   HOME_RESULT_LIMIT,
   HOME_SESSION_LIMIT,
   countRecords,
@@ -77,6 +78,7 @@ import {
 import { knownPersona, type PersonaDirectory } from './personas';
 import { AgentPicker } from './agent-picker';
 import { DescriptionMarkdown } from './description-markdown';
+import { HomeGlyph } from './home-glyphs';
 
 const CLASS = 'jp-jupyterlab-lightcone-Home';
 /** How often Home re-checks the report's presence while visible. */
@@ -314,11 +316,21 @@ function HomeRoot({
         );
       });
   }, [commands, project.path, trans]);
+  const title = data ? analysisTitle(data.document.analysis) : '';
+  const deskShown = Boolean(sessions && chatAvailable);
   return (
     <div className={`${CLASS}-page`}>
+      {/* The running head: the page's one identity line, and the stock
+          launcher's items behind Tools. */}
       <header className={`${CLASS}-header`}>
-        <lightconeIcon.react tag="span" className={`${CLASS}-mark`} />
-        <span className={`${CLASS}-brand`}>{trans.__('Lightcone Lab')}</span>
+        <span className={`${CLASS}-identity`}>
+          <lightconeIcon.react tag="span" className={`${CLASS}-mark`} />
+          {/* The wordmark, set like the website's: the name bold, the
+              product plain. */}
+          <span className={`${CLASS}-brand`}>
+            <b>{trans.__('Lightcone')}</b> {trans.__('Lab')}
+          </span>
+        </span>
         <span className={`${CLASS}-path`} title={project.entrypoint}>
           {project.path || '/'}
         </span>
@@ -328,89 +340,109 @@ function HomeRoot({
           aria-haspopup="menu"
           onClick={event => options.onOpenTools(event.currentTarget)}
         >
-          {trans.__('Tools')} <span aria-hidden="true">▾</span>
+          <HomeGlyph name="prompt" />
+          {trans.__('Tools')}
+          <HomeGlyph name="chevronDown" />
         </button>
       </header>
-      <div className={`${CLASS}-columns`}>
-        <section
-          className={`${CLASS}-research`}
-          aria-label={trans.__('Project')}
-        >
-          <p className={`${CLASS}-eyebrow`}>{trans.__('Project')}</p>
-          {data ? (
-            <>
-              <h1 className={`${CLASS}-title`}>
-                {analysisTitle(data.document.analysis)}
-                {canRename ? (
-                  <button
-                    type="button"
-                    className={`${CLASS}-inlineEdit ${CLASS}-rename`}
-                    title={trans.__('Rename project')}
-                    aria-label={trans.__('Rename project')}
-                    disabled={renaming}
-                    onClick={rename}
-                  >
-                    <editIcon.react tag="span" />
-                  </button>
-                ) : null}
-              </h1>
-              <ProjectBadges data={data} />
-              {description || canEditDescription ? (
-                <div className={`${CLASS}-description`}>
-                  {description ? (
-                    <DescriptionMarkdown
-                      source={description}
-                      rendermime={options.rendermime}
-                      contents={options.contents}
-                      path={project.entrypoint}
-                    />
-                  ) : null}
-                  {canEditDescription ? (
+      {/* The main column holds the title page and the results; the desk
+          beside it starts at the top, so a session is one step away. */}
+      <div className={`${CLASS}-body`} data-desk={String(deskShown)}>
+        <div className={`${CLASS}-main`}>
+          {/* The title page, set like a monograph's frontispiece: the title,
+              a rule, the description as its lead, a colophon of what the
+              analysis holds, and the two ways into the work. */}
+          <section
+            className={`${CLASS}-titlePage`}
+            aria-label={trans.__('Project')}
+          >
+            {data ? (
+              <>
+                <div className={`${CLASS}-titleRow`}>
+                  <h1 className={`${CLASS}-title`} title={title}>
+                    {title}
+                  </h1>
+                  {canRename ? (
                     <button
                       type="button"
-                      className={`${CLASS}-inlineEdit ${CLASS}-editDescription`}
-                      title={describe}
-                      aria-label={describe}
-                      disabled={editingDescription}
-                      onClick={editDescription}
+                      className={`${CLASS}-inlineEdit ${CLASS}-rename`}
+                      title={trans.__('Rename project')}
+                      aria-label={trans.__('Rename project')}
+                      disabled={renaming}
+                      onClick={rename}
                     >
                       <editIcon.react tag="span" />
-                      {description ? null : describe}
                     </button>
                   ) : null}
                 </div>
+                <span className={`${CLASS}-rule`} aria-hidden="true" />
+                {description || canEditDescription ? (
+                  <div className={`${CLASS}-description`}>
+                    {description ? (
+                      <DescriptionMarkdown
+                        source={description}
+                        rendermime={options.rendermime}
+                        contents={options.contents}
+                        path={project.entrypoint}
+                      />
+                    ) : null}
+                    {canEditDescription ? (
+                      <button
+                        type="button"
+                        className={`${CLASS}-inlineEdit ${CLASS}-editDescription`}
+                        title={describe}
+                        aria-label={describe}
+                        disabled={editingDescription}
+                        onClick={editDescription}
+                      >
+                        <editIcon.react tag="span" />
+                        {description ? null : describe}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                <ProjectBadges data={data} />
+              </>
+            ) : (
+              <p className={`${CLASS}-message`} role="status">
+                {state.error ?? trans.__('Loading project…')}
+              </p>
+            )}
+            {state.error && data ? (
+              <p className={`${CLASS}-warning`} role="status">
+                {trans.__(
+                  'Showing the last valid project data: %1',
+                  state.error
+                )}
+              </p>
+            ) : null}
+            <div className={`${CLASS}-actions`}>
+              {reportAvailable ? (
+                <button
+                  type="button"
+                  className={`${CLASS}-report`}
+                  onClick={openReport}
+                >
+                  <mystIcon.react
+                    tag="span"
+                    className={`${CLASS}-actionIcon`}
+                  />
+                  {trans.__('Open report')}
+                </button>
               ) : null}
-            </>
-          ) : (
-            <p className={`${CLASS}-message`} role="status">
-              {state.error ?? trans.__('Loading project…')}
-            </p>
-          )}
-          {state.error && data ? (
-            <p className={`${CLASS}-warning`} role="status">
-              {trans.__('Showing the last valid project data: %1', state.error)}
-            </p>
-          ) : null}
-          <div className={`${CLASS}-actions`}>
-            {reportAvailable ? (
+              {/* The page keeps one filled action: the report when there is
+                  one, the inventory otherwise. */}
               <button
                 type="button"
-                className={`${CLASS}-report`}
-                onClick={openReport}
+                className={`${CLASS}-astra`}
+                data-primary={reportAvailable ? undefined : ''}
+                onClick={openInventory}
               >
-                <mystIcon.react tag="span" className={`${CLASS}-actionIcon`} />
-                {trans.__('Open report')}
+                <astraIcon.react tag="span" className={`${CLASS}-actionIcon`} />
+                {trans.__('Open ASTRA')}
               </button>
-            ) : null}
-            <button
-              type="button"
-              className={`${CLASS}-astra`}
-              onClick={openInventory}
-            >
-              <astraIcon.react tag="span" className={`${CLASS}-actionIcon`} />
-              {trans.__('Open ASTRA')}
-            </button>
-          </div>
+            </div>
+          </section>
           {data ? (
             <ResultsSection
               contents={contents}
@@ -421,7 +453,7 @@ function HomeRoot({
               onOpenInventory={openInventory}
             />
           ) : null}
-        </section>
+        </div>
         {sessions && chatAvailable ? (
           <Desk
             sessions={sessions}
@@ -660,10 +692,19 @@ function ResultsSection({
         );
       });
   };
+  // The results past the plates are named in a line of their own, so that
+  // each is one click away; the inventory lists every result.
+  const more = outputs.slice(HOME_RESULT_LIMIT);
+  const allResults = (
+    <button type="button" className={`${CLASS}-link`} onClick={onOpenInventory}>
+      {trans._n('%1 result', 'All %1 results', outputs.length, outputs.length)}
+      <HomeGlyph name="chevron" />
+    </button>
+  );
   return (
-    <section className={`${CLASS}-section`} aria-label={trans.__('Results')}>
-      <div className={`${CLASS}-kicker`}>
-        <span className={`${CLASS}-kickerLabel`}>{trans.__('Results')}</span>
+    <section className={`${CLASS}-results`} aria-label={trans.__('Results')}>
+      <div className={`${CLASS}-sectionHead`}>
+        <h2 className={`${CLASS}-heading`}>{trans.__('Results')}</h2>
         <span
           className={`${CLASS}-freshness`}
           data-state={freshness.state}
@@ -689,16 +730,7 @@ function ResultsSection({
             {trans.__('Pipeline')}
           </button>
         ) : null}
-        {outputs.length ? (
-          <button
-            type="button"
-            className={`${CLASS}-link`}
-            aria-label={trans.__('See all results')}
-            onClick={onOpenInventory}
-          >
-            {trans.__('See all')}
-          </button>
-        ) : null}
+        {outputs.length ? allResults : null}
       </div>
       {outputs.length ? (
         <div className={`${CLASS}-plates`}>
@@ -721,16 +753,40 @@ function ResultsSection({
                 />
               </span>
               <span className={`${CLASS}-plateCaption`}>
-                <AstraKindMark kind="output" />
                 <span className={`${CLASS}-plateName`}>
                   {output.label ?? output.id}
                 </span>
-                <span className={`${CLASS}-plateKind`} data-type={output.type}>
-                  {outputKindLabel(output.type, trans)}
+                <span className={`${CLASS}-plateMeta`}>
+                  <AstraKindMark kind="output" />
+                  <span
+                    className={`${CLASS}-plateKind`}
+                    data-type={output.type}
+                  >
+                    {outputKindLabel(output.type, trans)}
+                  </span>
                 </span>
               </span>
             </button>
           ))}
+        </div>
+      ) : null}
+      {more.length ? (
+        <div className={`${CLASS}-more`}>
+          <span className={`${CLASS}-moreLabel`}>
+            {trans.__('%1 more', more.length)}
+          </span>
+          {more.slice(0, HOME_MORE_LIMIT).map(output => (
+            <button
+              type="button"
+              key={output.canonicalPath}
+              className={`${CLASS}-moreLink`}
+              title={output.description ?? undefined}
+              onClick={() => open(output)}
+            >
+              {output.label ?? output.id}
+            </button>
+          ))}
+          {allResults}
         </div>
       ) : null}
     </section>
@@ -742,8 +798,8 @@ interface IProjectBadgesProps {
 }
 
 /**
- * What the ASTRA analysis holds, as a line of badges under the title. Each
- * badge carries the kind mark the inventory draws for that record kind.
+ * What the ASTRA analysis holds, as the title page's colophon line. Each
+ * count carries the kind mark the inventory draws for that record kind.
  * Results are the project's results, the plates Home shows; decisions,
  * inputs, findings and papers count the whole analysis tree.
  */
@@ -1022,7 +1078,9 @@ function Composer({
         void start();
       }}
     >
-      <p className={`${CLASS}-eyebrow`}>{trans.__('New session')}</p>
+      <div className={`${CLASS}-sectionHead`}>
+        <h2 className={`${CLASS}-heading`}>{trans.__('New session')}</h2>
+      </div>
       <div className={`${CLASS}-composerInput`}>
         <textarea
           className={`${CLASS}-textarea`}
@@ -1064,6 +1122,7 @@ function Composer({
             disabled={!message || !persona || busy}
           >
             {busy ? trans.__('Starting…') : trans.__('Start')}
+            {busy ? null : <HomeGlyph name="arrow" />}
           </button>
         </div>
       </div>
@@ -1214,10 +1273,10 @@ function SessionsList({
   };
   return (
     <section className={`${CLASS}-sessions`} aria-label={trans.__('Sessions')}>
-      <div className={`${CLASS}-kicker`}>
-        <span className={`${CLASS}-kickerLabel`}>{trans.__('Sessions')}</span>
+      <div className={`${CLASS}-sectionHead`}>
+        <h2 className={`${CLASS}-heading`}>{trans.__('Sessions')}</h2>
         {listing.error ? (
-          <span className={`${CLASS}-kickerNote`} title={listing.error}>
+          <span className={`${CLASS}-headNote`} title={listing.error}>
             {trans.__('List may be out of date')}
           </span>
         ) : null}
@@ -1227,7 +1286,8 @@ function SessionsList({
             className={`${CLASS}-link`}
             onClick={showSidebar}
           >
-            {trans.__('All %1 →', listing.sessions.length)}
+            {trans.__('All %1', listing.sessions.length)}
+            <HomeGlyph name="chevron" />
           </button>
         ) : null}
       </div>

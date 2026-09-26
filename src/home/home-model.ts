@@ -319,5 +319,11 @@ export function sessionSubtitle(
 /** Sessions shown on Home before the "All" link takes over. */
 export const HOME_SESSION_LIMIT = 6;
 
-/** Results plates shown on Home before the "See all" link takes over. */
+/** Results plates shown on Home; the line after them names the rest. */
 export const HOME_RESULT_LIMIT = 8;
+
+/**
+ * Results named in the line after the plates. Past it, the line's count and
+ * its link to all the results stand in for the others.
+ */
+export const HOME_MORE_LIMIT = 12;

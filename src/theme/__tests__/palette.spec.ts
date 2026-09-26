@@ -175,6 +175,18 @@ describe('Lightcone theme stylesheet', () => {
     }
   );
 
+  it.each([LIGHTCONE_LIGHT_THEME, LIGHTCONE_DARK_THEME])(
+    'sets the %s display accent as large text on the Home canvas',
+    name => {
+      const variables = palette(name);
+      // Home's title is at least 32px, so WCAG asks 3:1 on the canvas.
+      const canvas = resolve(variables, '--jp-layout-color1');
+      expect(
+        contrast(canvas, resolve(variables, '--lc-display-accent'))
+      ).toBeGreaterThanOrEqual(3);
+    }
+  );
+
   it('fills in the stderr yellow-background foreground at zero specificity', () => {
     const yellow = rules.filter(rule =>
       rule.selector.includes('.ansi-yellow-bg')

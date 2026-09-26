@@ -43,6 +43,12 @@ it('offers no report without the command that opens one', async () => {
     await until(() => h.text().includes('Union 2.1 cosmology'));
     await flush();
     expect(h.text()).not.toContain('Open report');
+    // The page keeps one filled action: without a report, Open ASTRA.
+    expect(
+      h
+        .query('.jp-jupyterlab-lightcone-Home-astra')
+        ?.hasAttribute('data-primary')
+    ).toBe(true);
   } finally {
     h.dispose();
   }
@@ -78,6 +84,15 @@ it('shows the stock launcher outside a project and Home inside one', async () =>
     const text = h.text();
     expect(text).toContain('Lightcone Lab');
     expect(text).toContain('No results yet');
+    // The running head names the project folder; the report takes the fill.
+    expect(h.query('.jp-jupyterlab-lightcone-Home-path')?.textContent).toBe(
+      'project'
+    );
+    expect(
+      h
+        .query('.jp-jupyterlab-lightcone-Home-astra')
+        ?.hasAttribute('data-primary')
+    ).toBe(false);
     expect(text).toContain('0 decisions');
     // No sessions service: no desk, no composer.
     expect(text).not.toContain('New session');
