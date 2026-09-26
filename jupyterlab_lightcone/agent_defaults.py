@@ -17,7 +17,6 @@ The workbench records the persona each project's messages last went to, in
 from pathlib import Path
 
 from jupyter_server.auth import authorized
-from jupyter_server.utils import url_path_join
 from tornado import web
 
 from .project_routes import ProjectAPIHandler
@@ -69,9 +68,3 @@ class ProjectAgentHandler(ProjectAPIHandler):
         """`{"persona": <id or null>}` for the project owning the `path` entrypoint."""
         project = await self.project()
         self.finish({"persona": read_project_agent(project)})
-
-
-def setup_project_agent_handlers(web_app) -> None:
-    """Register under the server base URL, including JupyterHub prefixes."""
-    api = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api")
-    web_app.add_handlers(".*$", [(url_path_join(api, "project-agent"), ProjectAgentHandler)])

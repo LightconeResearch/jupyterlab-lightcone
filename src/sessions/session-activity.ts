@@ -59,11 +59,6 @@ export function isPersonaUser(user: ISessionUser): boolean {
   return user.bot === true || user.username.startsWith(PERSONA_USERNAME_PREFIX);
 }
 
-/** A persona's display name when the chat records none: its id's last segment. */
-export function personaDisplayName(personaId: string): string {
-  return personaId.split('::').pop() || personaId;
-}
-
 /** The messages of the current turn: everything after the last human message. */
 export function currentTurn<T extends ISessionMessage>(
   messages: readonly T[]

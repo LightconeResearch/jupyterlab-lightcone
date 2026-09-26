@@ -5,7 +5,6 @@ import {
   hasPendingPermission,
   isPersonaUser,
   listActivity,
-  personaDisplayName,
   readPersonaStateEvent,
   type ISessionMessage
 } from '../session-activity';
@@ -27,13 +26,6 @@ describe('isPersonaUser', () => {
     expect(isPersonaUser(human)).toBe(false);
     // The id scheme is `jupyter-ai-personas::<package>::<class>`.
     expect(isPersonaUser({ username: 'jupyter-ai-personas' })).toBe(false);
-  });
-});
-
-describe('personaDisplayName', () => {
-  it('takes the last segment of a persona id', () => {
-    expect(personaDisplayName(agent.username)).toBe('Persona');
-    expect(personaDisplayName('plain')).toBe('plain');
   });
 });
 

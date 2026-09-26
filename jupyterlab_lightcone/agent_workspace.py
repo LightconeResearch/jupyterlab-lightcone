@@ -170,13 +170,18 @@ class PersonaManager(JupyterAIPersonaManager):
         return self.parent.serverapp.web_app.settings
 
 
+def persona_manager_apps(serverapp):
+    """The loaded Jupyter AI persona manager extension apps; empty when it is not installed."""
+    return serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
+
+
 def delivers_comments(serverapp) -> bool:
     """Whether every Jupyter AI persona manager is Lightcone's, which appends comments to prompts.
 
     A deployment that configured another class (not derived from this one)
     leaves the composer to append the comments to the message itself.
     """
-    apps = serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
+    apps = persona_manager_apps(serverapp)
     return bool(apps) and all(
         isinstance(app.persona_manager_class, type) and issubclass(app.persona_manager_class, PersonaManager)
         for app in apps

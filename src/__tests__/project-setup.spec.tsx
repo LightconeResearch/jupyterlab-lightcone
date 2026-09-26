@@ -179,7 +179,7 @@ it('does not look for an enclosing project when the folder already holds one', a
   form.close();
 });
 
-it('names and announces every busy phase, with the folder while setting up', async () => {
+it('shows a spinner and announces each busy phase without setup details', async () => {
   const inspection = new PromiseDelegate<IProjectFolder>();
   const setup = new PromiseDelegate<IProjectFolder>();
   const opening = new PromiseDelegate<void>();
@@ -188,9 +188,10 @@ it('names and announces every busy phase, with the folder while setting up', asy
   const open = jest.fn().mockReturnValue(opening.promise);
   const form = await mount({ path: 'new', open });
   const input = form.node.querySelector('input')!;
-  const progress = () =>
-    form.node.querySelector('.jp-jupyterlab-lightcone-ProjectSetup-progress');
+  const spinner = () =>
+    form.node.querySelector('.jp-jupyterlab-lightcone-ProjectSetup-spinner');
   expect(form.status()).toBe('');
+  expect(spinner()).toBeNull();
   // Each phase holds until its promise is released below.
   await settle(() =>
     form.node
@@ -200,7 +201,7 @@ it('names and announces every busy phase, with the folder while setting up', asy
   expect(form.action()).toBe('Checking the folder…');
   expect(form.status()).toBe('Checking the folder…');
   expect(input.disabled).toBe(true);
-  expect(progress()).toBeNull();
+  expect(spinner()).not.toBeNull();
   await settle(() =>
     inspection.resolve({
       path: 'new',
@@ -209,18 +210,21 @@ it('names and announces every busy phase, with the folder while setting up', asy
     })
   );
   expect(form.action()).toBe('Setting up project…');
-  expect(form.status()).toBe('Setting up the project in /server/new…');
-  expect(progress()?.textContent).toContain('/server/new');
+  expect(form.status()).toBe('Setting up project…');
+  expect(spinner()).not.toBeNull();
+  expect(form.node.textContent).not.toContain('/server/new');
+  expect(form.node.textContent).not.toContain('Python environment');
   await settle(() =>
     setup.resolve({ path: 'new', directory: '/server/new', hasSpec: true })
   );
   expect(form.action()).toBe('Opening project…');
   expect(form.status()).toBe('Opening the project…');
-  expect(progress()).toBeNull();
+  expect(spinner()).not.toBeNull();
   await settle(() => opening.resolve());
   expect(form.action()).toBe('Create project');
   expect(form.status()).toBe('');
   expect(input.disabled).toBe(false);
+  expect(spinner()).toBeNull();
   form.close();
 });
 

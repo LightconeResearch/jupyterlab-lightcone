@@ -68,30 +68,3 @@
   > .lm-TabBar-tabCloseIcon {
   order: 2;
 }
-
-/*
- * A session's toolbar states the agent's permission mode and that the
- * engine's sandbox does not bound the agent's own shell.
- */
-.jp-jupyterlab-lightcone-SessionPermissions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 0 8px;
-  overflow: hidden;
-  color: var(--jp-ui-font-color2);
-  font-family: var(--jp-ui-font-family);
-  font-size: var(--jp-ui-font-size1);
-  white-space: nowrap;
-  cursor: help;
-}
-
-.jp-jupyterlab-lightcone-SessionPermissions-mode {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.jp-jupyterlab-lightcone-SessionPermissions-note {
-  color: var(--jp-ui-font-color3);
-}

@@ -128,13 +128,106 @@
   overflow-wrap: anywhere;
 }
 
+/* The quiet edit buttons beside the title and the description. */
+.jp-jupyterlab-lightcone-Home-inlineEdit {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.45;
+}
+
+.jp-jupyterlab-lightcone-Home-inlineEdit:hover,
+.jp-jupyterlab-lightcone-Home-inlineEdit:focus-visible {
+  background: var(--jp-layout-color2);
+  opacity: 1;
+}
+
+.jp-jupyterlab-lightcone-Home-inlineEdit:disabled {
+  cursor: default;
+  opacity: 0.25;
+}
+
+.jp-jupyterlab-lightcone-Home-rename {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 3px;
+  vertical-align: middle;
+}
+
+.jp-jupyterlab-lightcone-Home-rename svg {
+  width: 16px;
+  height: 16px;
+}
+
 .jp-jupyterlab-lightcone-Home-description {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   max-width: 64ch;
   margin: 0 0 22px;
   color: var(--jp-ui-font-color2);
   font-family: var(--jp-content-font-family);
   font-size: 15px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown {
+  flex: 1;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown .jp-RenderedMarkdown {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown
+  .jp-RenderedMarkdown
+  > :first-child {
+  margin-top: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown
+  .jp-RenderedMarkdown
+  > :last-child {
+  margin-bottom: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-editDescription {
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 2px 4px;
+  color: var(--jp-ui-font-color2);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-editDescription svg {
+  width: 14px;
+  height: 14px;
+}
+
+.jp-jupyterlab-lightcone-DescriptionInput {
+  width: min(560px, 70vw);
+}
+
+.jp-jupyterlab-lightcone-DescriptionInput textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
 }
 
 .jp-jupyterlab-lightcone-Home-message,
@@ -460,22 +553,41 @@
   gap: 10px;
 }
 
+.jp-jupyterlab-lightcone-Home-composerInput {
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 8px;
+  background: var(--jp-layout-color0);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.jp-jupyterlab-lightcone-Home-composerInput:focus-within {
+  border-color: var(--jp-brand-color1);
+  box-shadow: 0 0 0 1px var(--jp-brand-color1);
+}
+
 .jp-jupyterlab-lightcone-Home-textarea {
+  display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: 88px;
-  padding: 10px;
-  border: 1px solid var(--jp-border-color1);
-  border-radius: var(--jp-border-radius);
+  min-height: 100px;
+  padding: 14px 14px 8px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
   color: var(--jp-ui-font-color1);
-  background: var(--jp-layout-color0);
+  background: transparent;
   font: inherit;
-  line-height: 1.5;
+  line-height: 1.6;
   resize: vertical;
 }
 
+.jp-jupyterlab-lightcone-Home-textarea::placeholder {
+  color: var(--jp-ui-font-color2);
+  opacity: 1;
+}
+
 .jp-jupyterlab-lightcone-Home-textarea:focus {
-  border-color: var(--jp-brand-color1);
   outline: none;
 }
 
@@ -484,24 +596,40 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: 8px;
 }
 
-.jp-jupyterlab-lightcone-Home-agent {
-  max-width: 60%;
-  padding: 4px 8px;
-  border: 1px solid var(--jp-border-color2);
-  border-radius: var(--jp-border-radius);
-  color: var(--jp-ui-font-color1);
-  background: var(--jp-layout-color0);
-  font: inherit;
+.jp-jupyterlab-lightcone-Home-agentPicker.jp-ThemedContainer {
+  display: flex;
+  min-width: 0;
+  background: transparent;
+  overflow: visible;
 }
 
-.jp-jupyterlab-lightcone-Home-start {
-  padding: 6px 16px;
+/* Outranks Jupyter AI's `.jp-ThemedContainer .jp-jai-personaControls` whatever the stylesheet order. */
+.jp-jupyterlab-lightcone-Home-agentPicker.jp-ThemedContainer
+  .jp-jai-personaControls {
+  min-height: 30px;
+  max-width: 100%;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+
+.jp-jupyterlab-lightcone-Home-agentPicker .jp-jai-personaControls-persona {
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-composerRow .jp-jupyterlab-lightcone-Home-start {
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  font-size: var(--jp-ui-font-size1);
 }
 
 .jp-jupyterlab-lightcone-Home-start:disabled {
-  opacity: 0.5;
+  color: var(--jp-ui-font-color2);
+  background: var(--jp-layout-color2);
   cursor: default;
 }
 
@@ -580,6 +708,7 @@
   font-size: var(--jp-ui-font-size0);
 }
 
+.jp-jupyterlab-lightcone-Home-inlineEdit:focus-visible,
 .jp-jupyterlab-lightcone-Home-report:focus-visible,
 .jp-jupyterlab-lightcone-Home-astra:focus-visible,
 .jp-jupyterlab-lightcone-Home-plate:focus-visible,

@@ -5,6 +5,8 @@ import gzip
 import json
 import logging
 import sys
+from pathlib import Path
+from unittest.mock import AsyncMock
 
 from jupyter_server.base.websocket import WebSocketMixin
 import pytest
@@ -122,6 +124,36 @@ async def test_shutdown_terminates_real_process_group(manager, tmp_path):
     assert list(session.logs) == ["starting test CLI", "Server started on port 4242!"]
     await manager.close()
     assert session.process.returncode is not None
+    assert not manager.sessions
+
+
+async def test_heartbeats_retain_process_then_idle_reaping_allows_reopen(manager, tmp_path, monkeypatch):
+    """Live viewers renew a shared process; the last closed viewer lets it expire."""
+    cli = tmp_path / "idle_cli.py"
+    cli.write_text("import time\ntime.sleep(60)\n")
+    manager.command = [sys.executable, str(cli)]
+    manager.idle_timeout = 0.2
+    monkeypatch.setattr(manager, "_theme_ready", AsyncMock(return_value=True))
+    monkeypatch.setattr(manager, "_verify_content_server", AsyncMock())
+    try:
+        session = await manager.start("alice", *manager.project_root(""))
+        assert await manager.start("alice", *manager.project_root("")) is session
+        for _ in range(4):
+            await asyncio.sleep(0.1)
+            assert manager.get(session.id, "alice") is session
+        assert session.state == "ready"
+        assert session.process.returncode is None
+
+        async def expired():
+            while session.id in manager.sessions:
+                await asyncio.sleep(0.02)
+
+        await asyncio.wait_for(expired(), 5)
+        assert session.process.returncode is not None
+        replacement = await manager.start("alice", *manager.project_root(""))
+        assert replacement.id != session.id
+    finally:
+        await manager.close()
     assert not manager.sessions
 
 
@@ -247,6 +279,38 @@ async def test_project_missing_returns_actionable_error(jp_fetch):
     )
     assert response.code == 404
     assert "myst.yml" in json.loads(response.body)["message"]
+
+
+@pytest.mark.parametrize("directory, status", [("publication", 200), (".hidden", 404)])
+async def test_start_checks_readable_config_before_launching(
+    jp_fetch, jp_serverapp, monkeypatch, directory, status
+):
+    """Start readable projects while retaining the ContentsManager's hidden-file policy."""
+    project = Path(jp_serverapp.contents_manager.root_dir) / directory
+    project.mkdir()
+    (project / "myst.yml").write_text("version: 1\n")
+    manager = jp_serverapp.web_app.settings["jupyterlab_lightcone"].manager
+    run = AsyncMock()
+    monkeypatch.setattr(manager, "_run", run)
+    response = await jp_fetch(
+        "jupyterlab_lightcone", "mystra", "sessions",
+        method="POST", body=json.dumps({"path": directory}), raise_error=False,
+    )
+    assert response.code == status
+    if status == 200:
+        payload = json.loads(response.body)
+        session = manager.sessions[payload["id"]]
+        try:
+            await session.task
+            run.assert_awaited_once_with(session)
+            assert session.project == project
+            assert payload["path"] == "publication/myst.yml"
+            assert payload["state"] == "starting"
+        finally:
+            await manager.stop(session)
+    else:
+        run.assert_not_awaited()
+        assert not manager.sessions
 
 
 async def test_proxy_preserves_html_and_filters_credentials(

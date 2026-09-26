@@ -19,7 +19,6 @@ import type { IProjectRoot } from '../project-root';
 import { PALETTE_CATEGORY } from '../workbench-ids';
 import { resolvePersonaRegistry } from './persona-registry';
 import { SessionManager } from './session-manager';
-import { addSessionPermissions } from './session-permissions';
 import { SessionPlaceholderFactory } from './session-placeholder';
 import { ISessionService } from './session-service';
 
@@ -48,14 +47,6 @@ export {
   type ISessionManagerOptions
 } from './session-manager';
 export {
-  agentModes,
-  modeWords,
-  modesText,
-  publishedModes,
-  SessionPermissions,
-  addSessionPermissions
-} from './session-permissions';
-export {
   sessionStem,
   slugForTitle,
   titleForSession,
@@ -68,11 +59,10 @@ export {
   hasPendingPermission,
   isPersonaUser,
   listActivity,
-  personaDisplayName,
   type ActivityTransition,
   type ISessionSnapshot
 } from './session-activity';
-export { readAgentModes, readToolCalls, type IToolCall } from './acp-metadata';
+export { readToolCalls, type IToolCall } from './acp-metadata';
 
 export namespace SessionsCommandIDs {
   /** Create a session in the current project and open it in the main area. */
@@ -170,12 +160,7 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
       registry,
       translator: translator ?? undefined
     });
-    const permissions = addSessionPermissions(tracker, {
-      translator: translator ?? undefined,
-      registry
-    });
     app.shell.disposed.connect(() => {
-      permissions.dispose();
       sessions.dispose();
     });
 

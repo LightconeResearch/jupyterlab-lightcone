@@ -20,9 +20,11 @@ import tomllib
 import urllib.parse
 
 from dulwich.errors import NotGitRepository
+from dulwich.diff_tree import RENAME_CHANGE_TYPES
 from dulwich.object_store import tree_lookup_path
 from dulwich.objects import Blob, Commit, Tree
 from dulwich.repo import Repo
+from dulwich.walk import WalkEntry
 from jupyter_server.auth import authorized
 from jupyter_server.utils import url_path_join
 from lightcone.engine import plan
@@ -192,6 +194,18 @@ class Repository:
             return []
         return self.repo.get_walker(include=[head.id], paths=[self.path(path) for path in paths], **options)
 
+    def previous_file(self, entry: WalkEntry, file: str) -> str | None:
+        """The file's name before this commit's rename, confined to this project.
+
+        The rename commit itself holds the new path; only older revisions
+        use the old path. Use the walker's detected renames, as ``follow`` does.
+        """
+        for change in _flat_changes(entry):
+            if change is not None and change.type in RENAME_CHANGE_TYPES and change.new.path == self.path(file):
+                old = PurePosixPath(change.old.path.decode("utf-8", "surrogateescape"))
+                return old.relative_to(self.prefix).as_posix() if old.is_relative_to(self.prefix) else None
+        return file
+
 
 def open_repository(project: Path) -> Repository | None:
     """The repository holding the project; None when it is outside every repository."""
@@ -329,17 +343,20 @@ def list_versions(project: Path, universe: str, output: str) -> dict:
         if repository is None:
             return {"file": file, "annex": "none", "versions": []}
         state = repository.annex_state()
-        history = [
-            (entry.commit, repository.entry(entry.commit, file))
-            for entry in repository.walk([file], follow=True, max_entries=MAX_VERSIONS)
-        ]
-        refs = [repository.tree_ref(commit, file) for commit, entry in history if entry is not None]
+        history = []
+        historical_file = file
+        for entry in repository.walk([file], follow=True, max_entries=MAX_VERSIONS):
+            history.append((entry.commit, historical_file, repository.entry(entry.commit, historical_file)))
+            historical_file = repository.previous_file(entry, historical_file)
+            if historical_file is None:
+                break
+        refs = [repository.tree_ref(commit, path) for commit, path, entry in history if entry is not None]
         keys = annex.lookup_keys(repository.root, refs) if state == "initialized" else {}
         distinct = sorted({key for key in keys.values() if key})
         places, sizes = annex.whereis(repository.root, distinct), annex.sizes(repository.root, distinct)
         versions = []
-        for commit, entry in history:
-            key = keys.get(repository.tree_ref(commit, file)) if entry is not None else None
+        for commit, path, entry in history:
+            key = keys.get(repository.tree_ref(commit, path)) if entry is not None else None
             if entry is None or state == "uninitialized":
                 size, present, held = None, False, None
             elif key:
@@ -369,7 +386,14 @@ def read_version(project: Path, universe: str, output: str, commit: str) -> tupl
     try:
         file, _ = output_file(project, universe, output, repository)
         resolved = repository.resolve(commit)
-        entry = repository.entry(resolved, file)
+        # Undo only renames after the requested revision, including when the
+        # revision did not change this file. Content reads are not limited by
+        # the number of versions the listing displays.
+        for change in repository.walk([file], follow=True, exclude=[resolved.id]):
+            file = repository.previous_file(change, file)
+            if file is None:
+                break
+        entry = repository.entry(resolved, file) if file is not None else None
         if entry is None:
             raise web.HTTPError(404, "The output does not exist at this commit", reason="missing")
         state = repository.annex_state()
@@ -448,12 +472,16 @@ def output_identity(path: bytes) -> tuple[str, str] | None:
     return universe, output
 
 
+def _flat_changes(entry: WalkEntry) -> list:
+    """A walk entry's tree changes; a merge lists each parent's changes."""
+    changes = entry.changes()
+    return [change for group in changes for change in group] if changes and isinstance(changes[0], list) else changes
+
+
 def _changed_paths(entry) -> list[bytes]:
     """Every path a walk entry's commit changed; a merge lists each parent's changes."""
-    changes = entry.changes()
-    flat = [change for group in changes for change in group] if changes and isinstance(changes[0], list) else changes
     paths = []
-    for change in flat:
+    for change in _flat_changes(entry):
         for side in (change.new, change.old):
             if side is not None and side.path is not None:
                 paths.append(side.path)

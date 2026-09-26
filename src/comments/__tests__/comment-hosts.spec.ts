@@ -29,6 +29,7 @@ import {
   placeAt,
   pointer,
   rect,
+  recordTarget,
   settle
 } from './fixtures';
 
@@ -347,6 +348,26 @@ describe('image hosts', () => {
     expect(createComment).not.toHaveBeenCalled();
   });
 });
+
+it.each(['a'.repeat(40), null])(
+  'opens a record comment at its saved commit %s',
+  async commit => {
+    const comment = makeComment('a', pointAnchor(10, 20), {
+      target: recordTarget({
+        universe: 'baseline',
+        version: { ...NULL_VERSION, commit }
+      })
+    });
+    const { hosts: current, execute } = await setup([comment]);
+    await current.openTarget(comment);
+    expect(execute).toHaveBeenCalledWith('jupyterlab_lightcone:open-element', {
+      entrypoint: ENTRYPOINT,
+      target: 'outputs.hubble_diagram',
+      universeId: 'baseline',
+      ...(commit ? { versionCommit: commit } : {})
+    });
+  }
+);
 
 describe('recordVersion', () => {
   const release = jest.fn();

@@ -10,9 +10,9 @@ import type { IChatProjectResolver } from '../../chat-links/chat-project';
 import {
   AgentContinuity,
   lastAddressedPersona,
-  selectPersona,
   whenListed
 } from '../agent-continuity';
+import { selectPersona } from '../persona-registry';
 import { fetchProjectAgent } from '../sessions-api';
 
 jest.mock('@jupyter/chat', () => {

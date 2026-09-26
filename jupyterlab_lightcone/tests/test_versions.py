@@ -334,8 +334,15 @@ def test_an_output_the_spec_no_longer_declares_keeps_its_committed_history(proje
     assert not raised.value.args
 
 
-def test_a_renamed_output_keeps_its_history(tmp_path):
-    root = init_repo(tmp_path / 'plain', annexed=False, outputs={'table': 'csv'})
+@pytest.mark.parametrize('annexed', [False, True])
+@pytest.mark.parametrize('nested', [False, True])
+def test_a_renamed_output_keeps_its_history(tmp_path, annexed, nested):
+    repository = init_repo(tmp_path / 'project', annexed=annexed, outputs={'table': 'csv'})
+    root = repository / 'analysis' if nested else repository
+    if nested:
+        declare(root, table='csv')
+        if annexed:
+            (root / '.gitattributes').write_text(ATTRIBUTES)
     first = materialize(root, b'a,b\n1,2\n', output='table', extension='csv')
     # The format is re-declared and the file moves with it.
     git(root, 'mv', 'results/baseline/table.csv', 'results/baseline/table.tsv')
@@ -344,6 +351,32 @@ def test_a_renamed_output_keeps_its_history(tmp_path):
     listing = versions.list_versions(root, 'baseline', 'table')
     assert listing['file'] == 'results/baseline/table.tsv'
     assert [version['commit'] for version in listing['versions']] == [renamed, first]
+    assert all(version['present'] for version in listing['versions'])
+    assert [version['size'] for version in listing['versions']] == [8, 8]
+    assert bytes_of(root, 'baseline', 'table', first) == ('results/baseline/table.csv', b'a,b\n1,2\n')
+    assert bytes_of(root, 'baseline', 'table', renamed) == ('results/baseline/table.tsv', b'a,b\n1,2\n')
+
+
+def test_reads_through_repeated_renames_at_unchanged_revisions(tmp_path, monkeypatch):
+    root = init_repo(tmp_path / 'project', annexed=False, outputs={'table': 'csv'})
+    first = materialize(root, b'a,b\n1,2\n', output='table', extension='csv')
+    unchanged = commit_all(root, 'Unrelated change')
+    git(root, 'mv', 'results/baseline/table.csv', 'results/baseline/table.tsv')
+    declare(root, table='tsv')
+    renamed = commit_all(root, 'Re-declare the format')
+    second = materialize(root, b'a\tb\n3\t4\n', output='table', extension='tsv')
+    git(root, 'mv', 'results/baseline/table.tsv', 'results/baseline/table.txt')
+    declare(root, table='txt')
+    latest = commit_all(root, 'Rename again')
+    listing = versions.list_versions(root, 'baseline', 'table')
+    assert [version['commit'] for version in listing['versions']] == [latest, second, renamed, first]
+    assert all(version['present'] for version in listing['versions'])
+    # A short listing must not prevent a message from reopening an older revision.
+    monkeypatch.setattr(versions, 'MAX_VERSIONS', 1)
+    for revision in (first, unchanged, renamed, second, latest):
+        extension = 'csv' if revision in (first, unchanged) else 'txt' if revision == latest else 'tsv'
+        content = b'a,b\n1,2\n' if revision in (first, unchanged, renamed) else b'a\tb\n3\t4\n'
+        assert bytes_of(root, 'baseline', 'table', revision[:7]) == (f'results/baseline/table.{extension}', content)
 
 
 def test_a_project_below_the_repository_root_reads_its_own_paths(tmp_path):

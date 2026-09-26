@@ -106,10 +106,14 @@ export class CommentService implements ICommentService, IDisposable {
     if (!request) {
       request = listComments(this.settings, key, { status: 'pending' })
         .then(comments => {
-          this.store(key, comments);
+          if (this._inflight.get(key) === request) {
+            this.store(key, comments);
+          }
         })
         .finally(() => {
-          this._inflight.delete(key);
+          if (this._inflight.get(key) === request) {
+            this._inflight.delete(key);
+          }
         });
       this._inflight.set(key, request);
     }
@@ -208,6 +212,9 @@ export class CommentService implements ICommentService, IDisposable {
     }
     const previous = this._pending.get(key);
     const next = Object.freeze([...comments]);
+    // A successful write supersedes listings started before it. A later
+    // refresh must get its own request (not reuse the stale one).
+    this._inflight.delete(key);
     this._pending.set(key, next);
     this._all.delete(key);
     if (!previous || JSON.stringify(previous) !== JSON.stringify(next)) {

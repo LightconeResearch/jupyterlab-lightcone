@@ -67,14 +67,13 @@ function ProjectSetupForm(
   options: IProjectSetupOptions & { trans: TranslationBundle }
 ): JSX.Element {
   const [path, setPath] = useState(options.path || '.');
-  const [project, setProject] = useState<IProjectFolder>();
   const [phase, setPhase] = useState<SetupPhase>();
   const [error, setError] = useState('');
   const { mode, trans } = options;
   const busy = phase !== undefined;
+  const submitting = busy && phase !== 'browsing';
   const edit = (value: string) => {
     setPath(value);
-    setProject(undefined);
     setError('');
   };
   const run = async (task: () => Promise<void>) => {
@@ -93,7 +92,6 @@ function ProjectSetupForm(
       setPhase('checking');
       // Inspection resolves the folder the server will use; it writes nothing.
       const folder = await inspectProjectFolder(options.settings, path);
-      setProject(folder);
       if (mode === 'create' && folder.hasSpec) {
         setPhase('opening');
         await options.open(folder);
@@ -124,17 +122,14 @@ function ProjectSetupForm(
       if (selected !== undefined) edit(selected || '.');
     });
   };
-  // Every busy phase is announced; the visible progress block adds detail.
+  // Announce the same brief progress the button shows visually.
   const status =
     phase === 'browsing'
       ? trans.__('Choosing a folder…')
       : phase === 'checking'
         ? trans.__('Checking the folder…')
         : phase === 'setting-up'
-          ? trans.__(
-              'Setting up the project in %1…',
-              project?.directory ?? path
-            )
+          ? trans.__('Setting up project…')
           : phase === 'opening'
             ? trans.__('Opening the project…')
             : '';
@@ -188,24 +183,19 @@ function ProjectSetupForm(
       <p className="jp-jupyterlab-lightcone-ProjectSetup-status" role="status">
         {status}
       </p>
-      {phase === 'setting-up' && project ? (
-        <div className="jp-jupyterlab-lightcone-ProjectSetup-progress">
-          <p>
-            <strong>{project.directory}</strong>
-          </p>
-          <p>
-            {trans.__(
-              'Setting up the analysis specification, Python environment, Git setup and report starter. Existing files are preserved. This can take a few minutes.'
-            )}
-          </p>
-        </div>
-      ) : null}
       {error ? <pre role="alert">{error}</pre> : null}
       <button
         type="submit"
-        className="jp-mod-styled jp-mod-accept"
+        className="jp-mod-styled jp-mod-accept jp-jupyterlab-lightcone-ProjectSetup-submit"
         disabled={busy || !path.trim()}
+        aria-busy={submitting}
       >
+        {submitting ? (
+          <span
+            className="jp-jupyterlab-lightcone-ProjectSetup-spinner"
+            aria-hidden="true"
+          />
+        ) : null}
         {phase === 'checking'
           ? trans.__('Checking the folder…')
           : phase === 'setting-up'

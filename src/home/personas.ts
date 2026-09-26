@@ -3,7 +3,6 @@ import type {
   PersonaOption
 } from '@jupyter-ai/persona-manager';
 import type { Event } from '@jupyterlab/services';
-import type { IStateDB } from '@jupyterlab/statedb';
 import type { IDisposable } from '@lumino/disposable';
 import { Signal, type ISignal } from '@lumino/signaling';
 import { isRecord } from '../api';
@@ -17,9 +16,6 @@ import { isRecord } from '../api';
  */
 export const PERSONAS_EVENT_SCHEMA_ID: typeof UpstreamPersonasId =
   'https://schema.jupyter.org/jupyter_ai_persona_manager/personas/v1';
-
-/** The state database key keeping the last advertised personas across reloads. */
-export const PERSONAS_STATE_KEY = 'jupyterlab_lightcone:home:personas';
 
 /** One agent persona the composer can address, as the manager advertises it. */
 export type IPersonaOption = Pick<PersonaOption, 'id' | 'name'>;
@@ -73,20 +69,6 @@ export function mergePersonas(
   return [...merged].map(([id, name]) => ({ id, name }));
 }
 
-/** Read a persona list saved in the state database; anything else is empty. */
-export function parsePersonas(value: unknown): IPersonaOption[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const seen = new Map<string, string>();
-  for (const entry of value) {
-    if (isPersonaOption(entry) && !seen.has(entry.id)) {
-      seen.set(entry.id, entry.name);
-    }
-  }
-  return [...seen].map(([id, name]) => ({ id, name }));
-}
-
 /**
  * The persona a composer draft addresses: its saved choice while the directory
  * still lists it, the chat's default (an empty id) otherwise. A persona that is
@@ -100,26 +82,15 @@ export function knownPersona(
 }
 
 /**
- * The personas the persona manager has advertised. The manager publishes them
- * per chat, only once a chat is open, so the last list seen is kept in the
- * state database: after a reload, Home's agent picker starts from it before
- * any chat is open. The first live list replaces that remembered one, so a
- * persona removed from the server leaves the picker as soon as a chat opens;
- * later lists from other chats are merged into it.
+ * The personas the persona manager has advertised in this session. The
+ * manager publishes them per chat, only once a chat is open; lists from
+ * several chats are merged. Home refreshes its agent discovery whenever a
+ * list adds or renames a persona.
  */
 export class PersonaDirectory implements IDisposable {
-  constructor(events: Event.IManager, state: IStateDB | null = null) {
+  constructor(events: Event.IManager) {
     this._events = events;
-    this._state = state;
     events.stream.connect(this._onEmission, this);
-    if (state) {
-      void state
-        .fetch(PERSONAS_STATE_KEY)
-        .then(value => this._restore(parsePersonas(value)))
-        .catch(error => {
-          console.warn('Could not restore the known agent personas.', error);
-        });
-    }
   }
 
   /** Known personas, in the order they were first seen. */
@@ -145,59 +116,17 @@ export class PersonaDirectory implements IDisposable {
     Signal.clearData(this);
   }
 
-  /** Adopt the remembered list unless a live one has already arrived. */
-  private _restore(remembered: IPersonaOption[]): void {
-    if (this._isDisposed || this._live || !remembered.length) {
-      return;
-    }
-    this._personas = remembered;
-    this._changed.emit();
-  }
-
   private _onEmission(_sender: Event.IManager, emission: Event.Emission): void {
-    if (!isPersonasEvent(emission)) {
-      return;
-    }
-    // The first live list replaces the remembered one even when it is empty:
-    // the manager publishes it once its personas are loaded, so an empty list
-    // means the server has none left to offer.
-    const merged = this._live
-      ? mergePersonas(this._personas, emission)
-      : (mergePersonas([], emission) ?? []);
-    this._live = true;
-    if (!merged || samePersonas(merged, this._personas)) {
+    const merged = mergePersonas(this._personas, emission);
+    if (!merged) {
       return;
     }
     this._personas = merged;
     this._changed.emit();
-    void this._state
-      ?.save(
-        PERSONAS_STATE_KEY,
-        merged.map(({ id, name }) => ({ id, name }))
-      )
-      .catch(error => {
-        console.warn('Could not remember the known agent personas.', error);
-      });
   }
 
   private _events: Event.IManager;
-  private _state: IStateDB | null;
   private _personas: IPersonaOption[] = [];
-  /** Whether the list comes from this session's events rather than the state database. */
-  private _live = false;
   private _changed = new Signal<this, void>(this);
   private _isDisposed = false;
-}
-
-function samePersonas(
-  a: readonly IPersonaOption[],
-  b: readonly IPersonaOption[]
-): boolean {
-  return (
-    a.length === b.length &&
-    a.every(
-      (persona, index) =>
-        persona.id === b[index].id && persona.name === b[index].name
-    )
-  );
 }

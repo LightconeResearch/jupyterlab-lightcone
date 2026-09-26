@@ -538,8 +538,7 @@
   font-size: 12px;
 }
 
-/* Announces each busy phase to screen readers; the button and the progress
- * block show the same state visually. */
+/* Announces each busy phase to screen readers; the button shows it visually. */
 .jp-jupyterlab-lightcone-ProjectSetup-status {
   position: absolute;
   width: 1px;
@@ -551,11 +550,33 @@
   white-space: nowrap;
 }
 
-.jp-jupyterlab-lightcone-ProjectSetup-progress {
-  margin: 24px 0;
-  padding: 16px;
-  background: var(--jp-layout-color1);
-  overflow-wrap: anywhere;
+.jp-jupyterlab-lightcone-ProjectSetup-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-spinner {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: jp-jupyterlab-lightcone-setup-spin 0.8s linear infinite;
+}
+
+@keyframes jp-jupyterlab-lightcone-setup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jp-jupyterlab-lightcone-ProjectSetup-spinner {
+    animation: none;
+  }
 }
 
 .jp-jupyterlab-lightcone-ProjectSetup pre {

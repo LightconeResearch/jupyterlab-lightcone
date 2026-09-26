@@ -2,6 +2,7 @@ import type { ILabShell } from '@jupyterlab/application';
 import { MainAreaWidget } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import { LauncherModel } from '@jupyterlab/launcher';
+import { RenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { Contents } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
 import { Signal } from '@lumino/signaling';
@@ -55,6 +56,7 @@ function homeTab(
     commands: new CommandRegistry(),
     contents,
     documents: { openOrReveal: jest.fn() },
+    rendermime: new RenderMimeRegistry(),
     themes: new FakeThemeManager(),
     current: new FakeCurrentProject(),
     callback: jest.fn(),

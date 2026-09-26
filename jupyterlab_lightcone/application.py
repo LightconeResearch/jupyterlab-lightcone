@@ -6,7 +6,7 @@ from jupyter_server.extension.application import ExtensionApp
 from traitlets import Float, List, Unicode
 
 from .agent_activity import watch_persona_activity
-from .agent_defaults import setup_project_agent_handlers
+from .project_agents import setup_project_agents_handlers
 from .agent_workspace import delivers_comments
 from .comments import COMMENT_DELIVERY, setup_comment_handlers
 from .materialization import setup_materialization_handlers
@@ -93,7 +93,7 @@ class LightconeApp(ExtensionApp):
         setup_session_handlers(app)
         setup_versions_handlers(app)
         setup_comment_handlers(app)
-        setup_project_agent_handlers(app)
+        setup_project_agents_handlers(app)
         self.manager = MySTRAManager(
             getattr(
                 self.serverapp.contents_manager, "root_dir", self.serverapp.root_dir

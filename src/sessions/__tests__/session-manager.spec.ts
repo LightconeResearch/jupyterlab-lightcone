@@ -93,6 +93,16 @@ class FakePersonaState {
   readonly changed = new Signal<this, void>(this);
   isDisposed = false;
   processing = false;
+  ready = false;
+  personas: { id: string; name: string }[] = [];
+  updatePersonas(personas: { id: string; name: string }[]): void {
+    this.personas = personas;
+    this.ready = true;
+    this.changed.emit();
+  }
+  list(ids: string[]): void {
+    this.updatePersonas(ids.map(id => ({ id, name: id })));
+  }
   report(processing: boolean): void {
     this.processing = processing;
     this.changed.emit();
@@ -316,6 +326,78 @@ describe('type guards', () => {
 });
 
 describe('SessionManager.createAndOpen', () => {
+  it('waits for live agents and replaces a stale automatic stamp with the sole agent', async () => {
+    const registry = new FakeRegistry();
+    const h = host({ registry: registry as unknown as PersonaSessionRegistry });
+    try {
+      const pending = h.manager.createAndOpen('p/astra.yaml', {
+        firstMessage: 'Hello'
+      });
+      await flush();
+      const panel = h.panels[0] as unknown as FakePanel;
+      panel.model.input.updateMetadata(personaMetadata('uninstalled'));
+      await flush();
+      expect(panel.model.input.send).not.toHaveBeenCalled();
+      const state = registry.get(panel.model.id);
+      state.changed.connect(() => {
+        panel.model.input.updateMetadata(personaMetadata('available'));
+      });
+      state.list(['available']);
+      await pending;
+      expect(panel.model.input.metadata).toEqual(personaMetadata('available'));
+      expect(panel.model.input.send).toHaveBeenCalledTimes(1);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it.each([true, false])(
+    'validates an explicit choice after discovery (installed: %s)',
+    async installed => {
+      const registry = new FakeRegistry();
+      const h = host({
+        registry: registry as unknown as PersonaSessionRegistry
+      });
+      try {
+        const pending = h.manager.createAndOpen('p/astra.yaml', {
+          firstMessage: 'Hello',
+          persona: 'chosen'
+        });
+        await flush();
+        const panel = h.panels[0] as unknown as FakePanel;
+        expect(panel.model.input.send).not.toHaveBeenCalled();
+        registry
+          .get(panel.model.id)
+          .list(installed ? ['chosen', 'other'] : ['other']);
+        if (installed) {
+          await flush();
+          expect(panel.model.input.send).not.toHaveBeenCalled();
+          panel.model.input.updateMetadata(personaMetadata('other'));
+          // The toolbar's initial stamp can precede its registry listener.
+          await new Promise(resolve => window.setTimeout(resolve, 75));
+          expect(panel.model.input.send).not.toHaveBeenCalled();
+          registry.get(panel.model.id).changed.connect(state => {
+            if (state.personas.length === 1) {
+              panel.model.input.updateMetadata(
+                personaMetadata(state.personas[0].id)
+              );
+            }
+          });
+        }
+        await pending;
+        if (installed) {
+          expect(panel.model.input.send).toHaveBeenCalledWith('Hello');
+          expect(panel.model.input.metadata).toEqual(personaMetadata('chosen'));
+        } else {
+          expect(panel.model.input.send).not.toHaveBeenCalled();
+          expect(panel.model.input.value).toBe('Hello');
+        }
+      } finally {
+        h.dispose();
+      }
+    }
+  );
+
   it('names the chat from the first message, opens it in the current group and sends', async () => {
     const h = host();
     try {
@@ -583,11 +665,73 @@ describe('SessionManager.openSession', () => {
 });
 
 describe('naming a session after its first message', () => {
-  it('renames an untitled session once, when its first message arrives while open', async () => {
+  /** Rename in the fake contents and announce it, as the contents manager does. */
+  const announceRenames = (h: ReturnType<typeof host>) =>
+    jest.spyOn(h.contents, 'rename').mockImplementation(async (from, to) => {
+      const renamed = fileModel('', { path: to });
+      h.emitFileChange({
+        type: 'rename',
+        oldValue: fileModel('', { path: from }),
+        newValue: renamed
+      });
+      return renamed;
+    });
+
+  it('names successive sessions that reuse the untitled path', async () => {
     const h = host();
+    const rename = announceRenames(h);
+    try {
+      for (const body of ['First question', 'Second question']) {
+        const session = h.addPanel('p/chats/untitled.chat');
+        await flush();
+        session.model.messages = [{ id: body, body, sender: human, time: 1 }];
+        session.model.messagesUpdated.emit();
+        await flush();
+      }
+      expect(rename.mock.calls).toEqual([
+        ['p/chats/untitled.chat', 'p/chats/first-question.chat'],
+        ['p/chats/untitled.chat', 'p/chats/second-question.chat']
+      ]);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('retries a failed rename and suppresses concurrent attempts', async () => {
+    const h = host();
+    const attempt = new PromiseDelegate<Contents.IModel>();
     const rename = jest
       .spyOn(h.contents, 'rename')
-      .mockImplementation(async (from, to) => fileModel('', { path: to }));
+      .mockReturnValueOnce(attempt.promise)
+      .mockImplementation(async (_from, to) => fileModel('', { path: to }));
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    try {
+      const session = h.addPanel('p/chats/untitled.chat');
+      await flush();
+      session.model.messages = [
+        { id: '1', body: 'Question', sender: human, time: 1 }
+      ];
+      session.model.messagesUpdated.emit();
+      await flush();
+      session.model.messagesUpdated.emit();
+      await flush();
+      expect(rename).toHaveBeenCalledTimes(1);
+      attempt.reject(new Error('offline'));
+      await flush();
+      session.model.messagesUpdated.emit();
+      await flush();
+      expect(rename).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      h.dispose();
+    }
+  });
+
+  it('renames an untitled session once, when its first message arrives while open', async () => {
+    const h = host();
+    const rename = announceRenames(h);
     try {
       const fresh = h.addPanel('p/chats/untitled.chat');
       await flush();

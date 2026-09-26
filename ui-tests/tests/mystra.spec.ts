@@ -10,12 +10,17 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
   );
   test.setTimeout(180000);
 
-  test('opens, reuses, navigates, reloads saved content, and restarts', async ({
+  test('opens, reuses, closes, reopens, navigates, reloads saved content, and restarts', async ({
     page,
     tmpPath
   }) => {
     const directory = `${tmpPath}/publication`;
     await page.contents.createDirectory(directory);
+    await page.contents.uploadContent(
+      'name: Viewer integration\ninputs: []\noutputs: []\n',
+      'text',
+      `${directory}/astra.yaml`
+    );
     await page.contents.uploadContent(
       `version: 1\nproject:\n  title: Viewer integration\n  toc:\n    - file: index.md\n    - file: methods.md\nsite:\n  template: ${JSON.stringify(template)}\n`,
       'text',
@@ -31,8 +36,43 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
       'text',
       `${directory}/methods.md`
     );
+    // Server-rendered headings appear before hydration opens the live channel.
+    // Observe the native connection so edits test an interactive viewer.
+    await page.addInitScript(() => {
+      const NativeWebSocket = window.WebSocket;
+      window.WebSocket = class extends NativeWebSocket {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols);
+          if (!String(url).includes('/mystra/')) return;
+          this.addEventListener('open', () => {
+            document.documentElement.dataset.mystraLive = 'true';
+          });
+          this.addEventListener('close', () => {
+            delete document.documentElement.dataset.mystraLive;
+          });
+        }
+      };
+    });
     const blocked: string[] = [];
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const reloadFrames: string[] = [];
     const server = new URL(page.url());
+    page.on('websocket', socket => {
+      const url = new URL(socket.url());
+      if (
+        ['localhost', '127.0.0.1'].includes(url.hostname) &&
+        url.port !== server.port
+      )
+        blocked.push(url.href);
+      if (!url.pathname.includes('/mystra/')) return;
+      reloadFrames.push('OPEN ' + url.href);
+      socket.on('framereceived', frame =>
+        reloadFrames.push(String(frame.payload))
+      );
+      socket.on('close', () => reloadFrames.push('CLOSED'));
+      socket.on('socketerror', error => reloadFrames.push('ERROR ' + error));
+    });
     await page.route('**/*', route => {
       const url = new URL(route.request().url());
       if (
@@ -45,16 +85,6 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
       }
       return route.continue();
     });
-    await page.routeWebSocket('**/*', route => {
-      const url = new URL(route.url());
-      if (
-        ['localhost', '127.0.0.1'].includes(url.hostname) &&
-        url.port !== server.port
-      ) {
-        blocked.push(url.href);
-        route.close();
-      } else route.connectToServer();
-    });
     const open = () =>
       page.evaluate(
         async ({ command, path }) => {
@@ -65,15 +95,19 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
         },
         { command, path: directory }
       );
+    const viewerLogs = () =>
+      page.locator('.jp-jupyterlab-lightcone-MySTRA pre').allTextContents();
     try {
-      await page.evaluate(
-        cwd => window.jupyterapp.commands.execute('launcher:create', { cwd }),
-        directory
-      );
+      await page.evaluate(async cwd => {
+        await window.jupyterapp.commands.execute(
+          'jupyterlab_lightcone:open-home',
+          { cwd }
+        );
+      }, directory);
       await page
-        .locator('.jp-Launcher')
+        .locator('.jp-jupyterlab-lightcone-HomeView')
         .filter({ visible: true })
-        .getByText('MySTRA Viewer', { exact: true })
+        .getByRole('button', { name: 'Open report', exact: true })
         .click();
       const viewerPanel = page.locator('.jp-jupyterlab-lightcone-MySTRA');
       await expect(viewerPanel).toBeVisible();
@@ -90,6 +124,18 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
           .getByRole('heading', { name: 'Viewer integration', exact: true })
           .first()
       ).toBeVisible();
+      await expect(frame.locator('html')).toHaveAttribute(
+        'data-mystra-live',
+        'true'
+      );
+      await page.contents.uploadContent(
+        '# Viewer integration\n\nUpdated index from disk.\n\n[Methods](methods.md)\n',
+        'text',
+        `${directory}/index.md`
+      );
+      await expect(
+        frame.getByText('Updated index from disk.', { exact: true })
+      ).toBeVisible({ timeout: 20000 });
       const failedFonts = await frame.locator('body').evaluate(async () => {
         await document.fonts.ready;
         return [...document.fonts]
@@ -98,8 +144,17 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
       });
       expect(failedFonts).toEqual([]);
       expect(await open()).toBe(id);
-      const errors: string[] = [];
-      page.on('pageerror', error => errors.push(error.message));
+      await page
+        .getByRole('tab', { name: /MySTRA/ })
+        .locator('.lm-TabBar-tabCloseIcon')
+        .click();
+      await expect(viewerPanel).toHaveCount(0);
+      expect(await open()).toBe(id); // Reuse the warm server process in a new tab.
+      await expect(
+        frame
+          .getByRole('heading', { name: 'Viewer integration', exact: true })
+          .first()
+      ).toBeVisible();
       await frame
         .locator('a[href$="/methods"]')
         .filter({ visible: true })
@@ -108,6 +163,10 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
       await expect(
         frame.getByText('Original methods.', { exact: true })
       ).toBeVisible();
+      await expect(frame.locator('html')).toHaveAttribute(
+        'data-mystra-live',
+        'true'
+      );
       await page.contents.uploadContent(
         '# Methods\n\nUpdated methods from disk.\n',
         'text',
@@ -131,11 +190,34 @@ test.describe('MySTRA Viewer with the actual CLI and theme', () => {
           .getByRole('heading', { name: 'Viewer integration', exact: true })
           .first()
       ).toBeVisible();
+      await expect(frame.locator('html')).toHaveAttribute(
+        'data-mystra-live',
+        'true'
+      );
+      await page.contents.uploadContent(
+        '# Viewer integration\n\nUpdated index after restart.\n',
+        'text',
+        `${directory}/index.md`
+      );
+      await expect(
+        frame.getByText('Updated index after restart.', { exact: true })
+      ).toBeVisible({ timeout: 20000 });
       expect(blocked).toEqual([]);
       expect(errors).toEqual([]);
       await page.screenshot({
         path: test.info().outputPath('mystra-viewer.png')
       });
+    } catch (error) {
+      await test.info().attach('mystra-diagnostics', {
+        contentType: 'application/json',
+        body: JSON.stringify({
+          reloadFrames,
+          errors,
+          blocked,
+          logs: await viewerLogs()
+        })
+      });
+      throw error;
     } finally {
       // Stop before Galata removes the watched files or shuts down its server.
       const baseUrl = await page.evaluate(

@@ -1,6 +1,16 @@
 import { ServerConnection } from '@jupyterlab/services';
+import { WidgetTracker } from '@jupyterlab/apputils';
+import { PromiseDelegate } from '@lumino/coreutils';
+import { Widget } from '@lumino/widgets';
+import { MessageLoop } from '@lumino/messaging';
 import { MySTRAViewer } from '../mystra-viewer';
-import { IMySTRASession, RequestError, readMySTRA } from '../api';
+import {
+  IMySTRASession,
+  RequestError,
+  readMySTRA,
+  startMySTRA,
+  stopMySTRA
+} from '../api';
 
 // Keep the real RequestError so the viewer can branch on HTTP status.
 jest.mock('../api', () => ({
@@ -24,6 +34,38 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 afterEach(() => jest.useRealTimers());
+
+test('activation focuses the viewer so shell commands target its tab', () => {
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  Widget.attach(widget, document.body);
+  try {
+    widget.activate();
+    MessageLoop.flush();
+    expect(document.activeElement).toBe(widget.node);
+  } finally {
+    widget.dispose();
+  }
+});
+
+test('closing the tab disposes it, removes it from the tracker and stops heartbeats', async () => {
+  const tracker = new WidgetTracker<MySTRAViewer>({ namespace: 'mystra-test' });
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  Widget.attach(widget, document.body);
+  await tracker.add(widget);
+  try {
+    widget.close();
+    expect(widget.isDisposed).toBe(true);
+    expect(widget.isAttached).toBe(false);
+    expect(tracker.size).toBe(0);
+    await jest.advanceTimersByTimeAsync(60000);
+    expect(readMySTRA).not.toHaveBeenCalled();
+    // Other browser views may still lease the same server process.
+    expect(stopMySTRA).not.toHaveBeenCalled();
+  } finally {
+    widget.dispose();
+    tracker.dispose();
+  }
+});
 
 test('loads the iframe only after readiness and stops polling on disposal', async () => {
   const read = jest.mocked(readMySTRA);
@@ -82,4 +124,92 @@ test('stops polling an expired session until a new one is adopted', async () => 
   expect(read).toHaveBeenCalledTimes(2);
   expect(read).toHaveBeenLastCalledWith(expect.anything(), 'b'.repeat(32));
   widget.dispose();
+});
+
+test('ignores a heartbeat that finishes after closing the tab', async () => {
+  const heartbeat = new PromiseDelegate<IMySTRASession>();
+  jest.mocked(readMySTRA).mockReturnValue(heartbeat.promise);
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  await jest.advanceTimersByTimeAsync(1000);
+  widget.close();
+  heartbeat.resolve({ ...session, state: 'ready' });
+  await jest.advanceTimersByTimeAsync(60000);
+  expect(widget.isDisposed).toBe(true);
+  expect(readMySTRA).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('restart replaces the session and ignores the previous heartbeat', async () => {
+  const heartbeat = new PromiseDelegate<IMySTRASession>();
+  const read = jest.mocked(readMySTRA);
+  read.mockReturnValueOnce(heartbeat.promise);
+  const next = { ...session, id: 'b'.repeat(32), url: '/next/site/' };
+  jest.mocked(stopMySTRA).mockResolvedValue(undefined);
+  jest.mocked(startMySTRA).mockResolvedValue(next);
+  read.mockResolvedValue({ ...next, state: 'ready' });
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  try {
+    await jest.advanceTimersByTimeAsync(1000);
+    await widget.restartSession();
+    heartbeat.resolve({ ...session, state: 'ready' });
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(stopMySTRA).toHaveBeenCalledWith(expect.anything(), session.id);
+    expect(read).toHaveBeenLastCalledWith(expect.anything(), next.id);
+    expect(widget.node.querySelector('iframe')?.getAttribute('src')).toBe(
+      next.url
+    );
+  } finally {
+    widget.dispose();
+  }
+});
+
+test('closing during stop does not launch a replacement process', async () => {
+  const stopped = new PromiseDelegate<void>();
+  jest.mocked(stopMySTRA).mockReturnValue(stopped.promise);
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  const restarting = widget.restartSession();
+  widget.close();
+  stopped.resolve();
+  await restarting;
+  expect(startMySTRA).not.toHaveBeenCalled();
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('closing during startup does not revive the tab or its heartbeat', async () => {
+  const started = new PromiseDelegate<IMySTRASession>();
+  jest.mocked(stopMySTRA).mockResolvedValue(undefined);
+  jest.mocked(startMySTRA).mockReturnValue(started.promise);
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  const restarting = widget.restartSession();
+  await jest.advanceTimersByTimeAsync(0);
+  widget.close();
+  started.resolve({ ...session, id: 'b'.repeat(32) });
+  await restarting;
+  expect(widget.isDisposed).toBe(true);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('a failed restart can be retried', async () => {
+  jest.mocked(stopMySTRA).mockResolvedValue(undefined);
+  const start = jest.mocked(startMySTRA);
+  start.mockRejectedValueOnce(new Error('Startup failed'));
+  start.mockResolvedValue({
+    ...session,
+    id: 'b'.repeat(32),
+    state: 'ready',
+    url: '/retry/site/'
+  });
+  const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
+  try {
+    await widget.restartSession();
+    expect(widget.node.querySelector('[role="status"]')?.textContent).toContain(
+      'Startup failed'
+    );
+    await widget.restartSession();
+    expect(widget.node.querySelector('iframe')?.getAttribute('src')).toBe(
+      '/retry/site/'
+    );
+  } finally {
+    widget.dispose();
+  }
 });

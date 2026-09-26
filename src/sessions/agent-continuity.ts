@@ -13,13 +13,15 @@ import {
   IChatProjectResolver,
   recordedChatProject
 } from '../chat-links/chat-project';
-import { resolvePersonaRegistry } from './persona-registry';
+import {
+  PERSONAS_TIMEOUT,
+  resolvePersonaRegistry,
+  selectPersona,
+  whenPersonas
+} from './persona-registry';
 import { isPersonaUser } from './session-activity';
 import { selectedPersona } from './session-manager';
 import { fetchProjectAgent } from './sessions-api';
-
-/** How long a chat's persona list may take to arrive before the chat is left as it is. */
-export const PERSONAS_TIMEOUT = 20_000;
 
 /**
  * The persona the chat's own messages last named: the `to_persona` of its
@@ -42,11 +44,9 @@ export function lastAddressedPersona(
 }
 
 /**
- * Wait until the chat's persona list names `persona`, following the registry
- * when it replaces the chat's state (it discards it when a view of the chat
- * closes). Resolves with the state that lists it, or undefined once the list
- * has arrived without the persona, after the timeout, or once `cancelled`
- * says so.
+ * Wait until the chat's persona list names `persona` (see `whenPersonas`).
+ * Resolves with the state that lists it, or undefined once the list has
+ * arrived without the persona, after the timeout, or once `cancelled` says so.
  */
 export function whenListed(
   registry: PersonaSessionRegistry,
@@ -55,60 +55,13 @@ export function whenListed(
   cancelled: () => boolean,
   timeout = PERSONAS_TIMEOUT
 ): Promise<PersonaManagerSessionState | undefined> {
-  return new Promise(resolve => {
-    let state: PersonaManagerSessionState | undefined;
-    let timer = 0;
-    const listen = () => {
-      state?.changed.disconnect(check);
-      state = registry.get(chatId);
-      state.changed.connect(check);
-    };
-    const finish = (value: PersonaManagerSessionState | undefined) => {
-      window.clearTimeout(timer);
-      state?.changed.disconnect(check);
-      resolve(value);
-    };
-    function check(): void {
-      if (cancelled()) {
-        finish(undefined);
-      } else if (state?.isDisposed) {
-        listen();
-        check();
-      } else if (state?.personas.some(option => option.id === persona)) {
-        finish(state);
-      } else if (state?.ready) {
-        finish(undefined);
-      }
-    }
-    timer = window.setTimeout(() => finish(undefined), timeout);
-    listen();
-    check();
-  });
-}
-
-/**
- * Select `persona` in the chat's Jupyter AI agent picker.
- *
- * The persona manager exposes no selection API: the picker keeps its choice
- * in React state and starts every new view from the server's default. Its
- * one observable rule, `reconcileSelection` in
- * `@jupyter-ai/persona-manager/lib/persona-controls`, selects a chat's only
- * persona in a view nobody has picked in yet. Listing that persona alone,
- * then the full list again, applies that rule; the full list keeps the
- * choice, since a selection that is in the list stands. A view where the
- * user already picked is left alone by the picker itself.
- */
-export function selectPersona(
-  state: PersonaManagerSessionState,
-  persona: string
-): void {
-  const all = state.personas;
-  const only = all.filter(option => option.id === persona);
-  if (!only.length) {
-    return;
-  }
-  state.updatePersonas(only);
-  state.updatePersonas(all);
+  return whenPersonas(
+    registry,
+    chatId,
+    state => state.personas.some(option => option.id === persona),
+    cancelled,
+    timeout
+  );
 }
 
 export interface IAgentContinuityOptions {

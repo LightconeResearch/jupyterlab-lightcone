@@ -606,6 +606,9 @@ export class CommentHosts implements IDisposable {
           entrypoint: target.path,
           target: doi ? '' : (target.record ?? ''),
           ...(doi ? { doi } : {}),
+          ...(target.version.commit
+            ? { versionCommit: target.version.commit }
+            : {}),
           universeId: target.universe
         }
       );

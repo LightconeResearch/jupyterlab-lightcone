@@ -1,6 +1,7 @@
 import type { IThemeManager } from '@jupyterlab/apputils';
 import type { IChangedArgs } from '@jupyterlab/coreutils';
 import { LauncherModel } from '@jupyterlab/launcher';
+import { RenderMimeRegistry } from '@jupyterlab/rendermime';
 import {
   ServerConnection,
   type Contents,
@@ -160,6 +161,7 @@ export function homeHost(options: IHomeHostOptions) {
     commands,
     contents,
     documents: { openOrReveal: jest.fn() },
+    rendermime: new RenderMimeRegistry(),
     themes: new FakeThemeManager(),
     current,
     callback: jest.fn(),

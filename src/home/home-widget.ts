@@ -1,5 +1,6 @@
 import type { IThemeManager } from '@jupyterlab/apputils';
 import { Launcher, type ILauncher } from '@jupyterlab/launcher';
+import type { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { Contents } from '@jupyterlab/services';
 import type { IStateDB } from '@jupyterlab/statedb';
 import {
@@ -28,6 +29,7 @@ export interface IHomeWidgetOptions {
   contents: Contents.IManager;
   /** Opens an artifact file in a tab, for the results plates. */
   documents: IDocumentOpener;
+  rendermime: IRenderMimeRegistry;
   themes: IThemeManager;
   current: ICurrentProject;
   /** The stock launcher's callback: replace this tab with the launched widget. */
@@ -95,6 +97,7 @@ export class HomeWidget extends Panel {
       contents: options.contents,
       commands: options.commands,
       documents: options.documents,
+      rendermime: options.rendermime,
       themes: options.themes,
       sessions: options.sessions ?? null,
       personas: options.personas ?? null,
