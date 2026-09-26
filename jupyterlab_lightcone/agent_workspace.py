@@ -138,8 +138,13 @@ def select_project_persona_manager(serverapp) -> bool:
     A deployment opts out by configuring any other class, including an explicit
     subclass of the stock one. Returns whether this manager is in use.
     """
-    apps = serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
+    apps = persona_manager_apps(serverapp)
     for app in apps:
         if app.persona_manager_class is JupyterAIPersonaManager:
             app.persona_manager_class = PersonaManager
     return any(app.persona_manager_class is PersonaManager for app in apps)
+
+
+def persona_manager_apps(serverapp):
+    """The loaded Jupyter AI persona manager extension apps; empty when it is not installed."""
+    return serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())

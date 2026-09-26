@@ -20,7 +20,8 @@
         "lib/**/*.{d.ts,eot,gif,html,jpg,js,js.map,json,png,svg,woff2,ttf}",
         "style/**/*.{css,js,eot,gif,html,jpg,json,png,svg,woff2,ttf}",
         "src/**/*.{ts,tsx}",
-        "src/vendor/MYSTRA-LICENSE"
+        "src/vendor/MYSTRA-LICENSE",
+        "schema/*.json"
     ],
     "main": "lib/index.js",
     "types": "lib/index.d.ts",
@@ -59,6 +60,8 @@
     "dependencies": {
         "@astra-spec/sdk": "^0.1.2",
         "@astra-spec/ui": "0.0.7",
+        "@emotion/react": "^11.10.5",
+        "@emotion/styled": "^11.10.5",
         "@jupyter-ai/persona-manager": "^0.2.0",
         "@jupyter/chat": "~0.25.0",
         "@jupyterlab/application": "^4.5.10",
@@ -71,17 +74,22 @@
         "@jupyterlab/rendermime": "^4.5.10",
         "@jupyterlab/rendermime-interfaces": "^3.13.0",
         "@jupyterlab/services": "^7.5.10",
+        "@jupyterlab/statedb": "^4.5.10",
         "@jupyterlab/statusbar": "^4.5.10",
         "@jupyterlab/translation": "^4.5.10",
         "@jupyterlab/ui-components": "^4.5.10",
         "@lightcone-research/brand": "0.0.3",
+        "@lumino/algorithm": "^2.0.5",
         "@lumino/commands": "^2.3.4",
         "@lumino/coreutils": "^2.2.0",
         "@lumino/disposable": "^2.1.6",
         "@lumino/messaging": "^2.0.4",
         "@lumino/polling": "^2.1.6",
         "@lumino/signaling": "^2.1.6",
+        "@lumino/virtualdom": "^2.0.5",
         "@lumino/widgets": "^2.0.0",
+        "@mui/icons-material": "^7.3.2",
+        "@mui/material": "^7.3.2",
         "pdfjs-dist": "4.8.69",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
@@ -92,7 +100,6 @@
         "@eslint/js": "^9.0.0",
         "@jupyter/builder": "^1.2.0",
         "@jupyter/eslint-plugin": "^1.1.0",
-        "@jupyterlab/statedb": "^4.5.10",
         "@jupyterlab/testutils": "^4.0.0",
         "@types/jest": "^29.2.0",
         "@types/json-schema": "^7.0.11",
@@ -152,7 +159,11 @@
                 "singleton": true
             },
             "yaml": false
-        }
+        },
+        "schemaDir": "schema",
+        "disabledExtensions": [
+            "@jupyterlab/launcher-extension:plugin"
+        ]
     },
     "prettier": {
         "singleQuote": true,

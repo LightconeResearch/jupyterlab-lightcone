@@ -55,6 +55,10 @@ prior_insights:
   await page.filebrowser.openDirectory(tmpPath);
   await page.evaluate(async cwd => {
     await window.jupyterapp.commands.execute('launcher:create', { cwd });
+    // The project launcher shows Home; its cards live in the full launcher.
+    await window.jupyterapp.commands.execute(
+      'jupyterlab_lightcone:show-launcher'
+    );
   }, tmpPath);
   await page
     .getByRole('button', { name: 'Lightcone Agent', exact: true })
@@ -387,9 +391,11 @@ test('a new session delivers its first message after its agent controls mount', 
       hasText: 'Second test agent received: Hello from the start'
     })
   ).toHaveCount(1, { timeout: 30000 });
-  await expect(page.locator('.jp-jai-personaControls-persona-btn')).toHaveText(
-    'Second test agent'
-  );
+  await expect(
+    page
+      .locator('.jp-chat-input-container')
+      .locator('.jp-jai-personaControls-persona-btn')
+  ).toHaveText('Second test agent');
   await page
     .locator('.jp-chat-input-container')
     .getByRole('combobox')
@@ -669,6 +675,9 @@ test('Lightcone Agent appears first with a gold chat icon inside an ASTRA projec
   await page.filebrowser.openDirectory(tmpPath);
   await page.evaluate(async cwd => {
     await window.jupyterapp.commands.execute('launcher:create', { cwd });
+    await window.jupyterapp.commands.execute(
+      'jupyterlab_lightcone:show-launcher'
+    );
   }, tmpPath);
   const shortcut = page.getByRole('button', {
     name: 'Lightcone Agent',
@@ -720,7 +729,7 @@ test('Lightcone Agent offers project setup outside an ASTRA project without crea
     .filter({ hasText: 'Lightcone Lab' });
   await expect(
     section.getByRole('button', {
-      name: 'Create project',
+      name: 'New Lightcone project',
       exact: true
     })
   ).toBeVisible();

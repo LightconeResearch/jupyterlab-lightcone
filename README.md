@@ -31,41 +31,42 @@ there is one, the status bar shows **Lightcone · _project_**; click it to open
 the project's inventory. Browsing outside every project clears it. New Jupyter
 AI chats join the current project (see below).
 
-Outside a project, the Lightcone Lab launcher shows **＋ Create project** and
-**Open project**. Inside a project or its subfolders, it shows the agent,
-inventory, and report. The launcher heading identifies the project root.
+Outside a project, the launcher is JupyterLab's own plus one **New Lightcone
+project** card; **Open project** stays in the command palette. Inside a project
+or its subfolders, the launcher tab shows the project's [Home](#project-home-and-setup) instead.
 Browse labels folders containing `astra.yaml` as **ASTRA project**; this indicates
 presence, not validation of the specification.
 
-Choose **Create project** in the launcher (or command palette), enter a project
-folder, or use **Browse…** to select an existing directory. Create defaults to a
-new `my-project` subfolder, which you can rename. Paths are relative to
-the Jupyter server's root; absolute paths inside that root are also accepted.
-Existing projects open directly. For a folder without `astra.yaml`, **Create
-project here** initializes the exact folder shown, as `lc init` would. Inspecting
-or cancelling the form creates nothing. The extension installs `lightcone-cli` as
-a dependency and calls its engine directly, so no `lc` command has to be on the
-server's `PATH`. Initialization requires a local filesystem server, and the
-engine's own tools, `uv` and `git`, on the server's `PATH`; failures are
-displayed in the form and can be retried. After closing the form or
-reloading JupyterLab, run **Finish project setup** from the command palette to
-resume setup, including when `astra.yaml` already exists. The Create form also
-offers **Finish setup…** after inspecting an existing project. Both routes show
-the exact destination before running initialization; file presence alone does
-not imply setup completed. Each setup action opens a fresh form so an older
-draft cannot override a newly selected destination.
+Choose **New Lightcone project** in the launcher (or **Create project** in the
+command palette), enter a project folder, or use **Browse…** to select an
+existing directory. Create proposes a folder that does not exist yet,
+`my-project` (or `my-project-2`, … when that is taken), beside the current
+project when the file browser is inside one; you can rename it. Paths are
+relative to the Jupyter server's root; absolute paths inside that root are also
+accepted. **Create project** does it in one step: a folder that already holds a
+Lightcone project opens directly, a folder inside another project is refused
+before anything is written, and any other folder is initialized exactly as
+entered, as `lc init` would, then opened. Cancelling the form creates nothing.
+The extension installs `lightcone-cli` as a dependency and calls its engine
+directly, so no `lc` command has to be on the server's `PATH`.
+Initialization requires a local filesystem server, and the engine's own tools,
+`uv` and `git`, on the server's `PATH` (`git-annex` comes with the extension,
+as a wheel installed beside the server's interpreter); failures are displayed
+in the form and
+can be retried. After closing the form or reloading JupyterLab, run **Finish
+project setup** from the command palette to resume setup, including when
+`astra.yaml` already exists; file presence alone does not imply setup
+completed. While setup runs, the button shows a spinner and a brief status. Each setup
+action opens a fresh form so an older draft cannot override a newly selected
+destination.
 
 After opening or creating a project, the file browser navigates there and the
-project launcher opens. Choose the agent, inventory, or viewer from the launcher.
-Choosing Lightcone Agent creates its chat file inside the project, which is also
-the working directory used by Jupyter AI's ACP client. Select a configured persona
-in Jupyter AI to start messaging; opening the chat does not send a message.
-Inventory and Lightcone Agent commands invoked in a folder without `astra.yaml`
-offer the same setup form.
+project's Home comes forward: the Home tab already showing it, or a new one. Inventory and Lightcone Agent commands
+invoked in a folder without `astra.yaml` offer the same setup form.
 
 Open `astra.yaml` in the file browser, or select **Open With → Lightcone Lab**.
-The **Lightcone Lab** launcher category and command palette also offer
-**ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
+Home's **Open ASTRA**, the full launcher's Lightcone cards and the command
+palette also offer **ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
 result files and starts no kernel. JupyterLab may create its standard document
 checkpoint when opening a writable file; the normal text editor remains
 available for editing.
@@ -145,8 +146,8 @@ not monitored: input notifications concern their ASTRA declarations.
 
 ### MySTRA Viewer
 
-Choose **MySTRA Viewer** in the launcher, command palette, or file-browser
-context menu. Lightcone finds the nearest `myst.yml` or `myst.yaml`, starts its
+Choose **Open report** on Home, or **MySTRA Viewer** in the full launcher,
+command palette, or file-browser context menu. Lightcone finds the nearest `myst.yml` or `myst.yaml`, starts its
 MyST CLI, and opens the actual ASTRA article/book application in a tab. Opening
 the same project reuses the viewer. Saved Markdown and research data changes
 are handled by MyST's watcher; unsaved editor changes are not rendered.
@@ -463,3 +464,36 @@ TSV, and JSON tables compare their row counts and columns. Each side uses its
 historical file format, including format changes across a rename. Reads and
 metric expansion are bounded, and missing bytes or unsupported format pairs
 remain explicit. Selecting **Latest** closes comparison and resumes live data.
+
+### Project Home and setup
+
+Inside a project, launcher tabs show Home: the project title and Markdown
+description, result previews with freshness, and a composer with recent
+sessions. The pencil icons edit the display name or description in
+`astra.yaml`, preserving the project folder and other fields. Description
+editing uses its original Markdown.
+
+Choose an available agent before **Start**. Home discovers project-local and
+installed agents without creating a chat or starting an agent, suggests the
+project's last agent when available, and sends the first message through the
+same checked handoff as session creation. Unsent drafts survive a reload.
+Results open in record tabs. **Open ASTRA** opens the full inventory;
+**Open report** appears only for projects with `myst.yml` or `myst.yaml` and
+opens the managed MySTRA viewer.
+
+**Tools** groups the standard launcher's items, including kernels and cards
+from other extensions, by category. **Show the full launcher** and **Back to
+Home** switch that tab's body. Outside projects the standard launcher remains
+available. The tab-bar plus button, File menu, keyboard shortcut, file-browser
+button, and an emptied main area retain their launcher behavior.
+
+**New Lightcone project** proposes an unused folder, beside the current
+project when browsing inside one. Setup refuses a nested project before
+writing, opens an existing project directly, and shows a spinner during
+initialization. Cancelling creates nothing. **Finish project setup** resumes
+an incomplete setup; the presence of `astra.yaml` alone does not imply success.
+
+Home replaces `@jupyterlab/launcher-extension:plugin` atomically through the
+extension manifest and its own `ILauncher` provider. Disabling Lightcone Lab
+restores JupyterLab's stock launcher. Other launcher replacements conflict
+with this provider.

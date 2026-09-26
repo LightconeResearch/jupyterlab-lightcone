@@ -711,3 +711,138 @@ unchecked collection casts with type guards and removes a non-null assertion.
 **Remove when:** `@astra-spec/sdk` exports a browser-safe `parseAstraPath`, its
 `AstraPath` type, and a canonical record path resolver.
 Retain the record-reference resolution tests when replacing the vendored file.
+
+## Project Home
+
+### Home discovers personas through an in-memory manager
+
+**Where.** `jupyterlab_lightcone/project_agents.py` (`available_agents`) and
+`src/home/home-view.tsx` (`useProjectAgents`). `src/home/personas.ts`
+(`PersonaDirectory`) watches live list changes to refresh the discovery.
+
+**What.** The project-authorized route creates a temporary manager with an
+in-memory chat to discover installed and project-local personas. It neither
+saves the chat nor calls agent preparation, sends messages or attaches an event
+logger. Discovery imports project-local Python, so the route requires
+`execute` on `lightcone` as well as `read` on `contents` before constructing
+the manager. Live persona events invalidate discovery, including removals,
+without maintaining a second merged catalog. It releases the temporary
+document afterwards. It must not shut down
+unprepared personas: ACP's shutdown touches class-shared clients belonging to
+other chats. The launcher displays this project's choices before any chat opens.
+
+**Why.** persona-manager 0.2 advertises personas only once a chat is open;
+there is no chat-independent listing.
+
+**Upstream.** persona-manager: project-scoped discovery returning ids, names and
+a valid default without constructing a manager or persona instances.
+
+**Removal.** Replace the temporary manager and custom route with that API.
+
+### Home reuses the chat picker's building blocks and styles
+
+**Where.** `src/home/agent-picker.tsx` (`AgentPicker`) and
+`jupyterlab_lightcone/project_agents.py` (`persona_avatar`).
+
+**What.** The launcher uses Jupyter Chat's exported `JlThemeProvider`, the same
+MUI button/menu/icon components as Jupyter AI, and Jupyter AI's existing
+`jp-jai-personaControls` and `jp-jai-controlMenu` styles. Small avatar assets
+are included in discovery because the upstream avatar route's cache is only
+populated after a real chat opens.
+
+**Why.** Jupyter AI's selector is embedded in `PersonaControls`, with state
+owned by a chat model; no standalone controlled picker is exported.
+
+**Upstream.** Export a picker taking persona options, a selected id and an
+`onSelect` callback, plus chat-independent avatar discovery.
+
+**Removal.** Replace `AgentPicker` with that shared component and drop avatar
+inlining when discovery supplies usable image URLs.
+
+### Enter inserts paragraphs in the description dialog
+
+**Where.** `src/project-description.ts` (`DescriptionDialog._evtKeydown`).
+
+**Why.** JupyterLab's dialog cancels the default Enter behavior even when a
+textarea is focused. The subclass leaves Enter's native behavior intact in
+the description field and delegates other keys to the standard dialog.
+
+**Upstream.** `@jupyterlab/apputils`: skip `preventDefault()` for Enter in a
+textarea.
+
+**Removal.** Use `Dialog` directly and delete the subclass.
+
+### The launcher plugin is replaced
+
+**Where.** `package.json` (`disabledExtensions`), `src/home/index.ts`,
+`schema/home.json`.
+
+**What.** Inside a project the launcher tab shows Home. The stock launcher
+plugin is disabled and its `activate`, `launcher:create` command, menu,
+shortcut and toolbar entries are mirrored (JupyterLab 4.6.3) so every entry
+point keeps working; the plugin id carries the npm name because settings
+schemas load only under a registered plugin id.
+
+**Why.** `ILauncher` offers only `add()`; nothing lets a plugin provide the
+tab's body.
+
+**Upstream.** `@jupyterlab/launcher-extension`: a body-provider token consulted
+by `launcher:create`, or the `ILauncher` provider split from the command.
+
+**Removal.** Re-enable the stock plugin; provide the body.
+
+### Hidden project listings are refreshed by re-sorting
+
+**Where.** `src/project-browser.ts` (`ProjectFileBrowser.refreshMarkers`).
+`DirListing` skips rebuilding its items while hidden, including before the
+project-picker dialog attaches. Updating badge metadata and calling `update()`
+would leave the initial folder empty. The subclass reapplies the current public
+sort state to rebuild items without changing the user's ordering; it does not
+access the listing's private item cache.
+
+**Upstream and removal.** `@jupyterlab/filebrowser` should rebuild on attach or
+expose `refreshItems()`. Replace the re-sort with that hook.
+`src/__tests__/project-browser.spec.ts` checks that the starting directory's
+items and project labels appear before any navigation.
+
+### Home freshness borrows a results-commit timestamp
+
+**Where.** `src/home/home-view.tsx` (`useLatestResultsTime`) and `home-model.ts`
+(`summarizeFreshness`). The engine's output status has no materialization time,
+so Home asks the existing results-history API for the newest results commit
+and uses its timestamp. Remote drives omit this optional time; unavailable
+history clears it, and effects discard stale responses after the view changes.
+The freshness line labels this "results updated": the newest retained result
+commit can include manual edits or concurrent changes and is not proof that
+the engine ran.
+
+**Upstream and removal.** lightcone-cli should expose an ISO 8601 materialization
+time associated with its output commit, or structured run records. Use that
+field and remove Home's extra history request. `home-desk.spec.ts` checks the
+freshness line from a controlled results timestamp; backend history tests
+validate the bounded result-commit listing.
+
+### The isolation reset forces host controls into a layer
+
+**Where.** `style/home.css` (the Home preview controls layer).
+
+**Why.** `isolate.css` resets everything inside an `astra-isolate` root with
+`all: revert-layer`, so host controls placed inside must live in a layer
+ordered after ASTRA's; the layer names are restated because CSS cannot order a
+layer after another stylesheet's layers without naming them.
+
+**Upstream.** `@astra-spec/ui`: document the layer order, or scope the reset
+to its own parts.
+
+**Removal.** Use the documented ASTRA layer order or scoped reset, then delete
+Home's copied layer-order assumptions while retaining its preview controls.
+
+**Coverage for Home's adapters.** `test_project_agents.py` verifies that listing
+personas never prepares or shuts down agents, creates no chat, and selects
+only an available default. `src/home/__tests__/home-plugin.spec.ts` covers the
+launcher replacement's entry points, restoration, stock-plugin exclusion and
+per-tab switching. `home-desk.spec.ts` covers discovery and the first-message
+handoff, while `ui-tests/tests/launcher-agents.spec.ts` verifies the native
+picker. `project-description.spec.ts` exercises Enter paragraphs and preserved
+Markdown in the real dialog; the native Home plate/theme case covers the
+preview controls inside ASTRA isolation.

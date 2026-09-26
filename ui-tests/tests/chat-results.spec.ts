@@ -52,10 +52,13 @@ outputs:
           message.sender.username.startsWith('jupyter-ai-personas::')
         );
         const reply = replies?.[replies.length - 1];
-        if (!reply)
-          throw new Error('The results footer needs a real agent reply.');
-        return reply.time;
+        return reply?.time;
       });
+      // Home can request history before the chat has received its first reply.
+      if (time === undefined) {
+        await route.fulfill({ json: { commits: [] } });
+        return;
+      }
       await route.fulfill({
         json: {
           commits: [

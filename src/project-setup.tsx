@@ -2,16 +2,25 @@ import React, { useState } from 'react';
 import { ReactWidget } from '@jupyterlab/apputils';
 import type { ServerConnection } from '@jupyterlab/services';
 import {
+  nullTranslator,
+  type ITranslator,
+  type TranslationBundle
+} from '@jupyterlab/translation';
+import {
   inspectProjectFolder,
   initializeProjectFolder,
   type IProjectFolder
 } from './api';
+import type { IProjectRoot } from './project-root';
 
 interface IProjectSetupOptions {
   path: string;
   mode: 'create' | 'finish';
   settings: ServerConnection.ISettings;
+  translator?: ITranslator;
   browse: () => Promise<string | undefined>;
+  /** The project at or above a Contents path, as `findProjectRoot` finds it. */
+  findProject: (path: string) => Promise<IProjectRoot | undefined>;
   open: (project: IProjectFolder) => Promise<void>;
 }
 
@@ -23,53 +32,107 @@ export class ProjectSetup extends ReactWidget {
   }
 
   render(): JSX.Element {
-    return <ProjectSetupForm {...this.options} />;
+    const trans = (this.options.translator ?? nullTranslator).load(
+      'jupyterlab_lightcone'
+    );
+    return <ProjectSetupForm {...this.options} trans={trans} />;
   }
 }
 
-function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
+/** What the form is doing while it is busy. */
+type SetupPhase = 'browsing' | 'checking' | 'setting-up' | 'opening';
+
+/**
+ * Why a folder cannot hold a new project: it lies inside `owner`, whose files
+ * it would take over (the nearest `astra.yaml` claims a folder).
+ */
+export function nestedProjectMessage(
+  owner: IProjectRoot,
+  trans: TranslationBundle
+): string {
+  const where = owner.path
+    ? trans.__('the Lightcone project in %1', owner.path)
+    : trans.__('the Lightcone project at the server root');
+  return trans.__(
+    'This folder is inside %1, and a project cannot be set up inside another one. Choose a folder outside it, or open that project instead.',
+    where
+  );
+}
+
+/**
+ * One action: create (or finish) the project in the chosen folder, or open it
+ * when the folder already holds one. Asking for a project is the confirmation.
+ */
+function ProjectSetupForm(
+  options: IProjectSetupOptions & { trans: TranslationBundle }
+): JSX.Element {
   const [path, setPath] = useState(options.path || '.');
-  const [mode, setMode] = useState(options.mode);
-  const [project, setProject] = useState<IProjectFolder>();
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<SetupPhase>();
   const [error, setError] = useState('');
+  const { mode, trans } = options;
+  const busy = phase !== undefined;
+  const submitting = busy && phase !== 'browsing';
   const edit = (value: string) => {
     setPath(value);
-    setProject(undefined);
     setError('');
   };
-  // An existing project opens directly unless the user asked to finish setup.
-  const canOpen = !!project?.hasSpec && mode === 'create';
-  const guarded = async (task: () => Promise<void>) => {
-    setBusy(true);
+  const run = async (task: () => Promise<void>) => {
+    setError('');
     try {
       await task();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
-      setBusy(false);
+      setPhase(undefined);
     }
   };
   const submit = () => {
     if (busy || !path.trim()) return;
-    setError('');
-    return guarded(async () => {
-      if (!project) {
-        setProject(await inspectProjectFolder(options.settings, path));
-      } else if (canOpen) {
-        await options.open(project);
-      } else {
-        await options.open(
-          await initializeProjectFolder(options.settings, project.path)
-        );
+    return run(async () => {
+      setPhase('checking');
+      // Inspection resolves the folder the server will use; it writes nothing.
+      const folder = await inspectProjectFolder(options.settings, path);
+      if (mode === 'create' && folder.hasSpec) {
+        setPhase('opening');
+        await options.open(folder);
+        return;
       }
+      // Setup writes at once, so a folder another project owns is refused
+      // before anything is written there.
+      const owner = folder.hasSpec
+        ? undefined
+        : await options.findProject(folder.path);
+      if (owner) {
+        throw new Error(nestedProjectMessage(owner, trans));
+      }
+      setPhase('setting-up');
+      const ready = await initializeProjectFolder(
+        options.settings,
+        folder.path
+      );
+      setPhase('opening');
+      await options.open(ready);
     });
   };
-  const browse = () =>
-    guarded(async () => {
+  const browse = () => {
+    if (busy) return;
+    return run(async () => {
+      setPhase('browsing');
       const selected = await options.browse();
       if (selected !== undefined) edit(selected || '.');
     });
+  };
+  // Announce the same brief progress the button shows visually.
+  const status =
+    phase === 'browsing'
+      ? trans.__('Choosing a folder…')
+      : phase === 'checking'
+        ? trans.__('Checking the folder…')
+        : phase === 'setting-up'
+          ? trans.__('Setting up project…')
+          : phase === 'opening'
+            ? trans.__('Opening the project…')
+            : '';
   return (
     <form
       onSubmit={event => {
@@ -79,16 +142,20 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
     >
       <h1>
         {mode === 'finish'
-          ? 'Finish project setup'
-          : 'Create a Lightcone project'}
+          ? trans.__('Finish project setup')
+          : trans.__('Create a Lightcone project')}
       </h1>
       <p>
         {mode === 'finish'
-          ? 'Complete or retry setup in the selected folder.'
-          : 'Choose a folder for your new project, or browse to open an existing one.'}{' '}
-        The launcher will open in that folder.
+          ? trans.__('Complete or retry setup in the selected folder.')
+          : trans.__(
+              'Choose a folder for your new project. If it already holds a Lightcone project, that project opens instead.'
+            )}{' '}
+        {trans.__('The project opens once it is ready.')}
       </p>
-      <label htmlFor="lightcone-project-folder">Project folder</label>
+      <label htmlFor="lightcone-project-folder">
+        {trans.__('Project folder')}
+      </label>
       <div className="jp-jupyterlab-lightcone-ProjectSetup-path">
         <input
           id="lightcone-project-folder"
@@ -96,7 +163,7 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
           value={path}
           onChange={event => edit(event.target.value)}
           disabled={busy}
-          placeholder="my-project or /absolute/path/to/my-project"
+          placeholder={trans.__('my-project or /absolute/path/to/my-project')}
           autoFocus
         />
         <button
@@ -105,60 +172,40 @@ function ProjectSetupForm(options: IProjectSetupOptions): JSX.Element {
           disabled={busy}
           onClick={() => void browse()}
         >
-          Browse…
+          {trans.__('Browse…')}
         </button>
       </div>
       <p className="jp-jupyterlab-lightcone-ProjectSetup-hint">
-        Paths are relative to the Jupyter server folder. Absolute paths must be
-        inside it.
+        {trans.__(
+          'Paths are relative to the Jupyter server folder. Absolute paths must be inside it.'
+        )}
       </p>
-      {project ? (
-        <div className="jp-jupyterlab-lightcone-ProjectSetup-confirm">
-          <h2>
-            {mode === 'finish'
-              ? 'Finish setup in this folder'
-              : project.hasSpec
-                ? 'ASTRA project found'
-                : 'No project in this folder yet'}
-          </h2>
-          <p>
-            <strong>{project.directory}</strong>
-          </p>
-          <p>
-            {canOpen
-              ? 'Open the project launcher, or finish setup if a previous attempt was interrupted.'
-              : 'Set up the analysis specification, Python environment, Git setup, and report starter. Existing files are preserved.'}
-          </p>
-        </div>
-      ) : null}
+      <p className="jp-jupyterlab-lightcone-ProjectSetup-status" role="status">
+        {status}
+      </p>
       {error ? <pre role="alert">{error}</pre> : null}
       <button
         type="submit"
-        className="jp-mod-styled jp-mod-accept"
+        className="jp-mod-styled jp-mod-accept jp-jupyterlab-lightcone-ProjectSetup-submit"
         disabled={busy || !path.trim()}
+        aria-busy={submitting}
       >
-        {busy
-          ? project
-            ? 'Setting up project…'
-            : 'Opening…'
-          : !project
-            ? 'Continue'
-            : canOpen
-              ? 'Open project'
+        {submitting ? (
+          <span
+            className="jp-jupyterlab-lightcone-ProjectSetup-spinner"
+            aria-hidden="true"
+          />
+        ) : null}
+        {phase === 'checking'
+          ? trans.__('Checking the folder…')
+          : phase === 'setting-up'
+            ? trans.__('Setting up project…')
+            : phase === 'opening'
+              ? trans.__('Opening project…')
               : mode === 'finish'
-                ? 'Finish setup here'
-                : 'Create project here'}
+                ? trans.__('Finish setup')
+                : trans.__('Create project')}
       </button>
-      {canOpen ? (
-        <button
-          type="button"
-          className="jp-mod-styled"
-          disabled={busy}
-          onClick={() => setMode('finish')}
-        >
-          Finish setup…
-        </button>
-      ) : null}
     </form>
   );
 }

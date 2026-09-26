@@ -8,6 +8,7 @@ import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../commands';
 import { CurrentProject } from '../current-project';
+import { HomeCommandIDs } from '../home/home-commands';
 import { configureProjectLauncher } from '../project-launcher';
 import { fileModel } from './project-fixtures';
 
@@ -21,6 +22,7 @@ function host() {
   for (const command of [
     CommandIDs.createProject,
     CommandIDs.openExistingProject,
+    HomeCommandIDs.newProject,
     CommandIDs.openInventory,
     VIEWER,
     VIEWER_OPTIONS
@@ -65,7 +67,7 @@ function host() {
   } as unknown as JupyterFrontEnd;
   configureProjectLauncher(app, launcher as unknown as ILauncher, current, {
     project: [CommandIDs.discuss, CommandIDs.openInventory],
-    outside: [CommandIDs.createProject, CommandIDs.openExistingProject]
+    outside: [HomeCommandIDs.newProject]
   });
   // A second plugin contributing project cards after the core ones.
   configureProjectLauncher(app, launcher as unknown as ILauncher, current, {
@@ -124,10 +126,10 @@ it('ignores filters, retains project root in subfolders, and updates late chat r
     h.specs.clear();
     h.model.refreshed.emit();
     await flush();
-    expect(h.shown()).toEqual([
-      CommandIDs.createProject,
-      CommandIDs.openExistingProject
-    ]);
+    expect([...h.visible.keys()]).toEqual([HomeCommandIDs.newProject]);
+    expect(h.visible.get(HomeCommandIDs.newProject)?.category).toBe(
+      'Lightcone Lab'
+    );
   } finally {
     h.dispose();
   }
@@ -148,10 +150,7 @@ it('ignores outdated project lookups after navigation', async () => {
     await flush();
     pending.resolve(fileModel('', { path: 'project/astra.yaml' }));
     await flush();
-    expect(h.shown()).toEqual([
-      CommandIDs.createProject,
-      CommandIDs.openExistingProject
-    ]);
+    expect([...h.visible.keys()]).toEqual([HomeCommandIDs.newProject]);
   } finally {
     h.dispose();
   }

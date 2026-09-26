@@ -5,7 +5,7 @@ import os
 from jupyter_server.extension.application import ExtensionApp
 
 from .agent_activity import watch_persona_activity
-from .agent_defaults import setup_project_agent_handlers
+from .project_agents import setup_project_agents_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
 from .versions import setup_versions_handlers
@@ -70,5 +70,5 @@ class LightconeApp(ExtensionApp):
         setup_materialization_handlers(app)
         setup_provenance_handlers(app)
         setup_session_handlers(app)
-        setup_project_agent_handlers(app)
+        setup_project_agents_handlers(app)
         setup_versions_handlers(app)

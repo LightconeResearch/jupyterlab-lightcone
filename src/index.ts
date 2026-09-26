@@ -18,6 +18,8 @@ import { ITranslator } from '@jupyterlab/translation';
 import { chatLinksPlugin } from './chat-links';
 import { chatPlugin } from './chat-plugin';
 import { chatProjectPlugin } from './chat-links/project-plugin';
+import { homePlugin } from './home';
+import { HomeCommandIDs } from './home/home-commands';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
 import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
@@ -109,8 +111,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
     for (const command of Object.values(ElementHistoryCommandIDs)) {
       palette?.addItem({ command, category: PALETTE_CATEGORY });
     }
-    palette?.addItem({ command: CommandIDs.pinElement, category: PALETTE_CATEGORY });
-    palette?.addItem({ command: CommandIDs.unpinElement, category: PALETTE_CATEGORY });
+    palette?.addItem({
+      command: CommandIDs.pinElement,
+      category: PALETTE_CATEGORY
+    });
+    palette?.addItem({
+      command: CommandIDs.unpinElement,
+      category: PALETTE_CATEGORY
+    });
     registerCommands({
       app,
       documents,
@@ -132,7 +140,11 @@ const plugin: JupyterFrontEndPlugin<void> = {
     if (launcher && current) {
       configureProjectLauncher(app, launcher, current, {
         project: [CommandIDs.discuss, CommandIDs.openInventory],
-        outside: [CommandIDs.createProject, CommandIDs.openExistingProject]
+        outside: [
+          app.commands.hasCommand(HomeCommandIDs.newProject)
+            ? HomeCommandIDs.newProject
+            : CommandIDs.createProject
+        ]
       });
     }
     if (restorer) {
@@ -169,5 +181,6 @@ export default [
   chatLinksPlugin,
   projectNotificationsPlugin,
   // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
-  mystraPlugin
+  mystraPlugin,
+  homePlugin
 ];
