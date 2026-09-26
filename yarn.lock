@@ -8659,6 +8659,8 @@ __metadata:
     "@astra-spec/ui": 0.0.7
     "@codemirror/state": ^6.7.0
     "@codemirror/view": ^6.42.0
+    "@emotion/react": ^11.10.5
+    "@emotion/styled": ^11.10.5
     "@eslint/js": ^9.0.0
     "@jupyter-ai/persona-manager": ^0.2.0
     "@jupyter/builder": ^1.2.0
@@ -8690,6 +8692,8 @@ __metadata:
     "@lumino/signaling": ^2.1.6
     "@lumino/virtualdom": ^2.0.5
     "@lumino/widgets": ^2.0.0
+    "@mui/icons-material": ^7.3.2
+    "@mui/material": ^7.3.2
     "@types/jest": ^29.2.0
     "@types/json-schema": ^7.0.11
     "@types/react": ^18.0.26
@@ -8714,6 +8718,7 @@ __metadata:
     stylelint-prettier: ^4.0.0
     typescript: ~5.5.4
     typescript-eslint: ^8.0.0
+    yaml: ^2.6.1
   languageName: unknown
   linkType: soft
 

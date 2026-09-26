@@ -26,6 +26,7 @@ import { Widget, type DockLayout } from '@lumino/widgets';
 import { isRecord } from '../api';
 import { projectDirectory } from '../project-data';
 import { findProjectRoot } from '../project-root';
+import { selectPersona, waitForPersonas } from './persona-registry';
 import {
   CHAT_FACTORY,
   CREATE_CHAT_COMMAND,
@@ -506,25 +507,44 @@ export class SessionManager implements ISessionService, IDisposable {
     if (panel.isDisposed) {
       return;
     }
-    const stamped = persona ? null : await this._awaitPersonaSelection(model);
+    const available = this._registry
+      ? await waitForPersonas(this._registry, panel)
+      : undefined;
+    const stamped = persona
+      ? null
+      : this._registry
+        ? selectedPersona(model.input.getMetadata())
+        : await this._awaitPersonaSelection(model);
     if (panel.isDisposed) {
       return;
     }
-    const target =
+    let target =
       persona ||
       stamped ||
       PageConfig.getOption(DEFAULT_PERSONA_OPTION) ||
       null;
+    if (this._registry) {
+      const listed = available?.personas ?? [];
+      if (!listed.some(option => option.id === target)) {
+        // An explicit choice is never silently replaced by a different agent.
+        // A stale default can yield to the chat's sole available agent.
+        target = !persona && listed.length === 1 ? listed[0].id : null;
+      }
+    }
     model.input.value = message;
     if (!target) {
       model.input.focus();
       Notification.warning(
         this._trans.__(
-          'No agent is selected for this session. Choose one and press Send.'
+          'The selected agent is unavailable. Choose an available agent and press Send.'
         ),
         { autoClose: ATTENTION_TOAST_DURATION }
       );
       return;
+    }
+    if (available && selectedPersona(model.input.getMetadata()) !== target) {
+      await this._selectComposerPersona(panel, available, target);
+      if (panel.isDisposed) return;
     }
     await this._chatCommands?.onSubmit(model.input);
     // Stamped last: the picker may restamp while the providers run, and
@@ -535,6 +555,38 @@ export class SessionManager implements ISessionService, IDisposable {
     }
     model.input.send(model.input.value);
     model.input.focus();
+  }
+
+  /** Wait for the toolbar to acknowledge selection, including a late mount. */
+  private _selectComposerPersona(
+    panel: IChatPanel,
+    state: PersonaManagerSessionState,
+    target: string
+  ): Promise<void> {
+    return new Promise(resolve => {
+      const input = panel.model.input;
+      const finish = () => {
+        window.clearInterval(retry);
+        window.clearTimeout(timeout);
+        input.metadataChanged?.disconnect(check);
+        panel.disposed.disconnect(finish);
+        resolve();
+      };
+      const check = () => {
+        if (selectedPersona(input.getMetadata()) === target) finish();
+      };
+      // The first metadata stamp can precede the toolbar's subscription to
+      // the live registry. Retry until its React effect confirms the choice.
+      const retry = window.setInterval(() => {
+        if (state.isDisposed) finish();
+        else selectPersona(state, target);
+      }, 50);
+      const timeout = window.setTimeout(finish, COMPOSER_TIMEOUT);
+      input.metadataChanged?.connect(check);
+      panel.disposed.connect(finish);
+      selectPersona(state, target);
+      check();
+    });
   }
 
   /**
@@ -871,7 +923,8 @@ export class SessionManager implements ISessionService, IDisposable {
       return;
     }
     const from = live.panel.model.name;
-    this._naming.add(live.path);
+    const originalPath = live.path;
+    this._naming.add(originalPath);
     void (async () => {
       const directory = PathExt.dirname(from);
       const name = await uniqueSessionName(this._contents, directory, slug);
@@ -882,12 +935,16 @@ export class SessionManager implements ISessionService, IDisposable {
           `${name}${SESSION_FILE_EXTENSION}`
         )
       );
-    })().catch(error => {
-      console.warn(
-        'Could not name the session after its first message.',
-        error
-      );
-    });
+    })()
+      .catch(error => {
+        console.warn(
+          'Could not name the session after its first message.',
+          error
+        );
+      })
+      .finally(() => {
+        this._naming.delete(originalPath);
+      });
   }
 
   private _announce(live: ILiveSession): void {

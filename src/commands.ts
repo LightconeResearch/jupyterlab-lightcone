@@ -1,5 +1,6 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import {
+  InputDialog,
   MainAreaWidget,
   WidgetTracker,
   showErrorMessage
@@ -20,6 +21,9 @@ import {
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
 import { projectDirectory } from './project-data';
+import { acquireProjectDataService } from './project-data-service';
+import { renameProject, updateProjectDescription } from './project-metadata';
+import { editDescription } from './project-description';
 import { startMySTRA } from './api';
 import { MySTRAViewer } from './mystra-viewer';
 import { browseProjectFolder } from './project-browser';
@@ -32,6 +36,9 @@ export namespace CommandIDs {
     'jupyterlab_lightcone:open-existing-project';
   export const finishProjectSetup = 'jupyterlab_lightcone:finish-project-setup';
   export const createProject = 'jupyterlab_lightcone:create-project';
+  export const renameProject = 'jupyterlab_lightcone:rename-project';
+  export const editProjectDescription =
+    'jupyterlab_lightcone:edit-project-description';
   export const restartMySTRA = 'jupyterlab_lightcone:restart-mystra';
   export const openMySTRA = 'jupyterlab_lightcone:open-mystra';
   export const pinElement = 'jupyterlab_lightcone:pin-element';
@@ -157,6 +164,105 @@ export function registerCommands(options: ICommandOptions): void {
       ? { entrypoint: selected[0].path }
       : { directory: browserPath() };
   };
+
+  app.commands.addCommand(CommandIDs.renameProject, {
+    label: trans.__('Rename project'),
+    describedBy: {
+      args: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Project astra.yaml contents path'
+          },
+          cwd: {
+            type: 'string',
+            description: 'Project directory contents path'
+          }
+        }
+      }
+    },
+    execute: async args => {
+      try {
+        const root = await requireProject(app, projectTarget(args));
+        if (!root) return;
+        const lease = acquireProjectDataService(contents, root.entrypoint);
+        try {
+          const data = await lease.service.get();
+          const result = await InputDialog.getText({
+            title: trans.__('Rename project'),
+            label: trans.__('Project name'),
+            text: data.document.analysis.name ?? '',
+            required: true,
+            okLabel: trans.__('Rename')
+          });
+          if (!result.button.accept || result.value === null) return;
+          await renameProject(
+            contents,
+            documents,
+            root.entrypoint,
+            result.value
+          );
+          await lease.service.refresh();
+        } finally {
+          lease.release();
+        }
+      } catch (error) {
+        await showErrorMessage(
+          trans.__('Could not rename project'),
+          error instanceof Error ? error : String(error)
+        );
+      }
+    }
+  });
+
+  app.commands.addCommand(CommandIDs.editProjectDescription, {
+    label: trans.__('Edit description'),
+    describedBy: {
+      args: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Project astra.yaml contents path'
+          },
+          cwd: {
+            type: 'string',
+            description: 'Project directory contents path'
+          }
+        }
+      }
+    },
+    execute: async args => {
+      try {
+        const root = await requireProject(app, projectTarget(args));
+        if (!root) return;
+        const lease = acquireProjectDataService(contents, root.entrypoint);
+        try {
+          const data = await lease.service.get();
+          const value = await editDescription(
+            data.document.analysis.description ?? '',
+            trans
+          );
+          if (value === null) return;
+          await updateProjectDescription(
+            contents,
+            documents,
+            root.entrypoint,
+            value
+          );
+          await lease.service.refresh();
+        } finally {
+          lease.release();
+        }
+      } catch (error) {
+        await showErrorMessage(
+          trans.__('Could not save description'),
+          error instanceof Error ? error : String(error)
+        );
+      }
+    }
+  });
 
   const openFolder = async (path: string): Promise<unknown> => {
     const drive = contents.driveName(path);

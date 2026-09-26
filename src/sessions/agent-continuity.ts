@@ -13,7 +13,8 @@ import {
   IChatProjectResolver,
   recordedChatProject
 } from '../chat-links/chat-project';
-import { resolvePersonaRegistry } from './persona-registry';
+import { resolvePersonaRegistry, selectPersona } from './persona-registry';
+export { selectPersona } from './persona-registry';
 import { isPersonaUser } from './session-activity';
 import { selectedPersona } from './session-manager';
 import { fetchProjectAgent } from './sessions-api';
@@ -84,31 +85,6 @@ export function whenListed(
     listen();
     check();
   });
-}
-
-/**
- * Select `persona` in the chat's Jupyter AI agent picker.
- *
- * The persona manager exposes no selection API: the picker keeps its choice
- * in React state and starts every new view from the server's default. Its
- * one observable rule, `reconcileSelection` in
- * `@jupyter-ai/persona-manager/lib/persona-controls`, selects a chat's only
- * persona in a view nobody has picked in yet. Listing that persona alone,
- * then the full list again, applies that rule; the full list keeps the
- * choice, since a selection that is in the list stands. A view where the
- * user already picked is left alone by the picker itself.
- */
-export function selectPersona(
-  state: PersonaManagerSessionState,
-  persona: string
-): void {
-  const all = state.personas;
-  const only = all.filter(option => option.id === persona);
-  if (!only.length) {
-    return;
-  }
-  state.updatePersonas(only);
-  state.updatePersonas(all);
 }
 
 export interface IAgentContinuityOptions {

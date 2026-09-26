@@ -1,9 +1,11 @@
 import { ServerConnection } from '@jupyterlab/services';
+import { PromiseDelegate } from '@lumino/coreutils';
 import type { IComment } from '../comments-api';
 import {
   createComment,
   deleteComment,
   listComments,
+  sendComments,
   updateComment
 } from '../comments-api';
 import { NULL_VERSION, pointAnchor } from '../comment-model';
@@ -13,7 +15,8 @@ jest.mock('../comments-api', () => ({
   listComments: jest.fn(),
   createComment: jest.fn(),
   updateComment: jest.fn(),
-  deleteComment: jest.fn()
+  deleteComment: jest.fn(),
+  sendComments: jest.fn()
 }));
 
 const settings = ServerConnection.makeSettings();
@@ -55,6 +58,68 @@ beforeEach(() => {
 });
 
 describe('CommentService', () => {
+  it('keeps a newer refresh in flight when a superseded request finishes', async () => {
+    const path = 'project/astra.yaml';
+    const stale = new PromiseDelegate<IComment[]>();
+    const latest = new PromiseDelegate<IComment[]>();
+    const added = comment('a', 1);
+    list.mockReturnValueOnce(stale.promise).mockReturnValueOnce(latest.promise);
+    create.mockResolvedValue(added);
+    const service = new CommentService(settings);
+    const oldRefresh = service.refresh(path);
+    await service.add(path, added);
+    const newRefresh = service.refresh(path);
+    stale.resolve([]);
+    await oldRefresh;
+    const sharedRefresh = service.refresh(path);
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(service.pending(path)).toEqual([added]);
+    latest.resolve([added, comment('b', 2)]);
+    await Promise.all([newRefresh, sharedRefresh]);
+    expect(service.pending(path)).toEqual([added, comment('b', 2)]);
+    service.dispose();
+  });
+
+  it.each(['add', 'update', 'remove', 'send'] as const)(
+    'keeps a successful %s when an older refresh finishes afterward',
+    async operation => {
+      const path = 'project/astra.yaml';
+      const original = comment('a', 1);
+      const added = comment('b', 2);
+      const edited = { ...original, text: 'edited' };
+      list.mockResolvedValueOnce([original]);
+      const service = new CommentService(settings);
+      await service.refresh(path);
+      const stale = new PromiseDelegate<IComment[]>();
+      list.mockReturnValueOnce(stale.promise);
+      const refreshing = service.refresh(path);
+      create.mockResolvedValue(added);
+      update.mockResolvedValue(edited);
+      remove.mockResolvedValue(undefined);
+      jest.mocked(sendComments).mockResolvedValue('sent');
+      list.mockResolvedValue([]);
+      const mutations = {
+        add: () => service.add(path, added),
+        update: () => service.update(path, original.id, { text: 'edited' }),
+        remove: () => service.remove(path, original.id),
+        send: () => service.send(path, [original.id], 'project/chats/a.chat')
+      };
+      const mutation = mutations[operation]();
+      // Let the mutation update the cache before releasing the old listing.
+      await Promise.resolve();
+      stale.resolve([original]);
+      await Promise.all([refreshing, mutation]);
+      expect(service.pending(path)).toEqual(
+        operation === 'add'
+          ? [original, added]
+          : operation === 'update'
+            ? [edited]
+            : []
+      );
+      service.dispose();
+    }
+  );
+
   it('fetches pending comments once on first use and shares the request', async () => {
     let resolve: (comments: IComment[]) => void = () => undefined;
     list.mockReturnValue(

@@ -16,6 +16,7 @@ import {
   type FileBrowserModel
 } from '@jupyterlab/filebrowser';
 import { ILauncher, LauncherModel } from '@jupyterlab/launcher';
+import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import { IStateDB } from '@jupyterlab/statedb';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { addIcon } from '@jupyterlab/ui-components';
@@ -60,7 +61,12 @@ export const homePlugin: JupyterFrontEndPlugin<ILauncher> = {
     'The launcher service, showing a Lightcone project’s Home inside projects.',
   autoStart: true,
   provides: ILauncher,
-  requires: [ICurrentProject, IThemeManager, IDocumentManager],
+  requires: [
+    ICurrentProject,
+    IThemeManager,
+    IDocumentManager,
+    IRenderMimeRegistry
+  ],
   optional: [
     ILabShell,
     IDefaultFileBrowser,
@@ -77,6 +83,7 @@ function activate(
   current: ICurrentProject,
   themes: IThemeManager,
   documents: IDocumentManager,
+  rendermime: IRenderMimeRegistry,
   labShell: ILabShell | null,
   defaultBrowser: IDefaultFileBrowser | null,
   palette: ICommandPalette | null,
@@ -169,6 +176,7 @@ function activate(
       commands,
       contents,
       documents,
+      rendermime,
       themes,
       current,
       callback,

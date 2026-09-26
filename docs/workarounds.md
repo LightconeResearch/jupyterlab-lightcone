@@ -75,7 +75,9 @@ and `prepare_message(persona, message)` hooks.
 
 ### The picker's selection is forced through the persona list
 
-**Where.** `src/sessions/agent-continuity.ts` (`selectPersona`, `whenListed`).
+**Where.** `src/sessions/persona-registry.ts` (`selectPersona`) and
+`src/sessions/agent-continuity.ts` (`whenListed`). Home's first-message handoff
+also selects the chosen agent in the chat picker for subsequent messages.
 
 **What.** To open a chat on its usual agent, the extension publishes a
 one-element persona list to `PersonaManagerSessionState.updatePersonas`, then
@@ -83,6 +85,11 @@ the full list again: the picker's documented `reconcileSelection` rule selects
 a chat's sole persona when the user has not picked one. `whenListed` waits for
 the persona to be advertised, following the registry when it discards a chat's
 state.
+
+For Home's first message, the handoff retries this selection until the toolbar
+stamps the requested agent (bounded by the composer timeout). The toolbar's
+initial metadata stamp can precede its registry subscription, so a single
+list update can otherwise be missed during mounting.
 
 **Why.** `@jupyter-ai/persona-manager` 0.2 keeps the selection in React state
 with no getter, setter or signal, and `PersonaSessionRegistry.discard` runs
@@ -95,16 +102,18 @@ registry states per view.
 **Removal.** `selectPersona` becomes one call; `whenListed` drops the
 re-subscription.
 
-### The first message waits for the picker's stamp and copies its metadata shape
+### The first message validates the picker's stamp and copies its metadata shape
 
 **Where.** `src/sessions/session-manager.ts` (`_sendFirstMessage`,
-`_awaitPersonaSelection`, `personaMetadata`).
+`_awaitPersonaSelection`, `personaMetadata`) and `src/sessions/persona-registry.ts`
+(`waitForPersonas`).
 
 **What.** Home's **Start** sends a message the way the composer would: it
-waits for the picker to stamp `to_persona` on the input metadata, runs the
+waits for the chat's live persona list, validates the chosen agent, runs the
 chat command providers, re-stamps the chosen persona in the same shape the
 picker uses, then calls `IInputModel.send`. The default persona is read from
-the page option persona-manager documents for that purpose.
+the page option persona-manager documents for that purpose, but may initially
+name an uninstalled persona before the picker reconciles it with the live list.
 
 **Why.** The picker stamps from a React effect with no signal saying it has
 mounted or chosen; `buildMessageMetadata` is not exported from the package
@@ -116,22 +125,46 @@ running `IChatCommandRegistry.onSubmit`.
 
 **Removal.** Delete the wait and the copied shape; call the exported builder.
 
-### Home learns the personas from per-chat events and remembers them
+### Home discovers personas through an in-memory manager
 
-**Where.** `src/home/personas.ts` (`PersonaDirectory`).
+**Where.** `jupyterlab_lightcone/project_agents.py` (`available_agents`) and
+`src/home/home-view.tsx` (`useProjectAgents`). `src/home/personas.ts`
+(`PersonaDirectory`) watches live list changes to refresh the discovery.
 
-**What.** The composer on Home lists the agents from the `personas` Jupyter
-Events the manager emits per open chat, merging them and keeping the last list
-in `IStateDB` so a reload shows agents before any chat is open. The schema id
-is typed against the constant the package exports, so a rename fails `tsc`.
+**What.** The project-authorized route creates a temporary manager with an
+in-memory chat to discover installed and project-local personas. It neither
+saves the chat nor calls agent preparation, sends messages or attaches an event
+logger. It releases the temporary document afterwards. It must not shut down
+unprepared personas: ACP's shutdown touches class-shared clients belonging to
+other chats. The launcher displays this project's choices before any chat opens.
 
 **Why.** persona-manager 0.2 advertises personas only once a chat is open;
 there is no chat-independent listing.
 
-**Upstream.** persona-manager: `GET /api/ai/personas` or a `personas` event
-emitted at extension start.
+**Upstream.** persona-manager: project-scoped discovery returning ids, names and
+a valid default without constructing a manager or persona instances.
 
-**Removal.** Replace the directory with one fetch; drop the state cache.
+**Removal.** Replace the temporary manager and custom route with that API.
+
+### Home reuses the chat picker's building blocks and styles
+
+**Where.** `src/home/agent-picker.tsx` (`AgentPicker`) and
+`jupyterlab_lightcone/project_agents.py` (`persona_avatar`).
+
+**What.** The launcher uses Jupyter Chat's exported `JlThemeProvider`, the same
+MUI button/menu/icon components as Jupyter AI, and Jupyter AI's existing
+`jp-jai-personaControls` and `jp-jai-controlMenu` styles. Small avatar assets
+are included in discovery because the upstream avatar route's cache is only
+populated after a real chat opens.
+
+**Why.** Jupyter AI's selector is embedded in `PersonaControls`, with state
+owned by a chat model; no standalone controlled picker is exported.
+
+**Upstream.** Export a picker taking persona options, a selected id and an
+`onSelect` callback, plus chat-independent avatar discovery.
+
+**Removal.** Replace `AgentPicker` with that shared component and drop avatar
+inlining when discovery supplies usable image URLs.
 
 ### The persona id prefix is restated
 
@@ -387,6 +420,19 @@ memo dependencies).
 the change, so memos need a changing dependency.
 
 ## JupyterLab and Lumino
+
+### Enter inserts paragraphs in the description dialog
+
+**Where.** `src/project-description.ts` (`DescriptionDialog._evtKeydown`).
+
+**Why.** JupyterLab's dialog cancels the default Enter behavior even when a
+textarea is focused. The subclass leaves Enter's native behavior intact in
+the description field and delegates other keys to the standard dialog.
+
+**Upstream.** `@jupyterlab/apputils`: skip `preventDefault()` for Enter in a
+textarea.
+
+**Removal.** Use `Dialog` directly and delete the subclass.
 
 ### The launcher plugin is replaced
 

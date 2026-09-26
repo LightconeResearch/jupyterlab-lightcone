@@ -395,7 +395,7 @@ test('a chat keeps the agent it last used when it moves to the side panel and ba
     });
   }, `${tmpPath}/chats`);
   const mainPicker = page.locator(
-    '#jp-main-dock-panel .jp-jai-personaControls-persona-btn'
+    '#jp-main-dock-panel .jp-chat-input-container .jp-jai-personaControls-persona-btn'
   );
   await expect(mainPicker).toHaveText('Lightcone test agent', {
     timeout: 30000

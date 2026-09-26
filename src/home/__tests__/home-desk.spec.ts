@@ -50,6 +50,9 @@ const C = 'jp-jupyterlab-lightcone-Home';
 
 beforeEach(() => {
   request.mockImplementation(async (endpoint: string) => {
+    if (endpoint.startsWith('api/project-agents')) {
+      return { personas: [CODEX], default: CODEX.id };
+    }
     if (endpoint.startsWith('api/materialization')) {
       return {
         outputs: {
@@ -132,9 +135,24 @@ function deskHost(options: IDeskHostOptions = {}) {
     executed,
     register,
     textarea: () => host.query<HTMLTextAreaElement>(`.${C}-textarea`),
-    picker: () => host.query<HTMLSelectElement>(`select.${C}-agent`),
+    picker: () => host.query<HTMLButtonElement>(`.${C}-agentPicker button`),
     sessionRows: () => host.queryAll<HTMLButtonElement>(`.${C}-session`)
   };
+}
+
+/** Select through the same menu interaction as the chat picker. */
+async function chooseAgent(
+  button: HTMLButtonElement,
+  name: string
+): Promise<void> {
+  button.click();
+  const item = () =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]')
+    ).find(node => node.textContent === name);
+  await until(() => !!item());
+  item()!.click();
+  await flush();
 }
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -164,18 +182,13 @@ describe('the composer', () => {
     const h = deskHost({ personas });
     try {
       await until(() => h.textarea() !== null);
-      // No persona advertised yet: a plain Start without a picker.
-      expect(h.picker()).toBeNull();
-      events.stream.emit(personasEvent([CODEX]));
-      await until(() => h.picker() !== null);
-      expect(Array.from(h.picker()!.options).map(o => o.textContent)).toEqual([
-        'Default agent',
-        'Codex'
-      ]);
+      // Available before any chat has advertised a persona list.
+      await until(() => h.picker()?.textContent === CODEX.name);
+      expect(h.picker()!.title).toBe('Choose an agent');
 
       typeInto(h.textarea()!, 'Plot the Hubble diagram');
       await flush();
-      typeInto(h.picker()!, CODEX.id);
+      await chooseAgent(h.picker()!, CODEX.name);
       await flush();
       press(h.textarea()!, 'Enter', { shiftKey: true });
       await flush();
@@ -189,7 +202,7 @@ describe('the composer', () => {
       });
       await until(() => h.textarea()!.value === '');
       // The agent choice stays for the next session.
-      expect(h.picker()!.value).toBe(CODEX.id);
+      expect(h.picker()!.textContent).toBe(CODEX.name);
     } finally {
       h.dispose();
       personas.dispose();
@@ -225,11 +238,12 @@ describe('the composer', () => {
     try {
       await until(() => h.textarea()?.value === 'Fit the model');
       // The picker shows the default agent, and the message goes to it.
-      expect(h.picker()!.value).toBe('');
+      expect(h.picker()!.textContent).toBe(CODEX.name);
       h.query<HTMLButtonElement>(`.${C}-start`)!.click();
       await until(() => h.sessions.createAndOpen.mock.calls.length === 1);
       expect(h.sessions.createAndOpen).toHaveBeenCalledWith(ENTRYPOINT, {
-        firstMessage: 'Fit the model'
+        firstMessage: 'Fit the model',
+        persona: CODEX.id
       });
     } finally {
       h.dispose();
@@ -244,10 +258,10 @@ describe('the composer', () => {
     events.stream.emit(personasEvent([CODEX]));
     const first = deskHost({ personas, state });
     try {
-      await until(() => first.picker() !== null);
+      await until(() => first.picker()?.textContent === CODEX.name);
       typeInto(first.textarea()!, 'draft text');
       await flush();
-      typeInto(first.picker()!, CODEX.id);
+      await chooseAgent(first.picker()!, CODEX.name);
       await wait(400);
       expect(await state.fetch(DRAFT_KEY)).toEqual({
         text: 'draft text',
@@ -260,7 +274,7 @@ describe('the composer', () => {
     const second = deskHost({ personas, state });
     try {
       await until(() => second.textarea()?.value === 'draft text');
-      expect(second.picker()!.value).toBe(CODEX.id);
+      expect(second.picker()!.textContent).toBe(CODEX.name);
       // Clearing the text forgets the draft.
       typeInto(second.textarea()!, '');
       await wait(400);

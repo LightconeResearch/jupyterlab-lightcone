@@ -10,7 +10,9 @@ import {
   type IThemeManager
 } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
+import type { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { IStateDB } from '@jupyterlab/statedb';
+import { editIcon } from '@jupyterlab/ui-components';
 import {
   nullTranslator,
   type ITranslator,
@@ -29,7 +31,12 @@ import React, {
   useRef,
   useState
 } from 'react';
-import { isRecord, RequestError } from '../api';
+import {
+  fetchProjectAgents,
+  isRecord,
+  RequestError,
+  type IProjectAgents
+} from '../api';
 import {
   JupyterArtifactAccess,
   type IDocumentOpener
@@ -67,11 +74,9 @@ import {
   sessionSubtitle,
   summarizeFreshness
 } from './home-model';
-import {
-  knownPersona,
-  type IPersonaOption,
-  type PersonaDirectory
-} from './personas';
+import { knownPersona, type PersonaDirectory } from './personas';
+import { AgentPicker } from './agent-picker';
+import { DescriptionMarkdown } from './description-markdown';
 
 const CLASS = 'jp-jupyterlab-lightcone-Home';
 /** How often Home re-checks the report's presence while visible. */
@@ -88,6 +93,7 @@ export interface IHomeViewOptions {
   commands: CommandRegistry;
   /** Opens an artifact file in a tab, for the plates' previews. */
   documents: IDocumentOpener;
+  rendermime: IRenderMimeRegistry;
   themes: IThemeManager;
   /**
    * The desk (composer and sessions) needs the sessions service and Jupyter
@@ -225,6 +231,45 @@ function HomeRoot({
   const { contents, commands, documents, sessions } = options;
   const state = useProjectData(contents, project.entrypoint);
   const data = state.data;
+  const canRename = useHasCommand(commands, CommandIDs.renameProject);
+  const canEditDescription = useHasCommand(
+    commands,
+    CommandIDs.editProjectDescription
+  );
+  const [editingDescription, setEditingDescription] = useState(false);
+  const editDescription = async () => {
+    if (editingDescription) return;
+    setEditingDescription(true);
+    try {
+      await commands.execute(CommandIDs.editProjectDescription, {
+        path: project.entrypoint
+      });
+    } catch (reason) {
+      void showErrorMessage(
+        trans.__('Could not save description'),
+        reason instanceof Error ? reason : String(reason)
+      );
+    } finally {
+      setEditingDescription(false);
+    }
+  };
+  const [renaming, setRenaming] = useState(false);
+  const rename = async () => {
+    if (renaming) return;
+    setRenaming(true);
+    try {
+      await commands.execute(CommandIDs.renameProject, {
+        path: project.entrypoint
+      });
+    } catch (reason) {
+      void showErrorMessage(
+        trans.__('Could not rename project'),
+        reason instanceof Error ? reason : String(reason)
+      );
+    } finally {
+      setRenaming(false);
+    }
+  };
   // The report opens through the MySTRA viewer stopgap; without its command
   // there is nothing to offer and no reason to look for a MyST configuration.
   const reportCommand = useHasCommand(commands, CommandIDs.openMySTRA);
@@ -285,12 +330,54 @@ function HomeRoot({
             <>
               <h1 className={`${CLASS}-title`}>
                 {analysisTitle(data.document.analysis)}
+                {canRename ? (
+                  <button
+                    type="button"
+                    className={`${CLASS}-rename`}
+                    title={trans.__('Rename project')}
+                    aria-label={trans.__('Rename project')}
+                    disabled={renaming}
+                    onClick={() => void rename()}
+                  >
+                    <editIcon.react tag="span" />
+                  </button>
+                ) : null}
               </h1>
               <ProjectBadges data={data} />
-              {data.document.analysis.description ? (
-                <p className={`${CLASS}-description`}>
-                  {data.document.analysis.description}
-                </p>
+              {data.document.analysis.description || canEditDescription ? (
+                <div className={`${CLASS}-description`}>
+                  {data.document.analysis.description ? (
+                    <DescriptionMarkdown
+                      source={data.document.analysis.description}
+                      rendermime={options.rendermime}
+                      contents={options.contents}
+                      path={project.entrypoint}
+                    />
+                  ) : null}
+                  {canEditDescription ? (
+                    <button
+                      type="button"
+                      className={`${CLASS}-editDescription`}
+                      title={
+                        data.document.analysis.description
+                          ? trans.__('Edit description')
+                          : trans.__('Add description')
+                      }
+                      aria-label={
+                        data.document.analysis.description
+                          ? trans.__('Edit description')
+                          : trans.__('Add description')
+                      }
+                      disabled={editingDescription}
+                      onClick={() => void editDescription()}
+                    >
+                      <editIcon.react tag="span" />
+                      {!data.document.analysis.description
+                        ? trans.__('Add description')
+                        : null}
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </>
           ) : (
@@ -338,6 +425,8 @@ function HomeRoot({
           <Desk
             sessions={sessions}
             personas={options.personas}
+            contents={contents}
+            themes={options.themes}
             state={options.state}
             commands={commands}
             entrypoint={project.entrypoint}
@@ -719,6 +808,8 @@ function ProjectBadges({ data }: IProjectBadgesProps): React.ReactElement {
 }
 
 interface IDeskProps {
+  themes: IThemeManager;
+  contents: Contents.IManager;
   sessions: ISessionService;
   personas: PersonaDirectory | null;
   state: IStateDB | null;
@@ -729,6 +820,8 @@ interface IDeskProps {
 }
 
 function Desk({
+  themes,
+  contents,
   sessions,
   personas,
   state,
@@ -742,6 +835,8 @@ function Desk({
   return (
     <aside className={`${CLASS}-desk`} aria-label={trans.__('Desk')}>
       <Composer
+        themes={themes}
+        contents={contents}
         sessions={sessions}
         personas={personas}
         state={state}
@@ -760,26 +855,44 @@ function Desk({
   );
 }
 
-/** The personas advertised so far, re-rendering as more arrive. */
-function usePersonaOptions(
+/** Load authoritative project choices, refreshing when live persona lists change. */
+function useProjectAgents(
+  contents: Contents.IManager,
+  entrypoint: string,
   personas: PersonaDirectory | null
-): readonly IPersonaOption[] {
-  const [options, setOptions] = useState<readonly IPersonaOption[]>(
-    personas?.personas ?? []
-  );
+) {
+  const [agents, setAgents] = useState<IProjectAgents>();
+  const [error, setError] = useState<string>();
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
-    if (!personas) {
-      setOptions([]);
-      return;
-    }
-    const update = () => setOptions(personas.personas);
-    update();
-    personas.changed.connect(update);
-    return () => {
-      personas.changed.disconnect(update);
+    let active = true;
+    let request = 0;
+    setAgents(undefined);
+    setError(undefined);
+    const update = () => {
+      const current = ++request;
+      void fetchProjectAgents(contents.serverSettings, entrypoint)
+        .then(value => {
+          if (active && current === request) {
+            setAgents(value);
+            setError(undefined);
+          }
+        })
+        .catch(reason => {
+          if (active && current === request) {
+            setAgents(undefined);
+            setError(reason instanceof Error ? reason.message : String(reason));
+          }
+        });
     };
-  }, [personas]);
-  return options;
+    update();
+    personas?.changed.connect(update);
+    return () => {
+      active = false;
+      personas?.changed.disconnect(update);
+    };
+  }, [contents, entrypoint, personas, revision]);
+  return { agents, error, retry: () => setRevision(value => value + 1) };
 }
 
 interface IComposerDraft {
@@ -850,6 +963,8 @@ function useDraft(
 }
 
 interface IComposerProps {
+  themes: IThemeManager;
+  contents: Contents.IManager;
   sessions: ISessionService;
   personas: PersonaDirectory | null;
   state: IStateDB | null;
@@ -858,6 +973,8 @@ interface IComposerProps {
 }
 
 function Composer({
+  themes,
+  contents,
   sessions,
   personas,
   state,
@@ -865,16 +982,19 @@ function Composer({
   onStarted
 }: IComposerProps): React.ReactElement {
   const trans = useContext(TransContext);
-  const options = usePersonaOptions(personas);
+  const listing = useProjectAgents(contents, entrypoint, personas);
+  const options = listing.agents?.personas ?? [];
   const [draft, setDraft] = useDraft(state, entrypoint);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const message = draft.text.trim();
   // A restored choice counts only while the directory advertises it, so the
   // picker and the message address the same agent.
-  const persona = knownPersona(options, draft.persona);
+  const persona =
+    knownPersona(options, draft.persona) ||
+    knownPersona(options, listing.agents?.default ?? '');
   const start = async () => {
-    if (!message || busy) {
+    if (!message || !persona || busy) {
       return;
     }
     setBusy(true);
@@ -902,51 +1022,58 @@ function Composer({
       }}
     >
       <p className={`${CLASS}-eyebrow`}>{trans.__('New session')}</p>
-      <textarea
-        className={`${CLASS}-textarea`}
-        placeholder={trans.__(
-          'Ask about this project, or describe the next step…'
-        )}
-        value={draft.text}
-        rows={3}
-        disabled={busy}
-        onChange={event => setDraft({ ...draft, text: event.target.value })}
-        onKeyDown={event => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            void start();
-          }
-        }}
-      />
-      <div className={`${CLASS}-composerRow`}>
-        {options.length ? (
-          <select
-            className={`${CLASS}-agent`}
-            aria-label={trans.__('Agent')}
-            value={persona}
-            disabled={busy}
-            onChange={event =>
-              setDraft({ ...draft, persona: event.target.value })
+      <div className={`${CLASS}-composerInput`}>
+        <textarea
+          className={`${CLASS}-textarea`}
+          placeholder={trans.__(
+            'Ask about this project, or describe the next step…'
+          )}
+          value={draft.text}
+          rows={3}
+          disabled={busy}
+          onChange={event => setDraft({ ...draft, text: event.target.value })}
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              void start();
             }
+          }}
+        />
+        <div className={`${CLASS}-composerRow`}>
+          <AgentPicker
+            options={options}
+            selected={persona}
+            placeholder={
+              listing.error
+                ? trans.__('Agents unavailable')
+                : !listing.agents
+                  ? trans.__('Loading agents…')
+                  : !options.length
+                    ? trans.__('No agents available')
+                    : trans.__('Choose an agent')
+            }
+            disabled={busy || !options.length}
+            themes={themes}
+            trans={trans}
+            onSelect={id => setDraft({ ...draft, persona: id })}
+          />
+          <button
+            type="submit"
+            className={`${CLASS}-start`}
+            disabled={!message || !persona || busy}
           >
-            <option value="">{trans.__('Default agent')}</option>
-            {options.map(option => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span />
-        )}
-        <button
-          type="submit"
-          className={`${CLASS}-start`}
-          disabled={!message || busy}
-        >
-          {busy ? trans.__('Starting…') : trans.__('Start')}
-        </button>
+            {busy ? trans.__('Starting…') : trans.__('Start')}
+          </button>
+        </div>
       </div>
+      {listing.error ? (
+        <p className={`${CLASS}-composerError`} role="alert">
+          {trans.__('Could not load agents.')}{' '}
+          <button type="button" onClick={listing.retry}>
+            {trans.__('Retry')}
+          </button>
+        </p>
+      ) : null}
       {error ? (
         <p className={`${CLASS}-composerError`} role="alert">
           {error}

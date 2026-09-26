@@ -1,5 +1,6 @@
 import type { MainAreaWidget } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
+import { RenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { Contents } from '@jupyterlab/services';
 import { StateDB } from '@jupyterlab/statedb';
 import { CommandRegistry } from '@lumino/commands';
@@ -129,6 +130,7 @@ function pluginHost(
       new FakeCurrentProject(),
       new FakeThemeManager(),
       documents,
+      new RenderMimeRegistry(),
       labShell,
       { model: browserModel },
       palette,
