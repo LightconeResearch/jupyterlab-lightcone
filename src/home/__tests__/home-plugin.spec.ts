@@ -13,7 +13,7 @@ import {
   fileModel
 } from '../../__tests__/project-fixtures';
 import { HomeCommandIDs, HomeWidget, homePlugin } from '..';
-import { PersonaDirectory, PERSONAS_STATE_KEY } from '../personas';
+import { PersonaDirectory } from '../personas';
 import {
   FakeCurrentProject,
   FakeEvents,
@@ -364,11 +364,9 @@ describe('homePlugin', () => {
     }
   });
 
-  it('hands the sessions service and the remembered agents to open tabs', async () => {
+  it('hands the sessions service and the agent directory to open tabs', async () => {
     const h = pluginHost();
     const setSessions = jest.spyOn(HomeWidget.prototype, 'setSessions');
-    const codex = { id: 'jupyter-ai-personas::codex::Codex', name: 'Codex' };
-    await h.state.save(PERSONAS_STATE_KEY, [codex]);
     try {
       h.activate();
       const tab = await h.create();
@@ -376,8 +374,6 @@ describe('homePlugin', () => {
       const [sessions, personas] = setSessions.mock.calls[0];
       expect(sessions).toBe(h.sessions);
       expect(personas).toBeInstanceOf(PersonaDirectory);
-      await until(() => (personas?.personas.length ?? 0) > 0);
-      expect(personas?.personas).toEqual([codex]);
       expect(setSessions.mock.contexts[0]).toBe(tab.content);
     } finally {
       setSessions.mockRestore();

@@ -128,41 +128,40 @@
   overflow-wrap: anywhere;
 }
 
-.jp-jupyterlab-lightcone-Home-rename {
+/* The quiet edit buttons beside the title and the description. */
+.jp-jupyterlab-lightcone-Home-inlineEdit {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-left: 8px;
-  padding: 3px;
   border: 0;
   border-radius: 3px;
   background: transparent;
   cursor: pointer;
   opacity: 0.45;
+}
+
+.jp-jupyterlab-lightcone-Home-inlineEdit:hover,
+.jp-jupyterlab-lightcone-Home-inlineEdit:focus-visible {
+  background: var(--jp-layout-color2);
+  opacity: 1;
+}
+
+.jp-jupyterlab-lightcone-Home-inlineEdit:disabled {
+  cursor: default;
+  opacity: 0.25;
+}
+
+.jp-jupyterlab-lightcone-Home-rename {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 3px;
   vertical-align: middle;
 }
 
 .jp-jupyterlab-lightcone-Home-rename svg {
   width: 16px;
   height: 16px;
-}
-
-.jp-jupyterlab-lightcone-Home-rename:hover,
-.jp-jupyterlab-lightcone-Home-rename:focus-visible {
-  background: var(--jp-layout-color2);
-  opacity: 1;
-}
-
-.jp-jupyterlab-lightcone-Home-rename:focus-visible {
-  outline: 2px solid var(--jp-brand-color1);
-  outline-offset: 2px;
-}
-
-.jp-jupyterlab-lightcone-Home-rename:disabled {
-  cursor: default;
-  opacity: 0.25;
 }
 
 .jp-jupyterlab-lightcone-Home-description {
@@ -202,41 +201,18 @@
 }
 
 .jp-jupyterlab-lightcone-Home-editDescription {
-  display: inline-flex;
   flex-shrink: 0;
-  align-items: center;
   gap: 4px;
   padding: 2px 4px;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
   color: var(--jp-ui-font-color2);
   font: inherit;
   font-size: 12px;
-  cursor: pointer;
   white-space: nowrap;
-  opacity: 0.45;
 }
 
 .jp-jupyterlab-lightcone-Home-editDescription svg {
   width: 14px;
   height: 14px;
-}
-
-.jp-jupyterlab-lightcone-Home-editDescription:hover,
-.jp-jupyterlab-lightcone-Home-editDescription:focus-visible {
-  background: var(--jp-layout-color2);
-  opacity: 1;
-}
-
-.jp-jupyterlab-lightcone-Home-editDescription:focus-visible {
-  outline: 2px solid var(--jp-brand-color1);
-  outline-offset: 2px;
-}
-
-.jp-jupyterlab-lightcone-Home-editDescription:disabled {
-  cursor: default;
-  opacity: 0.25;
 }
 
 .jp-jupyterlab-lightcone-DescriptionInput {
@@ -630,7 +606,9 @@
   overflow: visible;
 }
 
-.jp-jupyterlab-lightcone-Home-agentPicker .jp-jai-personaControls {
+/* Outranks Jupyter AI's `.jp-ThemedContainer .jp-jai-personaControls` whatever the stylesheet order. */
+.jp-jupyterlab-lightcone-Home-agentPicker.jp-ThemedContainer
+  .jp-jai-personaControls {
   min-height: 30px;
   max-width: 100%;
   padding: 4px 6px;
@@ -730,6 +708,7 @@
   font-size: var(--jp-ui-font-size0);
 }
 
+.jp-jupyterlab-lightcone-Home-inlineEdit:focus-visible,
 .jp-jupyterlab-lightcone-Home-report:focus-visible,
 .jp-jupyterlab-lightcone-Home-astra:focus-visible,
 .jp-jupyterlab-lightcone-Home-plate:focus-visible,

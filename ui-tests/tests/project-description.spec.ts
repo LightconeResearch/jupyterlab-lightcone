@@ -40,7 +40,9 @@ test('renders Markdown while adding, editing, cancelling and clearing a descript
   const description =
     'Question: does **A > B**?\n\nFindings: "yes" # preliminary\n\n- Compare `A` and *B*\n- Read [notes](notes.txt)';
   await expect(input).toHaveValue(description);
-  await page.screenshot({ path: '/tmp/lightcone-description-dialog.png' });
+  await page.screenshot({
+    path: test.info().outputPath('description-dialog.png')
+  });
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   const rendered = home.locator(
     '.jp-jupyterlab-lightcone-Home-descriptionMarkdown'
@@ -76,7 +78,9 @@ test('renders Markdown while adding, editing, cancelling and clearing a descript
   expect(saved).toContain('name: Description study');
   expect(parse(saved).description).toBe(description);
   expect(saved).toContain('Findings: "yes" # preliminary');
-  await page.screenshot({ path: '/tmp/lightcone-description-home.png' });
+  await page.screenshot({
+    path: test.info().outputPath('description-home.png')
+  });
   await home.getByRole('button', { name: 'Edit description' }).click();
   await expect(input).toHaveValue(description);
   await input.fill('Cancelled edit');

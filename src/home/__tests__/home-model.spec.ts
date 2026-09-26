@@ -16,7 +16,6 @@ import {
 import {
   knownPersona,
   mergePersonas,
-  parsePersonas,
   PERSONAS_EVENT_SCHEMA_ID
 } from '../personas';
 
@@ -353,29 +352,6 @@ describe('mergePersonas', () => {
         personas: [{ id: 'jupyter-ai-personas::claude', name: 'Claude' }]
       })
     ).toBeUndefined();
-  });
-});
-
-describe('parsePersonas', () => {
-  it('keeps well-formed entries once, in order', () => {
-    expect(
-      parsePersonas([
-        { id: 'jupyter-ai-personas::codex', name: 'Codex' },
-        { id: '', name: 'Nameless' },
-        { id: 'jupyter-ai-personas::claude' },
-        'text',
-        { id: 'jupyter-ai-personas::claude', name: 'Claude' },
-        { id: 'jupyter-ai-personas::codex', name: 'Codex again' }
-      ])
-    ).toEqual([
-      { id: 'jupyter-ai-personas::codex', name: 'Codex' },
-      { id: 'jupyter-ai-personas::claude', name: 'Claude' }
-    ]);
-  });
-
-  it('reads anything else as no personas', () => {
-    expect(parsePersonas(undefined)).toEqual([]);
-    expect(parsePersonas({ id: 'x', name: 'X' })).toEqual([]);
   });
 });
 

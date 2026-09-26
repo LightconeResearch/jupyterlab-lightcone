@@ -43,5 +43,7 @@ test('renames the project from Home, persists its name and leaves its descriptio
   expect(saved).toContain('name: "Renamed: project #1"');
   expect(saved).toContain('# Project notes');
   expect(saved).toContain(description);
-  await page.screenshot({ path: '/tmp/lightcone-project-name.png' });
+  await page.screenshot({
+    path: test.info().outputPath('project-name.png')
+  });
 });

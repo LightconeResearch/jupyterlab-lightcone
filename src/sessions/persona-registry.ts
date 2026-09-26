@@ -4,40 +4,73 @@ import type {
   PersonaSessionRegistry
 } from '@jupyter-ai/persona-manager';
 import type { IChatPanel } from '@jupyter/chat';
+import type { ISignal } from '@lumino/signaling';
+
+/** How long a chat's persona list may take to arrive before the chat is left as it is. */
+export const PERSONAS_TIMEOUT = 20_000;
+
+/**
+ * Wait until the chat's persona state is `accepted`, following the registry
+ * when it replaces the chat's state (it discards it when a view of the chat
+ * closes). Resolves with the accepted state, or undefined once the list has
+ * arrived without being accepted, after the timeout, or once `cancelled`
+ * says so: on any change, and at once when `cancel` fires.
+ */
+export function whenPersonas(
+  registry: PersonaSessionRegistry,
+  chatId: string,
+  accepted: (state: PersonaManagerSessionState) => boolean,
+  cancelled: () => boolean,
+  timeout = PERSONAS_TIMEOUT,
+  cancel?: ISignal<unknown, unknown>
+): Promise<PersonaManagerSessionState | undefined> {
+  return new Promise(resolve => {
+    let state: PersonaManagerSessionState | undefined;
+    let timer = 0;
+    const listen = () => {
+      state?.changed.disconnect(check);
+      state = registry.get(chatId);
+      state.changed.connect(check);
+    };
+    const finish = (value: PersonaManagerSessionState | undefined) => {
+      window.clearTimeout(timer);
+      state?.changed.disconnect(check);
+      cancel?.disconnect(check);
+      resolve(value);
+    };
+    function check(): void {
+      if (cancelled()) {
+        finish(undefined);
+      } else if (state?.isDisposed) {
+        listen();
+        check();
+      } else if (state && accepted(state)) {
+        finish(state);
+      } else if (state?.ready) {
+        finish(undefined);
+      }
+    }
+    timer = window.setTimeout(() => finish(undefined), timeout);
+    cancel?.connect(check);
+    listen();
+    check();
+  });
+}
 
 /** Wait for this chat's actual agent list, rather than a provisional picker stamp. */
 export async function waitForPersonas(
   registry: PersonaSessionRegistry,
-  panel: IChatPanel,
-  timeout = 20_000
+  panel: IChatPanel
 ): Promise<PersonaManagerSessionState | undefined> {
   const chatId = await panel.model.ready;
-  return new Promise(resolve => {
-    let state = registry.get(chatId);
-    const finish = (value?: PersonaManagerSessionState) => {
-      window.clearTimeout(timer);
-      state.changed.disconnect(check);
-      panel.disposed.disconnect(cancel);
-      resolve(value);
-    };
-    const cancel = () => finish();
-    const check = () => {
-      if (panel.isDisposed) {
-        finish();
-        return;
-      }
-      if (state.isDisposed) {
-        state.changed.disconnect(check);
-        state = registry.get(chatId);
-        state.changed.connect(check);
-      }
-      if (state.ready) finish(state);
-    };
-    const timer = window.setTimeout(cancel, timeout);
-    state.changed.connect(check);
-    panel.disposed.connect(cancel);
-    check();
-  });
+  return whenPersonas(
+    registry,
+    chatId,
+    state => state.ready,
+    () => panel.isDisposed,
+    PERSONAS_TIMEOUT,
+    panel.disposed
+  );
 }
 
 /**

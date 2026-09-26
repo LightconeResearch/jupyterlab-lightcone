@@ -11,8 +11,11 @@ from jupyter_server.utils import url_path_join
 from jupyterlab_chat.ychat import YChat
 from tornado import web
 
-from .agent_defaults import read_project_agent
+from .agent_defaults import ProjectAgentHandler, read_project_agent
+from .agent_workspace import persona_manager_apps
 from .project_routes import ProjectAPIHandler
+
+MAX_AVATAR_BYTES = 256 * 1024
 
 
 def persona_avatar(persona):
@@ -23,10 +26,10 @@ def persona_avatar(persona):
         return None
     try:
         with path.open("rb") as stream:
-            data = stream.read(256 * 1024 + 1)
+            data = stream.read(MAX_AVATAR_BYTES + 1)
     except OSError:
         return None
-    if len(data) > 256 * 1024:
+    if len(data) > MAX_AVATAR_BYTES:
         return None
     return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
@@ -75,8 +78,7 @@ class ProjectAgentsHandler(ProjectAPIHandler):
     async def get(self):
         """Return available personas and a valid suggested default, or null."""
         project = await self.project()
-        extensions = self.serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
-        extension = next(iter(extensions), None)
+        extension = next(iter(persona_manager_apps(self.serverapp)), None)
         if extension is None:
             self.finish({"personas": [], "default": None})
             return
@@ -84,6 +86,9 @@ class ProjectAgentsHandler(ProjectAPIHandler):
 
 
 def setup_project_agents_handlers(web_app):
-    """Register the project agent directory under the server's base URL."""
-    route = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "project-agents")
-    web_app.add_handlers(".*$", [(route, ProjectAgentsHandler)])
+    """Register a project's last agent and its agent choices under the server's base URL."""
+    api = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api")
+    web_app.add_handlers(".*$", [
+        (url_path_join(api, "project-agent"), ProjectAgentHandler),
+        (url_path_join(api, "project-agents"), ProjectAgentsHandler),
+    ])

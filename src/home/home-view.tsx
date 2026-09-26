@@ -221,6 +221,35 @@ function useHasCommand(commands: CommandRegistry, id: string): boolean {
   return registered;
 }
 
+/**
+ * Run a project command from a button, once at a time: `running` stays true
+ * while the command's dialog is open.
+ */
+function useCommandRun(
+  commands: CommandRegistry,
+  id: string,
+  entrypoint: string,
+  failure: string
+): [running: boolean, run: () => void] {
+  const [running, setRunning] = useState(false);
+  const run = () => {
+    if (running) {
+      return;
+    }
+    setRunning(true);
+    void commands
+      .execute(id, { path: entrypoint })
+      .catch(reason => {
+        void showErrorMessage(
+          failure,
+          reason instanceof Error ? reason : String(reason)
+        );
+      })
+      .finally(() => setRunning(false));
+  };
+  return [running, run];
+}
+
 function HomeRoot({
   project,
   isVisible,
@@ -236,40 +265,22 @@ function HomeRoot({
     commands,
     CommandIDs.editProjectDescription
   );
-  const [editingDescription, setEditingDescription] = useState(false);
-  const editDescription = async () => {
-    if (editingDescription) return;
-    setEditingDescription(true);
-    try {
-      await commands.execute(CommandIDs.editProjectDescription, {
-        path: project.entrypoint
-      });
-    } catch (reason) {
-      void showErrorMessage(
-        trans.__('Could not save description'),
-        reason instanceof Error ? reason : String(reason)
-      );
-    } finally {
-      setEditingDescription(false);
-    }
-  };
-  const [renaming, setRenaming] = useState(false);
-  const rename = async () => {
-    if (renaming) return;
-    setRenaming(true);
-    try {
-      await commands.execute(CommandIDs.renameProject, {
-        path: project.entrypoint
-      });
-    } catch (reason) {
-      void showErrorMessage(
-        trans.__('Could not rename project'),
-        reason instanceof Error ? reason : String(reason)
-      );
-    } finally {
-      setRenaming(false);
-    }
-  };
+  const [renaming, rename] = useCommandRun(
+    commands,
+    CommandIDs.renameProject,
+    project.entrypoint,
+    trans.__('Could not rename project')
+  );
+  const [editingDescription, editDescription] = useCommandRun(
+    commands,
+    CommandIDs.editProjectDescription,
+    project.entrypoint,
+    trans.__('Could not save description')
+  );
+  const description = data?.document.analysis.description ?? '';
+  const describe = description
+    ? trans.__('Edit description')
+    : trans.__('Add description');
   // The report opens through the MySTRA viewer stopgap; without its command
   // there is nothing to offer and no reason to look for a MyST configuration.
   const reportCommand = useHasCommand(commands, CommandIDs.openMySTRA);
@@ -333,22 +344,22 @@ function HomeRoot({
                 {canRename ? (
                   <button
                     type="button"
-                    className={`${CLASS}-rename`}
+                    className={`${CLASS}-inlineEdit ${CLASS}-rename`}
                     title={trans.__('Rename project')}
                     aria-label={trans.__('Rename project')}
                     disabled={renaming}
-                    onClick={() => void rename()}
+                    onClick={rename}
                   >
                     <editIcon.react tag="span" />
                   </button>
                 ) : null}
               </h1>
               <ProjectBadges data={data} />
-              {data.document.analysis.description || canEditDescription ? (
+              {description || canEditDescription ? (
                 <div className={`${CLASS}-description`}>
-                  {data.document.analysis.description ? (
+                  {description ? (
                     <DescriptionMarkdown
-                      source={data.document.analysis.description}
+                      source={description}
                       rendermime={options.rendermime}
                       contents={options.contents}
                       path={project.entrypoint}
@@ -357,24 +368,14 @@ function HomeRoot({
                   {canEditDescription ? (
                     <button
                       type="button"
-                      className={`${CLASS}-editDescription`}
-                      title={
-                        data.document.analysis.description
-                          ? trans.__('Edit description')
-                          : trans.__('Add description')
-                      }
-                      aria-label={
-                        data.document.analysis.description
-                          ? trans.__('Edit description')
-                          : trans.__('Add description')
-                      }
+                      className={`${CLASS}-inlineEdit ${CLASS}-editDescription`}
+                      title={describe}
+                      aria-label={describe}
                       disabled={editingDescription}
-                      onClick={() => void editDescription()}
+                      onClick={editDescription}
                     >
                       <editIcon.react tag="span" />
-                      {!data.document.analysis.description
-                        ? trans.__('Add description')
-                        : null}
+                      {description ? null : describe}
                     </button>
                   ) : null}
                 </div>
@@ -990,9 +991,9 @@ function Composer({
   const message = draft.text.trim();
   // A restored choice counts only while the directory advertises it, so the
   // picker and the message address the same agent.
+  // The server's default is already one of the listed agents, or null.
   const persona =
-    knownPersona(options, draft.persona) ||
-    knownPersona(options, listing.agents?.default ?? '');
+    knownPersona(options, draft.persona) || (listing.agents?.default ?? '');
   const start = async () => {
     if (!message || !persona || busy) {
       return;

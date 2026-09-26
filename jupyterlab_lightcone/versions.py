@@ -200,9 +200,7 @@ class Repository:
         The rename commit itself holds the new path; only older revisions
         use the old path. Use the walker's detected renames, as ``follow`` does.
         """
-        changes = entry.changes()
-        flat = [change for group in changes for change in group] if changes and isinstance(changes[0], list) else changes
-        for change in flat:
+        for change in _flat_changes(entry):
             if change is not None and change.type in RENAME_CHANGE_TYPES and change.new.path == self.path(file):
                 old = PurePosixPath(change.old.path.decode("utf-8", "surrogateescape"))
                 return old.relative_to(self.prefix).as_posix() if old.is_relative_to(self.prefix) else None
@@ -474,12 +472,16 @@ def output_identity(path: bytes) -> tuple[str, str] | None:
     return universe, output
 
 
+def _flat_changes(entry: WalkEntry) -> list:
+    """A walk entry's tree changes; a merge lists each parent's changes."""
+    changes = entry.changes()
+    return [change for group in changes for change in group] if changes and isinstance(changes[0], list) else changes
+
+
 def _changed_paths(entry) -> list[bytes]:
     """Every path a walk entry's commit changed; a merge lists each parent's changes."""
-    changes = entry.changes()
-    flat = [change for group in changes for change in group] if changes and isinstance(changes[0], list) else changes
     paths = []
-    for change in flat:
+    for change in _flat_changes(entry):
         for side in (change.new, change.old):
             if side is not None and side.path is not None:
                 paths.append(side.path)

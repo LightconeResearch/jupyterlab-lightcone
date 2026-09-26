@@ -9,6 +9,12 @@ import {
 } from '../project-metadata';
 import { analysis, createContents, fileModel } from './project-fixtures';
 
+/** An open editor of the specification, as the document manager finds it. */
+const openEditor = (model: DocumentModel, save: jest.Mock) =>
+  ({
+    context: { ready: Promise.resolve(), model, save }
+  }) as unknown as NonNullable<ReturnType<IDocumentManager['findWidget']>>;
+
 it('changes only the name while preserving YAML comments and string values', () => {
   const source = `${analysis('Old name')}# Research notes\ndescription: Keep this overview.\n`;
   const renamed = withProjectName(source, '  A study: "2026" #1  ');
@@ -65,9 +71,7 @@ it('preserves unsaved editor changes when renaming an open project', async () =>
   const model = new DocumentModel();
   model.fromString(`${analysis('Old')}description: An unsaved edit.\n`);
   const save = jest.fn().mockResolvedValue(undefined);
-  const widget = {
-    context: { ready: Promise.resolve(), model, save }
-  } as unknown as NonNullable<ReturnType<IDocumentManager['findWidget']>>;
+  const widget = openEditor(model, save);
   try {
     await renameProject(contents, { findWidget: () => widget }, path, 'New');
     expect(parse(model.toString())).toMatchObject({
@@ -118,9 +122,7 @@ it('saves a description while preserving unsaved changes in the open editor', as
   const model = new DocumentModel();
   model.fromString(`${analysis('Unsaved name')}# Unsaved notes\n`);
   const save = jest.fn().mockResolvedValue(undefined);
-  const widget = {
-    context: { ready: Promise.resolve(), model, save }
-  } as unknown as NonNullable<ReturnType<IDocumentManager['findWidget']>>;
+  const widget = openEditor(model, save);
   try {
     await updateProjectDescription(
       contents,

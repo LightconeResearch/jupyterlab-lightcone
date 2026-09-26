@@ -101,9 +101,7 @@ class FakePersonaState {
     this.changed.emit();
   }
   list(ids: string[]): void {
-    this.personas = ids.map(id => ({ id, name: id }));
-    this.ready = true;
-    this.changed.emit();
+    this.updatePersonas(ids.map(id => ({ id, name: id })));
   }
   report(processing: boolean): void {
     this.processing = processing;
@@ -667,19 +665,21 @@ describe('SessionManager.openSession', () => {
 });
 
 describe('naming a session after its first message', () => {
+  /** Rename in the fake contents and announce it, as the contents manager does. */
+  const announceRenames = (h: ReturnType<typeof host>) =>
+    jest.spyOn(h.contents, 'rename').mockImplementation(async (from, to) => {
+      const renamed = fileModel('', { path: to });
+      h.emitFileChange({
+        type: 'rename',
+        oldValue: fileModel('', { path: from }),
+        newValue: renamed
+      });
+      return renamed;
+    });
+
   it('names successive sessions that reuse the untitled path', async () => {
     const h = host();
-    const rename = jest
-      .spyOn(h.contents, 'rename')
-      .mockImplementation(async (from, to) => {
-        const renamed = fileModel('', { path: to });
-        h.emitFileChange({
-          type: 'rename',
-          oldValue: fileModel('', { path: from }),
-          newValue: renamed
-        });
-        return renamed;
-      });
+    const rename = announceRenames(h);
     try {
       for (const body of ['First question', 'Second question']) {
         const session = h.addPanel('p/chats/untitled.chat');
@@ -731,17 +731,7 @@ describe('naming a session after its first message', () => {
 
   it('renames an untitled session once, when its first message arrives while open', async () => {
     const h = host();
-    const rename = jest
-      .spyOn(h.contents, 'rename')
-      .mockImplementation(async (from, to) => {
-        const renamed = fileModel('', { path: to });
-        h.emitFileChange({
-          type: 'rename',
-          oldValue: fileModel('', { path: from }),
-          newValue: renamed
-        });
-        return renamed;
-      });
+    const rename = announceRenames(h);
     try {
       const fresh = h.addPanel('p/chats/untitled.chat');
       await flush();

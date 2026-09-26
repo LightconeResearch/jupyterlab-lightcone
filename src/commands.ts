@@ -20,7 +20,7 @@ import {
 } from './icons';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
-import { projectDirectory } from './project-data';
+import { projectDirectory, type ILoadedProjectData } from './project-data';
 import { acquireProjectDataService } from './project-data-service';
 import { renameProject, updateProjectDescription } from './project-metadata';
 import { editDescription } from './project-description';
@@ -165,30 +165,62 @@ export function registerCommands(options: ICommandOptions): void {
       : { directory: browserPath() };
   };
 
-  app.commands.addCommand(CommandIDs.renameProject, {
-    label: trans.__('Rename project'),
-    describedBy: {
-      args: {
-        type: 'object',
-        properties: {
-          path: {
-            type: 'string',
-            description: 'Project astra.yaml contents path'
-          },
-          cwd: {
-            type: 'string',
-            description: 'Project directory contents path'
-          }
+  /** The `path` or `cwd` a project command reads through `projectTarget`. */
+  const projectTargetArgs = {
+    args: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Project astra.yaml contents path'
+        },
+        cwd: {
+          type: 'string',
+          description: 'Project directory contents path'
         }
       }
-    },
-    execute: async args => {
+    }
+  };
+
+  /**
+   * Ask for a new value of one project metadata field, starting from the
+   * project's current data, then save it (`renameProject` or
+   * `updateProjectDescription`) and refresh that data.
+   */
+  const editProjectMetadata = async (
+    args: ReadonlyPartialJSONObject,
+    failure: string,
+    ask: (data: ILoadedProjectData) => Promise<string | null>,
+    save: typeof renameProject
+  ): Promise<void> => {
+    try {
+      const root = await requireProject(app, projectTarget(args));
+      if (!root) return;
+      const lease = acquireProjectDataService(contents, root.entrypoint);
       try {
-        const root = await requireProject(app, projectTarget(args));
-        if (!root) return;
-        const lease = acquireProjectDataService(contents, root.entrypoint);
-        try {
-          const data = await lease.service.get();
+        const value = await ask(await lease.service.get());
+        if (value === null) return;
+        await save(contents, documents, root.entrypoint, value);
+        await lease.service.refresh();
+      } finally {
+        lease.release();
+      }
+    } catch (error) {
+      await showErrorMessage(
+        failure,
+        error instanceof Error ? error : String(error)
+      );
+    }
+  };
+
+  app.commands.addCommand(CommandIDs.renameProject, {
+    label: trans.__('Rename project'),
+    describedBy: projectTargetArgs,
+    execute: args =>
+      editProjectMetadata(
+        args,
+        trans.__('Could not rename project'),
+        async data => {
           const result = await InputDialog.getText({
             title: trans.__('Rename project'),
             label: trans.__('Project name'),
@@ -196,72 +228,23 @@ export function registerCommands(options: ICommandOptions): void {
             required: true,
             okLabel: trans.__('Rename')
           });
-          if (!result.button.accept || result.value === null) return;
-          await renameProject(
-            contents,
-            documents,
-            root.entrypoint,
-            result.value
-          );
-          await lease.service.refresh();
-        } finally {
-          lease.release();
-        }
-      } catch (error) {
-        await showErrorMessage(
-          trans.__('Could not rename project'),
-          error instanceof Error ? error : String(error)
-        );
-      }
-    }
+          return result.button.accept ? result.value : null;
+        },
+        renameProject
+      )
   });
 
   app.commands.addCommand(CommandIDs.editProjectDescription, {
     label: trans.__('Edit description'),
-    describedBy: {
-      args: {
-        type: 'object',
-        properties: {
-          path: {
-            type: 'string',
-            description: 'Project astra.yaml contents path'
-          },
-          cwd: {
-            type: 'string',
-            description: 'Project directory contents path'
-          }
-        }
-      }
-    },
-    execute: async args => {
-      try {
-        const root = await requireProject(app, projectTarget(args));
-        if (!root) return;
-        const lease = acquireProjectDataService(contents, root.entrypoint);
-        try {
-          const data = await lease.service.get();
-          const value = await editDescription(
-            data.document.analysis.description ?? '',
-            trans
-          );
-          if (value === null) return;
-          await updateProjectDescription(
-            contents,
-            documents,
-            root.entrypoint,
-            value
-          );
-          await lease.service.refresh();
-        } finally {
-          lease.release();
-        }
-      } catch (error) {
-        await showErrorMessage(
-          trans.__('Could not save description'),
-          error instanceof Error ? error : String(error)
-        );
-      }
-    }
+    describedBy: projectTargetArgs,
+    execute: args =>
+      editProjectMetadata(
+        args,
+        trans.__('Could not save description'),
+        data =>
+          editDescription(data.document.analysis.description ?? '', trans),
+        updateProjectDescription
+      )
   });
 
   const openFolder = async (path: string): Promise<unknown> => {

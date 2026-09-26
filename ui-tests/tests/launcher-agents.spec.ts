@@ -36,7 +36,9 @@ test('chooses an agent on Home before any chat exists and delivers the first mes
   await expect(
     page.getByRole('menuitem', { name: 'Second test agent', exact: true })
   ).toBeVisible();
-  await page.screenshot({ path: '/tmp/lightcone-launcher-agent-menu.png' });
+  await page.screenshot({
+    path: test.info().outputPath('launcher-agent-menu.png')
+  });
   await page.keyboard.press('Escape');
   await expect(picker).toBeFocused();
   // Discovery has not created any chat file or folder.
@@ -54,7 +56,9 @@ test('chooses an agent on Home before any chat exists and delivers the first mes
     )
     .toBeGreaterThan(0);
   await home.getByRole('textbox').fill('Compare the options.');
-  await page.screenshot({ path: '/tmp/lightcone-launcher-agent-picker.png' });
+  await page.screenshot({
+    path: test.info().outputPath('launcher-agent-picker.png')
+  });
   await home.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(
     page

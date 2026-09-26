@@ -117,7 +117,7 @@ function activate(
         return;
       }
       sessions = service;
-      personas = new PersonaDirectory(app.serviceManager.events, state);
+      personas = new PersonaDirectory(app.serviceManager.events);
       tracker.forEach(tab => tab.content.setSessions(sessions, personas));
     })
     .catch(error => {

@@ -1,5 +1,6 @@
 import { ServerConnection } from '@jupyterlab/services';
 import { WidgetTracker } from '@jupyterlab/apputils';
+import { PromiseDelegate } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
 import { MessageLoop } from '@lumino/messaging';
 import { MySTRAViewer } from '../mystra-viewer';
@@ -126,16 +127,12 @@ test('stops polling an expired session until a new one is adopted', async () => 
 });
 
 test('ignores a heartbeat that finishes after closing the tab', async () => {
-  let complete!: (value: IMySTRASession) => void;
-  jest.mocked(readMySTRA).mockReturnValue(
-    new Promise(resolve => {
-      complete = resolve;
-    })
-  );
+  const heartbeat = new PromiseDelegate<IMySTRASession>();
+  jest.mocked(readMySTRA).mockReturnValue(heartbeat.promise);
   const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
   await jest.advanceTimersByTimeAsync(1000);
   widget.close();
-  complete({ ...session, state: 'ready' });
+  heartbeat.resolve({ ...session, state: 'ready' });
   await jest.advanceTimersByTimeAsync(60000);
   expect(widget.isDisposed).toBe(true);
   expect(readMySTRA).toHaveBeenCalledTimes(1);
@@ -143,13 +140,9 @@ test('ignores a heartbeat that finishes after closing the tab', async () => {
 });
 
 test('restart replaces the session and ignores the previous heartbeat', async () => {
-  let complete!: (value: IMySTRASession) => void;
+  const heartbeat = new PromiseDelegate<IMySTRASession>();
   const read = jest.mocked(readMySTRA);
-  read.mockReturnValueOnce(
-    new Promise(resolve => {
-      complete = resolve;
-    })
-  );
+  read.mockReturnValueOnce(heartbeat.promise);
   const next = { ...session, id: 'b'.repeat(32), url: '/next/site/' };
   jest.mocked(stopMySTRA).mockResolvedValue(undefined);
   jest.mocked(startMySTRA).mockResolvedValue(next);
@@ -158,7 +151,7 @@ test('restart replaces the session and ignores the previous heartbeat', async ()
   try {
     await jest.advanceTimersByTimeAsync(1000);
     await widget.restartSession();
-    complete({ ...session, state: 'ready' });
+    heartbeat.resolve({ ...session, state: 'ready' });
     await jest.advanceTimersByTimeAsync(1000);
     expect(stopMySTRA).toHaveBeenCalledWith(expect.anything(), session.id);
     expect(read).toHaveBeenLastCalledWith(expect.anything(), next.id);
@@ -171,34 +164,26 @@ test('restart replaces the session and ignores the previous heartbeat', async ()
 });
 
 test('closing during stop does not launch a replacement process', async () => {
-  let stopped!: () => void;
-  jest.mocked(stopMySTRA).mockReturnValue(
-    new Promise(resolve => {
-      stopped = resolve;
-    })
-  );
+  const stopped = new PromiseDelegate<void>();
+  jest.mocked(stopMySTRA).mockReturnValue(stopped.promise);
   const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
   const restarting = widget.restartSession();
   widget.close();
-  stopped();
+  stopped.resolve();
   await restarting;
   expect(startMySTRA).not.toHaveBeenCalled();
   expect(jest.getTimerCount()).toBe(0);
 });
 
 test('closing during startup does not revive the tab or its heartbeat', async () => {
-  let started!: (value: IMySTRASession) => void;
+  const started = new PromiseDelegate<IMySTRASession>();
   jest.mocked(stopMySTRA).mockResolvedValue(undefined);
-  jest.mocked(startMySTRA).mockReturnValue(
-    new Promise(resolve => {
-      started = resolve;
-    })
-  );
+  jest.mocked(startMySTRA).mockReturnValue(started.promise);
   const widget = new MySTRAViewer(session, ServerConnection.makeSettings());
   const restarting = widget.restartSession();
   await jest.advanceTimersByTimeAsync(0);
   widget.close();
-  started({ ...session, id: 'b'.repeat(32) });
+  started.resolve({ ...session, id: 'b'.repeat(32) });
   await restarting;
   expect(widget.isDisposed).toBe(true);
   expect(jest.getTimerCount()).toBe(0);
