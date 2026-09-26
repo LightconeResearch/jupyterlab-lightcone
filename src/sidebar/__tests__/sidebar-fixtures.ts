@@ -1,4 +1,6 @@
+import { DocumentWidget, type DocumentRegistry } from '@jupyterlab/docregistry';
 import { Signal } from '@lumino/signaling';
+import { Widget } from '@lumino/widgets';
 import type { ICommentService } from '../../comments/comment-service';
 import type { IComment } from '../../comments/comments-api';
 import type { ICurrentProject } from '../../current-project';
@@ -134,3 +136,54 @@ export async function until(
 
 export const flush = (): Promise<void> =>
   new Promise(resolve => setTimeout(resolve, 0));
+
+/** The context of a fake chat panel: a path that moves when the file is renamed. */
+class FakeChatContext {
+  constructor(public path: string) {}
+  readonly pathChanged = new Signal<this, string>(this);
+  readonly ready = Promise.resolve();
+  readonly model = { stateChanged: new Signal<object, unknown>({}) };
+  get localPath(): string {
+    return this.path;
+  }
+  readonly rename = jest.fn(async () => undefined);
+}
+
+/**
+ * A session as Jupyter Chat opens one in the main area: a document widget
+ * whose model names the chat file, which `isSessionWidget` recognizes.
+ * `rename` moves the file the way the document manager does.
+ */
+export class FakeChatPanel extends DocumentWidget {
+  constructor(path: string) {
+    const chatContext = new FakeChatContext(path);
+    super({
+      context: chatContext as unknown as DocumentRegistry.Context,
+      content: new Widget()
+    });
+    this._chatContext = chatContext;
+  }
+
+  readonly area = 'main';
+
+  get model(): {
+    name: string;
+    input: object;
+    messages: unknown[];
+    ready: Promise<void>;
+  } {
+    return {
+      name: this._chatContext.path,
+      input: {},
+      messages: [],
+      ready: this._chatContext.ready
+    };
+  }
+
+  rename(path: string): void {
+    this._chatContext.path = path;
+    this._chatContext.pathChanged.emit(path);
+  }
+
+  private readonly _chatContext: FakeChatContext;
+}

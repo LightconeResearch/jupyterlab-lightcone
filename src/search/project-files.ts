@@ -1,4 +1,5 @@
 import type { Contents } from '@jupyterlab/services';
+import { isRecord } from '../api';
 
 /** A file found by the bounded project walk. */
 export interface IProjectFile {
@@ -34,7 +35,11 @@ const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
   '__pycache__'
 ]);
 
-/** The engine keeps hidden manifests beside each result: `results/<universe>/.<id>.manifest.json`. */
+/**
+ * The engine keeps hidden manifests beside each result:
+ * `results/<universe>/.<id>.manifest.json`. This is the browser's one copy of
+ * the engine's results layout (the server's is `jupyterlab_lightcone/results.py`).
+ */
 const RESULT_UNIVERSE = /^results\/[^/]+$/;
 
 /**
@@ -63,10 +68,9 @@ function isModelList(content: unknown): content is Contents.IModel[] {
     Array.isArray(content) &&
     content.every(
       item =>
-        typeof item === 'object' &&
-        item !== null &&
-        typeof (item as { name?: unknown }).name === 'string' &&
-        typeof (item as { type?: unknown }).type === 'string'
+        isRecord(item) &&
+        typeof item.name === 'string' &&
+        typeof item.type === 'string'
     )
   );
 }
@@ -90,8 +94,11 @@ export async function walkProjectFiles(
   // Folders listed plus folders queued never exceed `maxListings`, so a tree
   // of many near-empty folders costs a bounded number of requests.
   let listed = 0;
-  while (queue.length && files.length < limit) {
-    const current = queue.shift()!;
+  for (
+    let current = queue.shift();
+    current && files.length < limit;
+    current = queue.shift()
+  ) {
     listed += 1;
     let listing: Contents.IModel;
     try {

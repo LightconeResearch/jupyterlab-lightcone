@@ -11,8 +11,8 @@ import { Signal, type ISignal } from '@lumino/signaling';
 import { fetchPaper } from './api';
 import {
   assembleLoadedProject,
+  isUnderProject,
   loadProjectPapers,
-  projectDirectory,
   projectErrorMessage,
   resolveProject,
   type ILoadedProjectData
@@ -123,16 +123,10 @@ export class ProjectDataService implements IObservableDisposable {
     _sender: Contents.IManager,
     change: Contents.IChangedArgs
   ): void {
-    const root = this.contents.localPath(projectDirectory(this.entrypoint));
-    const drive = this.contents.driveName(this.entrypoint);
     const affectsProject = [change.oldValue?.path, change.newValue?.path].some(
-      path => {
-        if (path === undefined || this.contents.driveName(path) !== drive) {
-          return false;
-        }
-        const local = this.contents.localPath(path);
-        return !root || local === root || local.startsWith(`${root}/`);
-      }
+      path =>
+        path !== undefined &&
+        isUnderProject(this.contents, this.entrypoint, path)
     );
     if (affectsProject) {
       void this.refresh().catch(error => {

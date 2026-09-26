@@ -12,6 +12,4 @@ export namespace HomeCommandIDs {
   export const showLauncher = 'jupyterlab_lightcone:show-launcher';
   /** Switch a Home tab back from the stock launcher body. */
   export const showHome = 'jupyterlab_lightcone:show-home';
-  /** A disabled heading row inside the Tools menu. */
-  export const toolsCategory = 'jupyterlab_lightcone:home-tools-category';
 }

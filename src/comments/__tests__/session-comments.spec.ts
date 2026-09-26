@@ -1,12 +1,16 @@
+import type { IChatPanel, IChatTracker } from '@jupyter/chat';
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { MainAreaWidget } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
+import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import {
   analysis,
   createContents,
   fileModel
 } from '../../__tests__/project-fixtures';
+import { MESSAGE_CONTAINER_CLASS } from '../../chat-links/chat-dom';
+import { createChatProjectResolver } from '../../chat-links/chat-project';
 import { createComment, listComments } from '../comments-api';
 import { emptyAnchor, NULL_VERSION } from '../comment-model';
 import { CommentHosts } from '../comment-hosts';
@@ -14,6 +18,9 @@ import { CommentPopover, type IPopoverRequest } from '../comment-popover';
 import { CommentService } from '../comment-service';
 import { makeComment, rect, until } from './fixtures';
 
+jest.mock('@jupyter/chat', () =>
+  jest.requireActual('../../chat-links/__tests__/chat-mock')
+);
 jest.mock('../comments-api', () => ({
   listComments: jest.fn(),
   createComment: jest.fn(),
@@ -67,14 +74,15 @@ afterAll(() => {
 });
 
 /** A main-area session whose transcript holds two rendered messages. */
-function sessionPanel(): MainAreaWidget {
+function sessionPanel(): MainAreaWidget & IChatPanel {
   const content = new Widget();
   content.node.innerHTML =
-    '<div class="jp-chat-message-container" data-index="0"><p>Fit the model</p></div>' +
-    '<div class="jp-chat-message-container" data-index="1"><p>I used a flat prior on Omega_m.</p></div>';
+    `<div class="${MESSAGE_CONTAINER_CLASS}" data-index="0"><p>Fit the model</p></div>` +
+    `<div class="${MESSAGE_CONTAINER_CLASS}" data-index="1"><p>I used a flat prior on Omega_m.</p></div>`;
   const panel = new MainAreaWidget({ content });
   Object.assign(panel, {
     area: 'main',
+    widget: content,
     model: {
       name: CHAT,
       input: {},
@@ -82,7 +90,7 @@ function sessionPanel(): MainAreaWidget {
     }
   });
   Widget.attach(panel, document.body);
-  return panel;
+  return panel as MainAreaWidget & IChatPanel;
 }
 
 it('comments on a selection in a session message, pointing at that message', async () => {
@@ -101,20 +109,27 @@ it('comments on a selection in a session message, pointing at that message', asy
   });
   const app = {
     serviceManager: { contents, serverSettings: settings },
-    shell: { widgets: () => [panel], activateById: jest.fn() },
+    shell: { widgets: () => [], activateById: jest.fn() },
     restored: Promise.resolve(),
     docRegistry: { addWidgetExtension: () => ({ dispose: () => undefined }) },
     commands: { execute: jest.fn() }
   } as unknown as JupyterFrontEnd;
+  // Sessions come from the chat tracker, not from a scan of the shell.
+  const tracker = {
+    forEach: (callback: (item: IChatPanel) => void) =>
+      [panel].forEach(callback),
+    widgetAdded: new Signal<IChatTracker, IChatPanel>({} as IChatTracker)
+  } as unknown as IChatTracker;
   const hosts = new CommentHosts({
     app,
     shell: null,
     documents: null,
+    tracker,
+    projects: createChatProjectResolver(contents, () => undefined),
     service,
     popover
   });
   try {
-    hosts.scan();
     await until(() => true);
     await new Promise(resolve => setTimeout(resolve, 20));
     const text = panel.node.querySelector('[data-index="1"] p')?.firstChild;

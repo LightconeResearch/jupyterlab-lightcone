@@ -1,3 +1,4 @@
+import { getEditor, type IChatPanel, type IChatTracker } from '@jupyter/chat';
 import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
 import { MainAreaWidget, Notification } from '@jupyterlab/apputils';
 import { PathExt } from '@jupyterlab/coreutils';
@@ -8,13 +9,22 @@ import type { EditorView } from '@codemirror/view';
 import type { IDisposable } from '@lumino/disposable';
 import { Widget } from '@lumino/widgets';
 import { isRecord } from '../api';
+import {
+  CHAT_MESSAGE_SELECTOR,
+  INPUT_CONTAINER_SELECTOR
+} from '../chat-links/chat-dom';
+import {
+  recordedChatProject,
+  type IChatProjectResolver
+} from '../chat-links/chat-project';
 import { CommandIDs } from '../commands';
 import { ElementWidget } from '../element-widget';
+import { projectDirectory } from '../project-data';
 import { acquireProjectDataService } from '../project-data-service';
 import { findProjectRoot } from '../project-root';
 import { listVersions } from '../versions/versions-api';
+import { CHAT_FACTORY } from '../workbench-ids';
 import type { IComment, ICommentAnchor, ICommentTarget } from './comments-api';
-import { directoryOf } from './chat-projects';
 import {
   NULL_VERSION,
   elementTarget,
@@ -41,45 +51,6 @@ import { TextCommentLayer } from './text-layer';
 function isElementTab(widget: Widget): widget is MainAreaWidget<ElementWidget> {
   return (
     widget instanceof MainAreaWidget && widget.content instanceof ElementWidget
-  );
-}
-
-/**
- * A CodeMirror view, recognized by shape: the file editor's `editor.editor`
- * may come from a second copy of the package, which `instanceof` would miss.
- */
-function isEditorView(value: unknown): value is EditorView {
-  return (
-    isRecord(value) &&
-    isRecord(value.state) &&
-    typeof value.dispatch === 'function' &&
-    value.dom instanceof HTMLElement
-  );
-}
-
-/** The selector of rendered views whose text can be commented. */
-const TEXT_HOST_SELECTOR =
-  '.jp-jupyterlab-lightcone-ElementWidget, .jp-MarkdownViewer';
-
-/** One message of a Jupyter Chat transcript; `data-index` indexes the model's messages. */
-const CHAT_MESSAGE_SELECTOR = '.jp-chat-message-container[data-index]';
-
-/** The part of a Jupyter Chat panel a session host reads. */
-interface IChatPanelLike {
-  model: { name: string; messages: readonly { id: string }[] };
-}
-
-/** A main-area Jupyter Chat panel: a session whose transcript can be commented. */
-function isSessionPanel(widget: Widget): widget is Widget & IChatPanelLike {
-  if (!('area' in widget) || widget.area !== 'main' || !('model' in widget)) {
-    return false;
-  }
-  const model: unknown = widget.model;
-  return (
-    isRecord(model) &&
-    typeof model.name === 'string' &&
-    Array.isArray(model.messages) &&
-    isRecord(model.input)
   );
 }
 
@@ -401,9 +372,10 @@ class FileHost extends CommentHost {
     const path = this.context.path;
     let entrypoint: string | null = null;
     try {
+      // The document's folder, keeping its Contents drive.
       const root = await findProjectRoot(
         this.hosts.contents,
-        directoryOf(path)
+        projectDirectory(path)
       );
       entrypoint = root?.entrypoint ?? null;
     } catch (error) {
@@ -434,14 +406,12 @@ class FileHost extends CommentHost {
  */
 class SessionHost extends CommentHost {
   constructor(
-    private panel: Widget & IChatPanelLike,
+    private panel: IChatPanel,
     hosts: CommentHosts
   ) {
     super(panel, hosts);
-    this._node =
-      panel instanceof MainAreaWidget ? panel.content.node : panel.node;
     this.text = new TextCommentLayer({
-      host: this._node,
+      host: panel.widget.node,
       onBadgeClick: (comment, element) =>
         hosts.showComment(this, comment, element)
     });
@@ -449,7 +419,7 @@ class SessionHost extends CommentHost {
   }
 
   get node(): HTMLElement {
-    return this._node;
+    return this.panel.widget.node;
   }
 
   get entrypoint(): string | null {
@@ -507,24 +477,17 @@ class SessionHost extends CommentHost {
   }
 
   private async resolve(): Promise<void> {
-    let entrypoint: string | null = null;
-    try {
-      const root = await findProjectRoot(
-        this.hosts.contents,
-        directoryOf(this.path)
-      );
-      entrypoint = root?.entrypoint ?? null;
-    } catch (error) {
-      console.warn('Could not find the project owning a session.', error);
-    }
+    const project = await this.hosts.projects.resolve(
+      this.path,
+      recordedChatProject(this.panel.model)
+    );
     if (this.isDisposed) {
       return;
     }
-    this._entrypoint = entrypoint;
+    this._entrypoint = project?.entrypoint ?? null;
     this.refresh();
   }
 
-  private _node: HTMLElement;
   private _entrypoint: string | null = null;
 }
 
@@ -532,21 +495,23 @@ export interface ICommentHostsOptions {
   app: JupyterFrontEnd;
   shell: ILabShell | null;
   documents: IDocumentManager | null;
+  /** Jupyter Chat's panel tracker, whose main-area panels are sessions; null without Jupyter Chat. */
+  tracker: IChatTracker | null;
+  /** Files a session under its project. */
+  projects: IChatProjectResolver;
   service: CommentService;
   popover: CommentPopover;
 }
 
-/** Frames to wait for a new editor to be attached before giving up. */
-const ADOPT_ATTEMPTS = 30;
-
 /**
- * Where comments are made and shown: record tabs, image documents, Markdown
- * previews and file editors in the main area. It attaches a layer to each,
- * feeds them the pending comments of their project, and opens the popover.
+ * Where comments are made and shown: record tabs, sessions, image documents,
+ * Markdown previews and file editors in the main area. It attaches a layer to
+ * each, feeds them the pending comments of their project, and opens the
+ * popover.
  */
 export class CommentHosts implements IDisposable {
   constructor(private options: ICommentHostsOptions) {
-    const { app, shell, service } = options;
+    const { app, shell, service, tracker } = options;
     this.selection = new SelectionCommentButton<CommentHost>({
       resolve: node => this.resolveSelection(node),
       onComment: capture => this.startTextComment(capture)
@@ -555,6 +520,8 @@ export class CommentHosts implements IDisposable {
     shell?.layoutModified.connect(this.scan, this);
     app.shell.currentChanged?.connect(this.scan, this);
     void app.restored.then(() => this.scan());
+    tracker?.forEach(panel => this.attachSession(panel));
+    tracker?.widgetAdded.connect(this._onChatAdded, this);
     const register = (factory: string, kind: FileHostKind) => {
       this._extensions.push(
         app.docRegistry.addWidgetExtension(factory, {
@@ -562,7 +529,9 @@ export class CommentHosts implements IDisposable {
             if (this._isDisposed) {
               return;
             }
-            const view = kind === 'editor' ? this.editorViewOf(widget) : null;
+            // The file editor's CodeMirror view exists once the widget does.
+            const view =
+              kind === 'editor' ? (getEditor(widget)?.editor ?? null) : null;
             this.attachFile(widget, context, kind, view);
           }
         })
@@ -588,6 +557,11 @@ export class CommentHosts implements IDisposable {
     return this.options.documents;
   }
 
+  /** The resolver filing sessions under their project. */
+  get projects(): IChatProjectResolver {
+    return this.options.projects;
+  }
+
   get service(): CommentService {
     return this.options.service;
   }
@@ -604,13 +578,6 @@ export class CommentHosts implements IDisposable {
       if (host) {
         this.showComment(host, comment, element);
       }
-    },
-    onViewCreated: view => this.adoptView(view),
-    onViewDestroyed: view => {
-      const host = this.hostForView(view);
-      if (host) {
-        host.view = null;
-      }
     }
   };
 
@@ -620,13 +587,8 @@ export class CommentHosts implements IDisposable {
       return;
     }
     for (const widget of this.options.app.shell.widgets('main')) {
-      if (this._hosts.has(widget)) {
-        continue;
-      }
-      if (isElementTab(widget)) {
+      if (!this._hosts.has(widget) && isElementTab(widget)) {
         this.register(widget, new ElementHost(widget, this));
-      } else if (isSessionPanel(widget)) {
-        this.register(widget, new SessionHost(widget, this));
       }
     }
   };
@@ -656,7 +618,7 @@ export class CommentHosts implements IDisposable {
     } else {
       const opened: unknown = await app.commands.execute('docmanager:open', {
         path: target.path,
-        ...(target.kind === 'message' ? { factory: 'Chat' } : {})
+        ...(target.kind === 'message' ? { factory: CHAT_FACTORY } : {})
       });
       if (opened instanceof Widget) {
         app.shell.activateById(opened.id);
@@ -767,10 +729,11 @@ export class CommentHosts implements IDisposable {
       return;
     }
     this._isDisposed = true;
-    const { app, shell, service } = this.options;
+    const { app, shell, service, tracker } = this.options;
     service.changed.disconnect(this._serviceChanged, this);
     shell?.layoutModified.disconnect(this.scan, this);
     app.shell.currentChanged?.disconnect(this.scan, this);
+    tracker?.widgetAdded.disconnect(this._onChatAdded, this);
     this.selection.dispose();
     for (const extension of this._extensions) {
       extension.dispose();
@@ -782,23 +745,33 @@ export class CommentHosts implements IDisposable {
     this._hosts.clear();
   }
 
+  /** Comment the transcript of a chat the tracker knows, when it is a session. */
+  private attachSession(panel: IChatPanel): void {
+    if (
+      this._isDisposed ||
+      panel.isDisposed ||
+      panel.area !== 'main' ||
+      this._hosts.has(panel)
+    ) {
+      return;
+    }
+    this.register(panel, new SessionHost(panel, this));
+  }
+
+  private _onChatAdded(_tracker: IChatTracker, panel: IChatPanel): void {
+    this.attachSession(panel);
+  }
+
   private attachFile(
     widget: Widget,
     context: DocumentRegistry.Context,
     kind: FileHostKind,
     view: EditorView | null
-  ): FileHost | undefined {
-    const existing = this._hosts.get(widget);
-    if (existing) {
-      if (view && existing instanceof FileHost && !existing.view) {
-        existing.view = view;
-        existing.refresh();
-      }
-      return existing instanceof FileHost ? existing : undefined;
+  ): void {
+    if (this._hosts.has(widget)) {
+      return;
     }
-    const host = new FileHost(widget, context, this, kind, view);
-    this.register(widget, host);
-    return host;
+    this.register(widget, new FileHost(widget, context, this, kind, view));
   }
 
   private register(widget: Widget, host: CommentHost): void {
@@ -808,60 +781,6 @@ export class CommentHosts implements IDisposable {
       this._hosts.delete(widget);
     });
     host.refresh();
-  }
-
-  /** The CodeMirror view of a document widget whose content is an editor. */
-  private editorViewOf(widget: Widget): EditorView | null {
-    if (!(widget instanceof MainAreaWidget)) {
-      return null;
-    }
-    const content: unknown = widget.content;
-    if (!isRecord(content)) {
-      return null;
-    }
-    const editor: unknown = content.editor;
-    if (!isRecord(editor)) {
-      return null;
-    }
-    return isEditorView(editor.editor) ? editor.editor : null;
-  }
-
-  /**
-   * Match a new editor view to its document. Views are created before they
-   * are attached, so wait a few frames for the DOM to settle.
-   */
-  private adoptView(view: EditorView, attempt = 0): void {
-    if (this._isDisposed || this.hostForView(view)) {
-      return;
-    }
-    const widget = this.mainWidgetContaining(view.dom);
-    if (widget) {
-      const host = this._hosts.get(widget);
-      if (host) {
-        if (!host.view) {
-          host.view = view;
-          host.refresh();
-        }
-        return;
-      }
-      const context = this.options.documents?.contextForWidget(widget);
-      if (context) {
-        this.attachFile(widget, context, 'editor', view);
-      }
-      return;
-    }
-    if (attempt < ADOPT_ATTEMPTS) {
-      window.requestAnimationFrame(() => this.adoptView(view, attempt + 1));
-    }
-  }
-
-  private mainWidgetContaining(node: Node): Widget | undefined {
-    for (const widget of this.options.app.shell.widgets('main')) {
-      if (widget.node.contains(node)) {
-        return widget;
-      }
-    }
-    return undefined;
   }
 
   private hostForView(view: EditorView): CommentHost | undefined {
@@ -882,32 +801,43 @@ export class CommentHosts implements IDisposable {
     return undefined;
   }
 
+  /**
+   * The host a selection lies in, and the element whose text gives the quote
+   * its context. Host nodes never nest, so containment names the host; a
+   * selection inside one message of a session comments on that message, and
+   * one in a CodeMirror editor is the editor extension's business.
+   */
   private resolveSelection(
     node: Node
   ): { host: CommentHost; root: HTMLElement } | null {
     const element = node instanceof Element ? node : node.parentElement;
-    // A selection inside one message of a session comments on that message.
-    const message = element?.closest<HTMLElement>(CHAT_MESSAGE_SELECTOR);
-    if (message && !element?.closest('.cm-editor, .jp-chat-input-container')) {
-      this.scan();
+    if (!element || element.closest('.cm-editor')) {
+      return null;
+    }
+    const message = element.closest<HTMLElement>(CHAT_MESSAGE_SELECTOR);
+    if (message) {
+      if (element.closest(INPUT_CONTAINER_SELECTOR)) {
+        return null;
+      }
       for (const host of this._hosts.values()) {
         if (
           host instanceof SessionHost &&
-          host.node.contains(message) &&
-          host.entrypoint
+          host.entrypoint &&
+          host.node.contains(message)
         ) {
           return { host, root: message };
         }
       }
       return null;
     }
-    const container = element?.closest<HTMLElement>(TEXT_HOST_SELECTOR);
-    if (!container || element?.closest('.cm-editor')) {
-      return null;
-    }
     this.scan();
     for (const host of this._hosts.values()) {
-      if (host.node === container && host.text && host.entrypoint) {
+      if (
+        !(host instanceof SessionHost) &&
+        host.text &&
+        host.entrypoint &&
+        host.node.contains(element)
+      ) {
         return { host, root: host.node };
       }
     }
@@ -944,15 +874,7 @@ export class CommentHosts implements IDisposable {
   }
 
   private startEditorComment(view: EditorView, anchor: ICommentAnchor): void {
-    let host = this.hostForView(view);
-    if (!host) {
-      const widget = this.mainWidgetContaining(view.dom);
-      const context =
-        widget && this.options.documents?.contextForWidget(widget);
-      if (widget && context) {
-        host = this.attachFile(widget, context, 'editor', view);
-      }
-    }
+    const host = this.hostForView(view);
     const entrypoint = host?.entrypoint;
     const target = host?.target();
     if (!host || !entrypoint || !target) {

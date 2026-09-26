@@ -44,35 +44,6 @@ export function stepVersion(
   return versions[index].commit;
 }
 
-const RELATIVE_UNITS: readonly [number, string][] = [
-  [60, 'second'],
-  [60, 'minute'],
-  [24, 'hour'],
-  [7, 'day'],
-  [4.348, 'week'],
-  [12, 'month'],
-  [Number.POSITIVE_INFINITY, 'year']
-];
-
-/** "2 days ago", "in 3 hours", "just now"; the ISO text itself when unparseable. */
-export function relativeTime(iso: string, now = Date.now()): string {
-  const time = Date.parse(iso);
-  if (Number.isNaN(time)) return iso;
-  let amount = (now - time) / 1000;
-  const past = amount >= 0;
-  amount = Math.abs(amount);
-  if (amount < 45) return 'just now';
-  for (const [size, unit] of RELATIVE_UNITS) {
-    if (amount < size) {
-      const count = Math.max(1, Math.round(amount));
-      const label = `${count} ${unit}${count === 1 ? '' : 's'}`;
-      return past ? `${label} ago` : `in ${label}`;
-    }
-    amount /= size;
-  }
-  return iso;
-}
-
 /** "208 kB", "1.2 MB"; "unknown size" for null. */
 export function formatBytes(size: number | null): string {
   if (size === null || !Number.isFinite(size) || size < 0)

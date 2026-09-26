@@ -6,8 +6,8 @@ import { CommandIDs } from '../../commands';
 import { requestAPI } from '../../request';
 import { SidebarCommandIDs } from '../../sidebar/sidebar-commands';
 import { PipelineCommandIDs } from '../../versions/pipeline-commands';
+import { CREATE_CHAT_COMMAND } from '../../workbench-ids';
 import { fileModel } from '../../__tests__/project-fixtures';
-import { CREATE_CHAT_COMMAND } from '../home-view';
 import { PersonaDirectory } from '../personas';
 import {
   FakeEvents,
@@ -65,7 +65,7 @@ beforeEach(() => {
             commit: 'a'.repeat(40),
             short: 'aaaaaaa',
             time: new Date(Date.now() - 2 * DAY).toISOString(),
-            subject: '[DATALAD RUNCMD] hubble_diagram [default]',
+            subject: 'Materialize hubble_diagram [default]',
             outputs: [{ universe: 'default', output: 'hubble_diagram' }]
           }
         ]

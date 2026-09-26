@@ -1,10 +1,10 @@
-import type { SurfaceKind } from '@astra-spec/ui/model';
+import { surfaceGlyph, type SurfaceKind } from '@astra-spec/ui/model';
 import { KindGlyph } from '@astra-spec/ui/primitives';
+import type { IThemeManager } from '@jupyterlab/apputils';
+import type { IDisposable } from '@lumino/disposable';
 import type { VirtualElement } from '@lumino/virtualdom';
 import React, { useSyncExternalStore } from 'react';
-import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
-import type { ColorScheme } from './theme-adapter';
+import { colorScheme, type ColorScheme } from './theme-adapter';
 
 /**
  * The classes of a kind mark's root: the Lightcone ASTRA theme's scope, which
@@ -13,43 +13,62 @@ import type { ColorScheme } from './theme-adapter';
 const KIND_MARK_CLASS =
   'lightcone-brand astra-ui jp-jupyterlab-lightcone-KindMark';
 
+type ThemeManager = Pick<IThemeManager, 'theme' | 'isLight' | 'themeChanged'>;
+
 /**
- * The Lab's color scheme as `<body>` declares it. JupyterLab's theme plugin
- * stamps `data-jp-theme-light` with the theme manager's own `isLight` verdict
- * whenever a theme applies, so this agrees with `colorScheme` in
- * `theme-adapter.ts`. Views that hold the `IThemeManager` bind to it with
- * `LightconeThemeBinding`; kind marks read the attribute instead, since they
- * are drawn in many components that are not handed the manager.
+ * The Lab's colour scheme, as the theme manager last reported it. Kind marks
+ * are drawn in many components that are not handed the manager, so one plugin
+ * binds the store to it (`bindLabColorScheme`) and every mark reads it here.
+ * Before a manager is bound the scheme is light.
  */
+let scheme: ColorScheme = 'light';
+const listeners = new Set<() => void>();
+let binding: IDisposable | null = null;
+
 export function labColorScheme(): ColorScheme {
-  return document.body.dataset.jpThemeLight === 'false' ? 'dark' : 'light';
+  return scheme;
 }
 
-const listeners = new Set<() => void>();
-let observer: MutationObserver | null = null;
+function publish(next: ColorScheme): void {
+  if (next === scheme) return;
+  scheme = next;
+  listeners.forEach(notify => notify());
+}
 
-/** One observer serves every mark on the page; it stops with the last subscriber. */
+/**
+ * Follow the Lab theme through the public `IThemeManager`: the store takes
+ * the manager's verdict now and on every `themeChanged`. Binding again
+ * replaces the earlier binding. Returns a disposable that stops following.
+ */
+export function bindLabColorScheme(manager: ThemeManager): IDisposable {
+  binding?.dispose();
+  const sync = () => publish(colorScheme(manager));
+  manager.themeChanged.connect(sync);
+  sync();
+  let disposed = false;
+  const current: IDisposable = {
+    get isDisposed() {
+      return disposed;
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      manager.themeChanged.disconnect(sync);
+      if (binding === current) binding = null;
+    }
+  };
+  binding = current;
+  return current;
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  if (!observer) {
-    observer = new MutationObserver(() => {
-      listeners.forEach(notify => notify());
-    });
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: ['data-jp-theme-light']
-    });
-  }
   return () => {
     listeners.delete(listener);
-    if (!listeners.size) {
-      observer?.disconnect();
-      observer = null;
-    }
   };
 }
 
-/** The Lab's current color scheme, re-rendering when the theme changes. */
+/** The Lab's current colour scheme, re-rendering when the theme changes. */
 export function useLabColorScheme(): ColorScheme {
   return useSyncExternalStore(subscribe, labColorScheme, () => 'light');
 }
@@ -65,74 +84,77 @@ export interface IAstraKindMarkProps {
  * Lightcone ASTRA theme's kind colours, so every Lightcone surface marks
  * records exactly as the inventory does. The brand scope carries only the
  * kind tokens here; size, background and font come from the surrounding UI.
+ * Every `.astra-ui` element takes its palette from its own scheme attribute,
+ * so each mark stamps the scheme itself.
  */
 export function AstraKindMark({
   kind,
   className
 }: IAstraKindMarkProps): React.ReactElement {
-  const scheme = useLabColorScheme();
+  const current = useLabColorScheme();
   return (
     <span
       className={`${KIND_MARK_CLASS}${className ? ` ${className}` : ''}`}
-      data-lightcone-color-scheme={scheme}
-      data-astra-color-scheme={scheme}
+      data-lightcone-color-scheme={current}
+      data-astra-color-scheme={current}
     >
       <KindGlyph kind={kind} />
     </span>
   );
 }
 
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
 /**
- * Every kind ASTRA UI marks, as a record so that the compiler reports a kind
- * added upstream until it is listed here.
+ * The paper mark is the one kind `KindGlyph` draws as an inline SVG rather
+ * than as `surfaceGlyph` text, and ASTRA UI exports no plain-DOM form of it.
+ * Its drawing is restated here; `astra-kind.spec.tsx` checks that the two
+ * still agree.
  */
-const SURFACE_KINDS: Readonly<Record<SurfaceKind, null>> = {
-  analysis: null,
-  input: null,
-  decision: null,
-  output: null,
-  finding: null,
-  prior_insight: null,
-  paper: null
+const PAPER_GLYPH_ATTRIBUTES: Readonly<Record<string, string>> = {
+  viewBox: '0 0 24 24',
+  width: '1em',
+  height: '1em',
+  fill: 'none',
+  stroke: 'currentColor',
+  'stroke-width': '1.6',
+  'stroke-linecap': 'round',
+  'stroke-linejoin': 'round',
+  'aria-hidden': 'true',
+  focusable: 'false'
 };
+const PAPER_GLYPH_PATHS: readonly string[] = [
+  'M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z',
+  'M14 3v5h5M8 12h8M8 16h6'
+];
 
-function isSurfaceKind(value: string): value is SurfaceKind {
-  return Object.prototype.hasOwnProperty.call(SURFACE_KINDS, value);
+function paperGlyph(): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
+  for (const [name, value] of Object.entries(PAPER_GLYPH_ATTRIBUTES)) {
+    svg.setAttribute(name, value);
+  }
+  for (const d of PAPER_GLYPH_PATHS) {
+    const path = document.createElementNS(SVG_NAMESPACE, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
 }
-
-const glyphTemplates = new Map<SurfaceKind, Element>();
 
 /**
- * KindGlyph's own markup for a kind, rendered once by ASTRA UI and kept, so
- * the DOM-built marks below never restate its symbols or its paper drawing.
- *
- * It renders through the shared React DOM with `flushSync`, which cannot draw
- * while React itself renders or commits. Every known kind is therefore drawn
- * as this module loads (below), and only a kind unknown then is drawn on
- * first use, where that limit applies. (`react-dom/server` is not an option:
- * a bundled copy of it does not match the React build JupyterLab shares.)
+ * `KindGlyph`'s markup for a kind as a plain element: the span ASTRA UI
+ * renders, with the public `surfaceGlyph` text for every kind but `paper`.
  */
-function glyphTemplate(kind: SurfaceKind): Element {
-  let template = glyphTemplates.get(kind);
-  if (!template) {
-    const container = document.createElement('span');
-    const root = createRoot(container);
-    flushSync(() => {
-      root.render(<KindGlyph kind={kind} />);
-    });
-    const glyph = container.firstElementChild?.cloneNode(true);
-    root.unmount();
-    if (!(glyph instanceof Element)) {
-      throw new Error(`ASTRA UI drew no glyph for the ${kind} kind.`);
-    }
-    template = glyph;
-    glyphTemplates.set(kind, template);
-  }
-  return template;
+function kindGlyph(kind: SurfaceKind): HTMLElement {
+  const glyph = document.createElement('span');
+  glyph.dataset.slot = 'kind-glyph';
+  glyph.className = 'astra-kind-glyph';
+  glyph.dataset.kind = kind;
+  glyph.setAttribute('aria-hidden', 'true');
+  if (kind === 'paper') glyph.append(paperGlyph());
+  else glyph.textContent = surfaceGlyph(kind);
+  return glyph;
 }
-
-// Loading the module happens outside any React render, so every kind draws.
-Object.keys(SURFACE_KINDS).filter(isSurfaceKind).forEach(glyphTemplate);
 
 /**
  * `AstraKindMark` as a plain element, for surfaces that React does not
@@ -140,12 +162,11 @@ Object.keys(SURFACE_KINDS).filter(isSurfaceKind).forEach(glyphTemplate);
  * that redraw as they are shown, such as the search palette.
  */
 export function createKindMark(kind: SurfaceKind): HTMLElement {
-  const scheme = labColorScheme();
   const mark = document.createElement('span');
   mark.className = KIND_MARK_CLASS;
   mark.dataset.lightconeColorScheme = scheme;
   mark.dataset.astraColorScheme = scheme;
-  mark.append(glyphTemplate(kind).cloneNode(true));
+  mark.append(kindGlyph(kind));
   return mark;
 }
 

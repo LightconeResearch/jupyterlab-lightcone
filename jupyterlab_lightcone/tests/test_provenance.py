@@ -27,15 +27,24 @@ def test_read_record_and_absent_record(tmp_path):
 
 @pytest.mark.parametrize('changes', [{'schema_version': 2}, {'output_id': 'other'}, {'universe_id': 'other'}, {'input_versions': []}, {'input_versions': {'a': {}}}, {'git_sha': None}])
 def test_rejects_unsupported_record(tmp_path, changes):
+    """A record this server cannot use is a 500, the code the comment store gets for the same failure."""
     path, _ = manifest(tmp_path, **changes)
-    with pytest.raises(HTTPError, match='unsupported'):
+    with pytest.raises(HTTPError, match='unsupported') as raised:
         provenance.read_record(path, 'baseline', 'fit')
+    assert raised.value.status_code == 500
 
 
-@pytest.mark.parametrize('universe, output', [('../outside', 'fit'), ('/outside', 'fit'), ('baseline', '../fit'), ('baseline', 'fit.json'), ('.hidden', 'fit'), ('baseline', 'a\\b'), ('baseline', '')])
+@pytest.mark.parametrize('universe, output', [('../outside', 'fit'), ('/outside', 'fit'), ('baseline', '../fit'), ('baseline', 'fit.json'), ('.hidden', 'fit'), ('baseline', 'a\\b'), ('baseline', ''), ('', 'fit'), ('base\x00line', 'fit')])
 def test_rejects_arbitrary_paths(tmp_path, universe, output):
+    with pytest.raises(HTTPError) as raised:
+        provenance.validate_output_identity(universe, output)
+    assert raised.value.status_code == 400
     with pytest.raises(HTTPError):
         provenance.record_path(tmp_path, universe, output)
+
+
+def test_the_record_path_follows_the_engines_layout(tmp_path):
+    assert provenance.record_path(tmp_path, 'base.line', 'fit') == tmp_path.resolve() / 'results' / 'base.line' / '.fit.manifest.json'
 
 
 def test_rejects_symlink_escape(tmp_path):

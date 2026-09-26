@@ -2,7 +2,6 @@ import { ServerConnection } from '@jupyterlab/services';
 import {
   fetchLockedPackages,
   fetchRevisionSource,
-  fetchVersionContent,
   isLockedPackages,
   isOutputVersion,
   isResultsCommit,
@@ -22,7 +21,7 @@ const version = {
   commit: 'a889877'.padEnd(40, '0'),
   short: 'a889877',
   time: '2026-09-20T10:00:00Z',
-  subject: '[DATALAD RUNCMD] hubble_diagram [baseline]',
+  subject: 'materialize hubble_diagram',
   size: 208410,
   present: true,
   annex: null,
@@ -104,7 +103,7 @@ test('reports invalid payloads and server failures with their status', async () 
   ).rejects.toThrow('Versions request failed (400)');
 });
 
-test('builds immutable content URLs and fetches their bytes', async () => {
+test('builds immutable content URLs', () => {
   const url = versionContentUrl(
     settings,
     'project/astra.yaml',
@@ -117,35 +116,7 @@ test('builds immutable content URLs and fetches their bytes', async () => {
     '/lab/jupyterlab_lightcone/api/versions/content'
   );
   expect(parsed.searchParams.get('commit')).toBe(version.commit);
-  const request = jest
-    .spyOn(ServerConnection, 'makeRequest')
-    .mockResolvedValueOnce(new Response('bytes'));
-  expect(
-    await (
-      await fetchVersionContent(
-        settings,
-        'project/astra.yaml',
-        'baseline',
-        'hubble_diagram',
-        version.commit
-      )
-    ).text()
-  ).toBe('bytes');
-  expect(request.mock.calls[0][0]).toBe(url);
-  jest
-    .spyOn(ServerConnection, 'makeRequest')
-    .mockResolvedValueOnce(
-      new Response(JSON.stringify({ reason: 'absent' }), { status: 404 })
-    );
-  await expect(
-    fetchVersionContent(
-      settings,
-      'project/astra.yaml',
-      'baseline',
-      'hubble_diagram',
-      version.commit
-    )
-  ).rejects.toThrow('Versions request failed (404)');
+  expect(parsed.searchParams.get('output')).toBe('hubble_diagram');
 });
 
 test('shares one listing between callers for a while and never caches a failure', async () => {
@@ -248,7 +219,7 @@ test('lists the commits that touched the results, bounded to a window', async ()
     commit: 'e'.repeat(40),
     short: 'eeeeeee',
     time: '2026-09-21T10:00:00Z',
-    subject: '[DATALAD RUNCMD] hubble_diagram [baseline]',
+    subject: 'materialize hubble_diagram',
     outputs: [{ universe: 'baseline', output: 'hubble_diagram' }]
   };
   expect(isResultsCommit(commit)).toBe(true);

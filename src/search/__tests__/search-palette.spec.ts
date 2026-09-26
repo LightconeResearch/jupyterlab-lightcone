@@ -1,5 +1,10 @@
+import type { IThemeManager } from '@jupyterlab/apputils';
+import type { IChangedArgs } from '@jupyterlab/coreutils';
+import { DisposableDelegate, type IDisposable } from '@lumino/disposable';
 import { MessageLoop } from '@lumino/messaging';
+import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
+import { bindLabColorScheme } from '../../astra-kind';
 import type { ISearchCandidate } from '../search-candidates';
 import { SearchPalette } from '../search-palette';
 
@@ -36,6 +41,27 @@ function render(
     rows: text('.lm-CommandPalette-itemLabel'),
     marks: text('.lm-CommandPalette-header mark')
   };
+}
+
+/** A theme manager whose theme has the given lightness. */
+class FakeThemeManager implements IThemeManager {
+  constructor(private readonly light: boolean) {}
+  get theme(): string {
+    return this.light ? 'JupyterLab Light' : 'JupyterLab Dark';
+  }
+  themes = ['JupyterLab Light', 'JupyterLab Dark'];
+  themeChanged = new Signal<this, IChangedArgs<string, string | null>>(this);
+  isLight = () => this.light;
+  getDisplayName = (theme: string) => theme;
+  themeScrollbars = () => false;
+  loadCSS = async () => undefined;
+  setTheme = async () => undefined;
+  register = () => new DisposableDelegate(() => undefined);
+}
+
+/** Bind the kind marks to a Lab theme of the given lightness. */
+function bindTheme(light: boolean): IDisposable {
+  return bindLabColorScheme(new FakeThemeManager(light));
 }
 
 describe('SearchPalette', () => {
@@ -207,8 +233,9 @@ describe('SearchPalette', () => {
         .map(row => row.querySelector('.astra-kind-glyph')?.textContent)
     ).toEqual(['◆', '◇', '▤', '◈']);
     expect(rows[5].querySelector('.astra-kind-glyph svg')).not.toBeNull();
-    // The scope follows the Lab theme, so the Lightcone dark kind colours apply.
-    document.body.dataset.jpThemeLight = 'false';
+    // The marks follow the Lab theme through the theme manager they are
+    // bound to, so the Lightcone dark kind colours apply.
+    const dark = bindTheme(false);
     try {
       render(palette, 'fit');
       const mark = palette.contentNode.querySelector(
@@ -217,7 +244,8 @@ describe('SearchPalette', () => {
       expect(mark?.getAttribute('data-astra-color-scheme')).toBe('dark');
       expect(mark?.getAttribute('data-lightcone-color-scheme')).toBe('dark');
     } finally {
-      delete document.body.dataset.jpThemeLight;
+      dark.dispose();
+      bindTheme(true).dispose();
     }
   });
 

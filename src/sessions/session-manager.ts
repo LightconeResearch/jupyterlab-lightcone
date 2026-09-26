@@ -4,9 +4,14 @@ import type {
   IChatPanel,
   IChatTracker
 } from '@jupyter/chat';
+import type {
+  PersonaManagerSessionState,
+  PersonaSessionRegistry
+} from '@jupyter-ai/persona-manager';
 import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
 import { Notification } from '@jupyterlab/apputils';
 import { PageConfig, PathExt } from '@jupyterlab/coreutils';
+import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents, Event } from '@jupyterlab/services';
 import {
   nullTranslator,
@@ -21,6 +26,12 @@ import { Widget, type DockLayout } from '@lumino/widgets';
 import { isRecord } from '../api';
 import { projectDirectory } from '../project-data';
 import { findProjectRoot } from '../project-root';
+import {
+  CHAT_FACTORY,
+  CREATE_CHAT_COMMAND,
+  ELEMENT_TAB_DATASET_KEY,
+  SESSION_TITLE_DATASET_KEY
+} from '../workbench-ids';
 import {
   activityTransition,
   deriveSessionState,
@@ -45,23 +56,12 @@ import {
 import {
   fetchProjectAgent,
   listSessions,
-  prepareSessions,
   type ISessionInfo,
   type ISessionListing
 } from './sessions-api';
 
-/** Jupyter Chat's document factory for `.chat` files. */
-export const CHAT_FACTORY = 'Chat';
-const CREATE_CHAT_COMMAND = 'jupyterlab-chat:create';
-const OPEN_DOCUMENT_COMMAND = 'docmanager:open';
-/** Title data attribute that record tabs carry (see `element-widget.tsx`). */
-const RECORD_TAB_DATASET_KEY = 'lightcone-element';
-/**
- * Title data attribute holding a session's title, which its tab shows in
- * place of the file name (see `style/sessions.css`). The label itself must
- * stay the file name: a document widget renames its file to match its label.
- */
-export const SESSION_TITLE_DATASET_KEY = 'lightcone-session-title';
+export { CHAT_FACTORY, SESSION_TITLE_DATASET_KEY } from '../workbench-ids';
+
 /** PageConfig option the persona manager uses to advertise its default persona. */
 const DEFAULT_PERSONA_OPTION = 'jupyter_ai_default_persona';
 
@@ -84,14 +84,25 @@ export interface ISessionManagerOptions {
   commands: CommandRegistry;
   shell: JupyterFrontEnd.IShell;
   contents: Contents.IManager;
+  /** The document manager, which opens chat documents in the main area. */
+  documents: IDocumentManager;
   /** Jupyter Chat's panel tracker; null when Jupyter Chat is absent. */
   tracker: IChatTracker | null;
   /** Command providers run before a message is sent, as the composer does. */
   chatCommands: IChatCommandRegistry | null;
   /** The Lab shell, for focus changes; null in other shells. */
   labShell: ILabShell | null;
-  /** The server's event stream, carrying persona activity; null to ignore it. */
+  /**
+   * The server's event stream, carrying persona activity; read only without
+   * `registry`, and null to ignore it.
+   */
   events: Event.IManager | null;
+  /**
+   * Jupyter AI's persona session registry, whose per-chat state says whether
+   * a persona is processing; null without the persona manager, when the
+   * event stream is read instead.
+   */
+  registry?: PersonaSessionRegistry | null;
   translator?: ITranslator;
 }
 
@@ -103,7 +114,7 @@ interface ICachedListing {
   signature: string;
 }
 
-/** Where `docmanager:open` puts a session in the main area. */
+/** Where the document manager puts a session in the main area. */
 interface ISessionPlacement {
   mode?: DockLayout.InsertMode;
   ref?: string;
@@ -128,11 +139,19 @@ interface ILiveSession {
    * named after it.
    */
   titledWhenLoaded?: boolean;
+  /** The persona manager's state for the chat, when the registry serves one. */
+  personaState?: PersonaManagerSessionState;
+  onPersonaChanged: () => void;
   disconnect: () => void;
 }
 
-/** A session file still called `untitled` in a project's `chats/` folder. */
-const UNTITLED_SESSION = /(^|\/)chats\/untitled(-\d+)?\.chat$/;
+/**
+ * A session file still called `untitled` in a project's `chats/` folder, the
+ * folder the server lists sessions from (`CHATS_DIRECTORY` in `sessions.py`).
+ */
+const UNTITLED_SESSION = new RegExp(
+  `(^|/)chats/${UNTITLED_SLUG}(-\\d+)?${SESSION_FILE_EXTENSION.replace('.', '\\.')}$`
+);
 
 /**
  * Whether a session is still named `untitled`: created in `chats/` before its
@@ -152,7 +171,11 @@ function isChatModel(value: unknown): value is IChatModel {
   );
 }
 
-/** Whether a widget is one of Jupyter Chat's panels, wherever it is shown. */
+/**
+ * Whether a widget is one of Jupyter Chat's panels, wherever it is shown.
+ * For a widget the chat tracker may know, `trackedSession` asks the tracker
+ * instead of probing the widget's shape.
+ */
 export function isChatPanel(value: unknown): value is IChatPanel {
   return (
     value instanceof Widget &&
@@ -168,9 +191,23 @@ export function isSessionWidget(value: unknown): value is IChatPanel {
   return isChatPanel(value) && value.area === 'main';
 }
 
+/**
+ * The main-area session a shell widget is, by the chat tracker's word;
+ * undefined for every other widget, and without a tracker.
+ */
+export function trackedSession(
+  tracker: IChatTracker | null,
+  widget: Widget | null | undefined
+): IChatPanel | undefined {
+  if (!tracker || !widget) {
+    return undefined;
+  }
+  return tracker.find(panel => panel === widget && panel.area === 'main');
+}
+
 /** Whether a widget is a record tab: results form their own column. */
 export function isRecordTab(widget: Widget): boolean {
-  return widget.title.dataset[RECORD_TAB_DATASET_KEY] !== undefined;
+  return widget.title.dataset[ELEMENT_TAB_DATASET_KEY] !== undefined;
 }
 
 /**
@@ -189,7 +226,7 @@ export function messagesTitle(messages: IChatModel['messages']): string {
  * none. Only the title's dataset changes, so the file keeps its name.
  */
 export function syncSessionTabTitle(panel: IChatPanel): void {
-  if (panel.isDisposed || !isSessionWidget(panel)) {
+  if (panel.isDisposed || panel.area !== 'main') {
     return;
   }
   const title = messagesTitle(panel.model.messages);
@@ -222,7 +259,9 @@ export function selectedPersona(metadata: unknown): string | null {
 /**
  * The metadata the persona picker stamps for a persona with every control at
  * its default, so a message addressed by the workbench reads like one sent
- * from the composer.
+ * from the composer. It restates `buildMessageMetadata(personaId,
+ * emptyPersonaSettings())` of `@jupyter-ai/persona-manager/lib/metadata`,
+ * which the package does not export; keep the two in step.
  */
 export function personaMetadata(personaId: string): Record<string, unknown> {
   return {
@@ -242,10 +281,12 @@ export class SessionManager implements ISessionService, IDisposable {
     this._commands = options.commands;
     this._shell = options.shell;
     this._contents = options.contents;
+    this._documents = options.documents;
     this._tracker = options.tracker;
     this._chatCommands = options.chatCommands;
     this._labShell = options.labShell;
-    this._events = options.events;
+    this._registry = options.registry ?? null;
+    this._events = this._registry ? null : options.events;
     this._trans = (options.translator ?? nullTranslator).load(
       'jupyterlab_lightcone'
     );
@@ -297,10 +338,10 @@ export class SessionManager implements ISessionService, IDisposable {
       );
     }
     const key = this._contents.normalize(entrypoint);
-    const { directory } = await prepareSessions(
-      this._contents.serverSettings,
-      key
-    );
+    // The listing names the project's `chats` folder; saving it as a
+    // directory creates it when it is missing and leaves it alone otherwise.
+    const { directory } = await this._listing(key);
+    await this._contents.save(directory, { type: 'directory' });
     const title =
       options.title?.trim() || titleFromMessage(options.firstMessage ?? '');
     const name = await uniqueSessionName(
@@ -322,6 +363,8 @@ export class SessionManager implements ISessionService, IDisposable {
       // Without a choice on Home, the session keeps the project's agent.
       const persona = options.persona || (await this._projectAgent(key));
       await this._sendFirstMessage(panel, message, persona);
+    } else if (options.draft) {
+      await this._draft(panel, options.draft);
     }
     return created;
   }
@@ -358,23 +401,18 @@ export class SessionManager implements ISessionService, IDisposable {
       existing.model.input.focus();
       return existing;
     }
-    const opened: unknown = await this._commands.execute(
-      OPEN_DOCUMENT_COMMAND,
-      {
-        path,
-        factory: CHAT_FACTORY,
-        options: { ...this._placement(), activate: true }
-      }
-    );
-    const panel = isSessionWidget(opened) ? opened : this._findPanel(path);
-    if (!panel) {
+    const opened = this._documents.openOrReveal(path, CHAT_FACTORY, undefined, {
+      ...this._placement(),
+      activate: true
+    });
+    if (!isSessionWidget(opened)) {
       throw new Error(
         this._trans.__(
           'The session did not open. Check that Jupyter AI is enabled.'
         )
       );
     }
-    return panel;
+    return opened;
   }
 
   /**
@@ -409,10 +447,10 @@ export class SessionManager implements ISessionService, IDisposable {
     const usable = (panel: IChatPanel | null | undefined) =>
       !!panel &&
       !panel.isDisposed &&
-      isSessionWidget(panel) &&
+      panel.area === 'main' &&
       this._inMainArea(panel);
-    const current = this._shell.currentWidget;
-    if (isSessionWidget(current) && usable(current)) {
+    const current = trackedSession(this._tracker, this._shell.currentWidget);
+    if (usable(current)) {
       return current;
     }
     if (usable(this._lastSession)) {
@@ -434,16 +472,29 @@ export class SessionManager implements ISessionService, IDisposable {
     const local = this._contents.localPath(path);
     return this._tracker?.find(
       panel =>
-        isSessionWidget(panel) &&
+        panel.area === 'main' &&
         this._contents.localPath(panel.model.name) === local
     );
   }
 
+  /** Leave text in the composer of a session that just opened, for the user to finish. */
+  private async _draft(panel: IChatPanel, text: string): Promise<void> {
+    const model = panel.model;
+    await model.ready;
+    if (panel.isDisposed) {
+      return;
+    }
+    const current = model.input.value;
+    model.input.value = current ? `${current}\n\n${text}` : text;
+    model.input.focus();
+  }
+
   /**
-   * Send the first message the way the composer would: after the persona
-   * picker has stamped its selection, through the chat command providers,
-   * then through the input model. A message nobody would receive stays in
-   * the composer instead of vanishing.
+   * Send the first message the way the composer would: through the chat
+   * command providers, then through the input model, addressed to `persona`
+   * when the caller chose one and otherwise to the persona the picker
+   * selects. A message nobody would receive stays in the composer instead of
+   * vanishing.
    */
   private async _sendFirstMessage(
     panel: IChatPanel,
@@ -455,7 +506,7 @@ export class SessionManager implements ISessionService, IDisposable {
     if (panel.isDisposed) {
       return;
     }
-    const stamped = await this._awaitPersonaSelection(model, !!persona);
+    const stamped = persona ? null : await this._awaitPersonaSelection(model);
     if (panel.isDisposed) {
       return;
     }
@@ -476,7 +527,9 @@ export class SessionManager implements ISessionService, IDisposable {
       return;
     }
     await this._chatCommands?.onSubmit(model.input);
-    // Stamped last: the picker may restamp while the providers run.
+    // Stamped last: the picker may restamp while the providers run, and
+    // `send` snapshots the metadata synchronously, so nothing can overwrite
+    // this stamp on the message itself.
     if (selectedPersona(model.input.getMetadata()) !== target) {
       model.input.updateMetadata(personaMetadata(target));
     }
@@ -485,24 +538,18 @@ export class SessionManager implements ISessionService, IDisposable {
   }
 
   /**
-   * Wait for the persona picker to stamp its selection on the composer, and
-   * resolve with the persona it chose (null for "No one", or after a timeout
-   * when no picker is mounted).
+   * Wait for the persona picker to stamp a chosen persona on the composer,
+   * and resolve with it (null after a timeout, when no picker is mounted or
+   * it keeps "No one").
    *
-   * The picker stamps `to_persona` as soon as its toolbar mounts. With an
-   * `explicit` persona that first stamp is all we wait for: it guarantees the
-   * mount stamp cannot overwrite the persona we set next. Without one, a
-   * `to_persona: null` stamp is not final yet, because the picker still
-   * selects a chat's sole persona once its persona list arrives; only a chosen
-   * persona ends that wait early.
+   * The picker stamps `to_persona` as soon as its toolbar mounts, but a
+   * `to_persona: null` stamp is not final yet: the picker still selects a
+   * chat's sole persona once its persona list arrives. Only a chosen persona
+   * ends the wait early.
    */
-  private _awaitPersonaSelection(
-    model: IChatModel,
-    explicit: boolean
-  ): Promise<string | null> {
+  private _awaitPersonaSelection(model: IChatModel): Promise<string | null> {
     const decided = (metadata: unknown): boolean =>
-      isComposerStamp(metadata) &&
-      (explicit || selectedPersona(metadata) !== null);
+      isComposerStamp(metadata) && selectedPersona(metadata) !== null;
     const current = model.input.getMetadata();
     if (decided(current)) {
       return Promise.resolve(selectedPersona(current));
@@ -625,7 +672,7 @@ export class SessionManager implements ISessionService, IDisposable {
    * handover itself raises no notification.
    */
   private _track(panel: IChatPanel, inherited?: ILiveSession): void {
-    if (panel.isDisposed || !isChatPanel(panel)) {
+    if (panel.isDisposed) {
       return;
     }
     const path = this._contents.localPath(panel.model.name);
@@ -633,8 +680,8 @@ export class SessionManager implements ISessionService, IDisposable {
     if (existing) {
       if (
         existing.panel === panel ||
-        isSessionWidget(existing.panel) ||
-        !isSessionWidget(panel)
+        existing.panel.area === 'main' ||
+        panel.area !== 'main'
       ) {
         return;
       }
@@ -651,11 +698,14 @@ export class SessionManager implements ISessionService, IDisposable {
       entrypoint: inherited?.entrypoint ?? this._resolveEntrypoint(path),
       state: inherited?.state ?? 'idle',
       initialized: inherited?.initialized ?? false,
+      onPersonaChanged: update,
       disconnect: () => {
         model.writersChanged?.disconnect(update);
         model.messagesUpdated.disconnect(update);
         model.messageChanged.disconnect(update);
         panel.disposed.disconnect(onDisposed);
+        live.personaState?.changed.disconnect(live.onPersonaChanged);
+        live.personaState = undefined;
       }
     };
     model.writersChanged?.connect(update);
@@ -729,25 +779,22 @@ export class SessionManager implements ISessionService, IDisposable {
       if (
         panel !== live.panel &&
         !panel.isDisposed &&
-        isChatPanel(panel) &&
         this._contents.localPath(panel.model.name) === live.path
       ) {
         candidates.push(panel);
       }
     });
-    return candidates.find(panel => isSessionWidget(panel)) ?? candidates[0];
+    return candidates.find(panel => panel.area === 'main') ?? candidates[0];
   }
 
   private _update(live: ILiveSession): void {
     syncSessionTabTitle(live.panel);
     this._nameAfterFirstMessage(live);
     const model = live.panel.model;
-    const personas =
-      live.chatId === null ? undefined : this._processing.get(live.chatId);
     const next = deriveSessionState({
       messages: model.messages,
       writers: model.writers,
-      processing: !!personas?.size
+      processing: this._processingIn(live)
     });
     if (live.initialized && next === live.state) {
       return;
@@ -765,6 +812,44 @@ export class SessionManager implements ISessionService, IDisposable {
   }
 
   /**
+   * Whether a persona reports processing a message in the chat: from the
+   * persona manager's registry when there is one, else from the personas the
+   * event stream reported.
+   */
+  private _processingIn(live: ILiveSession): boolean {
+    if (live.chatId === null) {
+      return false;
+    }
+    const state = this._personaState(live, live.chatId);
+    if (state) {
+      return state.processing;
+    }
+    return !!this._processing.get(live.chatId)?.size;
+  }
+
+  /**
+   * The registry's state for the chat, followed for its changes. The
+   * registry discards a chat's state when any view of the chat closes and
+   * hands out a fresh one on the next `get`, so the state is looked up on
+   * every update and the `changed` connection moves along with it.
+   */
+  private _personaState(
+    live: ILiveSession,
+    chatId: string
+  ): PersonaManagerSessionState | undefined {
+    if (!this._registry) {
+      return undefined;
+    }
+    const state = this._registry.get(chatId);
+    if (live.personaState !== state) {
+      live.personaState?.changed.disconnect(live.onPersonaChanged);
+      live.personaState = state;
+      state.changed.connect(live.onPersonaChanged);
+    }
+    return state;
+  }
+
+  /**
    * Name a session created without a message after its first one, as Home
    * names the sessions it starts: `chats/untitled.chat` becomes
    * `chats/<slug of the first line>.chat`. Jupyter Chat and this manager
@@ -774,7 +859,7 @@ export class SessionManager implements ISessionService, IDisposable {
   private _nameAfterFirstMessage(live: ILiveSession): void {
     if (
       live.titledWhenLoaded !== false ||
-      !isSessionWidget(live.panel) ||
+      live.panel.area !== 'main' ||
       !isUntitledSession(live.path) ||
       this._naming.has(live.path)
     ) {
@@ -876,10 +961,10 @@ export class SessionManager implements ISessionService, IDisposable {
   }
 
   /**
-   * Record which personas report processing a message, per chat id, whether
-   * or not a panel of that chat is ready yet: the persona manager re-emits its
-   * state when a client connects to a chat, which can arrive before the
-   * chat's `ready` resolves.
+   * Without the persona manager's registry, record which personas report
+   * processing a message, per chat id, whether or not a panel of that chat is
+   * ready yet: the persona manager re-emits its state when a client connects
+   * to a chat, which can arrive before the chat's `ready` resolves.
    */
   private _onEvent(_manager: Event.IManager, emission: Event.Emission): void {
     const event = readPersonaStateEvent(emission);
@@ -914,15 +999,19 @@ export class SessionManager implements ISessionService, IDisposable {
     args: ILabShell.IChangedArgs
   ): void {
     const { oldValue, newValue } = args;
-    if (!isSessionWidget(newValue)) {
+    const session = trackedSession(this._tracker, newValue);
+    if (!session) {
       return;
     }
-    this._lastSession = newValue;
+    this._lastSession = session;
     if (oldValue && oldValue.isDisposed) {
+      // `currentChanged` fires from the closed widget's `disposed` signal,
+      // before the dock panel has switched tabs and moved the focus; a focus
+      // set now would be undone. The macrotask runs once the dock is done.
       window.setTimeout(() => {
-        if (!newValue.isDisposed && this._shell.currentWidget === newValue) {
-          this._shell.activateById(newValue.id);
-          newValue.model.input.focus();
+        if (!session.isDisposed && this._shell.currentWidget === session) {
+          this._shell.activateById(session.id);
+          session.model.input.focus();
         }
       }, 0);
     }
@@ -976,10 +1065,12 @@ export class SessionManager implements ISessionService, IDisposable {
   private readonly _commands: CommandRegistry;
   private readonly _shell: JupyterFrontEnd.IShell;
   private readonly _contents: Contents.IManager;
+  private readonly _documents: IDocumentManager;
   private readonly _tracker: IChatTracker | null;
   private readonly _chatCommands: IChatCommandRegistry | null;
   private readonly _labShell: ILabShell | null;
   private readonly _events: Event.IManager | null;
+  private readonly _registry: PersonaSessionRegistry | null;
   private readonly _trans: TranslationBundle;
   private readonly _poll: Poll<void, unknown>;
   private readonly _changed = new Signal<this, string>(this);
@@ -989,7 +1080,7 @@ export class SessionManager implements ISessionService, IDisposable {
   /** Untitled sessions already being named, by their old local path. */
   private readonly _naming = new Set<string>();
   private readonly _byChatId = new Map<string, ILiveSession>();
-  /** Personas reporting that they process a message, by chat id. */
+  /** Without the registry: personas reporting that they process a message, by chat id. */
   private readonly _processing = new Map<string, Set<string>>();
   private _lastSession: IChatPanel | null = null;
   private _isDisposed = false;

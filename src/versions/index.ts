@@ -12,16 +12,16 @@ import {
   WidgetTracker
 } from '@jupyterlab/apputils';
 import { PathExt } from '@jupyterlab/coreutils';
+import { UUID } from '@lumino/coreutils';
 import { ICurrentProject } from '../current-project';
 import { astraIcon } from '../icons';
 import { findProjectRoot } from '../project-root';
 import { isRecordTab } from '../sessions/session-manager';
+import { PALETTE_CATEGORY } from '../workbench-ids';
 import { ElementHistoryCommandIDs } from './element-history';
 import { PipelineCommandIDs } from './pipeline-commands';
 import { PIPELINE_TAB_PREFIX, pipelinePlacement } from './pipeline-placement';
 import { PipelineWidget } from './pipeline-view';
-
-const CATEGORY = 'Lightcone Lab';
 
 /**
  * Versions, provenance and the pipeline view. Record tabs show versions and
@@ -109,7 +109,8 @@ export const versionsPlugin: JupyterFrontEndPlugin<void> = {
             );
             const created = new MainAreaWidget({ content });
             widget = created;
-            widget.id = `${PIPELINE_TAB_PREFIX}${entrypoint.replace(/[^a-zA-Z0-9]+/g, '-')}`;
+            // One pipeline per project; the restorer names it by entrypoint.
+            widget.id = `${PIPELINE_TAB_PREFIX}${UUID.uuid4()}`;
             // From a record, the graph takes the column beside it, so the
             // record stays in view (see `pipelinePlacement`).
             const source = app.shell.currentWidget;
@@ -117,7 +118,10 @@ export const versionsPlugin: JupyterFrontEndPlugin<void> = {
               widget,
               'main',
               source && isRecordTab(source)
-                ? pipelinePlacement(source, app.shell.widgets('main'), labShell)
+                ? pipelinePlacement(
+                    source,
+                    labShell?.saveLayout().mainArea?.dock ?? null
+                  )
                 : undefined
             );
             await tracker.add(widget);
@@ -146,13 +150,13 @@ export const versionsPlugin: JupyterFrontEndPlugin<void> = {
     }
     palette?.addItem({
       command: PipelineCommandIDs.openPipeline,
-      category: CATEGORY
+      category: PALETTE_CATEGORY
     });
     for (const command of [
       ElementHistoryCommandIDs.back,
       ElementHistoryCommandIDs.forward,
       ElementHistoryCommandIDs.openInNewTab
     ])
-      palette?.addItem({ command, category: CATEGORY });
+      palette?.addItem({ command, category: PALETTE_CATEGORY });
   }
 };

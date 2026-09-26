@@ -36,20 +36,17 @@ function session(area: 'main' | 'sidebar' = 'main', width = 640): IChatPanel {
   return panel as unknown as IChatPanel;
 }
 
-function setup(options: { documents?: boolean; type?: string } = {}) {
+function setup(options: { type?: string } = {}) {
   const { bars, main, place, labShell } = layout();
   const executed: [string, ReadonlyPartialJSONObject][] = [];
   const commands = new CommandRegistry();
   const opened = new Widget();
   opened.id = 'file-1';
-  for (const command of ['filebrowser:go-to-path', 'docmanager:open']) {
-    commands.addCommand(command, {
-      execute: args => {
-        executed.push([command, args]);
-        return command === 'docmanager:open' ? opened : undefined;
-      }
-    });
-  }
+  commands.addCommand('filebrowser:go-to-path', {
+    execute: args => {
+      executed.push(['filebrowser:go-to-path', args]);
+    }
+  });
   const get = jest.fn(async (path: string) => ({
     path,
     type: options.type ?? 'file'
@@ -60,13 +57,9 @@ function setup(options: { documents?: boolean; type?: string } = {}) {
     shell: { widgets: () => main[Symbol.iterator]() }
   } as unknown as JupyterFrontEnd;
   const openOrReveal = jest.fn(() => opened);
-  const documents =
-    options.documents === false
-      ? null
-      : ({ openOrReveal } as unknown as IDocumentManager);
   const opener = new BesideOpener(
     app,
-    documents,
+    { openOrReveal } as unknown as IDocumentManager,
     labShell,
     nullTranslator.load('jupyterlab_lightcone')
   );
@@ -149,20 +142,6 @@ describe('BesideOpener.open', () => {
       undefined,
       { mode: 'split-right', ref: 'session-1', activate: true }
     );
-  });
-
-  it('falls back to the docmanager command', async () => {
-    const { opener, executed } = setup({ documents: false });
-    await opener.open('project/src/a.py', session());
-    expect(executed).toEqual([
-      [
-        'docmanager:open',
-        {
-          path: 'project/src/a.py',
-          options: { mode: 'split-right', ref: 'session-1', activate: true }
-        }
-      ]
-    ]);
   });
 
   it('reveals folders in the file browser', async () => {

@@ -5,11 +5,11 @@ import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { Widget } from '@lumino/widgets';
 import { ElementTabs, type ElementTab } from '../../element-tabs';
 import { ElementWidget } from '../../element-widget';
-import { FakeThemeManager } from '../../home/__tests__/home-fixtures';
 import { requestAPI } from '../../request';
 import { until } from '../../__tests__/async-fixtures';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { ElementHistoryCommandIDs } from '../element-history';
+import { FakeThemeManager } from './theme-fixtures';
 import { PipelineCommandIDs } from '../pipeline-commands';
 import { PIPELINE_TAB_PREFIX } from '../pipeline-placement';
 
@@ -68,6 +68,7 @@ async function recordTab(target: string, pipeline = true) {
     contents,
     new FakeThemeManager(),
     commands,
+    { openOrReveal: () => undefined },
     JSON.stringify([ENTRYPOINT, target, null]),
     'lightcone-element-record'
   );

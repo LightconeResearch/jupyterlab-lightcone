@@ -28,9 +28,10 @@ export class SearchController implements IDisposable {
     this._sources = new SearchSources(
       options.app,
       options.sessions,
-      options.excludedCommands
+      options.excludedCommands,
+      options.trans
     );
-    this.palette = new SearchPalette({ placeholder: this._trans.__('Search') });
+    this.palette = new SearchPalette({ trans: options.trans });
     this.modal = new ModalCommandPalette({
       commandPalette: this.palette,
       // As the stock palette does: whichever widget is current once the modal

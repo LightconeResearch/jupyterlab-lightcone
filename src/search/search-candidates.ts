@@ -1,5 +1,6 @@
 import type { ResolvedRecord } from '@astra-spec/sdk';
 import { collectInventoryPapers, recordTitle } from '@astra-spec/ui/model';
+import type { TranslationBundle } from '@jupyterlab/translation';
 import type { CommandRegistry } from '@lumino/commands';
 import { sessionActivity, sessionSubtitle } from '../home/home-model';
 import type { ILoadedProjectData } from '../project-data';
@@ -50,19 +51,24 @@ export interface ISearchCandidate {
   isEnabled?: () => boolean;
 }
 
-/** Section names in display order; prior insights sit with findings. */
-export const SEARCH_CATEGORIES: Readonly<Record<SearchKind, string>> = {
-  session: 'Sessions',
-  message: 'In sessions',
-  output: 'Results',
-  decision: 'Decisions',
-  input: 'Inputs',
-  finding: 'Findings',
-  prior_insight: 'Findings',
-  paper: 'Papers',
-  file: 'Files',
-  command: 'Commands'
-};
+/** The palette's section name for each kind of hit. */
+export type SearchCategories = Readonly<Record<SearchKind, string>>;
+
+/** Section names in the page's language; prior insights sit with findings. */
+export function searchCategories(trans: TranslationBundle): SearchCategories {
+  return {
+    session: trans.__('Sessions'),
+    message: trans.__('In sessions'),
+    output: trans.__('Results'),
+    decision: trans.__('Decisions'),
+    input: trans.__('Inputs'),
+    finding: trans.__('Findings'),
+    prior_insight: trans.__('Findings'),
+    paper: trans.__('Papers'),
+    file: trans.__('Files'),
+    command: trans.__('Commands')
+  };
+}
 
 /**
  * Where each kind's section sits, in display order: sessions (titles,
@@ -104,7 +110,6 @@ export function isSurfaceKind(
 }
 
 export interface ISessionCandidateOptions {
-  now?: number;
   /** Newest sessions kept (`SESSION_LIMIT` by default). */
   limit?: number;
   icon?: SearchIcon;
@@ -118,20 +123,21 @@ export interface ISessionCandidateOptions {
  */
 export function sessionCandidates(
   sessions: readonly ISessionInfo[],
+  trans: TranslationBundle,
   options: ISessionCandidateOptions = {}
 ): ISearchCandidate[] {
-  const now = new Date(options.now ?? Date.now());
+  const categories = searchCategories(trans);
   return sessions
     .slice(0, options.limit ?? SESSION_LIMIT)
     .map((session, index) => ({
       id: `session:${session.path}`,
       kind: 'session',
-      category: SEARCH_CATEGORIES.session,
+      category: categories.session,
       label: session.title,
       caption: sessionSubtitle(
         session,
         sessionActivity(session, options.activity?.(session.path)),
-        now
+        trans
       ),
       rank: index,
       action: { type: 'session', path: session.path },
@@ -146,12 +152,14 @@ export function sessionCandidates(
  */
 export function messageCandidates(
   matches: readonly ISessionMatch[],
+  trans: TranslationBundle,
   icon?: SearchIcon
 ): ISearchCandidate[] {
+  const categories = searchCategories(trans);
   return matches.map((match, index) => ({
     id: `message:${match.path}:${match.message ?? index}`,
     kind: 'message',
-    category: SEARCH_CATEGORIES.message,
+    category: categories.message,
     label: match.snippet,
     caption: match.author ? `${match.title} · ${match.author}` : match.title,
     rank: index,
@@ -166,14 +174,16 @@ export function messageCandidates(
  */
 export function recordCandidates(
   data: ILoadedProjectData,
-  entrypoint: string
+  entrypoint: string,
+  trans: TranslationBundle
 ): ISearchCandidate[] {
+  const categories = searchCategories(trans);
   const candidates: ISearchCandidate[] = [];
   for (const [path, record] of data.index.recordByPath) {
     candidates.push({
       id: `record:${path}`,
       kind: record.kind,
-      category: SEARCH_CATEGORIES[record.kind],
+      category: categories[record.kind],
       label: recordTitle(record),
       caption: path,
       rank: candidates.length,
@@ -190,7 +200,7 @@ export function recordCandidates(
     candidates.push({
       id: `paper:${paper.doi}`,
       kind: 'paper',
-      category: SEARCH_CATEGORIES.paper,
+      category: categories.paper,
       label: paper.title,
       caption: paper.authors ? `${paper.authors} · ${paper.doi}` : paper.doi,
       rank: candidates.length,
@@ -203,14 +213,16 @@ export function recordCandidates(
 /** Project files as the bounded walk found them; the caption is the folder. */
 export function fileCandidates(
   files: readonly IProjectFile[],
+  trans: TranslationBundle,
   iconFor?: (path: string) => SearchIcon
 ): ISearchCandidate[] {
+  const categories = searchCategories(trans);
   return files.map((file, index) => {
     const icon = iconFor?.(file.path);
     return {
       id: `file:${file.path}`,
       kind: 'file',
-      category: SEARCH_CATEGORIES.file,
+      category: categories.file,
       label: file.name,
       caption: file.directory,
       rank: index,
@@ -243,8 +255,10 @@ function requiresArguments(description: CommandRegistry.Description): boolean {
  */
 export async function commandCandidates(
   commands: CommandRegistry,
+  trans: TranslationBundle,
   options: ICommandCandidateOptions = {}
 ): Promise<ISearchCandidate[]> {
+  const categories = searchCategories(trans);
   const excluded = new Set(options.exclude ?? []);
   const ids = commands
     .listCommands()
@@ -273,7 +287,7 @@ export async function commandCandidates(
     candidates.push({
       id: `command:${id}`,
       kind: 'command',
-      category: SEARCH_CATEGORIES.command,
+      category: categories.command,
       label,
       caption: commands.caption(id),
       rank: 0,

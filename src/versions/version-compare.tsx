@@ -17,11 +17,11 @@ import {
   METRIC_LEAF_LIMIT,
   metricDeltas,
   outputFormat,
-  relativeTime,
   tableShapeDiff,
   type IMetricComparison,
   type ITableShapeDiff
 } from './version-model';
+import { relativeTime } from '../relative-time';
 
 export interface IVersionCompareProps {
   target: IVersionTarget;
@@ -264,15 +264,39 @@ function ImageCompare({
   );
 }
 
+/** The two versions a comparison reads, and the format it reads them in. */
+interface IComparisonInputs {
+  target: IVersionTarget;
+  older: IOutputVersion;
+  newer: IOutputVersion;
+  format: string;
+}
+
+/**
+ * Load a comparison of two versions, again whenever the target, either
+ * version or the format changes; a result that arrives after that is dropped.
+ * The loader reads only the inputs it is handed, so the hook knows what to
+ * watch.
+ */
 function useComparison<T>(
-  load: (signal: AbortSignal) => Promise<T>,
-  dependencies: readonly unknown[]
+  inputs: IComparisonInputs,
+  load: (inputs: IComparisonInputs, signal: AbortSignal) => Promise<T>
 ): { result?: T; error?: string } {
   const [state, setState] = useState<{ result?: T; error?: string }>({});
+  const { settings, entrypoint, universe, outputId } = inputs.target;
+  const { older, newer, format } = inputs;
   useEffect(() => {
     const controller = new AbortController();
     setState({});
-    load(controller.signal).then(
+    load(
+      {
+        target: { settings, entrypoint, universe, outputId },
+        older,
+        newer,
+        format
+      },
+      controller.signal
+    ).then(
       result => {
         if (!controller.signal.aborted) setState({ result });
       },
@@ -284,8 +308,17 @@ function useComparison<T>(
       }
     );
     return () => controller.abort();
-    // The caller lists what its loader reads.
-  }, dependencies);
+    // Versions are read by commit, so the effect keys on the commits rather
+    // than on the listing objects that name them.
+  }, [
+    settings,
+    entrypoint,
+    universe,
+    outputId,
+    older.commit,
+    newer.commit,
+    format
+  ]);
   return state;
 }
 
@@ -299,21 +332,14 @@ function MetricCompare({
   older
 }: IVersionCompareProps): React.ReactElement {
   const { result, error } = useComparison<IMetricComparison>(
-    async signal => {
+    { target, older, newer, format: 'json' },
+    async (inputs, signal) => {
       const [before, after] = await Promise.all([
-        readVersionJson(target, older.commit, signal),
-        readVersionJson(target, newer.commit, signal)
+        readVersionJson(inputs.target, inputs.older.commit, signal),
+        readVersionJson(inputs.target, inputs.newer.commit, signal)
       ]);
       return metricDeltas(before, after);
-    },
-    [
-      target.settings,
-      target.entrypoint,
-      target.universe,
-      target.outputId,
-      older.commit,
-      newer.commit
-    ]
+    }
   );
   if (!older.present)
     return <p role="status">{absentSide(older, 'previous')}</p>;
@@ -386,22 +412,24 @@ function TableCompare({
 }: IVersionCompareProps): React.ReactElement {
   const format = outputFormat(output);
   const { result, error } = useComparison<ITableShapeDiff>(
-    async signal => {
+    { target, older, newer, format },
+    async (inputs, signal) => {
       const [before, after] = await Promise.all([
-        readVersionTableShape(target, older.commit, format, signal),
-        readVersionTableShape(target, newer.commit, format, signal)
+        readVersionTableShape(
+          inputs.target,
+          inputs.older.commit,
+          inputs.format,
+          signal
+        ),
+        readVersionTableShape(
+          inputs.target,
+          inputs.newer.commit,
+          inputs.format,
+          signal
+        )
       ]);
       return tableShapeDiff(before, after);
-    },
-    [
-      target.settings,
-      target.entrypoint,
-      target.universe,
-      target.outputId,
-      older.commit,
-      newer.commit,
-      format
-    ]
+    }
   );
   if (!older.present)
     return <p role="status">{absentSide(older, 'previous')}</p>;

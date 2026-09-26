@@ -7,12 +7,12 @@ from tornado.httpclient import HTTPClientError
 
 from jupyterlab_lightcone import agent_defaults
 from jupyterlab_lightcone.agent_defaults import (
-    AGENT_FILE,
-    DEFAULT_PERSONA_OPTION,
+    AGENT_STORE,
     read_project_agent,
     remember_agent,
     write_project_agent,
 )
+from jupyterlab_lightcone.project_store import store_path
 
 ENDPOINT = ("jupyterlab_lightcone", "api", "project-agent")
 CLAUDE = "jupyter-ai-personas::jupyter_ai_acp_client::ClaudeAcpPersona"
@@ -27,54 +27,47 @@ class Log:
         self.warnings.append(message % args)
 
 
-class WebApp:
-    def __init__(self):
-        self.settings = {}
-
-
 def test_a_project_without_a_record_has_no_agent(tmp_path):
     assert read_project_agent(tmp_path) is None
 
 
 @pytest.mark.parametrize("text", ["not json", "[]", '{"persona": 3}', '{"persona": ""}'])
 def test_an_unreadable_record_counts_as_none(tmp_path, text):
-    (tmp_path / ".lightcone").mkdir()
-    (tmp_path / AGENT_FILE).write_text(text)
+    store = store_path(tmp_path, AGENT_STORE)
+    store.parent.mkdir()
+    store.write_text(text)
     assert read_project_agent(tmp_path) is None
 
 
 def test_the_record_is_written_once_and_replaced_whole(tmp_path):
+    store = store_path(tmp_path, AGENT_STORE)
     write_project_agent(tmp_path, CLAUDE)
-    assert json.loads((tmp_path / AGENT_FILE).read_text()) == {"persona": CLAUDE}
-    written = (tmp_path / AGENT_FILE).stat().st_mtime_ns
+    assert json.loads(store.read_text()) == {"persona": CLAUDE}
+    written = store.stat().st_mtime_ns
     write_project_agent(tmp_path, CLAUDE)
-    assert (tmp_path / AGENT_FILE).stat().st_mtime_ns == written
+    assert store.stat().st_mtime_ns == written
     write_project_agent(tmp_path, CODEX)
     assert read_project_agent(tmp_path) == CODEX
     # No temporary file is left behind.
-    assert sorted(path.name for path in (tmp_path / ".lightcone").iterdir()) == ["agent.json"]
+    assert sorted(path.name for path in store.parent.iterdir()) == ["agent.json"]
 
 
-def test_remembering_sets_the_page_default_and_the_projects_record(tmp_path):
-    web_app, log = WebApp(), Log()
-    remember_agent(web_app, tmp_path, CLAUDE, log)
-    assert web_app.settings["page_config_data"][DEFAULT_PERSONA_OPTION] == CLAUDE
+def test_remembering_records_the_projects_agent_and_nothing_outside_a_project(tmp_path):
+    log = Log()
+    remember_agent(tmp_path, CLAUDE, log)
     assert read_project_agent(tmp_path) == CLAUDE
-    # A chat outside every project still moves the page default.
-    remember_agent(web_app, None, CODEX, log)
-    assert web_app.settings["page_config_data"][DEFAULT_PERSONA_OPTION] == CODEX
+    remember_agent(None, CODEX, log)
     assert read_project_agent(tmp_path) == CLAUDE
     assert log.warnings == []
 
 
-def test_a_project_that_cannot_be_written_still_moves_the_page_default(tmp_path, monkeypatch):
+def test_a_project_that_cannot_be_written_is_logged_not_raised(tmp_path, monkeypatch):
     def refuse(project, persona_id):
         raise PermissionError("read-only")
 
     monkeypatch.setattr(agent_defaults, "write_project_agent", refuse)
-    web_app, log = WebApp(), Log()
-    remember_agent(web_app, tmp_path, CLAUDE, log)
-    assert web_app.settings["page_config_data"][DEFAULT_PERSONA_OPTION] == CLAUDE
+    log = Log()
+    remember_agent(tmp_path, CLAUDE, log)
     assert len(log.warnings) == 1
 
 

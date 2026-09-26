@@ -12,16 +12,20 @@ import { showErrorMessage } from '@jupyterlab/apputils';
 import type { TranslationBundle } from '@jupyterlab/translation';
 import type { ISignal } from '@lumino/signaling';
 import React, { useEffect, useMemo, useState } from 'react';
-import { JupyterArtifactAccess } from '../artifact-access';
+import {
+  JupyterArtifactAccess,
+  type IDocumentOpener
+} from '../artifact-access';
 import { AstraKindMark } from '../astra-kind';
+import { outputKindLabel } from '../sidebar/results-summary';
 import { CommandIDs } from '../commands';
-import { useProject } from '../element-widget';
+import { useProject } from '../project-data-hooks';
 import type { ILoadedProjectData } from '../project-data';
 import type { IProjectRoot } from '../project-root';
 import { displayPath, serverRelativePath } from './chat-paths';
 import { recordedChatProject } from './chat-project';
 import type { IResultsCommit } from '../versions/versions-api';
-import { cachedResultsCommits } from './results-cache';
+import type { ResultsHistoryCache } from './results-cache';
 import {
   filesEditedIn,
   materializedDuring,
@@ -33,10 +37,14 @@ import {
 /** What the footer needs from the workbench. */
 export interface ITurnResultsHost {
   app: JupyterFrontEnd;
+  /** Opens the files a result's artifact access needs. */
+  documents: IDocumentOpener;
   tracker: IChatTracker | null;
   trans: TranslationBundle;
   /** Absolute filesystem paths naming the server root; empty when unknown. */
   serverRoots: readonly string[];
+  /** The results histories footers read, shared and owned by the plugin. */
+  results: ResultsHistoryCache;
   /** The project of the chat at `chatPath`, given the project `recorded` in it. */
   resolveProject(
     chatPath: string,
@@ -44,14 +52,6 @@ export interface ITurnResultsHost {
   ): Promise<IProjectRoot | undefined>;
   openFile(path: string, panel: IChatPanel | undefined): Promise<void>;
 }
-
-const KIND_LABELS: Record<ResolvedOutput['type'], string> = {
-  figure: 'Figure',
-  table: 'Table',
-  metric: 'Metric',
-  data: 'Data',
-  report: 'Report'
-};
 
 /**
  * How long, in milliseconds, a reply's end time must hold still before the
@@ -155,11 +155,7 @@ function useResultsCommits(
       return;
     }
     let active = true;
-    void cachedResultsCommits(
-      host.app.serviceManager.serverSettings,
-      entrypoint,
-      notBefore
-    ).then(
+    void host.results.get(entrypoint, notBefore).then(
       listing => {
         if (active) {
           setCommits(listing);
@@ -209,12 +205,14 @@ interface IOutputTileProps {
 
 function Thumbnail({
   preview,
-  output
+  output,
+  trans
 }: {
   preview: ArtifactPreviewData | undefined;
   output: ResolvedOutput | undefined;
+  trans: TranslationBundle;
 }): React.ReactElement {
-  const kind = output ? KIND_LABELS[output.type] : 'Output';
+  const kind = outputKindLabel(output?.type, trans);
   if (preview?.kind === 'image') {
     return <img src={preview.url} alt="" />;
   }
@@ -280,7 +278,7 @@ function OutputTile({
         }}
       >
         <span className="jp-jupyterlab-lightcone-TurnResults-thumb">
-          <Thumbnail preview={preview} output={output} />
+          <Thumbnail preview={preview} output={output} trans={trans} />
         </span>
         <span className="jp-jupyterlab-lightcone-TurnResults-label">
           <AstraKindMark kind="output" />
@@ -315,10 +313,10 @@ function UniverseTiles({
             contents,
             entrypoint,
             data.bindings,
-            host.app.commands
+            host.documents
           )
         : undefined,
-    [contents, entrypoint, data, host.app.commands]
+    [contents, entrypoint, data, host.documents]
   );
   const open = (item: IMaterializedOutput, pinned: boolean) => {
     const output = data ? findOutput(data, item.output) : undefined;

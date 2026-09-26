@@ -1,4 +1,4 @@
-import { ServerConnection } from '@jupyterlab/services';
+import type { ServerConnection } from '@jupyterlab/services';
 import { isRecord, RequestError } from '../api';
 import { apiUrl, requestAPI } from '../request';
 
@@ -215,25 +215,6 @@ export function versionContentUrl(
   commit: string
 ): string {
   return `${apiUrl('api/versions/content', settings)}?${query(entrypoint, universe, output, { commit })}`;
-}
-
-/** Fetch the bytes of an output at a commit. */
-export async function fetchVersionContent(
-  settings: ServerConnection.ISettings,
-  entrypoint: string,
-  universe: string,
-  output: string,
-  commit: string
-): Promise<Blob> {
-  const url = versionContentUrl(settings, entrypoint, universe, output, commit);
-  const response = await ServerConnection.makeRequest(url, {}, settings);
-  if (!response.ok) {
-    throw new RequestError(
-      'Versions',
-      await ServerConnection.ResponseError.create(response)
-    );
-  }
-  return response.blob();
 }
 
 /** A project file as a recorded revision held it. */

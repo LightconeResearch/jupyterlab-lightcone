@@ -10,22 +10,20 @@ import { projectFolders } from '../api';
 import { ICommentService } from '../comments/comment-service';
 import { ICurrentProject } from '../current-project';
 import { ISessionService } from '../sessions/session-service';
+import { PALETTE_CATEGORY } from '../workbench-ids';
 import { SidebarCommandIDs } from './sidebar-commands';
 import { SidebarModel } from './sidebar-model';
 import { RecentProjects } from './project-switcher';
 import { LightconeSidebar } from './sidebar-panel';
 
 export { SidebarCommandIDs, WorkbenchCommandIDs } from './sidebar-commands';
-export { lightconeIcon } from './icons';
 export { SidebarModel, type ISidebarState } from './sidebar-model';
 export { LightconeSidebar } from './sidebar-panel';
 export {
-  buildProjectSwitcher,
+  ProjectSwitcher,
   RecentProjects,
   rememberProject
 } from './project-switcher';
-
-const CATEGORY = 'Lightcone Lab';
 
 /**
  * The Lightcone sidebar: the navigation spine of the workbench. It shows the
@@ -96,7 +94,7 @@ export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
     });
     palette?.addItem({
       command: SidebarCommandIDs.showSidebar,
-      category: CATEGORY
+      category: PALETTE_CATEGORY
     });
     app.shell.disposed.connect(() => {
       current.changed.disconnect(remember);

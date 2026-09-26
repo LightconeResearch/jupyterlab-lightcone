@@ -29,6 +29,7 @@ async def contents_call(method, *args, **kwargs):
 
 
 def _inspect_folder(root, value):
+    """Resolve an entered folder within the root and describe it, off the event loop."""
     project = project_path(root, value)
     return project, describe_project(root, project)
 
@@ -43,6 +44,14 @@ class ProjectAPIHandler(APIHandler):
 
     auth_resource = "contents"
     unavailable_message = "This endpoint requires local files"
+
+    def set_default_headers(self):
+        """Never cache a project answer: the next run, message or edit changes it.
+
+        A route serving immutable content overrides the header in its verb.
+        """
+        super().set_default_headers()
+        self.set_header("Cache-Control", "no-store")
 
     @property
     def contents_root(self) -> Path:
@@ -67,7 +76,6 @@ class ProjectAPIHandler(APIHandler):
         project = project_root(self.contents_root, path)
         # Apply the contents manager's read and hidden-file rules too.
         await contents_call(self.contents_manager.get, path, content=False, type="file")
-        self.set_header("Cache-Control", "no-store")
         return project
 
 
@@ -77,6 +85,7 @@ class ProjectsHandler(ProjectAPIHandler):
     unavailable_message = "Project setup requires a local filesystem ContentsManager."
 
     def initialize(self, initializing):
+        """Share the set of folders whose setup is running, so one folder is set up once at a time."""
         self.initializing = initializing
 
     async def resolve(self, value):
@@ -112,11 +121,15 @@ class ProjectsHandler(ProjectAPIHandler):
 
     @web.authenticated
     @authorized(action="write", resource="contents")
+    @authorized(action="read", resource="contents")
+    @authorized(action="execute", resource="lightcone")
     async def post(self):
-        """Initialize the explicitly selected folder with the Lightcone engine."""
-        for action, resource in (("read", "contents"), ("execute", "lightcone")):
-            if not await ensure_async(self.authorizer.is_authorized(self, self.current_user, action, resource)):
-                raise web.HTTPError(403, "Project initialization is not authorized.")
+        """Initialize the explicitly selected folder with the Lightcone engine.
+
+        Initialization writes the project and runs the engine, so an
+        authorizer must grant writing and reading `contents` and executing the
+        `lightcone` resource, as it must grant `mystra` for the viewer.
+        """
         body = self.get_json_body()
         if not isinstance(body, dict) or not isinstance(body.get("path"), str):
             raise web.HTTPError(400, "A project folder path is required.")

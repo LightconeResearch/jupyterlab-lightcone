@@ -5,12 +5,20 @@ import {
   FileBrowser,
   FilterFileBrowserModel
 } from '@jupyterlab/filebrowser';
-import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
+import {
+  nullTranslator,
+  type ITranslator,
+  type TranslationBundle
+} from '@jupyterlab/translation';
 import { PanelLayout, Widget } from '@lumino/widgets';
 import { projectFolders } from './api';
 
 /** Preserve native folder navigation while labeling recognized projects. */
 class ProjectFolderRenderer extends DirListing.Renderer {
+  constructor(private readonly trans: TranslationBundle) {
+    super();
+  }
+
   projects = new Set<string>();
 
   updateItemNode(
@@ -22,8 +30,8 @@ class ProjectFolderRenderer extends DirListing.Renderer {
     if (this.projects.has(model.path)) {
       const badge = document.createElement('span');
       badge.className = 'jp-jupyterlab-lightcone-ProjectBadge';
-      badge.textContent = 'ASTRA project';
-      badge.title = 'Contains astra.yaml';
+      badge.textContent = this.trans.__('ASTRA project');
+      badge.title = this.trans.__('Contains astra.yaml');
       node.querySelector('.jp-DirListing-itemText')?.after(badge);
     }
   }
@@ -47,7 +55,8 @@ class ProjectBrowserBody extends Widget {
   constructor(
     private browser: ProjectFileBrowser,
     private renderer: ProjectFolderRenderer,
-    private manager: IDocumentManager
+    private manager: IDocumentManager,
+    private trans: TranslationBundle
   ) {
     super();
     this.addClass('jp-jupyterlab-lightcone-ProjectBrowser');
@@ -71,15 +80,18 @@ class ProjectBrowserBody extends Widget {
     let paths: string[] = [];
     let status: string;
     if (contents.driveName(this.browser.model.path)) {
-      status =
-        'Select a project folder to open it. Project badges are available on the local drive.';
+      status = this.trans.__(
+        'Select a project folder to open it. Project badges are available on the local drive.'
+      );
     } else {
       try {
         paths = await projectFolders(
           contents.serverSettings,
           this.browser.model.path
         );
-        status = 'ASTRA project labels mark folders containing astra.yaml.';
+        status = this.trans.__(
+          'ASTRA project labels mark folders containing astra.yaml.'
+        );
       } catch (error) {
         status = error instanceof Error ? error.message : String(error);
       }
@@ -103,6 +115,7 @@ export async function browseProjectFolder(
   path: string,
   translator: ITranslator = nullTranslator
 ): Promise<string | undefined> {
+  const trans = translator.load('jupyterlab_lightcone');
   const model = new FilterFileBrowserModel({
     manager,
     driveName: manager.services.contents.driveName(path),
@@ -110,7 +123,7 @@ export async function browseProjectFolder(
     filter: item => (item.type === 'directory' ? {} : null),
     filterDirectories: true
   });
-  const renderer = new ProjectFolderRenderer();
+  const renderer = new ProjectFolderRenderer(trans);
   const browser = new ProjectFileBrowser({
     id: 'lightcone-project-browser',
     model,
@@ -122,11 +135,11 @@ export async function browseProjectFolder(
   try {
     await model.cd(`/${manager.services.contents.localPath(path)}`);
     const result = await showDialog({
-      title: 'Choose a project folder',
-      body: new ProjectBrowserBody(browser, renderer, manager),
+      title: trans.__('Choose a project folder'),
+      body: new ProjectBrowserBody(browser, renderer, manager, trans),
       buttons: [
         Dialog.cancelButton(),
-        Dialog.okButton({ label: 'Select folder' })
+        Dialog.okButton({ label: trans.__('Select folder') })
       ]
     });
     return result.button.accept ? (result.value ?? undefined) : undefined;

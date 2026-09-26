@@ -30,11 +30,14 @@ import React, {
   useState
 } from 'react';
 import { isRecord, RequestError } from '../api';
-import { JupyterArtifactAccess } from '../artifact-access';
+import {
+  JupyterArtifactAccess,
+  type IDocumentOpener
+} from '../artifact-access';
 import { JupyterArtifactPreview } from '../artifact-preview';
 import { CommandIDs } from '../commands';
 import { AstraKindMark } from '../astra-kind';
-import { astraIcon, mystIcon } from '../icons';
+import { astraIcon, lightconeIcon, mystIcon } from '../icons';
 import {
   outputMaterializationStatus,
   useMaterializationStatus
@@ -47,19 +50,18 @@ import {
 import type { IProjectRoot } from '../project-root';
 import type { ISessionService } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
+import { listOutputs, outputKindLabel } from '../sidebar/results-summary';
 import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
-import { listOutputs } from '../sidebar/sidebar-helpers';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { PipelineCommandIDs } from '../versions/pipeline-commands';
 import { PipelineGlyph } from '../versions/pipeline-glyph';
 import { listResultsCommits } from '../versions/versions-api';
-import { lightconeIcon } from './icons';
+import { CREATE_CHAT_COMMAND } from '../workbench-ids';
 import {
   HOME_RESULT_LIMIT,
   HOME_SESSION_LIMIT,
   countRecords,
   orderPlates,
-  outputKindLabel,
   platePreview,
   sessionActivity,
   sessionSubtitle,
@@ -72,15 +74,10 @@ import {
 } from './personas';
 
 const CLASS = 'jp-jupyterlab-lightcone-Home';
-/** How often Home re-reads the sessions and the report's presence while visible. */
+/** How often Home re-checks the report's presence while visible. */
 const REFRESH_INTERVAL = 15000;
 const DRAFT_SAVE_DELAY = 300;
 const REPORT_FILES = ['myst.yml', 'myst.yaml'];
-/**
- * Jupyter Chat's command creating a chat. Sessions are chats, so without it
- * no session can start or open and Home leaves out its desk.
- */
-export const CREATE_CHAT_COMMAND = 'jupyterlab-chat:create';
 
 const TransContext = createContext<TranslationBundle>(
   nullTranslator.load('jupyterlab_lightcone')
@@ -89,6 +86,8 @@ const TransContext = createContext<TranslationBundle>(
 export interface IHomeViewOptions {
   contents: Contents.IManager;
   commands: CommandRegistry;
+  /** Opens an artifact file in a tab, for the plates' previews. */
+  documents: IDocumentOpener;
   themes: IThemeManager;
   /**
    * The desk (composer and sessions) needs the sessions service and Jupyter
@@ -223,15 +222,21 @@ function HomeRoot({
   options
 }: IHomeRootProps): React.ReactElement {
   const trans = useContext(TransContext);
-  const { contents, commands, sessions } = options;
+  const { contents, commands, documents, sessions } = options;
   const state = useProjectData(contents, project.entrypoint);
   const data = state.data;
+  // The report opens through the MySTRA viewer stopgap; without its command
+  // there is nothing to offer and no reason to look for a MyST configuration.
+  const reportCommand = useHasCommand(commands, CommandIDs.openMySTRA);
   const reportAvailable = useReportAvailable(
     contents,
     project.path,
     isVisible,
-    shown
+    shown,
+    reportCommand
   );
+  // Sessions are chats: without Jupyter Chat's create command none can start
+  // or open, and Home leaves out its desk.
   const chatAvailable = useHasCommand(commands, CREATE_CHAT_COMMAND);
   const openInventory = useCallback(() => {
     void commands
@@ -322,6 +327,7 @@ function HomeRoot({
             <ResultsSection
               contents={contents}
               commands={commands}
+              documents={documents}
               entrypoint={project.entrypoint}
               data={data}
               onOpenInventory={openInventory}
@@ -397,16 +403,22 @@ function listsReport(folder: Contents.IModel): boolean {
  * check runs whenever the page is shown and on a slow poll while it is
  * visible. Each run lists the project folder once: asking for each candidate
  * file would answer 404 on every tick in the many projects without a report,
- * and the server logs every 404 as a warning.
+ * and the server logs every 404 as a warning. Nothing is checked while
+ * `enabled` is false (the command opening the report is not registered).
  */
 function useReportAvailable(
   contents: Contents.IManager,
   projectPath: string,
   isVisible: () => boolean,
-  shown: ISignal<HomeView, void>
+  shown: ISignal<HomeView, void>,
+  enabled: boolean
 ): boolean {
   const [available, setAvailable] = useState(false);
   useEffect(() => {
+    if (!enabled) {
+      setAvailable(false);
+      return;
+    }
     let active = true;
     const candidates = REPORT_FILES.map(name =>
       contents.resolvePath(projectPath, name)
@@ -449,7 +461,7 @@ function useReportAvailable(
       shown.disconnect(refresh);
       poll.dispose();
     };
-  }, [contents, projectPath, isVisible, shown]);
+  }, [contents, projectPath, isVisible, shown, enabled]);
   return available;
 }
 
@@ -492,6 +504,7 @@ function useLatestRun(
 interface IResultsSectionProps {
   contents: Contents.IManager;
   commands: CommandRegistry;
+  documents: IDocumentOpener;
   entrypoint: string;
   data: ILoadedProjectData;
   onOpenInventory: () => void;
@@ -500,6 +513,7 @@ interface IResultsSectionProps {
 function ResultsSection({
   contents,
   commands,
+  documents,
   entrypoint,
   data,
   onOpenInventory
@@ -514,8 +528,8 @@ function ResultsSection({
   const outputs = useMemo(() => orderPlates(listOutputs(data)), [data]);
   const access = useMemo(
     () =>
-      new JupyterArtifactAccess(contents, entrypoint, data.bindings, commands),
-    [contents, entrypoint, data.bindings, commands]
+      new JupyterArtifactAccess(contents, entrypoint, data.bindings, documents),
+    [contents, entrypoint, data.bindings, documents]
   );
   const freshness = summarizeFreshness(
     outputs.map(output => ({
@@ -526,6 +540,7 @@ function ResultsSection({
         output
       )
     })),
+    trans,
     latestRun
   );
   const pipelineAvailable = useHasCommand(
@@ -621,7 +636,7 @@ function ResultsSection({
                   {output.label ?? output.id}
                 </span>
                 <span className={`${CLASS}-plateKind`} data-type={output.type}>
-                  {outputKindLabel(output.type)}
+                  {outputKindLabel(output.type, trans)}
                 </span>
               </span>
             </button>
@@ -947,10 +962,13 @@ interface ISessionListState {
 }
 
 /**
- * Poll the project's sessions while Home is visible, on service changes and
- * whenever Home is shown again: changes that arrive while the tab is hidden
- * (a session started from Home itself opens over it) find the poll standing
- * by, so showing the page is what brings the list up to date.
+ * The project's sessions as the session service lists them. The service
+ * polls the listings it has been asked for and announces changes, so Home
+ * reads the list when it binds, when the service reports a change while the
+ * page is showing, and whenever Home is shown again: a change that arrives
+ * while the tab or the browser page is hidden (a session started from Home
+ * itself opens over it) is read once the page shows, and asking again keeps
+ * the listing among those the service polls. Only the newest answer counts.
  */
 function useSessions(
   service: ISessionService,
@@ -964,40 +982,54 @@ function useSessions(
   const [, setTick] = useState(0);
   useEffect(() => {
     let active = true;
-    const poll = new Poll({
-      name: `jupyterlab_lightcone:home:sessions:${entrypoint}`,
-      frequency: { interval: REFRESH_INTERVAL, backoff: false },
-      standby: () => homeStandby(isVisible),
-      factory: async () => {
-        try {
-          const sessions = await service.list(entrypoint);
-          if (active) {
-            setResult({ sessions });
-          }
-        } catch (error) {
-          if (active) {
-            setResult(previous => ({
-              ...previous,
-              error: error instanceof Error ? error.message : String(error)
-            }));
-          }
+    let generation = 0;
+    let stale = false;
+    const showing = () => isVisible() && document.visibilityState !== 'hidden';
+    const list = async () => {
+      const request = ++generation;
+      stale = false;
+      try {
+        const sessions = await service.list(entrypoint);
+        if (active && request === generation) {
+          setResult({ sessions });
+        }
+      } catch (error) {
+        if (active && request === generation) {
+          setResult(previous => ({
+            ...previous,
+            error: error instanceof Error ? error.message : String(error)
+          }));
         }
       }
-    });
+    };
     const changed = (_sender: ISessionService, changedEntrypoint: string) => {
       setTick(tick => tick + 1);
-      if (changedEntrypoint === entrypoint) {
-        void poll.refresh();
+      if (changedEntrypoint !== entrypoint) {
+        return;
+      }
+      if (showing()) {
+        void list();
+      } else {
+        stale = true;
       }
     };
-    const refresh = () => void poll.refresh();
+    const reshown = () => {
+      void list();
+    };
+    const revealed = () => {
+      if (stale && showing()) {
+        void list();
+      }
+    };
     service.changed.connect(changed);
-    shown.connect(refresh);
+    shown.connect(reshown);
+    document.addEventListener('visibilitychange', revealed);
+    void list();
     return () => {
       active = false;
       service.changed.disconnect(changed);
-      shown.disconnect(refresh);
-      poll.dispose();
+      shown.disconnect(reshown);
+      document.removeEventListener('visibilitychange', revealed);
     };
   }, [service, entrypoint, isVisible, shown, refreshKey]);
   return result;
@@ -1089,7 +1121,7 @@ function SessionsList({
                 />
                 <span className={`${CLASS}-sessionTitle`}>{info.title}</span>
                 <small className={`${CLASS}-sessionMeta`}>
-                  {sessionSubtitle(info, activity)}
+                  {sessionSubtitle(info, activity, trans)}
                 </small>
               </button>
             </li>

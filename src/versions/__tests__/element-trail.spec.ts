@@ -2,7 +2,7 @@ import { CommandRegistry } from '@lumino/commands';
 import { Widget } from '@lumino/widgets';
 import { ElementWidget } from '../../element-widget';
 import { ElementHistoryCommandIDs } from '../element-history';
-import { FakeThemeManager } from '../../home/__tests__/home-fixtures';
+import { FakeThemeManager } from './theme-fixtures';
 import { requestAPI } from '../../request';
 import { until } from '../../__tests__/async-fixtures';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
@@ -62,6 +62,7 @@ test('the tab history trail marks each record with its kind', async () => {
     contents,
     new FakeThemeManager(),
     commands,
+    { openOrReveal: () => undefined },
     JSON.stringify([ENTRYPOINT, 'inputs.catalog', null]),
     'lightcone-element-trail'
   );

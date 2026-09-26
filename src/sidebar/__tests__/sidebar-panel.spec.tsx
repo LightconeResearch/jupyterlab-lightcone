@@ -14,6 +14,7 @@ import { RecentProjects } from '../project-switcher';
 import { SidebarModel } from '../sidebar-model';
 import { LightconeSidebar } from '../sidebar-panel';
 import {
+  FakeChatPanel,
   FakeCommentService,
   FakeCurrentProject,
   FakeSessionService,
@@ -84,7 +85,7 @@ function host(
     CommandIDs.openElement,
     CommandIDs.openInventory,
     CommandIDs.createProject,
-    WorkbenchCommandIDs.createLauncher,
+    HomeCommandIDs.create,
     WorkbenchCommandIDs.goToPath,
     SearchCommandIDs.search
   ]) {
@@ -259,10 +260,7 @@ describe('LightconeSidebar', () => {
         'project/chats/contours.chat'
       );
       expect(h.executed).toEqual([
-        [
-          WorkbenchCommandIDs.createLauncher,
-          { cwd: 'project', activate: true }
-        ],
+        [HomeCommandIDs.create, { cwd: 'project', activate: true }],
         [SearchCommandIDs.search, {}],
         [
           CommandIDs.openElement,
@@ -299,7 +297,6 @@ describe('LightconeSidebar', () => {
       const menu = document.querySelector<HTMLElement>(
         '.jp-jupyterlab-lightcone-ProjectSwitcher'
       )!;
-      expect(menu.textContent).toContain('Projects in this folder');
       expect(menu.textContent).toContain('other');
       expect(menu.textContent).toContain('New Lightcone project');
       // Lumino menus read the legacy key codes: down, then Enter.
@@ -349,9 +346,7 @@ describe('LightconeSidebar', () => {
           h.text().includes('Contour styling') &&
           h.text().includes('hubble_diagram')
       );
-      h.shell.currentWidget = Object.assign(new Widget(), {
-        context: { path: 'project/chats/contours.chat' }
-      });
+      h.shell.currentWidget = new FakeChatPanel('project/chats/contours.chat');
       h.shell.currentChanged.emit({});
       await until(
         () =>
@@ -359,16 +354,11 @@ describe('LightconeSidebar', () => {
             .querySelector(`.${BASE}-item.jp-mod-active`)
             ?.textContent?.includes('Contour styling') ?? false
       );
-      const record = Object.assign(new Widget(), {
-        content: {
-          reference: {
-            entrypoint: 'project/astra.yaml',
-            target: 'outputs.cosmology_fit'
-          }
-        }
+      h.shell.currentWidget = Object.assign(new Widget(), {
+        lightconeView: true as const,
+        entrypoint: 'project/astra.yaml',
+        reference: { target: 'outputs.cosmology_fit' }
       });
-      record.title.dataset = { 'lightcone-element': record.id };
-      h.shell.currentWidget = record;
       h.shell.currentChanged.emit({});
       await until(() => {
         const active = h.panel.node.querySelectorAll(
@@ -478,10 +468,11 @@ describe('LightconeSidebar', () => {
       await until(() => h.text().includes('Systematics'));
       const scopeChanged = new Signal<object, void>({});
       const inventory = Object.assign(new Widget(), {
-        context: { path: 'project/astra.yaml' },
-        content: { analysisPath: 'systematics', scopeChanged }
+        lightconeView: true as const,
+        entrypoint: 'project/astra.yaml',
+        analysisPath: 'systematics',
+        scopeChanged
       });
-      inventory.addClass('jp-jupyterlab-lightcone-Document');
       h.shell.currentWidget = inventory;
       h.shell.currentChanged.emit({});
       const active = () =>
@@ -491,7 +482,7 @@ describe('LightconeSidebar', () => {
         );
       await until(() => active().length === 1);
       expect(active()).toEqual(['systematics']);
-      inventory.content.analysisPath = '$';
+      inventory.analysisPath = '$';
       scopeChanged.emit();
       await until(() => active()[0] === '$');
     } finally {

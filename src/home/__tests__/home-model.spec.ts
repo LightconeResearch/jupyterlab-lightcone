@@ -1,14 +1,13 @@
+import { nullTranslator } from '@jupyterlab/translation';
 import { CommandRegistry } from '@lumino/commands';
+import { PALETTE_CATEGORY } from '../../workbench-ids';
 import {
   countRecords,
-  formatRelativeTime,
   groupLauncherItems,
   homeMode,
   isLightconeCategory,
-  LAUNCHER_CATEGORY,
   launcherCategory,
   orderPlates,
-  outputKindLabel,
   platePreview,
   sessionActivity,
   sessionSubtitle,
@@ -21,7 +20,11 @@ import {
   PERSONAS_EVENT_SCHEMA_ID
 } from '../personas';
 
-const NOW = new Date('2026-09-23T12:00:00Z');
+const TRANS = nullTranslator.load('jupyterlab_lightcone');
+const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
+/** An ISO time `ms` before now, for the relative times the model formats. */
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
 describe('homeMode', () => {
   const project = { path: 'p', entrypoint: 'p/astra.yaml' };
@@ -31,34 +34,6 @@ describe('homeMode', () => {
     expect(homeMode(project, true)).toBe('stock');
     expect(homeMode(null, false)).toBe('stock');
     expect(homeMode(undefined, false)).toBe('stock');
-  });
-});
-
-describe('formatRelativeTime', () => {
-  const at = (iso: string) => formatRelativeTime(iso, NOW);
-
-  it('rounds to the coarsest useful unit', () => {
-    expect(at('2026-09-23T11:59:50Z')).toBe('just now');
-    expect(at('2026-09-23T11:58:00Z')).toBe('2 min ago');
-    expect(at('2026-09-23T09:00:00Z')).toBe('3 h ago');
-    expect(at('2026-09-22T12:00:00Z')).toBe('yesterday');
-    expect(at('2026-09-21T12:00:00Z')).toBe('2 days ago');
-    expect(at('2026-09-09T12:00:00Z')).toBe('2 weeks ago');
-    expect(at('2026-07-23T12:00:00Z')).toBe('2 months ago');
-    expect(at('2024-09-23T12:00:00Z')).toBe('2 years ago');
-  });
-
-  it('counts whole periods, as the sidebar does', () => {
-    expect(at('2026-09-22T21:10:00Z')).toBe('14 h ago');
-    expect(at('2026-09-20T02:00:00Z')).toBe('3 days ago');
-    expect(at('2026-08-25T12:00:00Z')).toBe('4 weeks ago');
-  });
-
-  it('accepts dates and rejects unparsable input', () => {
-    expect(formatRelativeTime(new Date('2026-09-23T11:00:00Z'), NOW)).toBe(
-      '1 h ago'
-    );
-    expect(formatRelativeTime('not a date', NOW)).toBe('');
   });
 });
 
@@ -153,7 +128,7 @@ describe('groupLauncherItems', () => {
 
 describe('launcher categories', () => {
   it('names the cards outside and inside a project', () => {
-    expect(launcherCategory(null)).toBe(LAUNCHER_CATEGORY);
+    expect(launcherCategory(null)).toBe(PALETTE_CATEGORY);
     expect(launcherCategory('')).toBe('Lightcone Lab · /');
     expect(launcherCategory('work/hubble')).toBe('Lightcone Lab · work/hubble');
   });
@@ -171,7 +146,7 @@ describe('launcher categories', () => {
 
 describe('summarizeFreshness', () => {
   it('describes an empty project', () => {
-    expect(summarizeFreshness([], undefined, NOW)).toEqual({
+    expect(summarizeFreshness([], TRANS)).toEqual({
       state: 'empty',
       text: 'No results yet'
     });
@@ -184,16 +159,16 @@ describe('summarizeFreshness', () => {
           { id: 'a', status: undefined },
           { id: 'b', status: undefined }
         ],
-        '2026-09-21T12:00:00Z',
-        NOW
+        TRANS,
+        ago(2 * DAY)
       )
     ).toEqual({
       state: 'unknown',
       text: '2 results · last materialized 2 days ago'
     });
-    expect(summarizeFreshness([{ id: 'a', status: undefined }]).text).toBe(
-      '1 result'
-    );
+    expect(
+      summarizeFreshness([{ id: 'a', status: undefined }], TRANS).text
+    ).toBe('1 result');
   });
 
   it('reports every result current with the newest run', () => {
@@ -203,8 +178,8 @@ describe('summarizeFreshness', () => {
           { id: 'a', status: { state: 'current' } },
           { id: 'b', status: { state: 'current' } }
         ],
-        '2026-09-21T12:00:00Z',
-        NOW
+        TRANS,
+        ago(2 * DAY)
       )
     ).toEqual({
       state: 'current',
@@ -221,25 +196,12 @@ describe('summarizeFreshness', () => {
           { id: 'grid', status: { state: 'behind' } },
           { id: 'contours', status: undefined }
         ],
-        undefined,
-        NOW
+        TRANS
       )
     ).toEqual({
       state: 'attention',
       text: '2 of 4 current · stale: fit · behind: grid'
     });
-  });
-});
-
-describe('outputKindLabel', () => {
-  it('labels the ASTRA output types and capitalizes unknown ones', () => {
-    expect(outputKindLabel('figure')).toBe('Figure');
-    expect(outputKindLabel('table')).toBe('Table');
-    expect(outputKindLabel('metric')).toBe('Metric');
-    expect(outputKindLabel('data')).toBe('Data');
-    expect(outputKindLabel('report')).toBe('Report');
-    expect(outputKindLabel('model')).toBe('Model');
-    expect(outputKindLabel(undefined)).toBe('Output');
   });
 });
 
@@ -328,7 +290,7 @@ describe('session rows', () => {
   const info = {
     path: 'p/chats/hubble.chat',
     title: 'Hubble diagram with error bars',
-    modified: '2026-09-23T11:58:00Z',
+    modified: ago(2 * MINUTE),
     messages: 4,
     lastAgent: 'Codex',
     activity: 'idle' as const
@@ -343,14 +305,14 @@ describe('session rows', () => {
   });
 
   it('joins the agent, the activity and the age', () => {
-    expect(sessionSubtitle(info, 'working', NOW)).toBe(
-      'Codex · working · 2 min ago'
+    expect(sessionSubtitle(info, 'working', TRANS)).toBe(
+      'Codex · working · 2 minutes ago'
     );
-    expect(sessionSubtitle(info, 'attention', NOW)).toBe(
-      'Codex · needs your input · 2 min ago'
+    expect(sessionSubtitle(info, 'attention', TRANS)).toBe(
+      'Codex · needs your input · 2 minutes ago'
     );
-    expect(sessionSubtitle({ ...info, lastAgent: null }, 'idle', NOW)).toBe(
-      '2 min ago'
+    expect(sessionSubtitle({ ...info, lastAgent: null }, 'idle', TRANS)).toBe(
+      '2 minutes ago'
     );
   });
 });

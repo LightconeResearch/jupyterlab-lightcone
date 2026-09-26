@@ -5,6 +5,7 @@ import type {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IThemeManager, showErrorMessage } from '@jupyterlab/apputils';
+import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { Widget } from '@lumino/widgets';
@@ -14,8 +15,10 @@ import {
   type ArtifactRenderer
 } from '@astra-spec/ui/components';
 import type { ResolvedOutput } from '@astra-spec/sdk';
+import type { IDocumentOpener } from './artifact-access';
+import { bindLabColorScheme } from './astra-kind';
 import { resolveElement } from './element-reference';
-import { useProject } from './element-widget';
+import { useProject } from './project-data-hooks';
 import { isRootAnalysisOutput } from './materialization-status';
 import type { ILoadedProjectData } from './project-data';
 import { useProjectRenderers } from './project-renderers';
@@ -35,14 +38,22 @@ import type { IOutputVersion } from './versions/versions-api';
 interface ICardProps {
   app: JupyterFrontEnd;
   themes: IThemeManager;
+  documents: IDocumentOpener;
   reference: IAstraCard;
 }
 
-function Card({ app, themes, reference }: ICardProps): React.ReactElement {
+function Card({
+  app,
+  themes,
+  documents,
+  reference
+}: ICardProps): React.ReactElement {
   const node = useRef<HTMLDivElement>(null);
   const state = useProject(app.serviceManager.contents, reference);
   useEffect(() => {
-    const binding = new LightconeThemeBinding(themes, node.current!);
+    const root = node.current;
+    if (!root) return undefined;
+    const binding = new LightconeThemeBinding(themes, root);
     return () => binding.dispose();
   }, [themes]);
   return (
@@ -52,7 +63,13 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
     >
       {state.error && <p role="status">{state.error}</p>}
       {state.data ? (
-        <CardBody {...{ app, reference, state }} />
+        <CardBody
+          app={app}
+          documents={documents}
+          reference={reference}
+          data={state.data}
+          fetchPaper={state.fetchPaper}
+        />
       ) : (
         <p>
           {state.error
@@ -248,18 +265,20 @@ function isCardContentEvent(event: React.MouseEvent<HTMLElement>): boolean {
 
 function CardBody({
   app,
+  documents,
   reference,
-  state
+  data,
+  fetchPaper
 }: Omit<ICardProps, 'themes'> & {
-  state: ReturnType<typeof useProject>;
+  data: ILoadedProjectData;
+  fetchPaper: (doi: string) => void;
 }): React.ReactElement {
-  const data = state.data!;
   const renderers = useProjectRenderers(
     app.serviceManager.contents,
     reference.entrypoint,
     data,
-    state.fetchPaper,
-    app.commands
+    fetchPaper,
+    documents
   );
   let resolved: ReturnType<typeof resolveElement>;
   try {
@@ -348,9 +367,14 @@ function CardBody({
   );
 }
 
-/** Chat 0.25 mounts only a MIME widget's DOM node, without disposing the widget.
- * A custom element gives React (and its project leases) actual DOM lifecycles,
- * including message deletion, rerendering and closing the chat.
+/** The tag `AstraCardElement` is defined under. */
+export const ASTRA_CARD_TAG = 'lightcone-astra-card';
+
+/**
+ * Chat 0.25 mounts only a MIME widget's DOM node, without disposing the
+ * widget (`MessageRenderer` never calls `dispose()` nor sends `BeforeDetach`).
+ * A custom element gives React (and its project leases) actual DOM
+ * lifecycles, including message deletion, rerendering and closing the chat.
  */
 export class AstraCardElement extends HTMLElement {
   content: React.ReactElement | null = null;
@@ -378,59 +402,71 @@ export class AstraCardElement extends HTMLElement {
   }
 }
 
-/** Native RenderMime integration, independent of Chat's Markdown renderer. */
+/**
+ * Native RenderMime integration, independent of Chat's Markdown renderer.
+ * `AstraCardElement` must be defined before a renderer is constructed; the
+ * plugin defines it before registering the factory.
+ */
 export class AstraMimeRenderer extends Widget implements IRenderMime.IRenderer {
   constructor(
     private readonly app: JupyterFrontEnd,
-    private readonly themes: IThemeManager
+    private readonly themes: IThemeManager,
+    private readonly documents: IDocumentOpener
   ) {
-    super({ node: document.createElement('lightcone-astra-card') });
+    const card = new AstraCardElement();
+    super({ node: card });
+    this._card = card;
   }
 
   async renderModel(model: IRenderMime.IMimeModel): Promise<void> {
-    const node = this.node as AstraCardElement;
     try {
       const reference = parseAstraCard(model.data[ASTRA_MIME_TYPE]);
-      node.content = (
+      this._card.content = (
         <Card
           key={JSON.stringify(reference)}
           app={this.app}
           themes={this.themes}
+          documents={this.documents}
           reference={reference}
         />
       );
     } catch (reason) {
-      node.content = <p role="status">{String(reason)}</p>;
+      this._card.content = <p role="status">{String(reason)}</p>;
     }
-    node.update();
+    this._card.update();
   }
 
   dispose(): void {
     if (this.isDisposed) return;
-    (this.node as AstraCardElement).clear();
+    this._card.clear();
     super.dispose();
   }
+
+  private readonly _card: AstraCardElement;
 }
 
 export const astraMimePlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:astra-mime',
   description: 'Render ASTRA preview cards in MIME messages and outputs.',
   autoStart: true,
-  requires: [IRenderMimeRegistry, IThemeManager],
+  requires: [IRenderMimeRegistry, IThemeManager, IDocumentManager],
   activate: (
     app: JupyterFrontEnd,
     registry: IRenderMimeRegistry,
-    themes: IThemeManager
+    themes: IThemeManager,
+    documents: IDocumentManager
   ) => {
-    if (!customElements.get('lightcone-astra-card'))
-      customElements.define('lightcone-astra-card', AstraCardElement);
+    // Kind marks everywhere in the workbench follow the Lab theme from here.
+    bindLabColorScheme(themes);
+    if (!customElements.get(ASTRA_CARD_TAG))
+      customElements.define(ASTRA_CARD_TAG, AstraCardElement);
     registry.addFactory(
       {
         // Only validated references are accepted. Renderers load through Jupyter's
         // authenticated Contents API; no HTML, scripts or arbitrary URLs execute.
         safe: true,
         mimeTypes: [ASTRA_MIME_TYPE],
-        createRenderer: () => new AstraMimeRenderer(app, themes)
+        createRenderer: () => new AstraMimeRenderer(app, themes, documents)
       },
       40
     );

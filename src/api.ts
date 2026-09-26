@@ -117,6 +117,24 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Narrow a plain object whose values are all strings, such as a version map. */
+export function isStringRecord(
+  value: unknown
+): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every(item => typeof item === 'string')
+  );
+}
+
+/** Whether a request to the Jupyter server (Contents included) answered 404. */
+export function isNotFoundResponse(error: unknown): boolean {
+  return (
+    error instanceof ServerConnection.ResponseError &&
+    error.response.status === 404
+  );
+}
+
 function isPaperMetadata(value: unknown): value is IPaperMetadata {
   return (
     isRecord(value) &&
@@ -243,12 +261,8 @@ export function parseRunRecord(payload: unknown): OutputRun | null {
   };
   const versions = (key: string): Record<string, string> => {
     const value = record[key];
-    if (
-      !isRecord(value) ||
-      Object.values(value).some(item => typeof item !== 'string')
-    )
-      throw invalid();
-    return value as Record<string, string>;
+    if (!isStringRecord(value)) throw invalid();
+    return value;
   };
   return {
     finishedAt: string('finished_at'),

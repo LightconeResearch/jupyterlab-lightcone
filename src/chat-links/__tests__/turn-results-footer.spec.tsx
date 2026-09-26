@@ -16,7 +16,7 @@ import { CommandIDs } from '../../commands';
 import type { IProjectRoot } from '../../project-root';
 import type { IResultsCommit } from '../../versions/versions-api';
 import { CHAT_PROJECT_METADATA } from '../chat-project';
-import { cachedResultsCommits } from '../results-cache';
+import { ResultsHistoryCache } from '../results-cache';
 import {
   createTurnResultsFooter,
   TURN_SETTLE_DELAY,
@@ -24,16 +24,12 @@ import {
 } from '../turn-results-footer';
 
 jest.mock('../../pdf-runtime', () => ({}));
-jest.mock('../../element-widget', () => ({
+jest.mock('../../project-data-hooks', () => ({
   useProject: () => ({
     data: undefined,
     error: undefined,
     fetchPaper: () => undefined
   })
-}));
-jest.mock('../results-cache', () => ({
-  ...jest.requireActual('../results-cache'),
-  cachedResultsCommits: jest.fn()
 }));
 
 declare global {
@@ -56,7 +52,7 @@ function run(seconds: number, output = 'hubble_diagram'): IResultsCommit {
     commit: `c${seconds}`,
     short: `c${seconds}`.slice(0, 7),
     time: new Date(seconds * 1000).toISOString(),
-    subject: `[DATALAD RUNCMD] ${output} [baseline]`,
+    subject: `materialize ${output} [baseline]`,
     outputs: [{ universe: 'baseline', output }]
   };
 }
@@ -106,7 +102,6 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  jest.mocked(cachedResultsCommits).mockReset();
 });
 
 afterEach(() => {
@@ -120,10 +115,12 @@ function setup(
   runs: IResultsCommit[][] = [[run(1020)]],
   project: IProjectRoot | null = PROJECT
 ) {
+  const results = new ResultsHistoryCache(ServerConnection.makeSettings());
+  const get = jest.spyOn(results, 'get');
   for (const listing of runs) {
-    jest.mocked(cachedResultsCommits).mockResolvedValueOnce(listing);
+    get.mockResolvedValueOnce(listing);
   }
-  jest.mocked(cachedResultsCommits).mockResolvedValue(runs[runs.length - 1]);
+  get.mockResolvedValue(runs[runs.length - 1]);
   const executed: [string, ReadonlyPartialJSONObject][] = [];
   const commands = new CommandRegistry();
   commands.addCommand(CommandIDs.openElement, {
@@ -142,6 +139,8 @@ function setup(
         contents: {}
       }
     } as unknown as JupyterFrontEnd,
+    documents: { openOrReveal: jest.fn() },
+    results,
     tracker: {
       find: (test: (candidate: IChatPanel) => boolean) => [panel].find(test)
     } as unknown as IChatTracker,
@@ -159,7 +158,7 @@ function setup(
       );
     });
   };
-  return { render, executed, panel, resolveProject, openFile };
+  return { render, executed, panel, resolveProject, openFile, get };
 }
 
 /** Let resolved promises reach React. */
@@ -299,11 +298,11 @@ it('follows the end of a reply that is still streaming, listing runs once it set
     message('a1', 1010, AGENT)
   ]);
   // The first listing predates the run; the next one has it.
-  const { render } = setup(chat, [[], [run(1030)]]);
+  const { render, get } = setup(chat, [[], [run(1030)]]);
   await render('a1');
   await flush();
-  expect(cachedResultsCommits).toHaveBeenCalledTimes(1);
-  expect(jest.mocked(cachedResultsCommits).mock.calls[0][2]).toBe(1010);
+  expect(get).toHaveBeenCalledTimes(1);
+  expect(get.mock.calls[0][1]).toBe(1010);
   expect(container.textContent).toBe('');
 
   // The agent keeps streaming after the run: every chunk moves the end.
@@ -313,13 +312,13 @@ it('follows the end of a reply that is still streaming, listing runs once it set
       jest.advanceTimersByTime(TURN_SETTLE_DELAY / 2);
     });
   }
-  expect(cachedResultsCommits).toHaveBeenCalledTimes(1);
+  expect(get).toHaveBeenCalledTimes(1);
 
   await act(async () => {
     jest.advanceTimersByTime(TURN_SETTLE_DELAY);
   });
   await flush();
-  expect(cachedResultsCommits).toHaveBeenCalledTimes(2);
-  expect(jest.mocked(cachedResultsCommits).mock.calls[1][2]).toBe(1042);
+  expect(get).toHaveBeenCalledTimes(2);
+  expect(get.mock.calls[1][1]).toBe(1042);
   expect(heading()).toEqual(['Materialized during this reply · 1']);
 });

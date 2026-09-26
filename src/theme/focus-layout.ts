@@ -6,6 +6,7 @@ import {
 import { ICommandPalette } from '@jupyterlab/apputils';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import type { CommandRegistry } from '@lumino/commands';
+import { PALETTE_CATEGORY } from '../workbench-ids';
 
 /** Commands of the focus layout. */
 export namespace FocusLayoutCommandIDs {
@@ -95,7 +96,7 @@ export const focusLayoutPlugin: JupyterFrontEndPlugin<void> = {
     });
     palette?.addItem({
       command: FocusLayoutCommandIDs.toggle,
-      category: 'Lightcone Lab'
+      category: PALETTE_CATEGORY
     });
   }
 };

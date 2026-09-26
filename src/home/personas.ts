@@ -1,3 +1,7 @@
+import type {
+  PERSONAS_EVENT_SCHEMA_ID as UpstreamPersonasId,
+  PersonaOption
+} from '@jupyter-ai/persona-manager';
 import type { Event } from '@jupyterlab/services';
 import type { IStateDB } from '@jupyterlab/statedb';
 import type { IDisposable } from '@lumino/disposable';
@@ -6,19 +10,19 @@ import { isRecord } from '../api';
 
 /**
  * The schema Jupyter AI's persona manager uses to advertise a chat's personas
- * over the Jupyter Events bus.
+ * over the Jupyter Events bus. The persona manager is only type-imported (it
+ * is a shared singleton, not bundled), so the id is spelled here and pinned
+ * to the upstream constant's literal type: a renamed id fails to compile
+ * instead of emptying the picker.
  */
-export const PERSONAS_EVENT_SCHEMA_ID =
+export const PERSONAS_EVENT_SCHEMA_ID: typeof UpstreamPersonasId =
   'https://schema.jupyter.org/jupyter_ai_persona_manager/personas/v1';
 
 /** The state database key keeping the last advertised personas across reloads. */
 export const PERSONAS_STATE_KEY = 'jupyterlab_lightcone:home:personas';
 
-/** One agent persona the composer can address. */
-export interface IPersonaOption {
-  id: string;
-  name: string;
-}
+/** One agent persona the composer can address, as the manager advertises it. */
+export type IPersonaOption = Pick<PersonaOption, 'id' | 'name'>;
 
 function isPersonaOption(value: unknown): value is IPersonaOption {
   return (

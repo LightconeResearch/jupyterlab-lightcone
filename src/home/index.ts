@@ -10,6 +10,7 @@ import {
   MainAreaWidget,
   WidgetTracker
 } from '@jupyterlab/apputils';
+import { IDocumentManager } from '@jupyterlab/docmanager';
 import {
   IDefaultFileBrowser,
   type FileBrowserModel
@@ -23,18 +24,17 @@ import { UUID, type ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import type { DockPanel, TabBar, Widget } from '@lumino/widgets';
 import { CommandIDs } from '../commands';
 import { ICurrentProject } from '../current-project';
-import { createProjectIcon } from '../icons';
+import { createProjectIcon, lightconeIcon } from '../icons';
 import { findProjectRoot } from '../project-root';
 import { ISessionService } from '../sessions/session-service';
+import { PALETTE_CATEGORY } from '../workbench-ids';
 import { HomeCommandIDs } from './home-commands';
 import { HomeWidget } from './home-widget';
-import { lightconeIcon } from './icons';
 import { PersonaDirectory } from './personas';
-import { buildToolsMenu } from './tools-menu';
+import { ToolsMenu } from './tools-menu';
 
 export { HomeCommandIDs } from './home-commands';
 export { HomeWidget } from './home-widget';
-export { lightconeIcon } from './icons';
 
 type HomeTab = MainAreaWidget<HomeWidget>;
 
@@ -60,7 +60,7 @@ export const homePlugin: JupyterFrontEndPlugin<ILauncher> = {
     'The launcher service, showing a Lightcone project’s Home inside projects.',
   autoStart: true,
   provides: ILauncher,
-  requires: [ICurrentProject, IThemeManager],
+  requires: [ICurrentProject, IThemeManager, IDocumentManager],
   optional: [
     ILabShell,
     IDefaultFileBrowser,
@@ -76,6 +76,7 @@ function activate(
   app: JupyterFrontEnd,
   current: ICurrentProject,
   themes: IThemeManager,
+  documents: IDocumentManager,
   labShell: ILabShell | null,
   defaultBrowser: IDefaultFileBrowser | null,
   palette: ICommandPalette | null,
@@ -129,27 +130,16 @@ function activate(
     return tracker.find(tab => tab === currentWidget);
   };
 
-  const openTools = (tab: HomeTab, anchor: HTMLElement) => {
-    const menu = buildToolsMenu({
-      model,
-      commands,
-      cwd: tab.content.cwd,
-      widgetId: tab.id,
-      translator: translator ?? undefined
-    });
-    menu.aboutToClose.connect(() => {
-      window.setTimeout(() => menu.dispose(), 0);
-    });
-    // The button sits at the header's right end: the menu hangs from its
-    // right edge instead of running past the window's.
-    const rect = anchor.getBoundingClientRect();
-    menu.open(rect.right, rect.bottom + 4, { horizontalAlignment: 'right' });
-  };
-
   /**
    * Open a Home tab. `restoreKey` names it in the saved layout, so a reload
    * puts it back where it was, as it does with documents; the stock launcher
    * tab was never restored, but Home is a project's front page.
+   *
+   * The tab's creation and shell wiring below (the `closable` title, the
+   * `layoutModified` and `pathChanged` handlers, the `launcher:create`
+   * command's arguments and icon) mirror `@jupyterlab/launcher-extension`
+   * (`src/index.ts`, JupyterLab 4.6.3) with `HomeWidget` in place of
+   * `Launcher`: diff against that plugin when upgrading JupyterLab.
    */
   const createTab = (
     args: ReadonlyPartialJSONObject,
@@ -167,15 +157,30 @@ function activate(
         main.dispose();
       }
     };
+    const tools = new ToolsMenu({
+      model,
+      commands,
+      widgetId: id,
+      translator: translator ?? undefined
+    });
     const home = new HomeWidget({
       model,
       cwd,
       commands,
       contents,
+      documents,
       themes,
       current,
       callback,
-      onOpenTools: anchor => openTools(main, anchor),
+      onOpenTools: anchor => {
+        tools.refresh(home.cwd);
+        // The button sits at the header's right end: the menu hangs from its
+        // right edge instead of running past the window's.
+        const rect = anchor.getBoundingClientRect();
+        tools.open(rect.right, rect.bottom + 4, {
+          horizontalAlignment: 'right'
+        });
+      },
       translator: translator ?? undefined,
       sessions,
       personas,
@@ -183,6 +188,9 @@ function activate(
     });
     const main = new MainAreaWidget({ content: home });
     main.id = id;
+    main.disposed.connect(() => {
+      tools.dispose();
+    });
     // If there are any other widgets open, remove the launcher close icon.
     main.title.closable = !!Array.from(shell.widgets('main')).length;
     shell.add(main, 'main', {
@@ -257,6 +265,9 @@ function activate(
         }
       }
     },
+    // Only the layout restorer runs this, without checking visibility: the
+    // palette and Lightcone's search never list it.
+    isVisible: () => false,
     execute: args =>
       createTab(
         { cwd: typeof args.cwd === 'string' ? args.cwd : '', activate: false },
@@ -365,15 +376,6 @@ function activate(
     }
   });
 
-  commands.addCommand(HomeCommandIDs.toolsCategory, {
-    label: args => (typeof args.category === 'string' ? args.category : ''),
-    describedBy: {
-      args: { type: 'object', properties: { category: { type: 'string' } } }
-    },
-    isEnabled: () => false,
-    execute: () => undefined
-  });
-
   shell.currentChanged?.connect(() => {
     commands.notifyCommandChanged(HomeCommandIDs.showLauncher);
     commands.notifyCommandChanged(HomeCommandIDs.showHome);
@@ -407,19 +409,19 @@ function activate(
     });
     palette.addItem({
       command: HomeCommandIDs.openHome,
-      category: 'Lightcone Lab'
+      category: PALETTE_CATEGORY
     });
     palette.addItem({
       command: HomeCommandIDs.newProject,
-      category: 'Lightcone Lab'
+      category: PALETTE_CATEGORY
     });
     palette.addItem({
       command: HomeCommandIDs.showLauncher,
-      category: 'Lightcone Lab'
+      category: PALETTE_CATEGORY
     });
     palette.addItem({
       command: HomeCommandIDs.showHome,
-      category: 'Lightcone Lab'
+      category: PALETTE_CATEGORY
     });
   }
 

@@ -159,6 +159,7 @@ export function homeHost(options: IHomeHostOptions) {
     cwd: options.cwd ?? 'elsewhere',
     commands,
     contents,
+    documents: { openOrReveal: jest.fn() },
     themes: new FakeThemeManager(),
     current,
     callback: jest.fn(),

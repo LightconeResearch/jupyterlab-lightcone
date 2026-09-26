@@ -1,10 +1,13 @@
 import type { ArtifactPreviewData } from '@astra-spec/ui/lib';
 import type { OutputStatus } from '@astra-spec/ui/model';
 import type { ILauncher } from '@jupyterlab/launcher';
+import type { TranslationBundle } from '@jupyterlab/translation';
 import type { CommandRegistry } from '@lumino/commands';
 import type { IProjectRoot } from '../project-root';
+import { relativeTime } from '../relative-time';
 import type { SessionState } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
+import { PALETTE_CATEGORY } from '../workbench-ids';
 
 /** What a launcher tab shows: the project's Home, or the stock launcher body. */
 export type HomeMode = 'home' | 'stock';
@@ -21,60 +24,13 @@ export function homeMode(
 }
 
 /**
- * Coarse relative time, as session lists and freshness lines show it. Units
- * are counted in whole elapsed periods, as the sidebar counts them, so the
- * same session reads "14 h" there and "14 h ago" here.
- */
-export function formatRelativeTime(
-  time: string | Date,
-  now: Date = new Date()
-): string {
-  const ms = (typeof time === 'string' ? new Date(time) : time).getTime();
-  if (Number.isNaN(ms)) {
-    return '';
-  }
-  const seconds = Math.max(0, Math.floor((now.getTime() - ms) / 1000));
-  if (seconds < 45) {
-    return 'just now';
-  }
-  const minutes = Math.max(1, Math.floor(seconds / 60));
-  if (minutes < 60) {
-    return `${minutes} min ago`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours} h ago`;
-  }
-  const days = Math.floor(hours / 24);
-  if (days === 1) {
-    return 'yesterday';
-  }
-  if (days < 7) {
-    return `${days} days ago`;
-  }
-  if (days < 30) {
-    const weeks = Math.floor(days / 7);
-    return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
-  }
-  if (days < 365) {
-    const months = Math.floor(days / 30);
-    return months === 1 ? '1 month ago' : `${months} months ago`;
-  }
-  const years = Math.floor(days / 365);
-  return years === 1 ? '1 year ago' : `${years} years ago`;
-}
-
-/** The launcher category of Lightcone's own cards. */
-export const LAUNCHER_CATEGORY = 'Lightcone Lab';
-
-/**
- * The category Lightcone's launcher cards use: the plain name outside a
- * project, qualified by the project's path inside one.
+ * The category Lightcone's launcher cards use: the palette category outside
+ * a project, qualified by the project's path inside one.
  */
 export function launcherCategory(projectPath: string | null): string {
   return projectPath === null
-    ? LAUNCHER_CATEGORY
-    : `${LAUNCHER_CATEGORY} · ${projectPath || '/'}`;
+    ? PALETTE_CATEGORY
+    : `${PALETTE_CATEGORY} · ${projectPath || '/'}`;
 }
 
 /**
@@ -84,8 +40,8 @@ export function launcherCategory(projectPath: string | null): string {
  */
 export function isLightconeCategory(category: string | undefined): boolean {
   return (
-    category === LAUNCHER_CATEGORY ||
-    (category?.startsWith(`${LAUNCHER_CATEGORY} · `) ?? false)
+    category === PALETTE_CATEGORY ||
+    (category?.startsWith(`${PALETTE_CATEGORY} · `) ?? false)
   );
 }
 
@@ -147,16 +103,16 @@ export function groupLauncherItems(
       ...(groups.get(category) ?? []).map(item => item.categoryRank ?? fallback)
     );
   };
-  return [...groups.keys()]
-    .sort((a, b) => {
+  return [...groups.entries()]
+    .sort(([a], [b]) => {
       const difference = rankOf(a) - rankOf(b);
       return difference !== 0 && !Number.isNaN(difference)
         ? difference
         : a.localeCompare(b);
     })
-    .map(category => ({
+    .map(([category, members]) => ({
       category,
-      items: [...groups.get(category)!].sort((a, b) => {
+      items: [...members].sort((a, b) => {
         const rankA = a.rank ?? Infinity;
         const rankB = b.rank ?? Infinity;
         if (rankA !== rankB) {
@@ -185,21 +141,20 @@ export interface IFreshness {
  */
 export function summarizeFreshness(
   outputs: readonly IFreshnessInput[],
-  lastMaterialized?: string,
-  now: Date = new Date()
+  trans: TranslationBundle,
+  lastMaterialized?: string
 ): IFreshness {
   const total = outputs.length;
   if (!total) {
-    return { state: 'empty', text: 'No results yet' };
+    return { state: 'empty', text: trans.__('No results yet') };
   }
-  const suffix = lastMaterialized
-    ? ` · last materialized ${formatRelativeTime(lastMaterialized, now)}`
-    : '';
+  const age = lastMaterialized ? relativeTime(lastMaterialized) : '';
+  const suffix = age ? ` · ${trans.__('last materialized %1', age)}` : '';
   const known = outputs.filter(output => output.status);
   if (!known.length) {
     return {
       state: 'unknown',
-      text: `${total} ${total === 1 ? 'result' : 'results'}${suffix}`
+      text: `${trans._n('%1 result', '%1 results', total, total)}${suffix}`
     };
   }
   const stale = known
@@ -209,35 +164,20 @@ export function summarizeFreshness(
     .filter(output => output.status?.state === 'behind')
     .map(output => output.id);
   if (!stale.length && !behind.length) {
-    return { state: 'current', text: `All ${total} current${suffix}` };
+    return {
+      state: 'current',
+      text: `${trans.__('All %1 current', total)}${suffix}`
+    };
   }
   const current = total - stale.length - behind.length;
-  const parts = [`${current} of ${total} current`];
+  const parts = [trans.__('%1 of %2 current', current, total)];
   if (stale.length) {
-    parts.push(`stale: ${stale.join(', ')}`);
+    parts.push(trans.__('stale: %1', stale.join(', ')));
   }
   if (behind.length) {
-    parts.push(`behind: ${behind.join(', ')}`);
+    parts.push(trans.__('behind: %1', behind.join(', ')));
   }
   return { state: 'attention', text: `${parts.join(' · ')}${suffix}` };
-}
-
-/** The kind label shown under a results plate. */
-export function outputKindLabel(type: string | undefined): string {
-  switch (type) {
-    case 'figure':
-      return 'Figure';
-    case 'table':
-      return 'Table';
-    case 'metric':
-      return 'Metric';
-    case 'data':
-      return 'Data';
-    case 'report':
-      return 'Report';
-    default:
-      return type ? type[0].toUpperCase() + type.slice(1) : 'Output';
-  }
 }
 
 /** How Home orders its plates: figures lead, then values, then data summaries. */
@@ -354,22 +294,22 @@ export function sessionActivity(
   return live ?? info.activity;
 }
 
-/** "Codex · working · 2 min ago": agent, activity when not idle, then age. */
+/** "Codex · working · 2 minutes ago": agent, activity when not idle, then age. */
 export function sessionSubtitle(
   info: ISessionInfo,
   activity: SessionState,
-  now: Date = new Date()
+  trans: TranslationBundle
 ): string {
   const parts: string[] = [];
   if (info.lastAgent) {
     parts.push(info.lastAgent);
   }
   if (activity === 'working') {
-    parts.push('working');
+    parts.push(trans.__('working'));
   } else if (activity === 'attention') {
-    parts.push('needs your input');
+    parts.push(trans.__('needs your input'));
   }
-  const age = formatRelativeTime(info.modified, now);
+  const age = relativeTime(info.modified);
   if (age) {
     parts.push(age);
   }

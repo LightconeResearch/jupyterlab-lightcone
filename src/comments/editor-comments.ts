@@ -8,12 +8,12 @@ import {
   Decoration,
   EditorView,
   showTooltip,
-  ViewPlugin,
   WidgetType,
   type DecorationSet,
   type Tooltip
 } from '@codemirror/view';
 import type { IComment, ICommentAnchor } from './comments-api';
+import { flashElement } from './comment-layer';
 import { labelGlyph } from './comment-model';
 import { locateAnchor, textAnchorFromRange } from './text-anchor';
 
@@ -23,10 +23,6 @@ export interface IEditorCommentHandlers {
   onComment(view: EditorView, anchor: ICommentAnchor): void;
   /** The user clicked a pending comment's badge. */
   onBadge(view: EditorView, comment: IComment, element: HTMLElement): void;
-  /** An editor using the extension appeared. */
-  onViewCreated(view: EditorView): void;
-  /** That editor went away. */
-  onViewDestroyed(view: EditorView): void;
 }
 
 /** Replace the pending comments an editor shows. */
@@ -182,13 +178,7 @@ export function editorCommentExtension(
         : value,
     provide: field => showTooltip.from(field)
   });
-  const lifecycle = ViewPlugin.define(view => {
-    handlers.onViewCreated(view);
-    return {
-      destroy: () => handlers.onViewDestroyed(view)
-    };
-  });
-  return [editorCommentsField, badges, tooltip, lifecycle];
+  return [editorCommentsField, badges, tooltip];
 }
 
 /** The editor's current pending comments, for callers holding a view. */
@@ -216,18 +206,4 @@ export function revealEditorComment(view: EditorView, id: string): boolean {
     flashElement(badge);
   });
   return true;
-}
-
-/** Draw attention to a pin or badge for a moment. */
-export function flashElement(element: HTMLElement | null): void {
-  if (!element) {
-    return;
-  }
-  element.classList.remove('jp-jupyterlab-lightcone-CommentFlash');
-  // Restart the animation when the element is flashed twice in a row.
-  void element.offsetWidth;
-  element.classList.add('jp-jupyterlab-lightcone-CommentFlash');
-  window.setTimeout(() => {
-    element.classList.remove('jp-jupyterlab-lightcone-CommentFlash');
-  }, 1600);
 }

@@ -3,12 +3,10 @@ import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
 import { Notification } from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { DocumentRegistry } from '@jupyterlab/docregistry';
-import { ServerConnection } from '@jupyterlab/services';
+import { isNotFoundResponse } from '../api';
 import type { TranslationBundle } from '@jupyterlab/translation';
 import { Widget } from '@lumino/widgets';
-
-/** Element tabs carry this id prefix (see `element-commands.ts`). */
-const ELEMENT_TAB_PREFIX = 'lightcone-element-';
+import { isElementTabId } from '../workbench-ids';
 
 /**
  * Open files a session links to beside the session, so the conversation stays
@@ -19,7 +17,7 @@ const ELEMENT_TAB_PREFIX = 'lightcone-element-';
 export class BesideOpener {
   constructor(
     private readonly app: JupyterFrontEnd,
-    private readonly documents: IDocumentManager | null,
+    private readonly documents: IDocumentManager,
     private readonly labShell: ILabShell | null,
     private readonly trans: TranslationBundle
   ) {}
@@ -35,10 +33,7 @@ export class BesideOpener {
         content: false
       });
     } catch (error) {
-      if (
-        error instanceof ServerConnection.ResponseError &&
-        error.response.status === 404
-      ) {
+      if (isNotFoundResponse(error)) {
         Notification.warning(this.trans.__('No file at %1.', path || '/'), {
           autoClose: 4000
         });
@@ -50,14 +45,13 @@ export class BesideOpener {
       await this.app.commands.execute('filebrowser:go-to-path', { path });
       return;
     }
-    const options = this.placement(panel);
-    const opened: unknown = this.documents
-      ? this.documents.openOrReveal(path, undefined, undefined, options)
-      : await this.app.commands.execute('docmanager:open', {
-          path,
-          options: { ...options }
-        });
-    if (panel && opened instanceof Widget) {
+    const opened = this.documents.openOrReveal(
+      path,
+      undefined,
+      undefined,
+      this.placement(panel)
+    );
+    if (panel && opened) {
       this._lastOpened.set(panel, opened);
     }
   }
@@ -98,7 +92,7 @@ export class BesideOpener {
     }
     for (const widget of this.app.shell.widgets('main')) {
       if (
-        widget.id.startsWith(ELEMENT_TAB_PREFIX) &&
+        isElementTabId(widget.id) &&
         !widget.isDisposed &&
         this.besideSession(panel, widget)
       ) {

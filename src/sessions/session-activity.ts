@@ -1,12 +1,22 @@
+import type { PERSONA_STATE_EVENT_SCHEMA_ID } from '@jupyter-ai/persona-manager';
 import { isRecord } from '../api';
+import { readToolCalls } from './acp-metadata';
 import type { SessionState } from './session-service';
 import type { SessionActivity } from './sessions-api';
 
-/** Prefix of every Jupyter AI persona's user name. */
-export const PERSONA_USERNAME_PREFIX = 'jupyter-ai-personas';
+/**
+ * Prefix of every Jupyter AI persona's user name: ids read
+ * `jupyter-ai-personas::<package>::<class>` (`base_persona.py`). Neither
+ * persona-manager package exports the scheme, so it is restated here, once.
+ */
+export const PERSONA_USERNAME_PREFIX = 'jupyter-ai-personas::';
 
-/** Schema of the persona manager's per-persona state events. */
-export const PERSONA_STATE_EVENT_SCHEMA =
+/**
+ * Schema of the persona manager's per-persona state events. The value is
+ * restated so the reducers need no import of the federated persona-manager
+ * package; its type is the package's, so a drift fails to compile.
+ */
+export const PERSONA_STATE_EVENT_SCHEMA: typeof PERSONA_STATE_EVENT_SCHEMA_ID =
   'https://schema.jupyter.org/jupyter_ai_persona_manager/persona_state/v1';
 
 /** The part of a chat user the activity reducers read. */
@@ -34,12 +44,6 @@ export interface ISessionSnapshot {
   processing: boolean;
 }
 
-/** The status fields of one ACP tool call recorded in a message's metadata. */
-export interface IToolCallStatus {
-  status: string | null;
-  permissionStatus: string | null;
-}
-
 /** A persona manager `persona_state` event that concerns activity. */
 export interface IPersonaStateEvent {
   chatId: string;
@@ -55,25 +59,9 @@ export function isPersonaUser(user: ISessionUser): boolean {
   return user.bot === true || user.username.startsWith(PERSONA_USERNAME_PREFIX);
 }
 
-/** Read the tool calls the ACP client stores in a message's metadata. */
-export function readToolCalls(metadata: unknown): IToolCallStatus[] {
-  if (!isRecord(metadata) || !Array.isArray(metadata.tool_calls)) {
-    return [];
-  }
-  const calls: IToolCallStatus[] = [];
-  for (const call of metadata.tool_calls) {
-    if (!isRecord(call)) {
-      continue;
-    }
-    calls.push({
-      status: typeof call.status === 'string' ? call.status : null,
-      permissionStatus:
-        typeof call.permission_status === 'string'
-          ? call.permission_status
-          : null
-    });
-  }
-  return calls;
+/** A persona's display name when the chat records none: its id's last segment. */
+export function personaDisplayName(personaId: string): string {
+  return personaId.split('::').pop() || personaId;
 }
 
 /** The messages of the current turn: everything after the last human message. */

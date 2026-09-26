@@ -1,6 +1,6 @@
 {
   "title": "Lightcone Home",
-  "description": "Menu, shortcut and toolbar entries for the launcher that Lightcone Home provides.",
+  "description": "Menu, shortcut and toolbar entries for the launcher that Lightcone Home provides. They mirror @jupyterlab/launcher-extension's schema/plugin.json (JupyterLab 4.6), whose plugin package.json disables so that Home can provide `launcher:create`; diff against it when upgrading JupyterLab.",
   "jupyter.lab.menus": {
     "main": [
       {

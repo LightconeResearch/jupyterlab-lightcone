@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import type { ResolvedRecord } from '@astra-spec/sdk';
 import { OutputStatusIndicator } from '@astra-spec/ui/components';
 import { recordTitle, type OutputStatus } from '@astra-spec/ui/model';
@@ -11,7 +11,8 @@ import {
   type IDiffGap,
   type IDiffLine
 } from './revision-diff';
-import { relativeTime, type IRunView } from './version-model';
+import type { IRunView } from './version-model';
+import { relativeTime } from '../relative-time';
 import type { ILockedPackages, IRevisionSource } from './versions-api';
 
 export type ProvenanceTabId = 'run' | 'code' | 'inputs' | 'environment';
@@ -334,33 +335,28 @@ function CodeTab({
 }
 
 function InputsTab({
-  run,
   inputs
-}: Pick<IProvenanceTabsProps, 'run' | 'inputs'>): React.ReactElement {
+}: Pick<IProvenanceTabsProps, 'inputs'>): React.ReactElement {
   if (!inputs.length)
     return <p>No input versions were recorded for this run.</p>;
   return (
     <div className="jp-jupyterlab-lightcone-Provenance-inputs">
-      {inputs.length > 0 && (
-        <ul>
-          {inputs.map(input => (
-            <li key={input.id}>
-              {/* An upstream output keeps its own mark, as in the inventory. */}
-              {input.record ? <AstraKindMark kind={input.record.kind} /> : null}
-              {input.onOpen && input.record ? (
-                <button type="button" onClick={input.onOpen}>
-                  {recordTitle(input.record)}
-                </button>
-              ) : (
-                <span>
-                  {input.record ? recordTitle(input.record) : input.id}
-                </span>
-              )}
-              <code title={input.version}>{shortHash(input.version)}</code>
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul>
+        {inputs.map(input => (
+          <li key={input.id}>
+            {/* An upstream output keeps its own mark, as in the inventory. */}
+            {input.record ? <AstraKindMark kind={input.record.kind} /> : null}
+            {input.onOpen && input.record ? (
+              <button type="button" onClick={input.onOpen}>
+                {recordTitle(input.record)}
+              </button>
+            ) : (
+              <span>{input.record ? recordTitle(input.record) : input.id}</span>
+            )}
+            <code title={input.version}>{shortHash(input.version)}</code>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -510,6 +506,8 @@ export function ProvenanceTabs(
     () => new Set<ProvenanceTabId>(['run'])
   );
   const baseId = useId();
+  // The tab buttons, for moving keyboard focus along the list.
+  const tabButtons = useRef(new Map<ProvenanceTabId, HTMLButtonElement>());
   const show = (id: ProvenanceTabId) => {
     setActive(id);
     if (shownTabs.has(id)) return;
@@ -531,7 +529,7 @@ export function ProvenanceTabs(
       );
       break;
     case 'inputs':
-      panel = <InputsTab run={props.run} inputs={props.inputs} />;
+      panel = <InputsTab inputs={props.inputs} />;
       break;
     case 'environment':
       panel = <EnvironmentTab run={props.run} packages={props.packages} />;
@@ -555,6 +553,10 @@ export function ProvenanceTabs(
             type="button"
             role="tab"
             id={`${baseId}-${tab.id}-tab`}
+            ref={button => {
+              if (button) tabButtons.current.set(tab.id, button);
+              else tabButtons.current.delete(tab.id);
+            }}
             aria-selected={active === tab.id}
             aria-controls={`${baseId}-${tab.id}`}
             tabIndex={active === tab.id ? 0 : -1}
@@ -570,11 +572,7 @@ export function ProvenanceTabs(
               if (next) {
                 event.preventDefault();
                 show(next.id);
-                (
-                  event.currentTarget.parentElement?.querySelector<HTMLElement>(
-                    `#${CSS.escape(`${baseId}-${next.id}-tab`)}`
-                  ) ?? null
-                )?.focus();
+                tabButtons.current.get(next.id)?.focus();
               }
             }}
           >

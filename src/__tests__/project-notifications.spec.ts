@@ -1,33 +1,45 @@
-import { Dialog, Notification } from '@jupyterlab/apputils';
+import { Dialog, Notification, ReactWidget } from '@jupyterlab/apputils';
 import type { Contents, ContentsManager } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
-import { act, isValidElement } from 'react';
+import { Widget } from '@lumino/widgets';
+import { act, createElement, isValidElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { changeKind, ProjectNotifications } from '../project-notifications';
+import {
+  changeKind,
+  ProjectNotifications,
+  UnstyledBodyRenderer
+} from '../project-notifications';
 import {
   acquireProjectDataService,
   type IProjectDataLease
 } from '../project-data-service';
 import { analysis, createContents, fileModel } from './project-fixtures';
 
-jest.mock('@jupyterlab/apputils', () => ({
-  Notification: {
-    emit: jest.fn(() => 'notification'),
-    update: jest.fn(() => true),
-    dismiss: jest.fn(),
-    manager: { has: jest.fn(() => true) }
-  },
-  // The review stays open and has no stock buttons; only its body is read.
-  Dialog: Object.assign(
-    jest.fn(() => ({
-      launch: () => new Promise(() => undefined),
-      dispose: jest.fn(),
-      resolve: jest.fn()
-    })),
-    { okButton: jest.fn(() => ({})) }
-  ),
-  showErrorMessage: jest.fn()
-}));
+jest.mock('@jupyterlab/apputils', () => {
+  const actual = jest.requireActual<typeof import('@jupyterlab/apputils')>(
+    '@jupyterlab/apputils'
+  );
+  return {
+    ...actual,
+    Notification: {
+      emit: jest.fn(() => 'notification'),
+      update: jest.fn(() => true),
+      dismiss: jest.fn(),
+      manager: { has: jest.fn(() => true) }
+    },
+    // The review stays open and has no stock buttons; only its body is read.
+    // Its renderer builds on the stock one, which stays real.
+    Dialog: Object.assign(
+      jest.fn(() => ({
+        launch: () => new Promise(() => undefined),
+        dispose: jest.fn(),
+        resolve: jest.fn()
+      })),
+      { okButton: jest.fn(() => ({})), Renderer: actual.Dialog.Renderer }
+    ),
+    showErrorMessage: jest.fn()
+  };
+});
 const faults = { snapshot: 0 };
 jest.mock('../project-changes', () => {
   const actual = jest.requireActual('../project-changes');
@@ -233,6 +245,9 @@ it('marks each row of the review with its kind, as the inventory does', async ()
   const review = jest.mocked(Notification.emit).mock.calls[0][2]?.actions?.[0];
   review?.callback(new MouseEvent('click'));
   const body = jest.mocked(Dialog).mock.calls[0]?.[0]?.body;
+  expect(jest.mocked(Dialog).mock.calls[0]?.[0]?.renderer).toBeInstanceOf(
+    UnstyledBodyRenderer
+  );
   expect(isValidElement(body)).toBe(true);
   const node = document.createElement('div');
   const root = createRoot(node);
@@ -256,4 +271,45 @@ it('marks each row of the review with its kind, as the inventory does', async ()
     act(() => root.unmount());
     Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', actEnvironment);
   }
+});
+
+describe('UnstyledBodyRenderer', () => {
+  it('leaves the body’s own buttons unstyled, unlike the stock renderer', () => {
+    fixture = harness();
+    const control = () => {
+      const widget = new Widget();
+      widget.node.append(
+        Object.assign(document.createElement('button'), {
+          type: 'button',
+          textContent: 'Open'
+        })
+      );
+      return widget;
+    };
+    const renderer = new UnstyledBodyRenderer();
+    const body = renderer.createBody(control());
+    const stock = new Dialog.Renderer().createBody(control());
+    const text = renderer.createBody('Plain');
+    const react = renderer.createBody(
+      createElement('div', null, createElement('button', null, 'Open'))
+    );
+    try {
+      expect(body.hasClass('jp-Dialog-body')).toBe(true);
+      expect(
+        body.node.querySelector('button')?.classList.contains('jp-mod-styled')
+      ).toBe(false);
+      expect(
+        stock.node.querySelector('button')?.classList.contains('jp-mod-styled')
+      ).toBe(true);
+      expect(text.hasClass('jp-Dialog-body')).toBe(true);
+      expect(text.node.textContent).toBe('Plain');
+      expect(react).toBeInstanceOf(ReactWidget);
+      expect(react.hasClass('jp-Dialog-body')).toBe(true);
+    } finally {
+      body.dispose();
+      stock.dispose();
+      text.dispose();
+      react.dispose();
+    }
+  });
 });

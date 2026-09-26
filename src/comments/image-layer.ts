@@ -1,11 +1,16 @@
 import type { IDisposable } from '@lumino/disposable';
 import type { IComment } from './comments-api';
+import {
+  anchorLayer,
+  COMMENT_HOST_CLASS,
+  COMMENT_LAYER_CLASS,
+  flashElement,
+  inCommentLayer,
+  setAttribute,
+  setText
+} from './comment-layer';
 import { clampPercent, labelGlyph } from './comment-model';
-import { flashElement } from './editor-comments';
 
-/** The CSS classes the layer adds to the host and to its own nodes. */
-export const COMMENT_HOST_CLASS = 'jp-jupyterlab-lightcone-CommentHost';
-export const COMMENT_LAYER_CLASS = 'jp-jupyterlab-lightcone-CommentLayer';
 const FRAME_CLASS = 'jp-jupyterlab-lightcone-CommentFrame';
 const PIN_CLASS = 'jp-jupyterlab-lightcone-CommentPin';
 const DRAFT_CLASS = 'jp-jupyterlab-lightcone-CommentDraft';
@@ -13,71 +18,6 @@ const COMMENTABLE_CLASS = 'jp-jupyterlab-lightcone-Commentable';
 
 /** Pointer travel below which a press counts as a click, in pixels. */
 const CLICK_SLOP = 4;
-
-/** Marks a layer anchored at the scroll origin of a host that scrolls. */
-const HOST_SCROLLS_ATTRIBUTE = 'data-host-scrolls';
-
-/**
- * Whether a node is, or lies inside, a comment layer. Layers observe their
- * host's content; their own nodes and those of a sibling layer on the same
- * host are not content, and reacting to them would have two layers redraw
- * each other on every frame.
- */
-export function inCommentLayer(node: Node): boolean {
-  const element = node instanceof Element ? node : node.parentElement;
-  return !!element?.closest(`.${COMMENT_LAYER_CLASS}`);
-}
-
-/** Set an element's text only when it differs, sparing a DOM mutation. */
-export function setText(element: HTMLElement, text: string): void {
-  if (element.textContent !== text) {
-    element.textContent = text;
-  }
-}
-
-/** Set an attribute only when it differs, sparing a DOM mutation. */
-export function setAttribute(
-  element: HTMLElement,
-  name: string,
-  value: string
-): void {
-  if (element.getAttribute(name) !== value) {
-    element.setAttribute(name, value);
-  }
-}
-
-/**
- * Keep a layer in its host and return the viewport point its children are
- * positioned from.
- *
- * Most hosts do not scroll themselves (a record tab or a Markdown preview
- * scrolls an inner element), so the layer covers the host's box and clips to
- * it. A host that scrolls its own content, like the image viewer, carries an
- * absolutely positioned child along with that content: the layer is then a
- * zero-size anchor at the scroll origin, and the host clips what it holds.
- * Measuring from the layer itself is right in both cases.
- */
-export function anchorLayer(
-  host: HTMLElement,
-  layer: HTMLElement
-): { left: number; top: number } {
-  // React clears the host's children on its first render, taking the layer
-  // with it; put it back beside the rendered content.
-  if (layer.parentElement !== host) {
-    host.appendChild(layer);
-  }
-  const style = window.getComputedStyle(host);
-  const scrolls = /\b(auto|scroll)\b/.test(
-    `${style.overflow} ${style.overflowX} ${style.overflowY}`
-  );
-  if (scrolls) {
-    setAttribute(layer, HOST_SCROLLS_ATTRIBUTE, '');
-  } else {
-    layer.removeAttribute(HOST_SCROLLS_ATTRIBUTE);
-  }
-  const origin = layer.getBoundingClientRect();
-  return { left: origin.left, top: origin.top };
-}
 
 export interface IImageLayerOptions {
   /** The widget node the layer covers; it becomes a positioned container. */

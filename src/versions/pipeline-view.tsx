@@ -9,7 +9,7 @@ import type { CommandRegistry } from '@lumino/commands';
 import { Signal, type ISignal } from '@lumino/signaling';
 import { AstraKindMark } from '../astra-kind';
 import { CommandIDs } from '../commands';
-import { useProject } from '../element-widget';
+import { useProject } from '../project-data-hooks';
 import { astraIcon } from '../icons';
 import {
   outputMaterializationStatus,
@@ -189,15 +189,13 @@ function PipelineGraph({
     [graph, hovered, trace]
   );
   const scroller = useRef<HTMLDivElement>(null);
+  // The drawn nodes by canonical path, for scrolling the traced one into view.
+  const nodeElements = useRef(new Map<string, SVGGElement>());
   const revealed = useRef(0);
   useEffect(() => {
     const container = scroller.current;
     if (!traced || !container || reveal === revealed.current) return;
-    const target = Array.from(
-      container.querySelectorAll<SVGGElement>(
-        '.jp-jupyterlab-lightcone-Pipeline-node'
-      )
-    ).find(item => item.dataset.path === traced.path);
+    const target = nodeElements.current.get(traced.path);
     if (!target) return;
     revealed.current = reveal;
     centerIn(container, target);
@@ -325,6 +323,10 @@ function PipelineGraph({
                 return (
                   <g
                     key={node.path}
+                    ref={element => {
+                      if (element) nodeElements.current.set(node.path, element);
+                      else nodeElements.current.delete(node.path);
+                    }}
                     className="jp-jupyterlab-lightcone-Pipeline-node"
                     transform={`translate(${nodeX(node)},${nodeY(node)})`}
                     role="button"

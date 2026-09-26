@@ -1,15 +1,17 @@
-"""Sessions are listed with readable titles and live activity; preparing a project keeps chats out of Git."""
+"""Sessions are listed through the contents manager, with readable titles and the agents' live activity."""
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import warnings
 
-from jupyter_server.utils import JupyterServerAuthWarning
+from jupyter_server.services.contents.filemanager import FileContentsManager
+from jupyterlab_chat.models import Message
 import pytest
+from tornado import web
 
 from jupyterlab_lightcone import sessions
-from jupyterlab_lightcone.sessions import SESSION_ACTIVITY, setup_session_handlers
+from jupyterlab_lightcone.agent_activity import PROCESSING_PERSONAS, record_persona_state
 
 ENDPOINT = ("jupyterlab_lightcone", "api", "chat-sessions")
 USER = "76192c59327544d7b160694eacfa5309"
@@ -29,16 +31,6 @@ def jp_base_url():
     return "/user/researcher/"
 
 
-@pytest.fixture(autouse=True)
-def no_outer_repository(tmp_path, monkeypatch):
-    """A temporary project must never be seen as part of a repository above the test root.
-
-    The ceiling is the test root's parent: Git still looks above a ceiling that
-    is the very folder it starts in, and some tests start in `tmp_path` itself.
-    """
-    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
-
-
 def message(body, sender=USER, time=1.0, **extra):
     return {"id": f"{sender}-{time}", "body": body, "time": time, "sender": sender, "type": "msg", **extra}
 
@@ -55,12 +47,25 @@ def write_chat(path: Path, document, modified: float | None = None) -> Path:
     return path
 
 
+def manager_for(root: Path, **options) -> FileContentsManager:
+    """The contents manager the listing reads through, serving `root` on the server's default terms."""
+    return FileContentsManager(root_dir=str(root), **options)
+
+
+def working(settings: dict, chat_id: str, persona: str = CODEX) -> None:
+    """Record, as Jupyter AI's own event would, that a persona is processing a message in a chat."""
+    record_persona_state(settings, {"chat_id": chat_id, "persona_id": persona, "processing": True})
+
+
 @pytest.fixture
 def project(jp_root_dir):
     directory = jp_root_dir / "project"
     (directory / "chats").mkdir(parents=True)
     (directory / "astra.yaml").write_text("name: example\n")
     return directory
+
+
+# --- titles, agents and counts, from the document ---------------------------------
 
 
 def test_the_title_is_the_first_line_a_person_wrote():
@@ -108,70 +113,96 @@ def test_the_last_agent_is_named_from_the_users_map_or_its_id():
     assert sessions.last_agent(None) is None
 
 
+def test_a_persona_whose_name_is_its_id_is_named_by_its_last_segment():
+    """Jupyter Chat's model fills an empty display name from the username; that is no name."""
+    users = {**USERS, CLAUDE: {"username": CLAUDE, "name": "", "display_name": "", "bot": True}}
+    document = chat(message("hi"), message("hello", sender=CLAUDE, time=2.0), users=users)
+    assert sessions.last_agent(document) == "ClaudeAcpPersona"
+
+
 def test_messages_are_counted_without_deleted_ones():
     document = chat(message("a"), message("b", sender=CODEX, time=2.0), message("", time=3.0, deleted=True), "junk")
     assert sessions.message_count(document) == 2
     assert sessions.message_count(None) == 0
 
 
-@pytest.mark.parametrize("entry, expected", [
-    ({"state": "working", "persona": CODEX, "since": "2026-09-23T00:00:00+00:00"}, "working"),
-    ({"state": "idle", "persona": CODEX, "since": "2026-09-23T00:00:00+00:00"}, "idle"),
-    ({"state": "done"}, "idle"),
-    (None, "idle"),
-])
-def test_activity_is_working_only_while_the_persona_manager_says_so(entry, expected):
-    activity = {} if entry is None else {"project/chats/talk.chat": entry}
-    assert sessions.activity_state(activity, "project/chats/talk.chat") == expected
-    assert sessions.activity_state(activity, "project/chats/other.chat") == "idle"
+def test_entries_that_do_not_fit_jupyter_chats_model_are_skipped_one_by_one():
+    """A hand-edited or half-written chat degrades per entry rather than becoming unreadable."""
+    without_id = {"body": "no id", "time": 1.5, "sender": USER, "type": "msg"}
+    unknown_field = message("unknown field", time=1.7, stacked=True)
+    not_text = message(42, time=1.8)
+    document = chat(message("A question"), without_id, unknown_field, not_text, message("Reply", sender=CODEX, time=2.0))
+    assert sessions.message_count(document) == 2
+    assert sessions.session_title(document, "untitled") == "A question"
+    users = {**USERS, CODEX: "not a user", CLAUDE: {"display_name": "No username"}}
+    assert sessions.last_agent(chat(message("hi"), message("bye", sender=CODEX, time=2.0), users=users)) == "CodexAcpPersona"
 
 
-def test_oversized_and_broken_chats_are_not_parsed(tmp_path, monkeypatch):
-    path = write_chat(tmp_path / "big.chat", chat(message("a title")))
-    assert sessions.read_chat(path)["messages"][0]["body"] == "a title"
-    monkeypatch.setattr(sessions, "MAX_CHAT_BYTES", 16)
-    assert sessions.read_chat(path) is None
-    monkeypatch.setattr(sessions, "MAX_CHAT_BYTES", 2 * 1024 * 1024)
-    assert sessions.read_chat(write_chat(tmp_path / "broken.chat", "{not json")) is None
-    assert sessions.read_chat(write_chat(tmp_path / "list.chat", "[1, 2]")) is None
-    assert sessions.read_chat(tmp_path / "missing.chat") is None
+# --- the documents, through the contents manager -----------------------------------
+
+
+def test_broken_chats_are_not_parsed():
+    assert sessions.parse_chat(json.dumps(chat(message("a title"))))["messages"][0]["body"] == "a title"
+    assert sessions.parse_chat("{not json") is None
+    assert sessions.parse_chat("[1, 2]") is None
     # Nesting deep enough to exhaust the parser's recursion limit, well within the size cap.
-    assert sessions.read_chat(write_chat(tmp_path / "deep.chat", "[" * 200_000)) is None
+    assert sessions.parse_chat("[" * 200_000) is None
 
 
-def test_a_malformed_chat_never_hides_the_others(tmp_path, monkeypatch):
-    project = tmp_path / "project"
-    write_chat(project / "chats" / "talk.chat", chat(message("A real question")), 1_000)
-    write_chat(project / "chats" / "deep.chat", "[" * 200_000, 2_000)
-    write_chat(project / "chats" / "future.chat", chat(message("From year 31 million")))
-    write_chat(project / "chats" / "beyond.chat", chat(message("Past time_t")))
-    # ext4 and others clamp such times on write, so the stat reports them instead:
-    # datetime rejects the first with ValueError and the second with OverflowError.
-    far = {"future.chat": 10**15, "beyond.chat": 10**20}
-    real_stat = Path.stat
+async def test_oversized_and_removed_chats_are_read_as_the_manager_reports_them(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    write_chat(root / "project" / "chats" / "big.chat", chat(message("a title")))
+    manager = manager_for(root)
+    [model] = await sessions.chat_models(manager, "project/chats")
+    assert (await sessions.read_chat(manager, model))["messages"][0]["body"] == "a title"
+    monkeypatch.setattr(sessions, "MAX_CHAT_BYTES", 16)
+    assert await sessions.read_chat(manager, model) is None
+    assert await sessions.read_chat(manager, {**model, "size": None}) is None
+    monkeypatch.undo()
+    (root / "project" / "chats" / "big.chat").unlink()
+    with pytest.raises(web.HTTPError) as raised:
+        await sessions.read_chat(manager, model)
+    assert raised.value.status_code == 404
 
-    def stat(path, *args, **kwargs):
-        result = real_stat(path, *args, **kwargs)
-        if path.name not in far:
-            return result
-        fields = list(result)
-        fields[8] = far[path.name]
-        return os.stat_result(fields)
 
-    monkeypatch.setattr(Path, "stat", stat)
-    listing = sessions.list_sessions("project", project, {})
-    # The unreadable chat is still listed under its name; those no date can hold are skipped.
-    assert [(session["path"], session["title"]) for session in listing] == [
-        ("project/chats/deep.chat", "deep"),
-        ("project/chats/talk.chat", "A real question"),
+async def test_only_chat_files_directly_inside_a_folder_are_chats(tmp_path):
+    root = tmp_path / "root"
+    write_chat(root / "project" / "chats" / "talk.chat", chat(message("Hello")))
+    (root / "project" / "chats" / "folder.chat").mkdir()
+    (root / "project" / "chats" / "notes.txt").write_text("not a chat")
+    manager = manager_for(root)
+    assert [model["path"] for model in await sessions.chat_models(manager, "project/chats")] == ["project/chats/talk.chat"]
+    assert await sessions.chat_models(manager, "project/missing") == []
+    # A file where the folder should be holds no sessions either.
+    assert await sessions.chat_models(manager, "project/chats/talk.chat") == []
+
+
+async def test_a_malformed_chat_never_hides_the_others(tmp_path):
+    root = tmp_path / "root"
+    write_chat(root / "project" / "chats" / "talk.chat", chat(message("A real question")), 1_000)
+    write_chat(root / "project" / "chats" / "deep.chat", "[" * 200_000, 2_000)
+    listing = await sessions.list_sessions(manager_for(root), "project", set())
+    # The unreadable chat is still listed under its name.
+    assert [(session["path"], session["title"], session["messages"]) for session in listing] == [
+        ("project/chats/deep.chat", "deep", 0),
+        ("project/chats/talk.chat", "A real question", 1),
     ]
 
 
-def test_sessions_are_listed_newest_first_from_chats_and_the_project_root(tmp_path):
+def test_modified_is_the_managers_time_with_milliseconds():
+    model = {"last_modified": datetime(1970, 1, 1, 0, 50, tzinfo=timezone.utc)}
+    assert sessions.modified_time(model) == "1970-01-01T00:50:00.000+00:00"
+
+
+async def test_sessions_are_listed_newest_first_from_chats_and_the_project_root(tmp_path):
     root = tmp_path / "root"
     project = root / "project"
     project.mkdir(parents=True)
-    write_chat(project / "chats" / "older.chat", chat(message("An older question"), message("Reply", sender=CODEX, time=2.0)), 1_000)
+    write_chat(
+        project / "chats" / "older.chat",
+        chat(message("An older question"), message("Reply", sender=CODEX, time=2.0), metadata={"id": "older-id"}),
+        1_000,
+    )
     write_chat(project / "chats" / "newer.chat", chat(message("The newest question")), 3_000)
     write_chat(project / "untitled1.chat", chat(message("", sender=CODEX)), 2_000)
     write_chat(project / "chats" / ".hidden.chat", chat(message("hidden")), 4_000)
@@ -179,9 +210,8 @@ def test_sessions_are_listed_newest_first_from_chats_and_the_project_root(tmp_pa
     (project / "chats" / "notes.txt").write_text("not a chat")
     (project / "chats" / ".ipynb_checkpoints").mkdir()
     write_chat(project / "chats" / ".ipynb_checkpoints" / "newer-checkpoint.chat", chat(message("checkpoint")), 5_000)
-    activity = {"project/chats/older.chat": {"state": "working", "persona": CODEX, "since": "now"}}
 
-    listing = sessions.list_sessions("project", project, activity)
+    listing = await sessions.list_sessions(manager_for(root), "project", {"older-id"})
 
     assert [session["path"] for session in listing] == [
         "project/chats/newer.chat",
@@ -203,31 +233,50 @@ def test_sessions_are_listed_newest_first_from_chats_and_the_project_root(tmp_pa
     assert older["activity"] == "working"
 
 
-def test_a_project_without_chats_lists_nothing(tmp_path):
-    assert sessions.list_sessions("", tmp_path, {}) == []
+async def test_hidden_chats_follow_the_managers_rule(tmp_path):
+    """The file browser decides what is hidden; the listing shows exactly what it shows."""
+    root = tmp_path / "root"
+    write_chat(root / "project" / "chats" / ".draft.chat", chat(message("hidden")))
+    write_chat(root / "project" / "chats" / "talk.chat", chat(message("shown")))
+    hidden = [session["path"] for session in await sessions.list_sessions(manager_for(root), "project", set())]
+    assert hidden == ["project/chats/talk.chat"]
+    shown = await sessions.list_sessions(manager_for(root, allow_hidden=True), "project", set())
+    assert sorted(session["path"] for session in shown) == ["project/chats/.draft.chat", "project/chats/talk.chat"]
+
+
+async def test_a_project_without_chats_lists_nothing(tmp_path):
+    assert await sessions.list_sessions(manager_for(tmp_path), "", set()) == []
     assert sessions.chats_directory("") == "chats"
     assert sessions.chats_directory("a/b") == "a/b/chats"
 
 
-@pytest.mark.parametrize("entrypoint, expected", [
-    ("astra.yaml", ""),
-    ("./astra.yaml", ""),
-    ("project/astra.yaml", "project"),
-    ("team//project/./astra.yaml/", "team/project"),
-])
-def test_the_project_keeps_the_contents_path_its_entrypoint_names(entrypoint, expected):
-    assert sessions.project_contents_path(entrypoint) == expected
+# --- activity ------------------------------------------------------------------
+
+
+def test_activity_is_working_while_a_persona_processes_a_message_in_the_chat():
+    document = chat(message("hi"), metadata={"id": "chat-1"})
+    assert sessions.activity_state(document, {"chat-1"}) == "working"
+    assert sessions.activity_state(document, {"other"}) == "idle"
+    assert sessions.activity_state(document, set()) == "idle"
+    # A chat without the id Jupyter Chat gives it, or no document at all, is never working.
+    assert sessions.activity_state(chat(message("hi")), {"chat-1"}) == "idle"
+    assert sessions.activity_state(None, {"chat-1"}) == "idle"
+    assert sessions.chat_id({"metadata": {"id": 5}}) is None
+    assert sessions.chat_id({"metadata": "no map"}) is None
+
+
+# --- the listing route -------------------------------------------------------------
 
 
 async def test_the_listing_endpoint_reports_sessions_and_their_activity(jp_fetch, jp_serverapp, project):
-    # Seeded through the persona manager's own accessor, so writer and reader must agree.
-    agent_workspace = pytest.importorskip("jupyterlab_lightcone.agent_workspace")
-    write_chat(project / "chats" / "talk.chat", chat(message("Fit the cosmology"), message("Done", sender=CODEX, time=2.0)), 2_000)
-    write_chat(project / "chats" / "quiet.chat", chat(message("Quiet one")), 1_000)
-    jp_serverapp.web_app.settings.pop(SESSION_ACTIVITY, None)
-    agent_workspace.session_activity(jp_serverapp.web_app)["project/chats/talk.chat"] = {
-        "state": "working", "persona": CODEX, "since": "2026-09-23T00:00:00+00:00",
-    }
+    write_chat(
+        project / "chats" / "talk.chat",
+        chat(message("Fit the cosmology"), message("Done", sender=CODEX, time=2.0), metadata={"id": "talk-id"}),
+        2_000,
+    )
+    write_chat(project / "chats" / "quiet.chat", chat(message("Quiet one"), metadata={"id": "quiet-id"}), 1_000)
+    # Seeded as the persona events are recorded, so writer and reader must agree.
+    working(jp_serverapp.web_app.settings, "talk-id")
     response = await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"})
     assert response.code == 200
     assert response.headers["Cache-Control"] == "no-store"
@@ -239,9 +288,9 @@ async def test_the_listing_endpoint_reports_sessions_and_their_activity(jp_fetch
     ]
 
 
-async def test_the_listing_endpoint_works_without_any_activity_registry(jp_fetch, jp_serverapp, project):
-    jp_serverapp.web_app.settings.pop(SESSION_ACTIVITY, None)
-    write_chat(project / "chats" / "talk.chat", chat(message("Hello")))
+async def test_the_listing_endpoint_works_before_any_persona_reported(jp_fetch, jp_serverapp, project):
+    jp_serverapp.web_app.settings.pop(PROCESSING_PERSONAS, None)
+    write_chat(project / "chats" / "talk.chat", chat(message("Hello"), metadata={"id": "talk-id"}))
     body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"})).body)
     assert [session["activity"] for session in body["sessions"]] == ["idle"]
 
@@ -255,17 +304,13 @@ async def test_a_malformed_chat_does_not_break_the_listing_endpoint(jp_fetch, pr
 
 async def test_a_project_reached_through_a_symlink_keeps_its_contents_paths(jp_fetch, jp_serverapp, jp_root_dir):
     real = jp_root_dir / "real" / "project"
-    write_chat(real / "chats" / "talk.chat", chat(message("Through the link")))
+    write_chat(real / "chats" / "talk.chat", chat(message("Through the link"), metadata={"id": "talk-id"}))
     (real / "astra.yaml").write_text("name: linked\n")
     (jp_root_dir / "link").symlink_to(real, target_is_directory=True)
-    jp_serverapp.web_app.settings[SESSION_ACTIVITY] = {
-        "link/chats/talk.chat": {"state": "working", "persona": CODEX, "since": "2026-09-23T00:00:00+00:00"},
-    }
+    working(jp_serverapp.web_app.settings, "talk-id")
     body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "link/astra.yaml"})).body)
     assert body["directory"] == "link/chats"
     assert [(session["path"], session["activity"]) for session in body["sessions"]] == [("link/chats/talk.chat", "working")]
-    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "link/astra.yaml"}))
-    assert json.loads(response.body) == {"directory": "link/chats"}
 
 
 async def test_a_symlinked_entrypoint_lists_the_chats_beside_the_link(jp_fetch, jp_root_dir):
@@ -275,13 +320,20 @@ async def test_a_symlinked_entrypoint_lists_the_chats_beside_the_link(jp_fetch, 
     project = jp_root_dir / "project"
     project.mkdir()
     (project / "astra.yaml").symlink_to(shared / "astra.yaml")
-    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "project/astra.yaml"}))
-    assert json.loads(response.body) == {"directory": "project/chats"}
     write_chat(project / "chats" / "talk.chat", chat(message("Beside the link")))
     body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"})).body)
     # The chats the browser creates in the reported folder, never the target's.
     assert body["directory"] == "project/chats"
     assert [(session["path"], session["title"]) for session in body["sessions"]] == [("project/chats/talk.chat", "Beside the link")]
+
+
+async def test_a_project_at_the_server_root(jp_fetch, jp_root_dir):
+    (jp_root_dir / "astra.yaml").write_text("name: root\n")
+    body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "astra.yaml"})).body)
+    assert body == {"directory": "chats", "sessions": []}
+    write_chat(jp_root_dir / "chats" / "talk.chat", chat(message("At the root")))
+    body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "astra.yaml"})).body)
+    assert [(session["path"], session["title"]) for session in body["sessions"]] == [("chats/talk.chat", "At the root")]
 
 
 @pytest.mark.parametrize("path, status", [
@@ -303,63 +355,6 @@ async def test_the_listing_rejects_paths_the_server_does_not_serve(jp_fetch, jp_
     assert response.code == status
 
 
-async def test_preparing_creates_the_chats_folder_through_the_contents_manager(jp_fetch, jp_serverapp, jp_root_dir, monkeypatch):
-    project = jp_root_dir / "fresh"
-    project.mkdir()
-    (project / "astra.yaml").write_text("name: fresh\n")
-    manager = jp_serverapp.contents_manager
-    original = manager.new
-    created = []
-
-    async def new(model=None, path=""):
-        created.append((model, path))
-        return await original(model=model, path=path)
-
-    monkeypatch.setattr(manager, "new", new)
-    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "fresh/astra.yaml"}))
-    assert response.code == 200
-    assert json.loads(response.body) == {"directory": "fresh/chats"}
-    assert (project / "chats").is_dir()
-    assert created == [({"type": "directory"}, "fresh/chats")]
-    # Preparing again is idempotent and creates nothing anew.
-    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "fresh/astra.yaml"}))
-    assert json.loads(response.body) == {"directory": "fresh/chats"}
-    assert created == [({"type": "directory"}, "fresh/chats")]
-    assert not (project / ".git").exists()
-
-
-async def test_preparing_a_project_at_the_server_root(jp_fetch, jp_root_dir):
-    (jp_root_dir / "astra.yaml").write_text("name: root\n")
-    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "astra.yaml"}))
-    assert json.loads(response.body) == {"directory": "chats"}
-    assert (jp_root_dir / "chats").is_dir()
-    body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "astra.yaml"})).body)
-    assert body == {"directory": "chats", "sessions": []}
-
-
-@pytest.mark.parametrize("body, status", [
-    ("{}", 400),
-    ('["project/astra.yaml"]', 400),
-    ('{"path": 1}', 400),
-    ('{"path": "../outside/astra.yaml"}', 400),
-    ('{"path": "missing/astra.yaml"}', 404),
-])
-async def test_malformed_preparation_requests_change_nothing(jp_fetch, jp_root_dir, project, body, status):
-    response = await jp_fetch(*ENDPOINT, method="POST", body=body, raise_error=False)
-    assert response.code == status
-    assert not (jp_root_dir / "missing").exists()
-
-
-async def test_preparing_requires_write_permission(jp_fetch, jp_serverapp, jp_root_dir, monkeypatch):
-    (jp_root_dir / "astra.yaml").write_text("name: root\n")
-    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda handler, user, action, resource: action != "write")
-    response = await jp_fetch(*ENDPOINT, method="POST", body=json.dumps({"path": "astra.yaml"}), raise_error=False)
-    assert response.code == 403
-    assert not (jp_root_dir / "chats").exists()
-    # Reading stays allowed.
-    assert (await jp_fetch(*ENDPOINT, params={"path": "astra.yaml"})).code == 200
-
-
 async def test_listing_requires_contents_authorization(jp_fetch, jp_serverapp, project, monkeypatch):
     monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda *args, **kwargs: False)
     response = await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"}, raise_error=False)
@@ -367,16 +362,11 @@ async def test_listing_requires_contents_authorization(jp_fetch, jp_serverapp, p
 
 
 async def test_requires_authentication(jp_fetch, project):
-    for method, kwargs in (("GET", {"params": {"path": "project/astra.yaml"}}), ("POST", {"body": '{"path": "project/astra.yaml"}'})):
-        response = await jp_fetch(*ENDPOINT, method=method, follow_redirects=False, headers={"Authorization": ""}, raise_error=False, **kwargs)
-        assert response.code in (302, 403)
-
-
-def test_every_verb_is_decorated_for_authentication(jp_serverapp):
-    with warnings.catch_warnings(record=True) as records:
-        warnings.simplefilter("always")
-        setup_session_handlers(jp_serverapp.web_app)
-    assert not [record for record in records if issubclass(record.category, JupyterServerAuthWarning)]
+    response = await jp_fetch(
+        *ENDPOINT, params={"path": "project/astra.yaml"}, follow_redirects=False, headers={"Authorization": ""},
+        raise_error=False,
+    )
+    assert response.code in (302, 403)
 
 
 # --- full-text search ----------------------------------------------------------
@@ -384,15 +374,16 @@ def test_every_verb_is_decorated_for_authentication(jp_serverapp):
 SEARCH = (*ENDPOINT, "search")
 
 
-def test_search_finds_messages_case_insensitively_newest_first(tmp_path):
-    project = tmp_path / "project"
+async def test_search_finds_messages_case_insensitively_newest_first(tmp_path):
+    root = tmp_path / "root"
+    project = root / "project"
     write_chat(project / "chats" / "fit.chat", chat(
         message("Plot the Hubble residuals", time=10.0),
         message("I plotted the HUBBLE residuals versus redshift.", sender=CODEX, time=20.0),
         message("Something else entirely", time=30.0),
     ))
     write_chat(project / "old.chat", chat(message("An older hubble question", time=5.0)))
-    matches = sessions.search_sessions("project", project, "hubble")
+    matches = await sessions.search_sessions(manager_for(root), "project", "hubble")
     assert [(match["path"], match["time"][:19]) for match in matches] == [
         ("project/chats/fit.chat", "1970-01-01T00:00:20"),
         ("project/chats/fit.chat", "1970-01-01T00:00:10"),
@@ -406,17 +397,30 @@ def test_search_finds_messages_case_insensitively_newest_first(tmp_path):
     assert matches[1]["author"] == "Anonymous Megaclite" and matches[1]["agent"] is False
 
 
-def test_search_snippets_are_cut_around_the_match_and_matches_are_bounded(tmp_path, monkeypatch):
-    project = tmp_path / "project"
+async def test_search_snippets_are_cut_around_the_match_and_matches_are_bounded(tmp_path, monkeypatch):
+    root = tmp_path / "root"
     body = "a " * 100 + "needle" + "\n b" * 100
-    write_chat(project / "chats" / "long.chat", chat(*(message(body, time=float(i)) for i in range(5))))
+    write_chat(root / "project" / "chats" / "long.chat", chat(*(message(body, time=float(i)) for i in range(5))))
     monkeypatch.setattr(sessions, "MAX_SEARCH_MATCHES", 3)
-    matches = sessions.search_sessions("project", project, "needle")
+    manager = manager_for(root)
+    matches = await sessions.search_sessions(manager, "project", "needle")
     assert len(matches) == 3
     text = matches[0]["snippet"]
     assert text.startswith("…") and text.endswith("…") and "needle" in text and "\n" not in text
     # A query is literal text, never a pattern.
-    assert sessions.search_sessions("project", project, "a.*needle") == []
+    assert await sessions.search_sessions(manager, "project", "a.*needle") == []
+
+
+@pytest.mark.parametrize("time, expected", [
+    (10.5, "1970-01-01T00:00:10.500+00:00"),
+    ("10", None),
+    (True, None),
+    (10**15, None),
+    (10**20, None),
+])
+def test_a_message_time_is_iso_8601_or_none_when_no_date_can_hold_it(time, expected):
+    """The model does not check the field's type: a time no date can hold sorts last rather than failing."""
+    assert sessions.message_time(Message(id="m", body="when", time=time, sender=USER)) == expected
 
 
 async def test_the_search_endpoint(jp_fetch, project):

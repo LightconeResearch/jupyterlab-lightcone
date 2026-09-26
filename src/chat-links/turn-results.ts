@@ -1,4 +1,5 @@
 import type { IResultsCommit } from '../versions/versions-api';
+import { readToolCalls } from '../sessions/acp-metadata';
 import { isPersonaUser } from '../sessions/session-activity';
 
 /** The part of a chat message that turn detection reads. */
@@ -115,29 +116,6 @@ export function materializedDuring(
     .map(entry => entry.item);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** The paths of every file diff recorded in a message's ACP tool calls. */
-export function toolCallDiffPaths(metadata: unknown): string[] {
-  if (!isRecord(metadata) || !Array.isArray(metadata.tool_calls)) {
-    return [];
-  }
-  const paths: string[] = [];
-  for (const call of metadata.tool_calls) {
-    if (!isRecord(call) || !Array.isArray(call.diffs)) {
-      continue;
-    }
-    for (const diff of call.diffs) {
-      if (isRecord(diff) && typeof diff.path === 'string' && diff.path) {
-        paths.push(diff.path);
-      }
-    }
-  }
-  return paths;
-}
-
 /** The files the agent edited during a turn, in first-edit order without repeats. */
 export function filesEditedIn(
   messages: readonly ITurnMessage[],
@@ -147,10 +125,12 @@ export function filesEditedIn(
   const seen = new Set<string>();
   const files: string[] = [];
   for (const id of window.agentMessageIds) {
-    for (const path of toolCallDiffPaths(byId.get(id)?.metadata)) {
-      if (!seen.has(path)) {
-        seen.add(path);
-        files.push(path);
+    for (const call of readToolCalls(byId.get(id)?.metadata)) {
+      for (const path of call.diffPaths) {
+        if (!seen.has(path)) {
+          seen.add(path);
+          files.push(path);
+        }
       }
     }
   }

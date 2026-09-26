@@ -8,6 +8,7 @@ import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents } from '@jupyterlab/services';
 import { type IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
+import { CommandRegistry } from '@lumino/commands';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
 import {
@@ -68,6 +69,20 @@ export async function requireProject(
   }
   await app.commands.execute(CommandIDs.createProject, { path });
   return undefined;
+}
+
+/** The first key binding of a command, formatted for a hint such as "Ctrl K". */
+export function shortcutLabel(
+  commands: CommandRegistry,
+  command: string
+): string | undefined {
+  const binding = commands.keyBindings.find(item => item.command === command);
+  if (!binding) {
+    return undefined;
+  }
+  return binding.keys
+    .map(keystroke => CommandRegistry.formatKeystroke(keystroke))
+    .join(', ');
 }
 
 /** The folder name Create proposes, numbered when it is taken. */
@@ -156,7 +171,7 @@ export function registerCommands(options: ICommandOptions): void {
     if (app.commands.hasCommand(HomeCommandIDs.openHome)) {
       return app.commands.execute(HomeCommandIDs.openHome, { cwd: path });
     }
-    return app.commands.execute('launcher:create', {
+    return app.commands.execute(HomeCommandIDs.create, {
       cwd: path,
       activate: true
     });
@@ -190,6 +205,7 @@ export function registerCommands(options: ICommandOptions): void {
       path,
       mode,
       settings: contents.serverSettings,
+      translator: options.translator,
       browse: () =>
         browseProjectFolder(documents, browserPath(), options.translator),
       findProject: folder => findProjectRoot(contents, folder),
@@ -345,7 +361,6 @@ export function registerCommands(options: ICommandOptions): void {
             description: 'Project directory contents path'
           },
           analysisPath: { type: 'string' },
-          scope: { type: 'string' },
           openReference: {
             type: 'object',
             description: 'ASTRA record or paper reference'
@@ -375,7 +390,6 @@ export function registerCommands(options: ICommandOptions): void {
               ...(typeof args.analysisPath === 'string'
                 ? { analysisPath: args.analysisPath }
                 : {}),
-              ...(typeof args.scope === 'string' ? { scope: args.scope } : {}),
               ...(openReference ? { openReference } : {})
             },
             widget.context.path

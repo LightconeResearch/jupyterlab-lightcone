@@ -3,7 +3,6 @@
 import asyncio
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 from jupyter_server.auth import User
@@ -11,9 +10,22 @@ import pytest
 from tornado.web import HTTPError
 
 from jupyterlab_lightcone import comments
+from jupyterlab_lightcone.project_store import StoreError
 from jupyterlab_lightcone.projects import owning_project, project_root
 
 ENDPOINT = ("jupyterlab_lightcone", "api", "comments")
+
+SPEC = """version: "1.0"
+name: test
+inputs: []
+outputs:
+  - id: hubble_diagram
+    type: figure
+    format: png
+    recipe:
+      command: python fig.py --out {{output}}
+"""
+"""A spec the engine reads: it names the figure's file from the declared format."""
 
 
 def point(text="The legend covers the high-redshift points.", record="outputs.hubble_diagram", universe="baseline", **version):
@@ -51,11 +63,13 @@ def selection(text="Explain why the magnitude offset is profiled.", path="index.
     }
 
 
-def project(root, name="project"):
-    """A project with one materialized figure, beside its hidden manifest."""
+def project(root, name="project", spec=SPEC):
+    """A project declaring one figure, materialized in its baseline universe beside its hidden manifest."""
     directory = root / name
     (directory / "results" / "baseline").mkdir(parents=True)
-    (directory / "astra.yaml").write_text("name: test\n")
+    (directory / "universes").mkdir()
+    (directory / "astra.yaml").write_text(spec)
+    (directory / "universes" / "baseline.yaml").write_text("id: baseline\n")
     (directory / "results" / "baseline" / "hubble_diagram.png").write_bytes(b"png")
     (directory / "results" / "baseline" / ".hubble_diagram.manifest.json").write_text("{}")
     return directory
@@ -204,12 +218,13 @@ def test_the_store_round_trips_and_a_missing_store_is_empty(tmp_path):
     b'{"version": 1, "comments": [{"id": "x"}]}',
 ])
 def test_a_corrupt_store_is_an_error_not_a_silent_loss(tmp_path, content):
+    """A store this server cannot use is its error (500), as a run record it cannot use is in `provenance`."""
     path = comments.store_path(tmp_path)
     path.parent.mkdir()
     path.write_bytes(content)
-    with pytest.raises(HTTPError) as error:
+    with pytest.raises(StoreError) as error:
         comments.read_store(path)
-    assert error.value.status_code == 500
+    assert error.value.status == 500
 
 
 @pytest.mark.parametrize("field, value", [
@@ -223,17 +238,18 @@ def test_a_stored_field_that_could_not_be_written_back_is_refused(tmp_path, fiel
     comment = stored(point(), status="sent", sentWith={"chat": "talk.chat", "message": "m0"})
     comment[field] = value
     path.write_text(json.dumps({"version": 1, "comments": [comment]}))
-    with pytest.raises(HTTPError) as error:
+    with pytest.raises(StoreError) as error:
         comments.read_store(path)
-    assert error.value.status_code == 500
+    assert error.value.status == 500
 
 
 def test_the_store_is_bounded(tmp_path, monkeypatch):
     path = comments.store_path(tmp_path)
     comments.write_store(path, [stored(point())])
     monkeypatch.setattr(comments, "MAX_STORE_BYTES", 16)
-    with pytest.raises(HTTPError):
+    with pytest.raises(StoreError) as error:
         comments.read_store(path)
+    assert error.value.status == 500
 
 
 def test_a_write_never_outgrows_what_can_be_read(tmp_path, monkeypatch):
@@ -241,9 +257,9 @@ def test_a_write_never_outgrows_what_can_be_read(tmp_path, monkeypatch):
     kept = [stored(point())]
     comments.write_store(path, kept)
     monkeypatch.setattr(comments, "MAX_STORE_BYTES", path.stat().st_size)
-    with pytest.raises(HTTPError) as error:
+    with pytest.raises(StoreError) as error:
         comments.write_store(path, [*kept, stored(point(text="Second"))])
-    assert error.value.status_code == 413
+    assert error.value.status == 413
     # The previous store is untouched and still readable, with no temporary file left.
     assert comments.read_store(path) == kept
     assert sorted(entry.name for entry in path.parent.iterdir()) == ["comments.json"]
@@ -281,16 +297,25 @@ def test_a_stored_text_is_kept_verbatim(tmp_path):
 
 def test_the_result_file_of_an_output_is_found_with_or_without_its_universe(tmp_path):
     root = project(tmp_path)
+    (root / "universes" / "alt.yaml").write_text("id: alt\n")
     (root / "results" / "alt").mkdir()
-    (root / "results" / "alt" / "hubble_diagram.svg").write_bytes(b"svg")
+    (root / "results" / "alt" / "hubble_diagram.png").write_bytes(b"png")
+    # A stale file a re-declared format left behind never competes with the declared one.
+    (root / "results" / "baseline" / "hubble_diagram.jpg").write_bytes(b"jpg")
     assert comments.output_file(root, "outputs.hubble_diagram", "baseline") == "results/baseline/hubble_diagram.png"
-    assert comments.output_file(root, "outputs.hubble_diagram", None) == "results/alt/hubble_diagram.svg"
+    assert comments.output_file(root, "outputs.hubble_diagram", None) == "results/alt/hubble_diagram.png"
     assert comments.output_file(root, "sub.outputs.hubble_diagram", "baseline") == "results/baseline/hubble_diagram.png"
     assert comments.output_file(root, "outputs.missing", "baseline") is None
     assert comments.output_file(root, "outputs.hubble_diagram", "../baseline") is None
     assert comments.output_file(root, "decisions.model", "baseline") is None
     assert comments.output_file(root, "outputs.hubble_diagram", ".hidden") is None
     assert comments.output_file(tmp_path / "empty", "outputs.hubble_diagram", None) is None
+    # Without a universe, the first universe that holds the declared file names it.
+    (root / "results" / "alt" / "hubble_diagram.png").unlink()
+    assert comments.output_file(root, "outputs.hubble_diagram", None) == "results/baseline/hubble_diagram.png"
+    # A spec the engine cannot read, outside git, names no file.
+    broken = project(tmp_path, "broken", spec="name: broken\n")
+    assert comments.output_file(broken, "outputs.hubble_diagram", "baseline") is None
 
 
 def test_the_block_names_records_files_versions_positions_and_quotes(tmp_path):
@@ -354,8 +379,6 @@ def test_a_note_over_several_lines_stays_under_its_number():
 ])
 def test_paths_are_relative_to_the_project(path, project_dir, expected):
     assert comments.relative_path(path, project_dir) == expected
-    assert comments.project_directory("project/astra.yaml") == "project"
-    assert comments.project_directory("astra.yaml") == ""
 
 
 async def test_delivery_marks_only_the_named_pending_comments_sent(tmp_path):
@@ -506,15 +529,26 @@ async def test_bad_requests_are_rejected(jp_fetch, served, method, path, body, p
     assert response.code == 400
 
 
-@pytest.mark.parametrize("user, expected", [
-    (User(username="researcher"), "researcher"),
-    ({"username": "legacy"}, "legacy"),
-    ({"name": "No username"}, ""),
-    (None, ""),
-])
-def test_the_author_is_the_requesting_username(user, expected):
-    handler = SimpleNamespace(current_user=user)
-    assert comments.CommentAPIHandler.author.fget(handler) == expected
+def test_the_author_is_the_requesting_username():
+    assert comments.author_of(User(username="researcher", name="Dr. Researcher")) == "researcher"
+
+
+async def test_an_entrypoint_in_a_request_body_is_validated_like_a_query(jp_fetch, served, jp_serverapp):
+    """Tornado strips control characters from query arguments only, never from JSON bodies."""
+    root = Path(jp_serverapp.contents_manager.root_dir)
+    project(root, "a b")
+    body = json.dumps({"path": "a\x00b/astra.yaml", "comment": point()})
+    response = await jp_fetch(*ENDPOINT, method="POST", body=body, raise_error=False)
+    assert response.code == 400
+    assert not comments.store_path(root / "a b").exists()
+
+
+async def test_an_unusable_store_is_the_servers_error(jp_fetch, served):
+    store = comments.store_path(served)
+    store.parent.mkdir()
+    store.write_bytes(b"[]")
+    response = await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"}, raise_error=False)
+    assert response.code == 500
 
 
 async def test_a_full_store_refuses_new_comments_but_stays_usable(jp_fetch, served, monkeypatch):

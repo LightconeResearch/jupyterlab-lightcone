@@ -1,3 +1,4 @@
+import { nullTranslator } from '@jupyterlab/translation';
 import { CommandRegistry } from '@lumino/commands';
 import { assembleLoadedProject, resolveProject } from '../../project-data';
 import type { ISessionInfo } from '../../sessions/sessions-api';
@@ -10,7 +11,10 @@ import {
   sessionCandidates
 } from '../search-candidates';
 
-const NOW = Date.parse('2026-09-23T12:00:00Z');
+const TRANS = nullTranslator.load('jupyterlab_lightcone');
+const HOUR = 3_600_000;
+/** An ISO time `ms` before now, for the relative times captions carry. */
+const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
 const spec = `version: '0.0.14'
 name: Project
@@ -50,7 +54,7 @@ function session(overrides: Partial<ISessionInfo> = {}): ISessionInfo {
   return {
     path: 'work/chats/hubble.chat',
     title: 'Hubble diagram with error bars',
-    modified: '2026-09-23T10:00:00Z',
+    modified: ago(2 * HOUR),
     messages: 4,
     lastAgent: 'Codex',
     activity: 'idle',
@@ -67,25 +71,25 @@ describe('sessionCandidates', () => {
           path: 'work/chats/contours.chat',
           title: 'Contour styling',
           activity: 'working',
-          modified: '2026-09-23T11:59:40Z'
+          modified: ago(0)
         }),
         session({ path: 'work/chats/untitled.chat', lastAgent: null }),
         session({ path: 'work/chats/undated.chat', modified: 'unknown' })
       ],
-      { now: NOW }
+      TRANS
     );
     expect(idle).toMatchObject({
       id: 'session:work/chats/hubble.chat',
       kind: 'session',
       category: 'Sessions',
       label: 'Hubble diagram with error bars',
-      caption: 'Codex · 2 h ago',
+      caption: 'Codex · 2 hours ago',
       rank: 0,
       action: { type: 'session', path: 'work/chats/hubble.chat' }
     });
-    expect(working.caption).toBe('Codex · working · just now');
+    expect(working.caption).toBe('Codex · working · now');
     expect(working.rank).toBe(1);
-    expect(anonymous.caption).toBe('2 h ago');
+    expect(anonymous.caption).toBe('2 hours ago');
     expect(undated.caption).toBe('Codex');
   });
 
@@ -99,18 +103,19 @@ describe('sessionCandidates', () => {
         session(),
         session({ path: 'work/chats/done.chat', activity: 'working' })
       ],
-      { now: NOW, activity: path => live[path] }
+      TRANS,
+      { activity: path => live[path] }
     );
-    expect(waiting.caption).toBe('Codex · needs your input · 2 h ago');
-    expect(finished.caption).toBe('Codex · 2 h ago');
+    expect(waiting.caption).toBe('Codex · needs your input · 2 hours ago');
+    expect(finished.caption).toBe('Codex · 2 hours ago');
   });
 
   it('keeps only the newest sessions up to the limit', () => {
     const many = Array.from({ length: 5 }, (_value, index) =>
       session({ path: `work/chats/${index}.chat`, title: `Session ${index}` })
     );
-    expect(sessionCandidates(many, { now: NOW, limit: 2 })).toHaveLength(2);
-    expect(sessionCandidates(many, { now: NOW })).toHaveLength(5);
+    expect(sessionCandidates(many, TRANS, { limit: 2 })).toHaveLength(2);
+    expect(sessionCandidates(many, TRANS)).toHaveLength(5);
   });
 });
 
@@ -120,7 +125,7 @@ describe('recordCandidates', () => {
     try {
       const { bundle } = await resolveProject(contents, 'work/astra.yaml');
       const data = assembleLoadedProject(bundle, {});
-      const candidates = recordCandidates(data, 'work/astra.yaml');
+      const candidates = recordCandidates(data, 'work/astra.yaml', TRANS);
       const byId = new Map(
         candidates.map(candidate => [candidate.id, candidate])
       );
@@ -179,6 +184,7 @@ describe('fileCandidates', () => {
         { path: 'work/README.md', name: 'README.md', directory: '' },
         { path: 'work/src/plot.py', name: 'plot.py', directory: 'src' }
       ],
+      TRANS,
       path => (path.endsWith('.py') ? icon : undefined)
     );
     expect(root).toMatchObject({
@@ -249,7 +255,7 @@ describe('commandCandidates', () => {
 
   it('keeps labelled Lightcone commands that run without arguments, sorted by label', async () => {
     const { commands, disable } = registry();
-    const candidates = await commandCandidates(commands, {
+    const candidates = await commandCandidates(commands, TRANS, {
       exclude: ['jupyterlab_lightcone:search']
     });
     expect(candidates.map(candidate => candidate.action)).toEqual([

@@ -65,15 +65,9 @@ class MySTRASessionsHandler(MySTRARouteHandler):
 
     @web.authenticated
     @authorized(action="execute", resource="mystra")
+    @authorized(action="read", resource="contents")
     async def post(self):
         """Resolve a readable local project and start/reuse its viewer."""
-        allowed = await ensure_async(
-            self.authorizer.is_authorized(self, self.current_user, "read", "contents")
-        )
-        if not allowed:
-            raise web.HTTPError(
-                403, log_message="Reading this project is not authorized"
-            )
         if not isinstance(self.contents_manager, FileContentsManager):
             raise web.HTTPError(
                 503,
@@ -85,7 +79,7 @@ class MySTRASessionsHandler(MySTRARouteHandler):
             self.manager.project_root, path
         )
         # The contents manager applies the server's hidden-file policy.
-        await ensure_async(self.contents_manager.get(config_path, content=False))
+        await contents_call(self.contents_manager.get, config_path, content=False)
         session = await self.manager.start(
             self.current_user.username, project, config_path
         )
@@ -118,27 +112,32 @@ class MySTRAProxyHandler(MySTRARouteHandler):
     def check_xsrf_cookie(self):
         """Allow browser resource reads from this user's own Jupyter pages.
 
-        Hub checks XSRF even for cookie-authenticated GETs in CORS mode,
-        including module imports and fonts, which cannot add an XSRF header.
-        Require browser fetch metadata and a same-origin Referer within this
-        server's base URL: another Hub user's page can share our origin.
+        Jupyter Server's own check already lets a GET or HEAD through on its
+        Referer (`check_referer`); JupyterHub's replaces that check and refuses
+        cookie-authenticated requests in CORS mode, including module imports
+        and fonts, which cannot add an XSRF header. So, for a GET or HEAD the
+        browser marks same-origin, the Referer is checked here with
+        `check_referer` and two things it does not test: the scheme, which a
+        forwarding proxy may have downgraded, and a path within this server's
+        base URL, since another Hub user's page shares our origin.
         Authentication, authorization and session ownership still apply.
         """
+        referer = self.request.headers.get("Referer")
         if (
-            self.request.method in {"GET", "HEAD"}
+            referer
+            and self.request.method in {"GET", "HEAD"}
             and self.request.headers.get("Sec-Fetch-Site") == "same-origin"
         ):
             try:
-                referer = urlsplit(self.request.headers.get("Referer", ""))
+                parsed = urlsplit(referer)
             except ValueError:
-                pass
-            else:
-                if (
-                    referer.scheme == self.request.protocol
-                    and referer.netloc == self.request.host
-                    and referer.path.startswith(self.base_url.rstrip("/") + "/")
-                ):
-                    return
+                return super().check_xsrf_cookie()
+            if (
+                parsed.scheme == self.request.protocol
+                and parsed.path.startswith(self.base_url.rstrip("/") + "/")
+                and self.check_referer()
+            ):
+                return None
         return super().check_xsrf_cookie()
 
     @web.authenticated
@@ -275,11 +274,11 @@ def setup_mystra_handlers(web_app, manager):
     web_app.add_handlers(
         ".*$",
         [
-            (prefix + "/sessions", MySTRASessionsHandler, options),
-            (prefix + "/sessions/" + identifier, MySTRASessionHandler, options),
-            (prefix + "/" + identifier + "/socket", MySTRASocketHandler, options),
+            (url_path_join(prefix, "sessions"), MySTRASessionsHandler, options),
+            (url_path_join(prefix, "sessions", identifier), MySTRASessionHandler, options),
+            (url_path_join(prefix, identifier, "socket"), MySTRASocketHandler, options),
             (
-                prefix + "/" + identifier + r"/(site|content)/(.*)",
+                url_path_join(prefix, identifier, r"(site|content)", r"(.*)"),
                 MySTRAProxyHandler,
                 options,
             ),

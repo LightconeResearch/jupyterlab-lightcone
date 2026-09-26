@@ -1,5 +1,6 @@
 import { chatIcon } from '@jupyter/chat';
 import type { JupyterFrontEnd } from '@jupyterlab/application';
+import type { TranslationBundle } from '@jupyterlab/translation';
 import { fileIcon } from '@jupyterlab/ui-components';
 import type { IDisposable } from '@lumino/disposable';
 import { Signal, type ISignal } from '@lumino/signaling';
@@ -57,7 +58,8 @@ export class SearchSources implements IDisposable {
   constructor(
     private readonly app: JupyterFrontEnd,
     private readonly sessions: ISessionService | null,
-    private readonly excludedCommands: readonly string[]
+    private readonly excludedCommands: readonly string[],
+    private readonly trans: TranslationBundle
   ) {}
 
   /** Emitted when the held project's records or paper metadata change. */
@@ -75,7 +77,7 @@ export class SearchSources implements IDisposable {
   }
 
   listCommands(): Promise<ISearchCandidate[]> {
-    return commandCandidates(this.app.commands, {
+    return commandCandidates(this.app.commands, this.trans, {
       exclude: this.excludedCommands
     });
   }
@@ -86,7 +88,7 @@ export class SearchSources implements IDisposable {
       return [];
     }
     const listed = await sessions.list(project.entrypoint);
-    return sessionCandidates(listed, {
+    return sessionCandidates(listed, this.trans, {
       icon: chatIcon,
       activity: path => sessions.activity(path)
     });
@@ -108,7 +110,7 @@ export class SearchSources implements IDisposable {
       project.entrypoint,
       query.trim()
     );
-    return messageCandidates(matches, chatIcon);
+    return messageCandidates(matches, this.trans, chatIcon);
   }
 
   async listRecords(project: IProjectRoot): Promise<ISearchCandidate[]> {
@@ -117,7 +119,7 @@ export class SearchSources implements IDisposable {
     if (this._records === held) {
       held.data = data;
     }
-    return recordCandidates(data, project.entrypoint);
+    return recordCandidates(data, project.entrypoint, this.trans);
   }
 
   async listFiles(project: IProjectRoot): Promise<ISearchCandidate[]> {
@@ -125,6 +127,7 @@ export class SearchSources implements IDisposable {
     const registry = this.app.docRegistry;
     return fileCandidates(
       files,
+      this.trans,
       path => registry.getFileTypesForPath(path)[0]?.icon ?? fileIcon
     );
   }
@@ -172,7 +175,7 @@ export class SearchSources implements IDisposable {
     held.data = state.data;
     this._recordsChanged.emit({
       entrypoint: held.entrypoint,
-      candidates: recordCandidates(state.data, held.entrypoint)
+      candidates: recordCandidates(state.data, held.entrypoint, this.trans)
     });
   }
 

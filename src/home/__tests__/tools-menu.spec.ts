@@ -1,8 +1,9 @@
 import { LauncherModel } from '@jupyterlab/launcher';
 import { CommandRegistry } from '@lumino/commands';
+import type { Menu } from '@lumino/widgets';
 import { HomeCommandIDs } from '../home-commands';
 import { launcherCategory } from '../home-model';
-import { buildToolsMenu } from '../tools-menu';
+import { ToolsMenu } from '../tools-menu';
 
 function registry(): CommandRegistry {
   const commands = new CommandRegistry();
@@ -14,11 +15,6 @@ function registry(): CommandRegistry {
   add('jupyterlab_lightcone:open-inventory', 'ASTRA Inventory');
   add('jupyterlab_lightcone:new-project', 'New Lightcone project');
   add(HomeCommandIDs.showLauncher, 'Show the full launcher');
-  commands.addCommand(HomeCommandIDs.toolsCategory, {
-    label: args => String(args.category ?? ''),
-    isEnabled: () => false,
-    execute: () => undefined
-  });
   return commands;
 }
 
@@ -45,59 +41,72 @@ function model(): LauncherModel {
   return launcher;
 }
 
-describe('buildToolsMenu', () => {
-  it('lists every other launcher item by category with the tab cwd, then the full launcher', () => {
-    const menu = buildToolsMenu({
+/** The command and arguments of each item of a submenu. */
+function entries(submenu: Menu | null): unknown[] | null {
+  return submenu?.items.map(item => [item.command, item.args]) ?? null;
+}
+
+/** The submenus a menu holds, in order. */
+function submenus(menu: Menu): Menu[] {
+  return menu.items.flatMap(item => (item.submenu ? [item.submenu] : []));
+}
+
+describe('ToolsMenu', () => {
+  it('groups every other launcher item by category with the tab cwd, then the full launcher', () => {
+    const menu = new ToolsMenu({
       model: model(),
       commands: registry(),
-      cwd: 'work',
       widgetId: 'launcher-3'
     });
     try {
-      expect(
-        menu.items.map(item => [item.type, item.command, item.args])
-      ).toEqual([
-        ['command', HomeCommandIDs.toolsCategory, { category: 'Notebook' }],
-        [
-          'command',
-          'notebook:create-new',
-          { kernelName: 'python3', cwd: 'work' }
-        ],
-        ['command', HomeCommandIDs.toolsCategory, { category: 'Other' }],
-        ['command', 'terminal:create-new', { cwd: 'work' }],
-        [
-          'command',
-          HomeCommandIDs.toolsCategory,
-          { category: 'Lightcone Labs Extras' }
-        ],
-        ['command', 'extras:open', { cwd: 'work' }],
-        ['separator', '', {}],
-        ['command', HomeCommandIDs.showLauncher, { widgetId: 'launcher-3' }]
+      menu.refresh('work');
+      expect(menu.items.map(item => [item.type, item.label])).toEqual([
+        ['submenu', 'Notebook'],
+        ['submenu', 'Other'],
+        ['submenu', 'Lightcone Labs Extras'],
+        ['separator', ''],
+        ['command', 'Show the full launcher']
+      ]);
+      expect(entries(menu.items[0].submenu)).toEqual([
+        ['notebook:create-new', { kernelName: 'python3', cwd: 'work' }]
+      ]);
+      expect(entries(menu.items[1].submenu)).toEqual([
+        ['terminal:create-new', { cwd: 'work' }]
+      ]);
+      expect(entries(menu.items[2].submenu)).toEqual([
+        ['extras:open', { cwd: 'work' }]
+      ]);
+      expect(menu.items[4].command).toBe(HomeCommandIDs.showLauncher);
+      expect(menu.items[4].args).toEqual({ widgetId: 'launcher-3' });
+
+      // Opening again fills the same menu for the folder of that moment.
+      const first = submenus(menu);
+      menu.refresh('elsewhere');
+      expect(menu.items).toHaveLength(5);
+      expect(first.every(submenu => submenu.isDisposed)).toBe(true);
+      expect(entries(menu.items[1].submenu)).toEqual([
+        ['terminal:create-new', { cwd: 'elsewhere' }]
       ]);
     } finally {
       menu.dispose();
     }
   });
 
-  it('draws kernel icons from their URL and marks category headings', () => {
-    const menu = buildToolsMenu({
+  it('draws kernel icons from their URL', () => {
+    const menu = new ToolsMenu({
       model: model(),
       commands: registry(),
-      cwd: '',
       widgetId: 'launcher-0'
     });
     try {
-      menu.open(0, 0);
-      const icon = menu.node.querySelector<HTMLImageElement>(
+      menu.refresh('');
+      const notebooks = menu.items[0].submenu;
+      notebooks?.open(0, 0);
+      const icon = notebooks?.node.querySelector<HTMLImageElement>(
         'img.jp-jupyterlab-lightcone-HomeTools-kernelIcon'
       );
       expect(icon?.getAttribute('src')).toBe('http://kernels/python3/logo.svg');
-      const headings = Array.from(
-        menu.node.querySelectorAll(
-          '.jp-jupyterlab-lightcone-HomeTools-category'
-        )
-      ).map(node => node.textContent);
-      expect(headings).toEqual(['Notebook', 'Other', 'Lightcone Labs Extras']);
+      notebooks?.close();
     } finally {
       menu.dispose();
     }
@@ -109,18 +118,32 @@ describe('buildToolsMenu', () => {
       command: 'jupyterlab_lightcone:new-project',
       category: launcherCategory(null)
     });
-    const menu = buildToolsMenu({
+    const menu = new ToolsMenu({
       model: launcher,
       commands: registry(),
-      cwd: '',
       widgetId: 'launcher-1'
     });
     try {
+      menu.refresh('');
       expect(menu.items.map(item => item.command)).toEqual([
         HomeCommandIDs.showLauncher
       ]);
     } finally {
       menu.dispose();
     }
+  });
+
+  it('disposes its submenus with itself', () => {
+    const menu = new ToolsMenu({
+      model: model(),
+      commands: registry(),
+      widgetId: 'launcher-2'
+    });
+    menu.refresh('work');
+    const held = submenus(menu);
+    expect(held).toHaveLength(3);
+    menu.dispose();
+    expect(menu.isDisposed).toBe(true);
+    expect(held.every(submenu => submenu.isDisposed)).toBe(true);
   });
 });

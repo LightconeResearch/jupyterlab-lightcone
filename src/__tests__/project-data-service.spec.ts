@@ -11,6 +11,7 @@ import { ProjectSubscription } from '../project-subscription';
 import { analysis, createContents, fileModel } from './project-fixtures';
 
 jest.mock('../api', () => ({
+  ...jest.requireActual('../api'),
   collectPaperMetadata: jest.fn(),
   fetchPaper: jest.fn()
 }));

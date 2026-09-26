@@ -1,5 +1,5 @@
 import type { IDisposable } from '@lumino/disposable';
-import { PREFIX_LIMIT, QUOTE_LIMIT } from './comment-model';
+import { PAGE_ATTRIBUTE, PREFIX_LIMIT, QUOTE_LIMIT } from './comment-model';
 
 /** A text selection inside a commentable rendered view. */
 export interface ISelectionCapture<T> {
@@ -108,10 +108,9 @@ export class SelectionCommentButton<T> implements IDisposable {
       range.startContainer instanceof Element
         ? range.startContainer
         : range.startContainer.parentElement;
-    const pageNode = startElement?.closest<HTMLElement>(
-      '[data-page], [data-page-number]'
-    );
-    const pageValue = pageNode?.dataset.page ?? pageNode?.dataset.pageNumber;
+    const pageValue = startElement
+      ?.closest(`[${PAGE_ATTRIBUTE}]`)
+      ?.getAttribute(PAGE_ATTRIBUTE);
     const page = pageValue ? Number.parseInt(pageValue, 10) : Number.NaN;
     const x = Math.min(window.innerWidth - 96, last.right + 6);
     const y = Math.min(window.innerHeight - 40, last.bottom + 6);

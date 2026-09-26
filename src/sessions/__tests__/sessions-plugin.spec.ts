@@ -1,6 +1,7 @@
 import type { IChatPanel, IChatTracker } from '@jupyter/chat';
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { showErrorMessage } from '@jupyterlab/apputils';
+import { IDocumentManager } from '@jupyterlab/docmanager';
 import { ContentsManager, type Event } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
 import { PluginRegistry, Token } from '@lumino/coreutils';
@@ -27,6 +28,12 @@ jest.mock('@jupyter/chat', () => {
     IChatCommandRegistry: new Token('@jupyter/chat:commands'),
     IChatTracker: new Token('@jupyter/chat:IChatTracker'),
     useChatContext: jest.fn()
+  };
+});
+jest.mock('@jupyter-ai/persona-manager', () => {
+  const { Token } = jest.requireActual('@lumino/coreutils');
+  return {
+    IPersonaSessionRegistry: new Token('@jupyter-ai/persona-manager:registry')
   };
 });
 jest.mock('../../commands', () => ({
@@ -65,6 +72,8 @@ function fakeApp() {
   const app = {
     commands,
     shell,
+    // The persona manager is not installed here.
+    resolveOptionalService: jest.fn(async () => null),
     serviceManager: {
       contents,
       events: {
@@ -84,6 +93,11 @@ function fakeTracker(): IChatTracker {
   } as unknown as IChatTracker;
 }
 
+/** The document manager, which the sessions open chat documents through. */
+function fakeDocuments(): IDocumentManager {
+  return { openOrReveal: jest.fn() } as unknown as IDocumentManager;
+}
+
 /** Register the plugins the way the application does, with fake providers. */
 function plugins(options: { tracker: boolean; project?: IProjectRoot | null }) {
   const host = fakeApp();
@@ -96,6 +110,11 @@ function plugins(options: { tracker: boolean; project?: IProjectRoot | null }) {
       new FakeCurrentProject(
         options.project === undefined ? PROJECT : options.project
       )
+  });
+  registry.registerPlugin({
+    id: 'test:documents',
+    provides: IDocumentManager,
+    activate: () => fakeDocuments()
   });
   if (options.tracker) {
     registry.registerPlugin({
@@ -277,6 +296,34 @@ describe('sessionsPlugin', () => {
     } finally {
       create.mockRestore();
       open.mockRestore();
+      host.dispose();
+    }
+  });
+
+  it('starts a discussion in a new session, leaving the draft in its composer', async () => {
+    const host = plugins({ tracker: true });
+    await host.registry.activatePlugin(chatPlugin.id);
+    const create = jest
+      .spyOn(SessionManager.prototype, 'createAndOpen')
+      .mockResolvedValue('p/chats/discuss-outputs-hubble.chat');
+    try {
+      jest.mocked(requireProject).mockResolvedValue(PROJECT);
+      await expect(
+        host.commands.execute('jupyterlab_lightcone:discuss', {
+          entrypoint: 'p/astra.yaml',
+          target: 'outputs.hubble'
+        })
+      ).resolves.toEqual({
+        entrypoint: 'p/astra.yaml',
+        reused: false,
+        path: 'p/chats/discuss-outputs-hubble.chat'
+      });
+      expect(create).toHaveBeenCalledWith('p/astra.yaml', {
+        title: 'Discuss outputs.hubble',
+        draft: 'Discuss ASTRA element outputs.hubble.'
+      });
+    } finally {
+      create.mockRestore();
       host.dispose();
     }
   });

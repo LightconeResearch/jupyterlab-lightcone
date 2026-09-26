@@ -12,6 +12,11 @@ import type { IDisposable } from '@lumino/disposable';
 import React, { useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AstraKindMark } from '../astra-kind';
+import { inputContainerSelector } from '../chat-links/chat-dom';
+import {
+  recordedChatProject,
+  type IChatProjectResolver
+} from '../chat-links/chat-project';
 import type { IComment } from './comments-api';
 import type { CommentService, ICommentService } from './comment-service';
 import {
@@ -22,7 +27,6 @@ import {
   targetKind,
   type CommentKind
 } from './comment-model';
-import type { ChatProjects } from './chat-projects';
 
 /** The icon of a comment's anchor, for comments on files and messages. */
 function kindIcon(kind: CommentKind): LabIcon {
@@ -198,7 +202,8 @@ export function CommentTray({
 /** What the tray mounts need from the plugin. */
 export interface IChatTrayDependencies {
   service: CommentService;
-  projects: ChatProjects;
+  /** Files a chat under its project. */
+  projects: IChatProjectResolver;
   actions: ICommentTrayActions;
   /** The Contents path of a chat panel's file. */
   chatPath(panel: IChatPanel): string;
@@ -220,29 +225,32 @@ class TrayMount implements IDisposable {
     this._host = document.createElement('div');
     this._host.className = 'jp-jupyterlab-lightcone-CommentTrayHost';
     this._root = createRoot(this._host);
-    void deps.projects.entrypointFor(deps.chatPath(panel)).then(entrypoint => {
-      if (this._isDisposed || !entrypoint) {
-        return;
-      }
-      this._entrypoint = entrypoint;
-      this._root.render(
-        <CommentTray
-          service={deps.service}
-          entrypoint={entrypoint}
-          actions={deps.actions}
-        />
-      );
-      this.place();
-      this._observer = new MutationObserver(() => this.place());
-      this._observer.observe(panel.widget.node, {
-        childList: true,
-        subtree: true
+    void deps.projects
+      .resolve(deps.chatPath(panel), recordedChatProject(panel.model))
+      .then(project => {
+        const entrypoint = project?.entrypoint;
+        if (this._isDisposed || !entrypoint) {
+          return;
+        }
+        this._entrypoint = entrypoint;
+        this._root.render(
+          <CommentTray
+            service={deps.service}
+            entrypoint={entrypoint}
+            actions={deps.actions}
+          />
+        );
+        this.place();
+        this._observer = new MutationObserver(() => this.place());
+        this._observer.observe(panel.widget.node, {
+          childList: true,
+          subtree: true
+        });
+        panel.model.messagesUpdated.connect(this._messages, this);
+        void deps.service.refresh(entrypoint).catch(error => {
+          console.warn('Could not load the pending comments.', error);
+        });
       });
-      panel.model.messagesUpdated.connect(this._messages, this);
-      void deps.service.refresh(entrypoint).catch(error => {
-        console.warn('Could not load the pending comments.', error);
-      });
-    });
   }
 
   get isDisposed(): boolean {
@@ -263,9 +271,8 @@ class TrayMount implements IDisposable {
 
   /** Put the tray right before the chat's own input, if it is rendered. */
   private place(): void {
-    const id = this.panel.model.input.id;
     const input = this.panel.widget.node.querySelector<HTMLElement>(
-      `.jp-chat-input-container[data-input-id="${CSS.escape(id)}"]`
+      inputContainerSelector(this.panel.model.input.id)
     );
     if (!input || !input.parentElement) {
       return;

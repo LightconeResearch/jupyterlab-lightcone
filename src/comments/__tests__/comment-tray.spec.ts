@@ -7,13 +7,20 @@ import {
   createContents,
   fileModel
 } from '../../__tests__/project-fixtures';
-import { ChatProjects } from '../chat-projects';
+import {
+  INPUT_CONTAINER_CLASS,
+  MESSAGES_CONTAINER_CLASS
+} from '../../chat-links/chat-dom';
+import { createChatProjectResolver } from '../../chat-links/chat-project';
 import { listComments } from '../comments-api';
 import { emptyAnchor, pointAnchor } from '../comment-model';
 import { CommentService } from '../comment-service';
 import { ChatCommentTrays, type ICommentTrayActions } from '../comment-tray';
 import { makeComment, recordTarget, until } from './fixtures';
 
+jest.mock('@jupyter/chat', () =>
+  jest.requireActual('../../chat-links/__tests__/chat-mock')
+);
 jest.mock('../comments-api', () => ({
   listComments: jest.fn(),
   createComment: jest.fn(),
@@ -29,8 +36,8 @@ const CHIP = '.jp-jupyterlab-lightcone-CommentChip';
 function fakePanel(area: 'main' | 'sidebar' = 'main') {
   const widget = new Widget();
   widget.node.innerHTML =
-    '<div class="jp-chat-messages"></div>' +
-    '<div class="jp-chat-input-container" data-input-id="in1"></div>';
+    `<div class="${MESSAGES_CONTAINER_CLASS}"></div>` +
+    `<div class="${INPUT_CONTAINER_CLASS}" data-input-id="in1"></div>`;
   document.body.appendChild(widget.node);
   const panel = {
     area,
@@ -72,7 +79,7 @@ function setup(panels: IChatPanel[]) {
   const { tracker, widgetAdded } = fakeTracker(panels);
   const trays = new ChatCommentTrays(tracker, {
     service,
-    projects: new ChatProjects(contents),
+    projects: createChatProjectResolver(contents, () => undefined),
     actions,
     chatPath: panel => panel.model.name
   });
@@ -95,7 +102,7 @@ describe('ChatCommentTrays', () => {
     const { trays, actions } = setup([chat]);
     await until(() => !!widget.node.querySelector(CHIP));
     const host = widget.node.querySelector(HOST);
-    expect(host?.nextElementSibling?.className).toBe('jp-chat-input-container');
+    expect(host?.nextElementSibling?.className).toBe(INPUT_CONTAINER_CLASS);
     const chip = widget.node.querySelector<HTMLElement>(CHIP);
     expect(chip?.textContent).toContain('①');
     expect(chip?.getAttribute('title')).toBe(
@@ -181,9 +188,9 @@ describe('ChatCommentTrays', () => {
     const { trays } = setup([chat]);
     await until(() => !!widget.node.querySelector(CHIP));
     const replacement = document.createElement('div');
-    replacement.className = 'jp-chat-input-container';
+    replacement.className = INPUT_CONTAINER_CLASS;
     replacement.dataset.inputId = 'in1';
-    widget.node.querySelector('.jp-chat-input-container')?.remove();
+    widget.node.querySelector(`.${INPUT_CONTAINER_CLASS}`)?.remove();
     widget.node.appendChild(replacement);
     await until(
       () => widget.node.querySelector(HOST)?.nextElementSibling === replacement

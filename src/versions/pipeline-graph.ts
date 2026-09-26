@@ -146,8 +146,11 @@ function reachable(
 ): Set<string> {
   const result = new Set<string>([path]);
   const queue = [path];
-  while (queue.length) {
-    const current = queue.shift()!;
+  for (
+    let current = queue.shift();
+    current !== undefined;
+    current = queue.shift()
+  ) {
     for (const edge of graph.edges) {
       const [near, far] =
         direction === 'down' ? [edge.from, edge.to] : [edge.to, edge.from];

@@ -1,7 +1,15 @@
 import type { IDisposable } from '@lumino/disposable';
 import type { IComment } from './comments-api';
-import { labelGlyph } from './comment-model';
-import { flashElement } from './editor-comments';
+import {
+  anchorLayer,
+  COMMENT_HOST_CLASS,
+  COMMENT_LAYER_CLASS,
+  flashElement,
+  inCommentLayer,
+  setAttribute,
+  setText
+} from './comment-layer';
+import { labelGlyph, PAGE_ATTRIBUTE } from './comment-model';
 import {
   findQuoteIn,
   normalizeForSearch,
@@ -9,14 +17,6 @@ import {
   type INormalizedText,
   type ITextSpan
 } from './text-anchor';
-import {
-  anchorLayer,
-  COMMENT_HOST_CLASS,
-  COMMENT_LAYER_CLASS,
-  inCommentLayer,
-  setAttribute,
-  setText
-} from './image-layer';
 
 const BADGE_CLASS = 'jp-jupyterlab-lightcone-CommentBadge';
 const HIGHLIGHT_CLASS = 'jp-jupyterlab-lightcone-CommentHighlight';
@@ -268,7 +268,7 @@ export class TextCommentLayer implements IDisposable {
         search = pages.get(anchor.page);
         if (!search) {
           const page = root.querySelector<HTMLElement>(
-            `[data-page="${anchor.page}"], [data-page-number="${anchor.page}"]`
+            `[${PAGE_ATTRIBUTE}="${anchor.page}"]`
           );
           if (page) {
             search = new QuoteSearch(indexText(page, skip));

@@ -24,7 +24,16 @@ The workaround lives in:
 - `src/mystra-viewer.ts`, `src/api.ts` (`*MySTRA*` functions), the
   `openMySTRA`/`restartMySTRA` commands in `src/commands.ts`, and
   `style/myst-logo.svg`
+- the entry points that offer it: the **Open report** button and the
+  `myst.yml` check in `src/home/home-view.tsx`, the launcher card in
+  `src/project-launcher.ts`, the `mystIcon` in `src/icons.ts`, and the palette
+  and context-menu items in `src/index.ts`
 - `jupyterlab_lightcone/tests/test_mystra.py` and `ui-tests/tests/mystra.spec.ts`
+
+Every other workaround the extension carries around an external package, and
+the narrow upstream change that would remove each one, is recorded in
+[`docs/workarounds.md`](docs/workarounds.md). Add an entry there whenever a
+new one is unavoidable; remove the entry with the code.
 
 **Undo all of this** once MyST or JupyterLab offers a supported way to embed a
 `myst start` site (for example a first-party proxy or a static-build preview),
@@ -800,7 +809,12 @@ from .routes import setup_route_handlers
 
 Use these patterns consistently throughout your code:
 
-- **Plugin ID** (in `src/index.ts`): `'jupyterlab_lightcone:plugin'`
+- **Plugin ID** (in `src/index.ts`): `'jupyterlab_lightcone:plugin'`. A
+  plugin that ships a settings schema (`schema/<name>.json`) must instead be
+  named after the npm package, `'jupyterlab-lightcone:<name>'`: JupyterLab
+  derives schema ids from `package.json`'s `name` and loads a schema only when
+  a registered plugin has that id (`jupyterlab-lightcone:home` and
+  `jupyterlab-lightcone:search` are the two).
 - **Command IDs** (in `src/commands.ts` or `src/index.ts`): `'jupyterlab_lightcone:command-name'`
   - For multiple commands, create `src/commands.ts` with a centralized `COMMANDS` mapping
   - For 1-2 commands, define directly in `src/index.ts`

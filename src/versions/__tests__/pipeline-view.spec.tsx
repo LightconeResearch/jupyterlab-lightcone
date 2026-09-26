@@ -1,6 +1,6 @@
 import { CommandRegistry } from '@lumino/commands';
 import { Widget } from '@lumino/widgets';
-import { FakeThemeManager } from '../../home/__tests__/home-fixtures';
+import { FakeThemeManager } from './theme-fixtures';
 import { requestAPI } from '../../request';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { until } from '../../__tests__/async-fixtures';

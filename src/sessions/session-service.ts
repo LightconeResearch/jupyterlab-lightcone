@@ -13,13 +13,18 @@ export interface ISessionStartOptions {
   firstMessage?: string;
   /** Persona ID to address the first message to; the chat default otherwise. */
   persona?: string;
+  /**
+   * Text left in the composer for the user to finish, unsent; ignored when
+   * `firstMessage` is sent instead.
+   */
+  draft?: string;
 }
 
 /** Project-scoped sessions: Jupyter AI chats stored under `<project>/chats/`. */
 export interface ISessionService {
   /** The sessions of the project owning `entrypoint`, newest first. */
   list(entrypoint: string): Promise<ISessionInfo[]>;
-  /** Create a session in the project and open it in the main area. */
+  /** Create a session in the project, open it in the main area and resolve with its path. */
   createAndOpen(
     entrypoint: string,
     options?: ISessionStartOptions

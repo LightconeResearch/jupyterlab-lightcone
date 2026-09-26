@@ -6,21 +6,14 @@ import {
   type ProjectReader
 } from '@astra-spec/sdk';
 import type { Contents } from '@jupyterlab/services';
+import { isNotFoundResponse, isRecord } from './api';
 
 /** A parent listing can establish absence without making a failing HTTP request. */
 class MissingDirectoryError extends Error {}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
+/** Whether a path is known to be absent: by a parent listing or a 404. */
 function isNotFound(error: unknown): boolean {
-  return (
-    error instanceof MissingDirectoryError ||
-    (isRecord(error) &&
-      (error.status === 404 ||
-        (isRecord(error.response) && error.response.status === 404)))
-  );
+  return error instanceof MissingDirectoryError || isNotFoundResponse(error);
 }
 
 function entryMetadata(path: string, value: unknown): ProjectEntry {

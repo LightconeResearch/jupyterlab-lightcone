@@ -14,7 +14,8 @@ import {
   CommandIDs,
   newProjectFolder,
   registerCommands,
-  requireProject
+  requireProject,
+  shortcutLabel
 } from '../commands';
 import { InventoryDocument } from '../document-widget';
 import { HomeCommandIDs } from '../home/home-commands';
@@ -68,7 +69,7 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
       { path, ready: Promise.resolve() } as DocumentRegistry.Context,
       contents,
       themes,
-      commands
+      documents
     );
     created.push(widget);
     return widget;
@@ -294,7 +295,7 @@ describe('project opening commands', () => {
       context as DocumentRegistry.Context,
       host.contents,
       host.themes,
-      host.commands
+      { openOrReveal: host.openOrReveal }
     );
     host.openOrReveal.mockImplementation(() => {
       opened.resolve();
@@ -442,5 +443,21 @@ describe('newProjectFolder', () => {
       warn.mockRestore();
       contents.dispose();
     }
+  });
+});
+
+describe('shortcutLabel', () => {
+  it('formats the first binding of a command and hides unbound ones', () => {
+    const commands = new CommandRegistry();
+    commands.addCommand('test:search', { execute: () => undefined });
+    expect(shortcutLabel(commands, 'test:search')).toBeUndefined();
+    commands.addKeyBinding({
+      command: 'test:search',
+      keys: ['Accel K'],
+      selector: 'body'
+    });
+    expect(shortcutLabel(commands, 'test:search')).toBe(
+      CommandRegistry.formatKeystroke('Accel K')
+    );
   });
 });

@@ -4,7 +4,7 @@ import type { Contents } from '@jupyterlab/services';
 import { ServerConnection } from '@jupyterlab/services';
 import { act, isValidElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { ChatProjects } from '../../comments/chat-projects';
+import type { IChatProjectResolver } from '../../chat-links/chat-project';
 import { acquireProjectDataService } from '../../project-data-service';
 import type { ISessionService } from '../../sessions/session-service';
 import type { ISessionInfo } from '../../sessions/sessions-api';
@@ -135,10 +135,12 @@ describe('MentionProvider', () => {
     serverSettings: settings,
     driveName: () => ''
   } as unknown as Contents.IManager;
-  const projects = {
-    entrypointFor: async (path: string) =>
-      path.startsWith('proj/') ? 'proj/astra.yaml' : null
-  } as unknown as ChatProjects;
+  const projects: IChatProjectResolver = {
+    resolve: async path =>
+      path.startsWith('proj/')
+        ? { path: 'proj', entrypoint: 'proj/astra.yaml' }
+        : undefined
+  };
   const data = {
     document: { universe: { universeId: 'baseline' } },
     index: {

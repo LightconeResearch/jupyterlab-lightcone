@@ -1,11 +1,13 @@
-"""The optional tool bridge must never fall back to broadcasting commands."""
-from contextvars import ContextVar
-from types import ModuleType, SimpleNamespace
-from unittest.mock import AsyncMock
+"""The tool bridge must never fall back to broadcasting commands."""
+from dataclasses import asdict
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
+from jupyter_server_mcp.client_routing import CHAT_ID_HEADER, PERSONA_ID_HEADER, WEB_CLIENT_ID_METADATA_KEY
 import pytest
 
-from jupyterlab_lightcone.agent_tools import lightcone_open_element
+from jupyterlab_lightcone import agent_tools
+from jupyterlab_lightcone.agent_tools import lightcone_open_element, lightcone_preview_element
 
 
 @pytest.fixture
@@ -44,19 +46,12 @@ def manager(settings, tmp_path):
 
 @pytest.fixture
 def bridge(monkeypatch, manager):
-    """Supply only the optional imports, so these tests also run without AI."""
-    import sys
-
-    toolkit = ModuleType("jupyterlab_commands_toolkit.tools")
-    toolkit.target_client_id = ContextVar("test_client", default=None)
-    toolkit.execute_command = AsyncMock(
-        return_value={"success": True, "result": {"view": "element"}}
-    )
-    dependencies = ModuleType("fastmcp.server.dependencies")
-    dependencies.get_http_headers = lambda: {"x-jupyter-chat-id": "origin-chat"}
-    monkeypatch.setitem(sys.modules, "jupyterlab_commands_toolkit.tools", toolkit)
-    monkeypatch.setitem(sys.modules, "fastmcp.server.dependencies", dependencies)
-    return toolkit
+    """The MCP request headers and the command bridge, as jupyter-server-mcp provides them in a tool call."""
+    headers = {CHAT_ID_HEADER: "origin-chat"}
+    execute = AsyncMock(return_value={"success": True, "result": {"view": "element"}})
+    monkeypatch.setattr(agent_tools, "get_http_headers", lambda: headers)
+    monkeypatch.setattr(agent_tools, "execute_command", execute)
+    return SimpleNamespace(headers=headers, execute_command=execute, target_client_id=agent_tools.target_client_id)
 
 
 async def test_missing_browser_never_broadcasts(bridge):
@@ -113,9 +108,7 @@ async def test_chat_without_any_project_is_rejected(bridge, manager, chat_path):
 
 
 async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
-    bridge.execute_command.return_value = {
-        "success": False, "error": "Command timed out after 10 seconds"
-    }
+    bridge.execute_command.return_value = {"success": False, "error": "Command timed out after 10 seconds"}
     token = bridge.target_client_id.set("origin-browser")
     try:
         result = await lightcone_open_element("outputs.plot")
@@ -125,31 +118,13 @@ async def test_timeout_does_not_claim_the_tab_failed_to_open(bridge):
 
 
 @pytest.fixture
-def persona(bridge, manager, monkeypatch):
-    """Model the persisted chat contract without importing the AI packages."""
-    import sys
-    from dataclasses import asdict, dataclass
-    from unittest.mock import Mock
+def persona(bridge, manager):
+    """A persona answering the originating browser, whose chat records the cards it publishes.
 
-    @dataclass
-    class MimeModel:
-        data: dict
-        metadata: dict | None = None
-
-    @dataclass
-    class NewMessage:
-        body: str
-        sender: str
-        mime_model: MimeModel
-
-    models = ModuleType("jupyterlab_chat.models")
-    models.MimeModel = MimeModel
-    models.NewMessage = NewMessage
-    monkeypatch.setitem(sys.modules, "jupyterlab_chat.models", models)
-    sys.modules["fastmcp.server.dependencies"].get_http_headers = lambda: {
-        "x-jupyter-chat-id": "origin-chat",
-        "x-jupyterai-persona-id": "agent",
-    }
+    Messages are stored the way Jupyter Chat persists them: as plain dicts,
+    so the nested MIME model comes back as a dict too.
+    """
+    bridge.headers[PERSONA_ID_HEADER] = "agent"
     messages = []
 
     def add_message(message):
@@ -158,7 +133,7 @@ def persona(bridge, manager, monkeypatch):
 
     agent = SimpleNamespace(
         id="agent",
-        processing_message=SimpleNamespace(id="prompt", metadata={"web_client_id": "origin-browser"}),
+        processing_message=SimpleNamespace(id="prompt", metadata={WEB_CLIENT_ID_METADATA_KEY: "origin-browser"}),
         chat=SimpleNamespace(
             get_id=lambda: "origin-chat",
             get_messages=lambda: messages,
@@ -173,8 +148,6 @@ def persona(bridge, manager, monkeypatch):
 
 
 async def test_preview_is_a_persisted_persona_mime_message_and_retries_reuse_it(bridge, persona):
-    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
-
     token = bridge.target_client_id.set("origin-browser")
     try:
         first = await lightcone_preview_element("outputs.figure")
@@ -186,15 +159,13 @@ async def test_preview_is_a_persisted_persona_mime_message_and_retries_reuse_it(
     persona.chat.add_message.assert_called_once()
     message = persona.chat.add_message.call_args.args[0]
     assert message.sender == "agent"
-    assert message.mime_model.data["application/vnd.lightcone.astra+json"] == {
+    assert message.mime_model.data[agent_tools.ASTRA_MIME_TYPE] == {
         "version": 1, "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline"
     }
     assert message.mime_model.data["text/plain"] == message.body
 
 
 async def test_preview_requires_the_originating_persona_and_browser(bridge, persona):
-    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
-
     token = bridge.target_client_id.set("another-browser")
     try:
         result = await lightcone_preview_element("outputs.figure")
@@ -206,8 +177,6 @@ async def test_preview_requires_the_originating_persona_and_browser(bridge, pers
 
 
 async def test_preview_does_not_publish_when_the_browser_rejects_the_target(bridge, persona):
-    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
-
     bridge.execute_command.return_value = {"success": False, "error": "Unknown ASTRA target"}
     token = bridge.target_client_id.set("origin-browser")
     try:
@@ -225,8 +194,6 @@ async def test_preview_does_not_publish_when_the_browser_rejects_the_target(brid
     {"entrypoint": "project/astra.yaml", "target": "outputs.figure", "label": None, "universeId": None},
 ])
 async def test_malformed_preview_response_does_not_publish(bridge, persona, element):
-    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
-
     bridge.execute_command.return_value = {"success": True, "result": element}
     token = bridge.target_client_id.set("origin-browser")
     try:
@@ -239,8 +206,6 @@ async def test_malformed_preview_response_does_not_publish(bridge, persona, elem
 
 
 async def test_preview_of_an_output_pins_the_version_the_browser_named(bridge, persona):
-    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
-
     bridge.execute_command.return_value = {"success": True, "result": {
         "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline",
         "label": "Figure",
@@ -253,7 +218,7 @@ async def test_preview_of_an_output_pins_the_version_the_browser_named(bridge, p
         bridge.target_client_id.reset(token)
     assert result["success"] is True
     message = persona.chat.add_message.call_args.args[0]
-    assert message.mime_model.data["application/vnd.lightcone.astra+json"]["outputVersion"] == {
+    assert message.mime_model.data[agent_tools.ASTRA_MIME_TYPE]["outputVersion"] == {
         "commit": "a889877" + "0" * 33, "key": "SHA256E-s10--abc.png"
     }
 
@@ -262,8 +227,6 @@ async def test_preview_of_an_output_pins_the_version_the_browser_named(bridge, p
     None, "a889877", {"commit": "xyz"}, {"commit": "a88987"}, {"key": "SHA256E-s1--x"},
 ])
 async def test_a_malformed_output_version_pins_nothing(bridge, persona, version):
-    from jupyterlab_lightcone.agent_tools import lightcone_preview_element
-
     bridge.execute_command.return_value = {"success": True, "result": {
         "entrypoint": "project/astra.yaml", "target": "outputs.figure", "universeId": "baseline",
         "label": "Figure", "outputVersion": version,
@@ -273,7 +236,7 @@ async def test_a_malformed_output_version_pins_nothing(bridge, persona, version)
         await lightcone_preview_element("outputs.figure")
     finally:
         bridge.target_client_id.reset(token)
-    payload = persona.chat.add_message.call_args.args[0].mime_model.data["application/vnd.lightcone.astra+json"]
+    payload = persona.chat.add_message.call_args.args[0].mime_model.data[agent_tools.ASTRA_MIME_TYPE]
     assert "outputVersion" not in payload
 
 

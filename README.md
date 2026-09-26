@@ -134,7 +134,7 @@ title (the first line of its first message), and the sidebar can rename its
 file. Creating a session also creates `chats/` if needed; the extension never
 touches the project's Git configuration, so `chats/` has to be ignored by the
 project's own `.gitignore` for `lc materialize` to run with sessions present
-(see [docs/suggested_changes.md](docs/suggested_changes.md)). Results opened from a
+(see [docs/workarounds.md](docs/workarounds.md)). Results opened from a
 session split to its right, later results join that group, and closing them
 returns focus to the session. A session that finishes, or asks for
 permission, while you look elsewhere raises a notification with **Open
@@ -147,11 +147,10 @@ between them, when reopened or after a reload. Jupyter AI's own picker starts
 each new view from the server's default persona, which is often not an
 installed one. The server records each project's agent in
 `<project>/.lightcone/agent.json` (an ignored folder, beside the comment
-store), keeps Jupyter AI's page default on the agent last used, and sends a
-message that names no installed agent (the picker on **No one**, say) to the
-chat's usual agent instead of dropping it. **Start** on Home with **Default
-agent** uses the project's agent too. A chat open in two views at once keeps
-each view's own choice.
+store), and sends a message that names no installed agent (the picker on **No
+one**, say) to the chat's usual agent instead of dropping it. **Start** on Home
+with **Default agent** uses the project's agent too. A chat open in two views
+at once keeps each view's own choice.
 
 A session's toolbar states the agent's permission mode as Jupyter AI records
 it (for example "Codex: agent full access") and that the engine's sandbox
@@ -198,15 +197,13 @@ message in the headbar; status returns automatically after recovery. The
 integration currently covers local root-analysis outputs.
 
 Output details also offer **Open code** beside Recipe when a local script can be
-resolved. It opens the current file in a reusable editor tab, preferring the
-command from the recorded run over the declared recipe; the link's tooltip
-names which one applied. This supports direct script commands in the root
-analysis, including a script named through an `{inputs.<id>}` placeholder,
-which resolves to that input's declared source. Interpreter options before the
-script and redirections, globs or comments after it are fine. Module, inline,
-and compound commands or unresolved paths have no link, and neither does an
-output whose run record cannot be read. It does not restore the revision used
-for an earlier run.
+resolved from the declared recipe. It opens the current file in a reusable
+editor tab. This supports direct script commands in the root analysis,
+including a script named through an `{inputs.<id>}` placeholder, which resolves
+to that input's declared source. Interpreter options before the script and
+redirections, globs or comments after it are fine. Module, inline, and compound
+commands or unresolved paths have no link. It does not restore the revision
+used for an earlier run.
 
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its
@@ -237,10 +234,10 @@ path, the toolbar shows the trail
 restores where you had scrolled. **Open in new tab** keeps the current record
 and opens it again beside it.
 
-An output's record shows **Provenance** below Recipe as tabs: **Run** (status,
-times, command, exit code, commit and Git tree), **Code** (the recorded command
-and the script it names: **As run** shows the script at the commit the run
-started from, **Changes since** its diff against the file now, and **Open
+An output's record shows **Provenance** below Recipe as tabs: **Run** (when
+it was made, the commit and Git tree it was made from, the recipe), **Code**
+(the script the recipe names: **As run** shows the script at the commit the
+run started from, **Changes since** its diff against the file now, and **Open
 current file** opens it), **Inputs** (the recorded input versions, each
 linking to its record) and **Environment** (environment, engine, uv, image,
 sandbox, definition and data versions, and the packages `uv.lock` pinned for
@@ -380,7 +377,7 @@ No separate preview domain or publicly exposed Node port is needed.
 
 Cached papers are read from `~/.cache/astra/papers`, retaining access to existing
 ASTRA caches. Set `LIGHTCONE_PAPER_CACHE_DIR` in the Jupyter server environment to
-use another location; `ASTRA_PAPER_CACHE_DIR` remains supported as a fallback.
+use another location;
 On JupyterHub this configuration belongs to each single-user server.
 
 Missing PDFs are downloaded only when you choose **Fetch paper**, using
@@ -423,9 +420,13 @@ window regains focus; with several windows, the one used last decides. A chat
 that joins a project after its session started (rule 3) keeps its first folder
 until the session is recreated, although the tools already address the project.
 
-A deployment that configures a different
-`PersonaManagerExtension.persona_manager_class` keeps its own class and opts out
-of the working directory, though not of the tools' rule; subclass
+The working directory comes from a persona manager class the extension ships
+for Jupyter AI's persona manager extension, selected through that extension's
+own configuration file (`etc/jupyter/jupyter_jupyter_ai_persona_manager_config.json`,
+installed with the wheel). A deployment that sets
+`PersonaManagerExtension.persona_manager_class` in a configuration of higher
+precedence (its `~/.jupyter` files, the command line) keeps its own class and
+opts out of the working directory, though not of the tools' rule; subclass
 `jupyterlab_lightcone.agent_workspace.PersonaManager` to keep the behavior.
 Jupyter AI also looks for `.jupyter` (MCP settings, local personas) from the
 project root upward, so one stored below it, beside a chat in `chats/` for

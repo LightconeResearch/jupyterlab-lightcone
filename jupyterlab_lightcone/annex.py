@@ -14,38 +14,48 @@ here run with both turned off, and a repository git-annex has not initialized
 
 git-annex itself comes with the extension: the ``git-annex`` wheel is a
 dependency, and installs the executable beside this interpreter's scripts,
-where ``projects.expose_engine_tools`` puts it on ``PATH`` at load.
+where it is found without any ``PATH`` (the in-process engine still needs the
+``PATH`` that ``projects.expose_engine_tools`` sets).
 """
 
+import functools
 import json
 from pathlib import Path
 import shutil
 import subprocess
+import sysconfig
 
 ANNEX_TIMEOUT = 60.0
 """Seconds one git-annex command may take."""
 
 READ_ONLY = ("-c", "annex.autoupgraderepository=false", "-c", "annex.merge-annex-branches=false")
-"""The two things git-annex would otherwise do to the repository before answering a read."""
+"""The two things git-annex would otherwise do to the repository before answering a read.
+
+Run directly, git-annex takes ``-c`` after its command only.
+"""
 
 
 class AnnexUnavailable(Exception):
-    """git-annex could not be run: git or git-annex is missing, or a command hung."""
+    """git-annex could not be run: it is not installed, or a command hung."""
 
 
-def _run(repository: Path, *arguments: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
-    """Run one git-annex command in the repository; a nonzero exit is the caller's to read.
+@functools.cache
+def executable() -> str:
+    """Where git-annex is, found once: the wheel's script beside this interpreter, else the one on ``PATH``.
 
-    ``git annex`` is git finding a ``git-annex`` executable on ``PATH``, so
-    its absence is checked first: git would otherwise exit with "not a git
-    command" and an empty answer, which no caller may mistake for "nothing
-    annexed".
+    Without either, the bare name is returned and running it says so.
     """
-    if shutil.which("git-annex") is None:
-        raise AnnexUnavailable("git-annex is required to read annexed content and is not on the server's PATH")
+    bundled = Path(sysconfig.get_path("scripts")) / "git-annex"
+    if bundled.is_file():
+        return str(bundled)
+    return shutil.which("git-annex") or "git-annex"
+
+
+def _run(repository: Path, command: str, *arguments: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+    """Run one git-annex command in the repository; a nonzero exit is the caller's to read."""
     try:
-        completed = subprocess.run(
-            ["git", *READ_ONLY, "annex", *arguments],
+        return subprocess.run(
+            [executable(), command, *READ_ONLY, *arguments],
             cwd=repository,
             capture_output=True,
             input=stdin,
@@ -53,12 +63,11 @@ def _run(repository: Path, *arguments: str, stdin: bytes | None = None) -> subpr
             check=False,
         )
     except FileNotFoundError as error:
-        raise AnnexUnavailable("git is required to read annexed content") from error
+        raise AnnexUnavailable(
+            "git-annex is required to read annexed content and is not installed on this server"
+        ) from error
     except subprocess.TimeoutExpired as error:
         raise AnnexUnavailable("git-annex did not answer in time") from error
-    if b"is not a git command" in completed.stderr:
-        raise AnnexUnavailable("git cannot run git-annex on this server")
-    return completed
 
 
 def _lines(items: list[str]) -> bytes:
@@ -66,21 +75,6 @@ def _lines(items: list[str]) -> bytes:
     if any("\n" in item or "\r" in item for item in items):
         raise ValueError("A git-annex batch request is one line")
     return "".join(f"{item}\n" for item in items).encode("utf-8", "surrogateescape")
-
-
-def initialized(repository: Path) -> bool:
-    """Whether git-annex has initialized this repository: ``annex.uuid`` is the mark it leaves."""
-    try:
-        completed = subprocess.run(
-            ["git", "config", "--get", "annex.uuid"],
-            cwd=repository,
-            capture_output=True,
-            timeout=ANNEX_TIMEOUT,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return completed.returncode == 0 and bool(completed.stdout.strip())
 
 
 def lookup_keys(repository: Path, refs: list[str]) -> dict[str, str | None]:
@@ -147,6 +141,7 @@ def content_path(repository: Path, key: str) -> Path | None:
 
 
 def _json_object(line: str) -> dict:
+    """One line of a ``--json`` answer as a dict; anything else is an empty one."""
     try:
         value = json.loads(line)
     except ValueError:

@@ -5,7 +5,7 @@ import {
   createContents,
   fileModel
 } from '../../__tests__/project-fixtures';
-import { ChatProjects } from '../chat-projects';
+import { createChatProjectResolver } from '../../chat-links/chat-project';
 import { commentDelivery, listComments, sendComments } from '../comments-api';
 import { pointAnchor } from '../comment-model';
 import { CommentService } from '../comment-service';
@@ -15,6 +15,7 @@ import { makeComment } from './fixtures';
 jest.mock('@jupyter/chat', () => {
   const { Token } = jest.requireActual('@lumino/coreutils');
   return {
+    ...jest.requireActual('../../chat-links/__tests__/chat-mock'),
     IChatCommandRegistry: new Token('@jupyter/chat:commands'),
     IChatTracker: new Token('@jupyter/chat:IChatTracker'),
     IMessagePreambleRegistry: new Token('@jupyter/chat:preambles')
@@ -59,7 +60,7 @@ function setup(delivery: 'prompt' | 'message' = 'prompt') {
   const service = new CommentService(settings);
   const provider = commentCommandProvider(
     service,
-    new ChatProjects(contents),
+    createChatProjectResolver(contents, () => undefined),
     delivery
   );
   return { service, provider };
@@ -94,14 +95,32 @@ describe('the comments chat command provider', () => {
       agent: 'claude',
       lightcone: { other: true, comments: ['a', 'b'] }
     });
-    jest.advanceTimersByTime(0);
+    expect(listComments).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1000);
+    expect(listComments).toHaveBeenCalledTimes(2);
+    // The post-send refresh is in flight; a refresh asked now shares it.
+    await service.refresh('project/astra.yaml');
+
+    // The input keeps its metadata after a send: the next submit, with
+    // nothing pending any more, must not carry the ids again.
+    jest.mocked(listComments).mockResolvedValue([]);
+    await service.refresh('project/astra.yaml');
+    await provider.onSubmit(input);
     expect(state.metadata).toEqual({
       agent: 'claude',
       lightcone: { other: true, comments: [] }
     });
-    expect(listComments).toHaveBeenCalledTimes(1);
-    jest.advanceTimersByTime(1000);
-    expect(listComments).toHaveBeenCalledTimes(2);
+    service.dispose();
+  });
+
+  it('drops stale ids even for a chat outside every project', async () => {
+    jest.mocked(listComments).mockResolvedValue([]);
+    const { provider, service } = setup();
+    const { state, input } = fakeInput('loose/talk.chat', {
+      lightcone: { comments: ['old'] }
+    });
+    await provider.onSubmit(input);
+    expect(state.metadata).toEqual({ lightcone: { comments: [] } });
     service.dispose();
   });
 

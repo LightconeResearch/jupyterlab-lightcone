@@ -1,13 +1,13 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import {
-  metricPreviewFromJson,
-  tablePreviewFromDelimited,
-  tablePreviewFromRows,
-  type ArtifactPreviewData
-} from '@astra-spec/ui/lib';
+import type { ArtifactPreviewData } from '@astra-spec/ui/lib';
 import { ServerConnection } from '@jupyterlab/services';
-import { isRecord, RequestError } from '../api';
+import { RequestError } from '../api';
 import { readBoundedText } from '../artifact-access';
+import {
+  JSON_PREVIEW_MAX_BYTES,
+  previewFromSource,
+  type IBoundedText
+} from '../artifact-preview-data';
 import {
   delimiterFor,
   isImageFormat,
@@ -22,10 +22,6 @@ import {
   absentReason
 } from './versions-api';
 
-const TABLE_PREVIEW_ROWS = 30;
-const TABLE_PREVIEW_COLUMNS = 30;
-const TABLE_SAMPLE_BYTES = 65_536;
-const JSON_MAX_BYTES = 2_000_000;
 /** Whole tables are read for shape comparison, up to this many bytes. */
 const TABLE_SHAPE_BYTES = 4_000_000;
 
@@ -43,7 +39,7 @@ export async function readVersionText(
   commit: string,
   maxBytes: number,
   signal?: AbortSignal
-): Promise<{ text: string; truncated: boolean }> {
+): Promise<IBoundedText> {
   const url = versionContentUrl(
     target.settings,
     target.entrypoint,
@@ -71,7 +67,12 @@ export async function readVersionJson(
   commit: string,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const sample = await readVersionText(target, commit, JSON_MAX_BYTES, signal);
+  const sample = await readVersionText(
+    target,
+    commit,
+    JSON_PREVIEW_MAX_BYTES,
+    signal
+  );
   if (sample.truncated)
     throw new Error('The JSON artifact exceeds the preview limit.');
   return JSON.parse(sample.text) as unknown;
@@ -119,10 +120,9 @@ export async function previewForVersion(
   if (!version.present) {
     return { kind: 'unavailable', reason: absentReason(version) };
   }
-  const format = outputFormat(output);
-  if (output.type === 'figure' && isImageFormat(format)) {
-    return {
-      kind: 'image',
+  return previewFromSource(
+    output,
+    {
       url: versionContentUrl(
         target.settings,
         target.entrypoint,
@@ -130,68 +130,13 @@ export async function previewForVersion(
         target.outputId,
         version.commit
       ),
-      alt: `${output.label ?? output.id} at ${version.short}`
-    };
-  }
-  const delimiter = delimiterFor(format);
-  if (output.type === 'table' && delimiter !== undefined) {
-    const sample = await readVersionText(
-      target,
-      version.commit,
-      TABLE_SAMPLE_BYTES,
-      signal
-    );
-    return tablePreviewFromDelimited(sample.text, {
-      delimiter,
-      maxRows: TABLE_PREVIEW_ROWS,
-      maxColumns: TABLE_PREVIEW_COLUMNS,
-      sourceTruncated: sample.truncated
-    });
-  }
-  if (
-    (output.type === 'table' || output.type === 'metric') &&
-    format === 'json'
-  ) {
-    if (version.size !== null && version.size > JSON_MAX_BYTES) {
-      return {
-        kind: 'unavailable',
-        reason: 'The JSON artifact exceeds the preview limit.'
-      };
-    }
-    let value: unknown;
-    try {
-      value = await readVersionJson(target, version.commit, signal);
-    } catch (error) {
-      // Only a parse failure means the bytes are not JSON; a request error or
-      // a file past the limit (its size unknown until read) says so itself.
-      if (!(error instanceof SyntaxError)) throw error;
-      return {
-        kind: 'unavailable',
-        reason: `The file is not a JSON ${output.type}.`
-      };
-    }
-    if (output.type === 'metric') {
-      return (
-        metricPreviewFromJson(value) ?? {
-          kind: 'unavailable',
-          reason: 'The file is not a JSON metric.'
-        }
-      );
-    }
-    if (Array.isArray(value) && value.every(isRecord)) {
-      return tablePreviewFromRows(value, {
-        maxRows: TABLE_PREVIEW_ROWS,
-        maxColumns: TABLE_PREVIEW_COLUMNS
-      });
-    }
-    return { kind: 'unavailable', reason: 'The file is not a JSON table.' };
-  }
-  return {
-    kind: 'unavailable',
-    reason: format
-      ? `No bounded preview is available for .${format} artifacts.`
-      : 'This output does not declare an artifact format.'
-  };
+      size: version.size,
+      alt: `${output.label ?? output.id} at ${version.short}`,
+      readText: (maxBytes, readSignal) =>
+        readVersionText(target, version.commit, maxBytes, readSignal)
+    },
+    signal
+  );
 }
 
 /** How two versions of an output can be compared. */

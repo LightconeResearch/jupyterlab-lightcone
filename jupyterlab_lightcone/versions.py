@@ -12,7 +12,7 @@ repository.
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
@@ -25,11 +25,15 @@ from dulwich.objects import Blob, Commit, Tree
 from dulwich.repo import Repo
 from jupyter_server.auth import authorized
 from jupyter_server.utils import url_path_join
+from lightcone.engine import plan
+from lightcone.engine.project import ProjectError
 from tornado import web
+from tornado.iostream import StreamClosedError
 
 from . import annex
 from .project_routes import ProjectAPIHandler
-from .provenance import MAX_RECORD_BYTES, ensure_results_visible, record_path, validate_record
+from .provenance import MAX_RECORD_BYTES, ensure_results_visible, record_path, validate_output_identity, validate_record
+from .results import MANIFEST_SUFFIX, RESULTS_DIRECTORY, universe_directory
 
 MAX_VERSIONS = 200
 """How many commits one listing reaches back."""
@@ -40,11 +44,8 @@ MAX_RESULTS_COMMITS = 200
 MAX_CONTENT_BYTES = 50 * 1024 * 1024
 """The largest version the content route serves."""
 
-RESULTS_DIRECTORY = "results"
-"""Where the engine writes every output and its manifest, relative to the project."""
-
-MANIFEST_SUFFIX = ".manifest.json"
-"""The engine's sidecar: ``results/<universe>/.<output>.manifest.json``."""
+CONTENT_CHUNK_SIZE = 1024 * 1024
+"""How much of an annexed version is read and sent at a time."""
 
 CONTENT_TYPES = {
     "png": "image/png",
@@ -69,8 +70,8 @@ MAX_LOCK_BYTES = 8 * 1024 * 1024
 MAX_SOURCE_PATH = 1024
 """The longest project-relative path the source route accepts."""
 
-_COMMIT = re.compile(r"[0-9a-f]{7,40}|[0-9a-f]{64}")
-"""A commit as the routes accept it: abbreviated, or any full name the listing gives."""
+COMMIT_NAME = re.compile(r"[0-9a-f]{7,40}|[0-9a-f]{64}")
+"""A commit as the routes and the agent's tools accept it, in lower case: abbreviated, or any full name listed."""
 
 
 # =============================================================================
@@ -95,12 +96,18 @@ class Repository:
         """``initialized`` when git-annex works here, ``uninitialized`` in a clone of an
         annexed repository nobody ran ``git annex init`` in, ``none`` in a plain repository.
 
-        The ``git-annex`` branch is where git-annex keeps its state, so its
-        presence in any ref is what tells an uninitialized clone from a
-        repository that never had an annex. An uninitialized clone is never
-        asked: any git-annex command would initialize it.
+        ``annex.uuid`` in the repository's own configuration is the mark
+        ``git annex init`` leaves. The ``git-annex`` branch is where git-annex
+        keeps its state, so its presence in any ref is what tells an
+        uninitialized clone from a repository that never had an annex. An
+        uninitialized clone is never asked: any git-annex command would
+        initialize it.
         """
-        if annex.initialized(self.root):
+        try:
+            self.repo.get_config().get((b"annex",), b"uuid")
+        except KeyError:
+            pass
+        else:
             return "initialized"
         if any(name.endswith(b"/git-annex") for name in self.repo.refs.allkeys()):
             return "uninitialized"
@@ -111,6 +118,7 @@ class Repository:
         return f"{commit.id.decode('ascii')}:{self.path(file).decode('utf-8', 'surrogateescape')}"
 
     def close(self) -> None:
+        """Release the repository's object store and pack files."""
         self.repo.close()
 
     def path(self, file: str) -> bytes:
@@ -130,10 +138,10 @@ class Repository:
         return found if isinstance(found, Commit) else None
 
     def resolve(self, commit: str) -> Commit:
-        """The commit 7 to 40 hexadecimal characters name, or 64; a 400 or 404 otherwise."""
-        if not isinstance(commit, str) or not _COMMIT.fullmatch(commit):
+        """The commit 7 to 40 hexadecimal characters name, or 64, in either case; a 400 or 404 otherwise."""
+        if not isinstance(commit, str) or not COMMIT_NAME.fullmatch(commit.lower()):
             raise web.HTTPError(400, "A commit is named by 7 to 40 hexadecimal characters, or 64")
-        name = commit.encode("ascii")
+        name = commit.lower().encode("ascii")
         if len(commit) in (40, 64):
             try:
                 found = self.commit(name)
@@ -229,68 +237,48 @@ def describe_commit(commit: Commit) -> dict:
 # =============================================================================
 
 
+def declared_output(project: Path, universe: str, output: str) -> str | None:
+    """The project-relative file the spec declares for an output; None when it declares no such output.
+
+    The engine composes the file's name from the declared format, so its plan
+    is asked rather than the results folder. Raises ``ProjectError`` when the
+    spec or its universes cannot be read.
+    """
+    task = plan.build(project).tasks.get((universe, output))
+    return task.output_path.relative_to(project).as_posix() if task is not None else None
+
+
 def output_file(project: Path, universe: str, output: str, repository: Repository | None) -> tuple[str, str]:
     """Locate the materialized file and its sidecar, as project-relative POSIX paths.
 
-    The engine derives the file name from the declared format, which this route
-    does not know, so the file is found beside its manifest as
-    ``results/<universe>/<output>.*``. The hidden manifest cannot match: an
-    output id contains no dot, so no match starts with one. When a re-declared
-    format left several files, the manifest's ``output_path`` decides, else
-    the first name alphabetically. Symlinks count, since a locked annex file
-    without its content is a dangling one.
-
-    The working tree answers first. A run deletes the output before rebuilding
-    it, so while one is under way the last commit names the file instead and
-    the history stays readable.
+    The spec names the file (``declared_output``), so a run that is deleting
+    and rebuilding it, or a stale file a re-declared format left behind,
+    changes nothing. An output the spec no longer declares, or a spec that
+    cannot be read, still has its committed history: the last commit then
+    names the file as ``results/<universe>/<output>.*``, the first name
+    alphabetically when several remain. Symlinks count, since a locked annex
+    file without its content is a dangling one. With neither, an unreadable
+    spec is the answer (422); otherwise the output has no file (404).
     """
     manifest = record_path(project, universe, output)
-    prefix = f"{output}."
-
-    def matching(names: list[str]) -> list[str]:
-        return sorted(name for name in names if name.startswith(prefix))
-
-    directory = PurePosixPath(RESULTS_DIRECTORY, universe)
-    names = matching(working_tree_names(manifest.parent))
-    if not names and repository is not None:
+    directory = universe_directory(universe)
+    problem = None
+    try:
+        file = declared_output(project, universe, output)
+    except ProjectError as error:
+        file, problem = None, error
+    if file is None and repository is not None:
         head = repository.head()
-        names = matching(repository.names(head, directory.as_posix())) if head is not None else []
-    if not names:
+        names = repository.names(head, directory.as_posix()) if head is not None else []
+        committed = sorted(name for name in names if name.startswith(f"{output}."))
+        if committed:
+            file = str(directory / committed[0])
+    if file is None:
+        if problem is not None:
+            # The client is sent log_message unformatted, so it carries no arguments.
+            raise web.HTTPError(422, f"Lightcone could not read this project's specification:\n{problem}") from problem
         raise web.HTTPError(404, "This output has no materialized file")
-    chosen = names[0]
-    if len(names) > 1:
-        preferred = manifest_output_name(manifest)
-        if preferred in names:
-            chosen = preferred
-    return str(directory / chosen), str(directory / manifest.name)
-
-
-def working_tree_names(directory: Path) -> list[str]:
-    """The names of the files and symlinks in a results directory; none when it is missing."""
-    try:
-        with os_scandir(directory) as entries:
-            return [entry.name for entry in entries if entry.is_file(follow_symlinks=False) or entry.is_symlink()]
-    except FileNotFoundError:
-        return []
-    except OSError as error:
-        raise web.HTTPError(503, "The results directory could not be read") from error
-
-
-def os_scandir(directory: Path):
-    import os
-
-    return os.scandir(directory)
-
-
-def manifest_output_name(manifest: Path) -> str | None:
-    """The file name the manifest on disk records as ``output_path``, if any."""
-    try:
-        with manifest.open("rb") as stream:
-            data = json.loads(stream.read(MAX_RECORD_BYTES))
-    except (OSError, ValueError, RecursionError):
-        return None
-    path = data.get("output_path") if isinstance(data, dict) else None
-    return PurePosixPath(path).name if isinstance(path, str) and path else None
+    return file, str(directory / manifest.name)
 
 
 # =============================================================================
@@ -309,7 +297,10 @@ def validate_manifest(blob: bytes, universe: str, output: str) -> dict | None:
 def too_large() -> web.HTTPError:
     """The refusal of a version beyond what the content route serves, naming the limit."""
     mebibyte = 1024 * 1024
-    limit = f"{MAX_CONTENT_BYTES // mebibyte} MiB" if MAX_CONTENT_BYTES % mebibyte == 0 else f"{MAX_CONTENT_BYTES} bytes"
+    if MAX_CONTENT_BYTES % mebibyte == 0:
+        limit = f"{MAX_CONTENT_BYTES // mebibyte} MiB"
+    else:
+        limit = f"{MAX_CONTENT_BYTES} bytes"
     return web.HTTPError(413, f"This version is larger than the {limit} the viewer serves")
 
 
@@ -338,7 +329,10 @@ def list_versions(project: Path, universe: str, output: str) -> dict:
         if repository is None:
             return {"file": file, "annex": "none", "versions": []}
         state = repository.annex_state()
-        history = [(entry.commit, repository.entry(entry.commit, file)) for entry in repository.walk([file], follow=True, max_entries=MAX_VERSIONS)]
+        history = [
+            (entry.commit, repository.entry(entry.commit, file))
+            for entry in repository.walk([file], follow=True, max_entries=MAX_VERSIONS)
+        ]
         refs = [repository.tree_ref(commit, file) for commit, entry in history if entry is not None]
         keys = annex.lookup_keys(repository.root, refs) if state == "initialized" else {}
         distinct = sorted({key for key in keys.values() if key})
@@ -365,8 +359,12 @@ def list_versions(project: Path, universe: str, output: str) -> dict:
             repository.close()
 
 
-def read_version(project: Path, universe: str, output: str, commit: str) -> tuple[str, bytes]:
-    """The output file's project-relative path and its bytes at a commit, from git or git-annex."""
+def read_version(project: Path, universe: str, output: str, commit: str) -> tuple[str, bytes | Path]:
+    """The output file's project-relative path and its content at a commit.
+
+    The content is the bytes when git holds them, and the path of the file
+    holding them here when git-annex does, for the route to stream.
+    """
     repository = require_repository(project)
     try:
         file, _ = output_file(project, universe, output, repository)
@@ -377,7 +375,9 @@ def read_version(project: Path, universe: str, output: str, commit: str) -> tupl
         state = repository.annex_state()
         if state == "uninitialized":
             raise web.HTTPError(
-                404, "git-annex is not initialized in this repository, so its bytes cannot be read (git annex init)", reason="absent"
+                404,
+                "git-annex is not initialized in this repository, so its bytes cannot be read (git annex init)",
+                reason="absent",
             )
         ref = repository.tree_ref(resolved, file)
         key = annex.lookup_keys(repository.root, [ref])[ref] if state == "initialized" else None
@@ -392,14 +392,16 @@ def read_version(project: Path, universe: str, output: str, commit: str) -> tupl
         location = annex.content_path(repository.root, key)
         if location is None:
             remotes = annex.whereis(repository.root, [key])[key]["remotes"]
-            held = f"; {', '.join(remotes)} {'has' if len(remotes) == 1 else 'have'} a copy (git annex get)" if remotes else ""
+            held = ""
+            if remotes:
+                held = f"; {', '.join(remotes)} {'has' if len(remotes) == 1 else 'have'} a copy (git annex get)"
             raise web.HTTPError(404, f"The bytes of this version are not in this repository{held}", reason="absent")
         try:
             if location.stat().st_size > MAX_CONTENT_BYTES:
                 raise too_large()
-            return file, location.read_bytes()
         except OSError as error:
             raise web.HTTPError(404, "The bytes of this version are not in this repository", reason="absent") from error
+        return file, location
     finally:
         repository.close()
 
@@ -426,7 +428,8 @@ def output_identity(path: bytes) -> tuple[str, str] | None:
     A materialization commits ``results/<universe>/<output>.<ext>`` with its
     sidecar ``results/<universe>/.<output>.manifest.json``; an output id has no
     dot, so either name gives it back. Anything else under ``results/`` (a
-    README, a nested folder's file) is not an output.
+    README, a nested folder's file, a name no output could have) is not an
+    output.
     """
     parts = path.decode("utf-8", "replace").split("/")
     if len(parts) != 3 or parts[0] != RESULTS_DIRECTORY:
@@ -438,7 +441,9 @@ def output_identity(path: bytes) -> tuple[str, str] | None:
         output = name[1 : -len(MANIFEST_SUFFIX)]
     else:
         output = name.partition(".")[0]
-    if not output or not universe or universe.startswith("."):
+    try:
+        validate_output_identity(universe, output)
+    except web.HTTPError:
         return None
     return universe, output
 
@@ -455,7 +460,9 @@ def _changed_paths(entry) -> list[bytes]:
     return paths
 
 
-def results_commits(project: Path, since: int | None = None, until: int | None = None, limit: int = MAX_RESULTS_COMMITS) -> list[dict]:
+def results_commits(
+    project: Path, since: int | None = None, until: int | None = None, limit: int = MAX_RESULTS_COMMITS
+) -> list[dict]:
     """The commits that touched the project's ``results/``, newest first, with the outputs each changed.
 
     Bounded by commit time when ``since`` and ``until`` (seconds since the
@@ -605,18 +612,20 @@ def locked_packages(project: Path, commit: str) -> dict:
 # =============================================================================
 
 
-def in_thread(function, *args):
-    """Run a history read off the event loop; a repository that cannot be read is a 503."""
+async def in_thread(function, *args):
+    """Run a history read off the event loop.
 
-    async def run():
-        try:
-            return await asyncio.to_thread(function, *args)
-        except annex.AnnexUnavailable as error:
-            raise web.HTTPError(503, str(error)) from error
-        except (OSError, KeyError, ValueError) as error:
-            raise web.HTTPError(503, "The project's git history could not be read") from error
-
-    return run()
+    A missing or hung git-annex and a repository the filesystem will not read
+    are the service's failures (503). dulwich signals a missing object or a
+    bad name where ``Repository`` turns them into None or a 404; anything
+    else it raises is a defect, and is reported as one.
+    """
+    try:
+        return await asyncio.to_thread(function, *args)
+    except annex.AnnexUnavailable as error:
+        raise web.HTTPError(503, str(error)) from error
+    except OSError as error:
+        raise web.HTTPError(503, "The project's git history could not be read") from error
 
 
 class OutputVersionsHandler(ProjectAPIHandler):
@@ -649,6 +658,7 @@ class OutputVersionContentHandler(ProjectAPIHandler):
         acting with the user's session even where a deployment's policy lets
         scripts run.
         """
+        # The policy jupyter_server.files.handlers.FilesHandler.content_security_policy applies to /files/.
         return super().content_security_policy + "; sandbox allow-scripts"
 
     @web.authenticated
@@ -665,12 +675,32 @@ class OutputVersionContentHandler(ProjectAPIHandler):
         output = self.get_query_argument("output")
         commit = self.get_query_argument("commit")
         await ensure_results_visible(self, project, universe, output)
-        file, data = await in_thread(read_version, project, universe, output, commit)
+        file, content = await in_thread(read_version, project, universe, output, commit)
         name = PurePosixPath(file).name
         self.set_header("Content-Disposition", content_disposition(name))
         self.set_header("Cache-Control", "private, max-age=31536000, immutable")
         self.set_header("X-Content-Type-Options", "nosniff")
-        self.finish(data, set_content_type=content_type(name))
+        if isinstance(content, bytes):
+            self.finish(content, set_content_type=content_type(name))
+        else:
+            await self.stream(content, content_type(name))
+
+    async def stream(self, location: Path, media_type: str) -> None:
+        """Send an annexed file in chunks read off the event loop, so a large version is never held whole."""
+        try:
+            stream = await asyncio.to_thread(location.open, "rb")
+        except OSError as error:
+            raise web.HTTPError(404, "The bytes of this version are not in this repository", reason="absent") from error
+        with stream:
+            self.set_header("Content-Type", media_type)
+            self.set_header("Content-Length", str(os.fstat(stream.fileno()).st_size))
+            try:
+                while chunk := await asyncio.to_thread(stream.read, CONTENT_CHUNK_SIZE):
+                    self.write(chunk)
+                    await self.flush()
+            except StreamClosedError:
+                return
+        self.finish(set_content_type=media_type)
 
     def write_error(self, status_code, **kwargs):
         """Errors are never immutable: absent content may be fetched later."""
@@ -684,6 +714,7 @@ class ResultsHistoryHandler(ProjectAPIHandler):
     unavailable_message = "Result history requires local files"
 
     def _whole_number(self, name: str, what: str) -> int | None:
+        """An optional query argument that must be a whole number of ``what``; None when absent."""
         value = self.get_query_argument(name, None)
         if value is None:
             return None

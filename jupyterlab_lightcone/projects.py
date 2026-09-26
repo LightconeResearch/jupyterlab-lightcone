@@ -15,6 +15,9 @@ CURRENT_PROJECT = "jupyterlab_lightcone.current_project"
 CHAT_PROJECT = "lightcone_project"
 """The chat metadata entry recording the project a chat joined when first opened."""
 
+LIGHTCONE_DIRECTORY = ".lightcone"
+"""The project folder holding the workbench's own stores; the engine's `.gitignore` template ignores it."""
+
 
 def inside_root(root: Path, candidate: Path, message: str) -> Path:
     """Resolve symlinks first, then refuse anything outside `root`."""
@@ -25,18 +28,30 @@ def inside_root(root: Path, candidate: Path, message: str) -> Path:
     return resolved
 
 
-def project_root(root: Path, path: str) -> Path:
-    """Resolve only a local ASTRA entrypoint within the contents root.
+def entrypoint_path(value) -> PurePosixPath | None:
+    """The Contents path an entrypoint names, or None unless it is a local `astra.yaml`.
 
-    Refuses what `spec_project` refuses before touching the filesystem: an
-    entrypoint read from a JSON body may hold a NUL, which tornado strips
-    from query arguments only and `Path.resolve` rejects with a ValueError.
+    The one rule for entrypoints the browser reports and chats record: a
+    string, relative, on the local drive (no drive prefix, no backslash),
+    without parent segments, naming `astra.yaml`. A NUL is refused here since
+    tornado strips it from query arguments only, and `Path.resolve` rejects it.
     """
-    if not path or path.startswith("/") or any(character in path for character in "\\:\x00"):
+    if not isinstance(value, str) or not value or value.startswith("/"):
+        return None
+    if any(character in value for character in "\\:\x00"):
+        return None
+    path = PurePosixPath(value)
+    if ".." in path.parts or path.name != "astra.yaml":
+        return None
+    return path
+
+
+def project_root(root: Path, path: str) -> Path:
+    """Resolve only a local ASTRA entrypoint within the contents root, or raise a 400/403."""
+    entrypoint = entrypoint_path(path)
+    if entrypoint is None:
         raise HTTPError(400, "A local astra.yaml path is required")
-    if ".." in path.split("/") or Path(path).name != "astra.yaml":
-        raise HTTPError(400, "A local astra.yaml path is required")
-    return inside_root(root, Path(path), "Project is outside the contents root").parent
+    return inside_root(root, Path(entrypoint), "Project is outside the contents root").parent
 
 
 def owning_project(root: Path, directory: Path) -> Path | None:
@@ -69,49 +84,60 @@ def project_entrypoint(root: Path, project: Path) -> str:
     return "astra.yaml" if relative == "." else f"{relative}/astra.yaml"
 
 
+def project_directory(entrypoint: str) -> str:
+    """The Contents path of the project folder an entrypoint names; the root is ``''``.
+
+    Taken from the entrypoint as the browser wrote it, not from a resolved
+    folder: a project reached through a symlink keeps the paths under which the
+    browser opens its files.
+    """
+    parent = PurePosixPath(entrypoint).parent.as_posix()
+    return "" if parent == "." else parent
+
+
 def spec_project(root: Path, entrypoint) -> Path | None:
     """The project whose `astra.yaml` has this Contents path, if it is a file.
 
-    Validates the entrypoints the browser reports and chats record: relative,
-    on the local drive, without parent traversal, and still present. Paths
-    stay logical, as in `owning_project`.
+    Validates as `project_root` does, answering None instead of an error.
+    Paths stay logical, as in `owning_project`.
     """
-    if (
-        not isinstance(entrypoint, str)
-        or entrypoint.startswith("/")
-        or any(character in entrypoint for character in "\\:\x00")
-    ):
-        return None
-    path = PurePosixPath(entrypoint)
-    if ".." in path.parts or path.name != "astra.yaml":
+    path = entrypoint_path(entrypoint)
+    if path is None:
         return None
     spec = root / path
     return spec.parent if spec.is_file() else None
 
 
-def chat_project(manager, current: str | None = None) -> Path | None:
-    """The project a Jupyter AI persona manager's chat belongs to.
+def chat_project(manager) -> Path | None:
+    """The project a Jupyter AI persona manager's chat belongs to, without side effects.
 
-    The one rule behind both the agent's working directory and the project its
-    presentation tools address, in order:
-
-    1. the project storing the chat file, so chats may live in `chats/`;
-    2. the project recorded in the chat when it was first opened;
-    3. `current`, the workbench's current project, which is then recorded so
-       the conversation keeps its project when the user moves to another.
-       Jupyter AI asks for the directory while it opens the chat, before any
-       message, so this happens on first opening, not first use.
-
-    A recorded project that no longer exists is replaced the same way. Only
-    upstream's manager and chat APIs are used, so it holds for any manager class.
+    In order: the project storing the chat file, so chats may live in
+    `chats/`; else the project recorded in the chat when it was first opened,
+    if that specification still exists; else None. Only upstream's manager
+    and chat APIs are used, so it holds for any manager class.
     """
     root = Path(manager.root_dir)
     chat = Path(manager.get_chat_path(relative=True))
     project = owning_project(root, chat.parent)
     if project is not None:
         return project
-    project = spec_project(root, manager.chat.get_metadata().get(CHAT_PROJECT))
+    return spec_project(root, manager.chat.get_metadata().get(CHAT_PROJECT))
+
+
+def join_project(manager, current: str | None) -> Path | None:
+    """The chat's project, joining `current`, the workbench's current project, without one.
+
+    The one rule behind both the agent's working directory and the project its
+    presentation tools address: `chat_project`, then `current`, which is then
+    recorded in the chat so the conversation keeps its project when the user
+    moves to another. Jupyter AI asks for the directory while it opens the
+    chat, before any message, so the record is made on first opening. A
+    recorded project that no longer exists is replaced the same way. This is
+    the only function that writes to the chat document.
+    """
+    project = chat_project(manager)
     if project is None:
+        root = Path(manager.root_dir)
         project = spec_project(root, current)
         if project is not None:
             manager.chat.set_metadata(CHAT_PROJECT, project_entrypoint(root, project))
@@ -154,11 +180,13 @@ def describe_project(root: Path, project: Path) -> dict:
 
 
 def expose_engine_tools() -> None:
-    """Let the engine find the git-annex installed beside it.
+    """Let the in-process engine find the git-annex wheel installed beside it.
 
-    The engine looks its tools up on PATH, which lacks this environment's
-    scripts when the server was started without activating it. Appending
-    keeps any tool the user already has ahead of the bundled one.
+    `lightcone.engine.project.converge` looks git-annex up on PATH, which
+    lacks this environment's scripts when the server was started without
+    activating it. Appending keeps any tool the user already has ahead of the
+    bundled one. The extension's own annex reads resolve the executable
+    themselves (`annex.py`); only the engine needs the PATH.
     """
     scripts = sysconfig.get_path("scripts")
     paths = os.environ.get("PATH", "").split(os.pathsep)
