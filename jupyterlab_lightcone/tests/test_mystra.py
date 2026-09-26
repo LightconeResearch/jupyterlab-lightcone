@@ -5,6 +5,8 @@ import gzip
 import json
 import logging
 import sys
+from pathlib import Path
+from unittest.mock import AsyncMock
 
 from jupyter_server.base.websocket import WebSocketMixin
 import pytest
@@ -247,6 +249,38 @@ async def test_project_missing_returns_actionable_error(jp_fetch):
     )
     assert response.code == 404
     assert "myst.yml" in json.loads(response.body)["message"]
+
+
+@pytest.mark.parametrize("directory, status", [("publication", 200), (".hidden", 404)])
+async def test_start_checks_readable_config_before_launching(
+    jp_fetch, jp_serverapp, monkeypatch, directory, status
+):
+    """Start readable projects while retaining the ContentsManager's hidden-file policy."""
+    project = Path(jp_serverapp.contents_manager.root_dir) / directory
+    project.mkdir()
+    (project / "myst.yml").write_text("version: 1\n")
+    manager = jp_serverapp.web_app.settings["jupyterlab_lightcone"].manager
+    run = AsyncMock()
+    monkeypatch.setattr(manager, "_run", run)
+    response = await jp_fetch(
+        "jupyterlab_lightcone", "mystra", "sessions",
+        method="POST", body=json.dumps({"path": directory}), raise_error=False,
+    )
+    assert response.code == status
+    if status == 200:
+        payload = json.loads(response.body)
+        session = manager.sessions[payload["id"]]
+        try:
+            await session.task
+            run.assert_awaited_once_with(session)
+            assert session.project == project
+            assert payload["path"] == "publication/myst.yml"
+            assert payload["state"] == "starting"
+        finally:
+            await manager.stop(session)
+    else:
+        run.assert_not_awaited()
+        assert not manager.sessions
 
 
 async def test_proxy_preserves_html_and_filters_credentials(

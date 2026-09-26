@@ -7,10 +7,12 @@ from jupyter_server.auth import authorized
 from jupyter_server.auth.decorator import ws_authenticated
 from jupyter_server.base.handlers import APIHandler, JupyterHandler
 from jupyter_server.base.websocket import WebSocketMixin
-from jupyter_server.utils import ensure_async, url_path_join
+from jupyter_server.utils import url_path_join
 from jupyter_server.services.contents.filemanager import FileContentsManager
 from tornado import web, websocket
 from tornado.httpclient import AsyncHTTPClient, HTTPClientError, HTTPRequest
+
+from .project_routes import contents_call
 
 # Request headers a browser may send that are safe to relay to a local theme.
 FORWARDED_REQUEST_HEADERS = (
