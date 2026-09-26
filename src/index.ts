@@ -25,6 +25,11 @@ import { mentionsPlugin } from './mentions';
 import { searchPlugin } from './search';
 import { sidebarPlugin } from './sidebar';
 import { tabLabelsPlugin } from './tab-labels';
+import {
+  focusLayoutPlugin,
+  lightconeDarkThemePlugin,
+  lightconeLightThemePlugin
+} from './theme';
 import { versionsPlugin } from './versions';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
 import { projectStatusPlugin } from './project-status';
@@ -189,6 +194,9 @@ export default [
   projectNotificationsPlugin,
   // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
   mystraPlugin,
+  lightconeLightThemePlugin,
+  lightconeDarkThemePlugin,
+  focusLayoutPlugin,
   homePlugin,
   sidebarPlugin,
   commentsPlugin,

@@ -1029,3 +1029,20 @@ keyboard navigation, and command execution remain with the palette.
 **Upstream / removal.** A category rank or `compareCategories` option in
 `@lumino/widgets` would replace both prefixing and heading cleanup. Keep the
 section-order and keyboard tests when removing this adaptation.
+
+## Lightcone themes
+
+### Two registered themes share one built stylesheet
+
+**Where.** `src/theme/index.ts`, `style/themes/index.css`, and `package.json`
+(`jupyterlab.themePath`). The JupyterLab builder accepts one theme entry per
+package. Both public `IThemeManager` registrations load that same built CSS;
+the palette selectors use JupyterLab's `data-jp-theme-name` attribute to choose
+light or dark colors. Loading a theme neither chooses it for the user nor
+changes the standard theme's palette.
+
+**Upstream / removal.** Multiple theme entries per package in `@jupyter/builder`
+would allow separate light and dark CSS assets. Split the entry and load URLs,
+remove the combined selector arrangement, and retain theme-registration, palette
+contrast, and theme-switching tests. Focus Layout uses public shell methods
+and the existing status-bar command and needs no compatibility workaround.

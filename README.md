@@ -345,8 +345,27 @@ boundary and the upstream changes that would simplify it.
 
 ### Appearance
 
-Inventory components use the shared Lightcone brand and follow JupyterLab's
-light/dark theme without changing the surrounding shell.
+Two JupyterLab themes, **Lightcone Light** and **Lightcone Dark**, restyle the
+whole shell in the Lightcone brand: parchment canvas, white documents, blue-ink
+actions, square corners and the brand fonts. Choose them under **Settings ›
+Theme**; with **Settings › Theme › Synchronize with System Settings** they can
+serve as the preferred
+light and dark themes. Lightcone never switches your theme; a deployment can
+make one the default in `overrides.json`:
+
+```json
+{
+  "@jupyterlab/apputils-extension:themes": {
+    "theme": "Lightcone Light"
+  }
+}
+```
+
+Under any other theme the shell stays as it is: Home and the sidebar read
+JupyterLab's theme variables, and inventory components use the shared
+Lightcone brand, following JupyterLab's light/dark setting. **Focus Layout** in
+the command palette collapses the right sidebar and hides the status bar; run it
+again to restore them.
 
 The brand adapter from `@lightcone-research/brand` supplies every ASTRA UI
 token; the extension does not redefine any of them from JupyterLab settings.
@@ -471,7 +490,8 @@ Inside a project, launcher tabs show Home: the project title and Markdown
 description, result previews with freshness, and a composer with recent
 sessions. The pencil icons edit the display name or description in
 `astra.yaml`, preserving the project folder and other fields. Description
-editing uses its original Markdown.
+editing uses its original Markdown. Under the Lightcone themes, Home’s title,
+the rule beneath it and its link rules use the brand’s antique gold.
 
 Choose an available agent before **Start**. Home discovers project-local and
 installed agents without creating a chat or starting an agent, suggests the

@@ -206,3 +206,98 @@ test('the sidebar switches to a recently visited project', async ({
   await menu.locator('.lm-Menu-item', { hasText: 'other' }).click();
   await expect(page.locator(SIDEBAR)).toContainText('Other project');
 });
+
+test('Lightcone themes load their stylesheet and fonts and keep project views usable', async ({
+  page,
+  tmpPath
+}) => {
+  await openWorkbench(page, tmpPath);
+  const originalTheme = await page
+    .locator('body')
+    .getAttribute('data-jp-theme-name');
+  const stylesheet = page.waitForResponse(response =>
+    new URL(response.url()).pathname.endsWith(
+      '/themes/jupyterlab-lightcone/index.css'
+    )
+  );
+  try {
+    for (const [theme, isLight, background] of [
+      ['Lightcone Light', 'true', '#fff'],
+      ['Lightcone Dark', 'false', '#221f20']
+    ]) {
+      await execute(page, 'apputils:change-theme', { theme });
+      await expect(page.locator('body')).toHaveAttribute(
+        'data-jp-theme-name',
+        theme
+      );
+      await expect(page.locator('body')).toHaveAttribute(
+        'data-jp-theme-light',
+        isLight
+      );
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            getComputedStyle(document.documentElement)
+              .getPropertyValue('--jp-layout-color0')
+              .trim()
+          )
+        )
+        .toBe(background);
+      await page.activity.activateTab('Home');
+      await expect(page.locator(HOME)).toBeVisible();
+      await expect(page.locator(HOME)).toContainText('Features project');
+      await execute(page, 'jupyterlab_lightcone:open-element', {
+        entrypoint: `${tmpPath}/astra.yaml`,
+        target: 'inputs.catalog'
+      });
+      const record = page.locator('.jp-jupyterlab-lightcone-element:visible');
+      await expect(record).toContainText('Supernova catalog');
+      await expect(record).toBeVisible();
+    }
+
+    const css = await stylesheet;
+    expect(css.ok()).toBe(true);
+    // Read the stylesheet actually served by JupyterLab, so missing emitted
+    // theme assets fail even when another extension has loaded the same fonts.
+    const fontPaths = Array.from(
+      (await css.text()).matchAll(/url\(["']?([^\s)"']+\.woff2)["']?\)/g),
+      match => match[1]
+    );
+    expect(fontPaths.length).toBeGreaterThan(0);
+    for (const fontPath of new Set(fontPaths)) {
+      const font = await page.request.get(new URL(fontPath, css.url()).href);
+      expect(font.ok(), `Theme font ${fontPath}`).toBe(true);
+      expect((await font.body()).length).toBeGreaterThan(0);
+    }
+    expect(
+      await page.evaluate(async () => {
+        const fonts = await document.fonts.load(
+          '14px "Lightcone Brand Alegreya"'
+        );
+        return (
+          fonts.length > 0 && fonts.every(font => font.status === 'loaded')
+        );
+      })
+    ).toBe(true);
+  } finally {
+    if (originalTheme) {
+      await execute(page, 'apputils:change-theme', { theme: originalTheme });
+    }
+  }
+});
+
+test('Focus Layout hides the status bar and the right area, and brings them back', async ({
+  page
+}) => {
+  const statusBar = page.locator('#jp-main-statusbar');
+  await expect(statusBar).toBeVisible();
+  await execute(page, 'jupyterlab_lightcone:focus-layout');
+  await expect(statusBar).toBeHidden();
+  expect(
+    await page.evaluate(() =>
+      window.jupyterapp.commands.isToggled('jupyterlab_lightcone:focus-layout')
+    )
+  ).toBe(true);
+  await execute(page, 'jupyterlab_lightcone:focus-layout');
+  await expect(statusBar).toBeVisible();
+});
