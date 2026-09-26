@@ -21,6 +21,8 @@ import { chatPlugin } from './chat-plugin';
 import { chatProjectPlugin } from './chat-links/project-plugin';
 import { homePlugin } from './home';
 import { HomeCommandIDs } from './home/home-commands';
+import { mentionsPlugin } from './mentions';
+import { searchPlugin } from './search';
 import { sidebarPlugin } from './sidebar';
 import { tabLabelsPlugin } from './tab-labels';
 import { versionsPlugin } from './versions';
@@ -183,6 +185,7 @@ export default [
   chatProjectPlugin,
   chatPlugin,
   chatLinksPlugin,
+  mentionsPlugin,
   projectNotificationsPlugin,
   // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
   mystraPlugin,
@@ -190,5 +193,6 @@ export default [
   sidebarPlugin,
   commentsPlugin,
   versionsPlugin,
+  searchPlugin,
   tabLabelsPlugin
 ];

@@ -501,7 +501,8 @@ with this provider.
 ### Project sidebar
 
 The Lightcone icon in the left sidebar opens the current project's sessions,
-results and analysis tree. **New session** starts an empty chat; sessions can
+results and analysis tree. **New session** starts an empty chat; **Search**
+opens project-wide search. Sessions can
 be renamed in place and show their live activity. Results carry the engine's
 materialization state, and the selected record or analysis follows the active
 tab. Home's sessions section can open the full list in the sidebar.
@@ -540,3 +541,16 @@ chat keeps your message as typed and shows them as cards on it, and they leave
 the pending list. Where a deployment configures its own Jupyter AI persona
 manager, which does not append them to the prompt, the list is appended to the
 message text itself instead.
+
+### Search
+
+Ctrl+K (Cmd+K on macOS), **Search** in the sidebar, or **Search Lightcone
+project** in the command palette searches the current project's sessions (by
+title, then, once you pause typing, the text of their messages under **In
+sessions**), records (results, decisions, inputs, findings, papers), files and
+Lightcone commands. Sessions open in the main area, records as record tabs,
+files in their default editor.
+
+In the composer, `@` completes the project’s records (`@hub` offers
+`outputs.hubble_diagram`, inserted with its current version) and `#` completes
+its sessions as `chats/…` file references.

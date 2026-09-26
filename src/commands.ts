@@ -8,6 +8,7 @@ import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents } from '@jupyterlab/services';
 import { type IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
+import { CommandRegistry } from '@lumino/commands';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
 import { astraIcon, createProjectIcon, openProjectIcon } from './icons';
@@ -69,6 +70,20 @@ export async function requireProject(
   }
   await app.commands.execute(CommandIDs.createProject, { path });
   return undefined;
+}
+
+/** The first key binding of a command, formatted for a hint such as "Ctrl K". */
+export function shortcutLabel(
+  commands: CommandRegistry,
+  command: string
+): string | undefined {
+  const binding = commands.keyBindings.find(item => item.command === command);
+  if (!binding) {
+    return undefined;
+  }
+  return binding.keys
+    .map(keystroke => CommandRegistry.formatKeystroke(keystroke))
+    .join(', ');
 }
 
 /** The folder name Create proposes, numbered when it is taken. */

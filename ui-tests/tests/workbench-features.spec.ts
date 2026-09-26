@@ -23,8 +23,9 @@ const other = project
   .replace('Hubble diagram', 'Other diagram');
 
 const HOME = '.jp-jupyterlab-lightcone-HomeView';
-
 const SIDEBAR = '#jp-lightcone-sidebar';
+const CHAT_INPUT = '.jp-chat-input-container';
+const SEARCH = '.jp-jupyterlab-lightcone-Search';
 
 function execute(
   page: Page,
@@ -54,6 +55,93 @@ async function openWorkbench(page: Page, tmpPath: string): Promise<void> {
 
 test.beforeEach(async ({ page, tmpPath }) => {
   await page.contents.uploadContent(project, 'text', `${tmpPath}/astra.yaml`);
+});
+
+test('the composer completes @ records and # sessions into visible references', async ({
+  page,
+  tmpPath
+}) => {
+  await page.contents.uploadContent(
+    JSON.stringify({
+      messages: [],
+      users: {},
+      attachments: {},
+      metadata: {}
+    }),
+    'text',
+    `${tmpPath}/chats/contour-styling.chat`
+  );
+  await openWorkbench(page, tmpPath);
+  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  const composer = page.locator(CHAT_INPUT).getByRole('combobox');
+  await expect(composer).toBeVisible();
+  await composer.click();
+  await page.keyboard.type('Look at @hub');
+  const option = page.locator('.jp-chat-command-name', {
+    hasText: '@outputs.hubble_diagram'
+  });
+  await expect(option).toBeVisible();
+  await option.click();
+  await expect(composer).toContainText('`outputs.hubble_diagram`');
+  await page.keyboard.type(' and #cont');
+  const session = page.locator('.jp-chat-command-name', {
+    hasText: '#contour-styling'
+  });
+  await expect(session).toBeVisible();
+  await session.click();
+  await expect(composer).toContainText('`chats/contour-styling.chat`');
+});
+
+test('search finds the text of a session and opens it', async ({
+  page,
+  tmpPath
+}) => {
+  await page.contents.uploadContent(
+    JSON.stringify({
+      messages: [
+        {
+          id: 'm1',
+          body: 'Plot the Hubble residuals',
+          sender: 'researcher',
+          time: 1,
+          type: 'msg'
+        },
+        {
+          id: 'm2',
+          body: 'The residuals flatten above redshift one.',
+          sender: 'jupyter-ai-personas::test::Agent',
+          time: 2,
+          type: 'msg'
+        }
+      ],
+      users: {},
+      attachments: {},
+      metadata: {}
+    }),
+    'text',
+    `${tmpPath}/chats/residuals.chat`
+  );
+  await openWorkbench(page, tmpPath);
+  await execute(page, 'jupyterlab_lightcone:search');
+  await expect(page.locator(SEARCH)).toBeVisible();
+  await page.keyboard.type('flatten above');
+  const hit = page.locator(`${SEARCH} .lm-CommandPalette-item`, {
+    hasText: 'residuals flatten above'
+  });
+  await expect(hit).toBeVisible();
+  // The hit is filed under the session text, after the titles.
+  await expect(
+    page.locator(`${SEARCH} .lm-CommandPalette-header`, {
+      hasText: 'In sessions'
+    })
+  ).toHaveCount(1);
+  await hit.click();
+  await expect(page.locator(SEARCH)).toBeHidden();
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.jupyterapp.shell.currentWidget?.title.label)
+    )
+    .toBe('residuals.chat');
 });
 
 test('tabs of two projects that read the same name their project', async ({

@@ -64,6 +64,64 @@ export async function listSessions(
   }
 }
 
+/** One message of a session containing the searched text. */
+export interface ISessionMatch {
+  /** Contents path of the `.chat` file. */
+  path: string;
+  /** The session's title. */
+  title: string;
+  /** The message's ID, when it has one. */
+  message: string | null;
+  /** Who wrote the message, as the chat names them. */
+  author: string | null;
+  /** Whether an agent wrote it. */
+  agent: boolean;
+  /** When it was written, ISO 8601. */
+  time: string | null;
+  /** The text around the match, on one line. */
+  snippet: string;
+}
+
+/** The shortest query the server searches session text for. */
+export const MIN_SESSION_QUERY = 2;
+
+function isSessionMatch(value: unknown): value is ISessionMatch {
+  return (
+    isRecord(value) &&
+    typeof value.path === 'string' &&
+    typeof value.title === 'string' &&
+    (value.message === null || typeof value.message === 'string') &&
+    (value.author === null || typeof value.author === 'string') &&
+    typeof value.agent === 'boolean' &&
+    (value.time === null || typeof value.time === 'string') &&
+    typeof value.snippet === 'string'
+  );
+}
+
+/** Messages of the project's sessions containing `query`, newest first. */
+export async function searchSessions(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  query: string
+): Promise<ISessionMatch[]> {
+  try {
+    const data = await requestAPI(
+      `api/chat-sessions/search?${new URLSearchParams({ path: entrypoint, q: query })}`,
+      settings
+    );
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.matches) ||
+      !data.matches.every(isSessionMatch)
+    ) {
+      throw new Error('The server returned invalid search results.');
+    }
+    return data.matches;
+  } catch (error) {
+    throw new RequestError('Session search', error);
+  }
+}
+
 /**
  * The entrypoint of the project a chat belongs to, by the rule the server
  * applies to the agent's working directory; null while a chat stored outside

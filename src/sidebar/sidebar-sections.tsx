@@ -6,7 +6,8 @@ import {
   addIcon,
   caretDownIcon,
   editIcon,
-  homeIcon
+  homeIcon,
+  searchIcon
 } from '@jupyterlab/ui-components';
 import React from 'react';
 import { AstraKindMark } from '../astra-kind';
@@ -136,15 +137,20 @@ export interface ISidebarActionsProps {
   pendingComments: number;
   /** Absent when sessions are unavailable. */
   onNewSession?: () => void;
+  /** Absent when the search command is not registered. */
+  onSearch?: () => void;
+  searchShortcut?: string;
 }
 
-/** The verbs at the top of the sidebar: New session. */
+/** The verbs at the top of the sidebar: New session and Search. */
 export function SidebarActions({
   trans,
   pendingComments,
-  onNewSession
+  onNewSession,
+  onSearch,
+  searchShortcut
 }: ISidebarActionsProps): React.ReactElement | null {
-  if (!onNewSession && !pendingComments) {
+  if (!onNewSession && !onSearch && !pendingComments) {
     return null;
   }
   return (
@@ -159,6 +165,15 @@ export function SidebarActions({
           <span className={`${BASE}-actionLabel`}>
             {trans.__('New session')}
           </span>
+        </button>
+      ) : null}
+      {onSearch ? (
+        <button type="button" className={`${BASE}-action`} onClick={onSearch}>
+          <searchIcon.react tag="span" elementPosition="center" />
+          <span className={`${BASE}-actionLabel`}>{trans.__('Search')}</span>
+          {searchShortcut ? (
+            <kbd className={`${BASE}-shortcut`}>{searchShortcut}</kbd>
+          ) : null}
         </button>
       ) : null}
       {pendingComments > 0 ? (
