@@ -693,3 +693,105 @@ test('a comment pinned on a figure waits above the composer and travels with the
     `${tmpPath}/chats/compare-the-options.chat`
   ]).toContain(comments[0].sentWith?.chat);
 });
+
+test('a comment on the text of a record is marked beside the quote, not over it', async ({
+  page,
+  tmpPath
+}) => {
+  await openWorkbench(page, tmpPath);
+  await execute(page, 'jupyterlab_lightcone:open-element', {
+    entrypoint: `${tmpPath}/astra.yaml`,
+    target: 'decisions.cosmological_model'
+  });
+  const record = page.locator(RECORD).first();
+  const quote = 'poorly constrained';
+  await expect(record).toContainText(quote);
+
+  // Drag across the quote, which starts in the middle of its line.
+  const ends = await record.evaluate((root, quote) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node as Text;
+      const start = text.data.indexOf(quote);
+      if (start < 0) {
+        continue;
+      }
+      const box = (from: number, to: number) => {
+        const range = document.createRange();
+        range.setStart(text, from);
+        range.setEnd(text, to);
+        return range.getBoundingClientRect();
+      };
+      const first = box(start, start + 1);
+      const last = box(start + quote.length - 1, start + quote.length);
+      const column = text.parentElement?.getBoundingClientRect();
+      return {
+        x1: first.left + 1,
+        y1: first.top + first.height / 2,
+        x2: last.right - 1,
+        y2: last.top + last.height / 2,
+        column: column?.left ?? 0
+      };
+    }
+    return null;
+  }, quote);
+  if (!ends) {
+    throw new Error('The quote was not found in the record.');
+  }
+  await page.mouse.move(ends.x1, ends.y1);
+  await page.mouse.down();
+  await page.mouse.move(ends.x2, ends.y2, { steps: 8 });
+  await page.mouse.up();
+  const button = page.locator(
+    '.jp-jupyterlab-lightcone-CommentButton[data-floating]'
+  );
+  await expect(button).toBeVisible();
+  await button.click();
+  const popover = page.getByRole('dialog', { name: 'Comment' });
+  await popover
+    .getByRole('textbox', { name: 'Comment' })
+    .fill('Say which data constrain it.');
+  const created = page.waitForResponse(
+    response =>
+      response.url().includes(COMMENTS_API) &&
+      response.request().method() === 'POST'
+  );
+  await page.keyboard.press('Enter');
+  expect((await created).status()).toBe(201);
+
+  // The badge sits in the margin beside the quote's line, covering no text.
+  const badge = record.locator('.jp-jupyterlab-lightcone-CommentBadge');
+  await expect(badge).toHaveText('①');
+  const highlight = record
+    .locator('.jp-jupyterlab-lightcone-CommentHighlight')
+    .first();
+  await expect(highlight).toBeVisible();
+  const [badgeBox, highlightBox] = await Promise.all([
+    badge.boundingBox(),
+    highlight.boundingBox()
+  ]);
+  if (!badgeBox || !highlightBox) {
+    throw new Error('The badge or the highlight has no layout box.');
+  }
+  expect(badgeBox.x + badgeBox.width).toBeLessThanOrEqual(ends.column);
+  expect(
+    Math.abs(
+      badgeBox.y +
+        badgeBox.height / 2 -
+        (highlightBox.y + highlightBox.height / 2)
+    )
+  ).toBeLessThan(2);
+
+  // The badge opens the comment, which can be deleted from there.
+  await badge.click();
+  await expect(popover).toContainText('Say which data constrain it.');
+  const removed = page.waitForResponse(
+    response =>
+      response.url().includes(COMMENTS_API) &&
+      response.request().method() === 'DELETE'
+  );
+  await popover.getByRole('button', { name: 'Delete' }).click();
+  expect((await removed).status()).toBe(204);
+  await expect(badge).toHaveCount(0);
+  await expect(page.locator(SIDEBAR)).not.toContainText('pending comment');
+});

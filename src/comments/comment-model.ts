@@ -7,8 +7,19 @@ import type { IComment, ICommentAnchor, ICommentTarget } from './comments-api';
 export const COMMENT_TEXT_LIMIT = 1000;
 /** Characters of the text limit left before the counter appears. */
 export const COMMENT_COUNTER_THRESHOLD = 100;
+/** The longest quoted selection stored with a text anchor. */
+export const QUOTE_LIMIT = 300;
+/** The longest run of text kept before a quote to disambiguate it. */
+export const PREFIX_LIMIT = 100;
 /** The metadata key under which comment IDs ride with a chat message. */
 export const METADATA_KEY = 'lightcone';
+/**
+ * The attribute `@astra-spec/ui`'s paper viewer puts on each page shell with
+ * the page's 1-based number; the viewer scrolls by it, so it is the viewer's
+ * own contract.
+ */
+export const PAGE_ATTRIBUTE = 'data-page';
+
 const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
 
 /** The glyph of a 1-based label: ①…⑩, then (11) and so on. */
@@ -18,6 +29,20 @@ export function labelGlyph(label: number): string {
     : `(${label})`;
 }
 
+/** The kind of anchor a comment has, which decides its icon. */
+export type CommentKind = 'image' | 'text' | 'pdf';
+
+export function commentKind(comment: Pick<IComment, 'anchor'>): CommentKind {
+  switch (comment.anchor.type) {
+    case 'point':
+      return 'image';
+    case 'pdf':
+      return 'pdf';
+    default:
+      return 'text';
+  }
+}
+
 /** A version whose parts are all unknown. */
 export const NULL_VERSION: ICommentTarget['version'] = {
   commit: null,
@@ -25,6 +50,22 @@ export const NULL_VERSION: ICommentTarget['version'] = {
   hash: null,
   label: null
 };
+
+/** A neutral anchor with every part null, to be refined by the caller. */
+export function emptyAnchor(type: ICommentAnchor['type']): ICommentAnchor {
+  return {
+    type,
+    x: null,
+    y: null,
+    startLine: null,
+    startCol: null,
+    endLine: null,
+    endCol: null,
+    quote: null,
+    prefix: null,
+    page: null
+  };
+}
 
 /** Keep a percentage inside the image, with one decimal. */
 export function clampPercent(value: number): number {
@@ -36,7 +77,7 @@ export function clampPercent(value: number): number {
 
 /** A point anchor from percentages across and down an image. */
 export function pointAnchor(x: number, y: number): ICommentAnchor {
-  return { type: 'point', x: clampPercent(x), y: clampPercent(y) };
+  return { ...emptyAnchor('point'), x: clampPercent(x), y: clampPercent(y) };
 }
 
 /** Shorten text to `limit` characters with an ellipsis. */
@@ -50,24 +91,46 @@ export function targetName(target: ICommentTarget): string {
   if (target.kind === 'record' && target.record) {
     return target.record;
   }
+  if (target.kind === 'message') {
+    return 'session message';
+  }
   const local = target.path.slice(target.path.indexOf(':') + 1);
   return local.split('/').filter(Boolean).pop() ?? target.path;
 }
 
 /**
  * The ASTRA kind of the record a comment is on, for its kind mark; undefined
- * for comments on image files.
+ * for comments on files and session messages.
  */
 export function targetKind(target: ICommentTarget): SurfaceKind | undefined {
   if (target.kind !== 'record' || !target.record) {
     return undefined;
   }
-  return referenceKind(target.record);
+  return paperDoi(target.record) !== undefined
+    ? 'paper'
+    : referenceKind(target.record);
 }
 
 /** Where inside its target a comment sits, in words. */
 export function anchorSummary(anchor: ICommentAnchor): string {
-  return `point at ${anchor.x}% across, ${anchor.y}% down`;
+  if (anchor.type === 'point' && anchor.x !== null && anchor.y !== null) {
+    return `point at ${anchor.x}% across, ${anchor.y}% down`;
+  }
+  const parts: string[] = [];
+  if (anchor.type === 'pdf' && anchor.page !== null) {
+    parts.push(`page ${anchor.page}`);
+  }
+  if (anchor.startLine !== null) {
+    parts.push(
+      anchor.endLine !== null && anchor.endLine !== anchor.startLine
+        ? `lines ${anchor.startLine}–${anchor.endLine}`
+        : `line ${anchor.startLine}`
+    );
+  }
+  if (anchor.quote) {
+    parts.push(`quoting “${truncate(anchor.quote, 60)}”`);
+  }
+  return parts.join(', ');
 }
 
 /** The first line of the comment, shortened for a chip. */
@@ -93,6 +156,7 @@ export function sameTarget(a: ICommentTarget, b: ICommentTarget): boolean {
     a.kind === b.kind &&
     a.path === b.path &&
     a.record === b.record &&
+    a.message === b.message &&
     (a.universe === null || b.universe === null || a.universe === b.universe)
   );
 }
@@ -123,9 +187,22 @@ export function withCommentIds(
   return { ...existing, comments: [...ids] };
 }
 
+/** The record path of a paper target, from its DOI. */
+export function paperRecord(doi: string): string {
+  return `papers.${doi}`;
+}
+
+/** The DOI of a paper target's record path, if it is one. */
+export function paperDoi(record: string | null): string | undefined {
+  return record?.startsWith('papers.')
+    ? record.slice('papers.'.length)
+    : undefined;
+}
+
 /**
  * The record a record tab shows, as a comment target without a version.
- * The tab's identity is `[entrypoint, canonical target, universe]`, as stored by the record tab.
+ * The tab's identity is `[entrypoint, canonical target, universe]`, where a
+ * paper's target is `doi:<doi>`.
  */
 export function elementTarget(element: {
   identity: string;
@@ -148,8 +225,11 @@ export function elementTarget(element: {
   return {
     kind: 'record',
     path,
-    record: target,
+    record: target.startsWith('doi:')
+      ? paperRecord(target.slice('doi:'.length))
+      : target,
     universe: typeof universe === 'string' ? universe : null,
+    message: null,
     version: NULL_VERSION
   };
 }

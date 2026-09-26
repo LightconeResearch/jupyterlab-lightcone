@@ -3,7 +3,7 @@ import {
   COMMENT_LAYER_CLASS,
   inCommentLayer
 } from '../comment-layer';
-import { pointAnchor } from '../comment-model';
+import { emptyAnchor, pointAnchor } from '../comment-model';
 import { ImageCommentLayer, type IImageLayerOptions } from '../image-layer';
 import {
   Frames,
@@ -98,9 +98,12 @@ describe('ImageCommentLayer', () => {
     layer.dispose();
   });
 
-  it('draws numbered pins', async () => {
+  it('draws numbered pins for point comments only', async () => {
     const { host, layer } = setup();
-    layer.setComments([makeComment('a', pointAnchor(42.4, 31), { label: 2 })]);
+    layer.setComments([
+      makeComment('a', pointAnchor(42.4, 31), { label: 2 }),
+      makeComment('b', { ...emptyAnchor('text'), quote: 'text' })
+    ]);
     await frames.flush();
     const frame = host.querySelector<HTMLElement>(FRAME);
     expect(frame?.style.left).toBe('100px');

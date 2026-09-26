@@ -8,14 +8,16 @@ export type CommentStatus = 'pending' | 'sent';
 
 /** What a comment is attached to. */
 export interface ICommentTarget {
-  /** A record of the project or an image file. */
-  kind: 'record' | 'file';
-  /** Contents path: the `astra.yaml` for records, or the image file. */
+  /** A record of the project, a file, or a chat message. */
+  kind: 'record' | 'file' | 'message';
+  /** Contents path: the `astra.yaml` for records, the file, or the `.chat`. */
   path: string;
   /** Canonical record path such as `outputs.hubble_diagram`, for records. */
   record: string | null;
   /** Universe the record was resolved in, when relevant. */
   universe: string | null;
+  /** Message ID, for comments on a session transcript. */
+  message: string | null;
   /** The version the comment was made on. */
   version: {
     commit: string | null;
@@ -27,11 +29,21 @@ export interface ICommentTarget {
 
 /** Where inside the target the comment sits. */
 export interface ICommentAnchor {
-  type: 'point';
+  type: 'point' | 'text' | 'pdf';
   /** Percent across the image, for points. */
   x: number | null;
   /** Percent down the image, for points. */
   y: number | null;
+  startLine: number | null;
+  startCol: number | null;
+  endLine: number | null;
+  endCol: number | null;
+  /** The selected text, for text and PDF anchors. */
+  quote: string | null;
+  /** Text just before the selection, to disambiguate the quote. */
+  prefix: string | null;
+  /** 1-based page number, for PDFs. */
+  page: number | null;
 }
 
 /** A comment as the server stores it. */
@@ -105,10 +117,13 @@ function isNumberOrNull(value: unknown): value is number | null {
 function isTarget(value: unknown): value is ICommentTarget {
   return (
     isRecord(value) &&
-    (value.kind === 'record' || value.kind === 'file') &&
+    (value.kind === 'record' ||
+      value.kind === 'file' ||
+      value.kind === 'message') &&
     typeof value.path === 'string' &&
     isStringOrNull(value.record) &&
     isStringOrNull(value.universe) &&
+    isStringOrNull(value.message) &&
     isRecord(value.version) &&
     isStringOrNull(value.version.commit) &&
     isStringOrNull(value.version.key) &&
@@ -120,9 +135,16 @@ function isTarget(value: unknown): value is ICommentTarget {
 function isAnchor(value: unknown): value is ICommentAnchor {
   return (
     isRecord(value) &&
-    value.type === 'point' &&
+    (value.type === 'point' || value.type === 'text' || value.type === 'pdf') &&
     isNumberOrNull(value.x) &&
-    isNumberOrNull(value.y)
+    isNumberOrNull(value.y) &&
+    isNumberOrNull(value.startLine) &&
+    isNumberOrNull(value.startCol) &&
+    isNumberOrNull(value.endLine) &&
+    isNumberOrNull(value.endCol) &&
+    isStringOrNull(value.quote) &&
+    isStringOrNull(value.prefix) &&
+    isNumberOrNull(value.page)
   );
 }
 

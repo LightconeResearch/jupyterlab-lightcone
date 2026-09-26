@@ -6,6 +6,7 @@ import type { CommentService } from './comment-service';
 import {
   anchorSummary,
   commentIdsFromMetadata,
+  commentKind,
   labelGlyph,
   targetName
 } from './comment-model';
@@ -78,7 +79,7 @@ export function createCommentCards(
               type="button"
               role="listitem"
               className="jp-jupyterlab-lightcone-CommentCard"
-              data-kind="image"
+              data-kind={commentKind(comment)}
               onClick={() => deps.open(comment)}
             >
               <span className="jp-jupyterlab-lightcone-CommentCard-head">

@@ -410,8 +410,9 @@ def _draft(text, record="outputs.hubble_diagram"):
     return {
         "text": text,
         "target": {"kind": "record", "path": "project/astra.yaml", "record": record, "universe": "baseline",
-                   "version": {"commit": None, "key": None, "hash": None, "label": "a889877"}},
-        "anchor": {"type": "point", "x": 42, "y": 31},
+                   "message": None, "version": {"commit": None, "key": None, "hash": None, "label": "a889877"}},
+        "anchor": {"type": "point", "x": 42, "y": 31, "startLine": None, "startCol": None, "endLine": None,
+                   "endCol": None, "quote": None, "prefix": None, "page": None},
     }
 
 

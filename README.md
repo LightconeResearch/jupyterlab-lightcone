@@ -528,7 +528,8 @@ trace. The graph is read-only: it starts no computation or materialization.
 ### Comments
 
 Click a figure in a record tab or an image opened in JupyterLab to pin a comment
-at that point. Comments are
+at that point, or select text in a record, a Markdown preview, a text editor, a
+cited paper or a message of a session and choose **Comment**. Comments are
 numbered per target (①, ②, …), pinned to the version they were made on, and
 kept in `<project>/.lightcone/comments.json`; pins on images can be dragged,
 and every pending comment can be edited or deleted. Pending comments appear as

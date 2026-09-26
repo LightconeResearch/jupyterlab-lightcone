@@ -5,9 +5,13 @@ import {
   chipTooltip,
   clampPercent,
   commentIdsFromMetadata,
+  commentKind,
   elementTarget,
+  emptyAnchor,
   labelGlyph,
   NULL_VERSION,
+  paperDoi,
+  paperRecord,
   pointAnchor,
   sameTarget,
   targetKind,
@@ -21,7 +25,7 @@ const record: ICommentTarget = {
   path: 'project/astra.yaml',
   record: 'outputs.hubble_diagram',
   universe: null,
-
+  message: null,
   version: NULL_VERSION
 };
 
@@ -59,7 +63,9 @@ describe('anchors', () => {
     expect(pointAnchor(42.36, 31)).toMatchObject({
       type: 'point',
       x: 42.4,
-      y: 31
+      y: 31,
+      quote: null,
+      page: null
     });
   });
 
@@ -67,6 +73,27 @@ describe('anchors', () => {
     expect(anchorSummary(pointAnchor(42, 31))).toBe(
       'point at 42% across, 31% down'
     );
+    expect(
+      anchorSummary({
+        ...emptyAnchor('text'),
+        startLine: 12,
+        endLine: 13,
+        quote: 'The analysis specification records the'
+      })
+    ).toBe('lines 12–13, quoting “The analysis specification records the”');
+    expect(
+      anchorSummary({ ...emptyAnchor('text'), startLine: 4, endLine: 4 })
+    ).toBe('line 4');
+    expect(
+      anchorSummary({ ...emptyAnchor('pdf'), page: 3, quote: 'x'.repeat(80) })
+    ).toBe(`page 3, quoting “${'x'.repeat(59)}…”`);
+    expect(anchorSummary(emptyAnchor('text'))).toBe('');
+  });
+
+  it('maps anchor types to kinds', () => {
+    expect(commentKind(comment())).toBe('image');
+    expect(commentKind(comment({ anchor: emptyAnchor('pdf') }))).toBe('pdf');
+    expect(commentKind(comment({ anchor: emptyAnchor('text') }))).toBe('text');
   });
 });
 
@@ -93,6 +120,9 @@ describe('chips', () => {
         path: 'drive:a/b.md'
       })
     ).toBe('b.md');
+    expect(
+      targetName({ ...record, kind: 'message', record: null, message: 'm1' })
+    ).toBe('session message');
   });
 });
 
@@ -126,9 +156,21 @@ describe('targets', () => {
         ])
       })
     ).toEqual({ ...record, universe: 'baseline' });
+    expect(
+      elementTarget({
+        identity: JSON.stringify(['project/astra.yaml', 'doi:10.1/x', null])
+      })
+    ).toMatchObject({ record: 'papers.10.1/x', universe: null });
     expect(elementTarget({ identity: 'not json' })).toBeNull();
     expect(elementTarget({ identity: JSON.stringify(['a', '']) })).toBeNull();
     expect(elementTarget({ identity: JSON.stringify({}) })).toBeNull();
+  });
+
+  it('round-trips paper records', () => {
+    expect(paperRecord('10.1/x')).toBe('papers.10.1/x');
+    expect(paperDoi('papers.10.1/x')).toBe('10.1/x');
+    expect(paperDoi('outputs.a')).toBeUndefined();
+    expect(paperDoi(null)).toBeUndefined();
   });
 });
 
@@ -161,8 +203,14 @@ describe('targetKind', () => {
     expect(targetKind({ ...record, record: 'sub.decisions.model' })).toBe(
       'decision'
     );
+    expect(targetKind({ ...record, record: paperRecord('10.1/x.y') })).toBe(
+      'paper'
+    );
     expect(
       targetKind({ ...record, kind: 'file', path: 'notes.md', record: null })
+    ).toBeUndefined();
+    expect(
+      targetKind({ ...record, kind: 'message', record: null, message: 'm1' })
     ).toBeUndefined();
   });
 });

@@ -10,6 +10,10 @@ import {
   type JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { ICommandPalette, showErrorMessage } from '@jupyterlab/apputils';
+import {
+  EditorExtensionRegistry,
+  IEditorExtensionRegistry
+} from '@jupyterlab/codemirror';
 import { IDocumentManager } from '@jupyterlab/docmanager';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { IChatProjectResolver } from '../chat-links/chat-project';
@@ -26,6 +30,7 @@ import { CommentPopover } from './comment-popover';
 import { CommentService, ICommentService } from './comment-service';
 import { commentDelivery, type CommentDelivery } from './comments-api';
 import { ChatCommentTrays, type ICommentTrayActions } from './comment-tray';
+import { editorCommentExtension } from './editor-comments';
 
 export { ICommentService } from './comment-service';
 export type {
@@ -104,12 +109,14 @@ export function commentCommandProvider(
 }
 
 /**
- * Comments on figures: pins where they were made, chips above the session's input,
+ * Comments on figures, files and records: pins
+ * and highlights where they were made, chips above the session's input,
  * sent with the next message and shown as cards on it.
  */
 export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
   id: 'jupyterlab_lightcone:comments',
-  description: 'Comments on figures, sent with the next chat message.',
+  description:
+    'Comments on figures, files and records, sent with the next chat message.',
   autoStart: true,
   provides: ICommentService,
   requires: [ICurrentProject, IChatProjectResolver],
@@ -117,6 +124,7 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
     IChatTracker,
     IChatCommandRegistry,
     IMessagePreambleRegistry,
+    IEditorExtensionRegistry,
     IDocumentManager,
     ILabShell,
     ICommandPalette,
@@ -129,6 +137,7 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
     tracker: IChatTracker | null,
     chatCommands: IChatCommandRegistry | null,
     preambles: IMessagePreambleRegistry | null,
+    editorExtensions: IEditorExtensionRegistry | null,
     documents: IDocumentManager | null,
     shell: ILabShell | null,
     palette: ICommandPalette | null,
@@ -140,6 +149,9 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
     const hosts = new CommentHosts({
       app,
       shell,
+      documents,
+      tracker,
+      projects,
       service,
       popover
     });
@@ -151,6 +163,16 @@ export const commentsPlugin: JupyterFrontEndPlugin<ICommentService> = {
         );
       });
     };
+    if (editorExtensions) {
+      const extension = editorCommentExtension(hosts.editorHandlers);
+      editorExtensions.addExtension({
+        name: 'jupyterlab_lightcone:comment',
+        factory: options =>
+          options.inline
+            ? null
+            : EditorExtensionRegistry.createImmutableExtension(extension)
+      });
+    }
     const actions: ICommentTrayActions = {
       open,
       edit: (entrypoint, comment, element) =>

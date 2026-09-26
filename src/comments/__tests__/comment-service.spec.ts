@@ -40,7 +40,7 @@ function comment(
       path: 'project/astra.yaml',
       record: 'outputs.hubble_diagram',
       universe: null,
-
+      message: null,
       version: NULL_VERSION
     },
     anchor: pointAnchor(10, 20)

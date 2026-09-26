@@ -1,6 +1,6 @@
 """Pending comments on a project's records and files, sent with the next message.
 
-A user pins a note to a figure, the note
+A user pins a note to a figure, a text selection or a PDF page, the note
 waits above the composer, and it goes out with the next chat message. The
 store is `<project>/.lightcone/comments.json`, one of the project stores
 `project_store` keeps under the folder the engine's `.gitignore` template
@@ -49,13 +49,16 @@ STORE_VERSION = 1
 STORE_NAME = "comments.json"
 MAX_STORE_BYTES = 16 * 1024 * 1024
 MAX_TEXT_CHARS = 1000
+MAX_QUOTE_CHARS = 300
+MAX_PREFIX_CHARS = 100
 MAX_FIELD_CHARS = 512
 MAX_PATH_CHARS = 4096
 
-TARGET_KINDS = ("record", "file")
-ANCHOR_TYPES = ("point",)
+TARGET_KINDS = ("record", "file", "message")
+ANCHOR_TYPES = ("point", "text", "pdf")
 STATUSES = ("pending", "sent")
 VERSION_FIELDS = ("commit", "key", "hash", "label")
+POSITION_FIELDS = ("startLine", "startCol", "endLine", "endCol")
 
 CIRCLED_NUMBERS = "①②③④⑤⑥⑦⑧⑨⑩"
 
@@ -131,6 +134,13 @@ def _optional_number(value, name: str) -> float | None:
     return value
 
 
+def _optional_int(value, name: str, minimum: int) -> int | None:
+    """An integer field of at least `minimum`, or None when it is null."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise _bad(f"{name} must be an integer of at least {minimum}, or null.")
+    return value
 
 
 def validate_text(value) -> str:
@@ -151,7 +161,7 @@ def validate_target(value) -> dict:
         raise _bad("A comment needs a target.")
     kind = value.get("kind")
     if kind not in TARGET_KINDS:
-        raise _bad("The target kind must be record or file.")
+        raise _bad("The target kind must be record, file or message.")
     path = value.get("path")
     if not isinstance(path, str) or not path or "\x00" in path or len(path) > MAX_PATH_CHARS:
         raise _bad("The target needs a Contents path.")
@@ -160,8 +170,11 @@ def validate_target(value) -> dict:
     if record is not None and (not record or any(character.isspace() for character in record)):
         raise _bad("A record path holds no whitespace.")
     universe = _optional_string(value.get("universe"), "universe", MAX_FIELD_CHARS)
+    message = _optional_string(value.get("message"), "message", MAX_FIELD_CHARS)
     if kind == "record" and record is None:
         raise _bad("A record target names its record.")
+    if kind == "message" and message is None:
+        raise _bad("A message target names its message.")
     version = value.get("version")
     if version is None:
         version = {}
@@ -172,6 +185,7 @@ def validate_target(value) -> dict:
         "path": path,
         "record": record,
         "universe": universe,
+        "message": message,
         "version": {
             field: _optional_string(version.get(field), f"version.{field}", MAX_FIELD_CHARS)
             for field in VERSION_FIELDS
@@ -185,17 +199,25 @@ def validate_anchor(value) -> dict:
         raise _bad("A comment needs an anchor.")
     kind = value.get("type")
     if kind not in ANCHOR_TYPES:
-        raise _bad("The anchor type must be point.")
+        raise _bad("The anchor type must be point, text or pdf.")
     anchor = {
         "type": kind,
         "x": _optional_number(value.get("x"), "x"),
         "y": _optional_number(value.get("y"), "y"),
+        **{field: _optional_int(value.get(field), field, 0) for field in POSITION_FIELDS},
+        "quote": _optional_string(value.get("quote"), "quote", MAX_QUOTE_CHARS),
+        "prefix": _optional_string(value.get("prefix"), "prefix", MAX_PREFIX_CHARS),
+        "page": _optional_int(value.get("page"), "page", 1),
     }
     for axis in ("x", "y"):
         if anchor[axis] is not None and not 0 <= anchor[axis] <= 100:
             raise _bad(f"{axis} is a percentage between 0 and 100.")
     if kind == "point" and (anchor["x"] is None or anchor["y"] is None):
         raise _bad("A point anchor needs x and y.")
+    if kind == "text" and anchor["quote"] is None and anchor["startLine"] is None:
+        raise _bad("A text anchor needs a quote or a line range.")
+    if kind == "pdf" and anchor["page"] is None:
+        raise _bad("A PDF anchor needs a page.")
     return anchor
 
 
@@ -429,6 +451,9 @@ def _percent(value: float) -> str:
     return str(round(value))
 
 
+def _squash(text: str) -> str:
+    """A quote on one line, with runs of whitespace collapsed."""
+    return " ".join(text.split())
 
 
 def describe_comment(comment: dict, project_dir: str, file: str | None) -> str:
@@ -438,12 +463,26 @@ def describe_comment(comment: dict, project_dir: str, file: str | None) -> str:
     if target["kind"] == "record":
         head = target["record"]
         details = [part for part in (file, f"version {label}" if label else None) if part]
+    elif target["kind"] == "message":
+        # A reply in a session's transcript: the quote says which one.
+        head = f"session {relative_path(target['path'], project_dir)}"
+        details = []
     else:
         head = relative_path(target["path"], project_dir)
         details = [f"version {label}"] if label else []
     if details:
         head = f"{head} ({', '.join(details)})"
-    return f'{head} — point at {_percent(anchor["x"])}% across, {_percent(anchor["y"])}% down: "{text}"'
+    if anchor["type"] == "point":
+        return f'{head} — point at {_percent(anchor["x"])}% across, {_percent(anchor["y"])}% down: "{text}"'
+    parts = [head]
+    if anchor["page"] is not None:
+        parts.append(f"page {anchor['page']}")
+    if anchor["startLine"] is not None:
+        start, end = anchor["startLine"], anchor["endLine"]
+        parts.append(f"lines {start}–{end}" if end is not None and end != start else f"line {start}")
+    if anchor["quote"] is not None:
+        parts.append(f'quoting "{_squash(anchor["quote"])}"')
+    return f'{", ".join(parts)} — "{text}"'
 
 
 def format_comment_block(comments: list[dict], project_dir: str, files: dict[str, str | None]) -> str:

@@ -1,3 +1,5 @@
+import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { MainAreaWidget, Notification } from '@jupyterlab/apputils';
 import type { DocumentRegistry } from '@jupyterlab/docregistry';
@@ -13,12 +15,14 @@ import {
   createContents,
   fileModel
 } from '../../__tests__/project-fixtures';
+import { createChatProjectResolver } from '../../chat-links/chat-project';
 import { createComment, listComments, type IComment } from '../comments-api';
 import { COMMENT_LAYER_CLASS } from '../comment-layer';
-import { NULL_VERSION, pointAnchor } from '../comment-model';
+import { emptyAnchor, NULL_VERSION, pointAnchor } from '../comment-model';
 import { CommentHosts, recordVersion } from '../comment-hosts';
 import { CommentPopover, type IPopoverRequest } from '../comment-popover';
 import { CommentService } from '../comment-service';
+import { editorCommentExtension } from '../editor-comments';
 import {
   Frames,
   makeComment,
@@ -28,6 +32,10 @@ import {
   recordTarget,
   settle
 } from './fixtures';
+
+jest.mock('@jupyter/chat', () =>
+  jest.requireActual('../../chat-links/__tests__/chat-mock')
+);
 
 jest.mock('../comments-api', () => ({
   listComments: jest.fn(),
@@ -48,6 +56,8 @@ jest.mock('../../element-widget', () => {
 });
 
 const ENTRYPOINT = 'project/astra.yaml';
+const BADGE = '.jp-jupyterlab-lightcone-CommentBadge';
+const FLASH = 'jp-jupyterlab-lightcone-CommentFlash';
 const settings = ServerConnection.makeSettings();
 
 type WidgetExtension = DocumentRegistry.IWidgetExtension<
@@ -93,6 +103,23 @@ function fakeContext(path: string) {
   };
 }
 
+function textComment(id: string, quote: string): IComment {
+  return makeComment(
+    id,
+    { ...emptyAnchor('text'), quote },
+    {
+      target: {
+        kind: 'file',
+        path: 'project/index.md',
+        record: null,
+        universe: null,
+        message: null,
+        version: NULL_VERSION
+      }
+    }
+  );
+}
+
 let frames: Frames;
 let hosts: CommentHosts | null = null;
 let popover: CommentPopover;
@@ -133,10 +160,31 @@ async function setup(pending: IComment[]) {
   hosts = new CommentHosts({
     app: fake.app,
     shell: null,
+    documents: null,
+    tracker: null,
+    projects: createChatProjectResolver(contents, () => undefined),
     service,
     popover
   });
   return { ...fake, service, hosts };
+}
+
+/**
+ * A file editor whose CodeMirror view carries the comment extension; its
+ * `content.editor` stands in for the `CodeMirrorEditor` that `getEditor`
+ * (mocked above) reads the view from.
+ */
+function editorWidget(current: CommentHosts) {
+  const view = new EditorView({
+    state: EditorState.create({
+      doc: '',
+      extensions: editorCommentExtension(current.editorHandlers)
+    }),
+    parent: document.body
+  });
+  const content = new Widget();
+  Object.assign(content, { editor: { editor: view } });
+  return { widget: new MainAreaWidget({ content }), view };
 }
 
 function extension(
@@ -149,6 +197,85 @@ function extension(
   }
   return found;
 }
+
+describe('editor hosts', () => {
+  it('mark comments once the text loads after the project is known', async () => {
+    const { extensions } = await setup([textComment('a', 'magnitude offset')]);
+    if (!hosts) {
+      throw new Error('No hosts.');
+    }
+    const { widget, view } = editorWidget(hosts);
+    const { context, load } = fakeContext('project/index.md');
+    extension(extensions, 'Editor').createNew(widget, context);
+    // The project is found while the document is still loading.
+    await settle();
+    expect(view.dom.querySelector(BADGE)).toBeNull();
+    view.dispatch({
+      changes: { from: 0, insert: 'The magnitude offset is profiled.' }
+    });
+    load();
+    await settle();
+    const badge = view.dom.querySelector<HTMLElement>(BADGE);
+    expect(badge?.textContent).toBe('①');
+    view.destroy();
+  });
+
+  it('scroll to a comment of a document opened from a chip', async () => {
+    const comment = textComment('a', 'magnitude offset');
+    const { extensions, execute } = await setup([comment]);
+    const current = hosts;
+    if (!current) {
+      throw new Error('No hosts.');
+    }
+    const { widget, view } = editorWidget(current);
+    const { context, load } = fakeContext('project/index.md');
+    execute.mockImplementation(async command => {
+      expect(command).toBe('docmanager:open');
+      extension(extensions, 'Editor').createNew(widget, context);
+      return widget;
+    });
+    await current.openTarget(comment);
+    await settle();
+    view.dispatch({
+      changes: { from: 0, insert: 'The magnitude offset is profiled.' }
+    });
+    load();
+    await settle();
+    await frames.flush(40);
+    const badge = view.dom.querySelector<HTMLElement>(BADGE);
+    expect(badge?.classList).toContain(FLASH);
+    view.destroy();
+  });
+
+  it('give up a flash the loaded document cannot show', async () => {
+    const comment = textComment('a', 'absent quote');
+    const { extensions, execute, service } = await setup([comment]);
+    const current = hosts;
+    if (!current) {
+      throw new Error('No hosts.');
+    }
+    const { widget, view } = editorWidget(current);
+    const { context, load } = fakeContext('project/index.md');
+    extension(extensions, 'Editor').createNew(widget, context);
+    view.dispatch({ changes: { from: 0, insert: 'unrelated text' } });
+    load();
+    await settle();
+    const scroll = jest.spyOn(EditorView, 'scrollIntoView');
+    // The document is open and settled: the chip finds nothing to show...
+    execute.mockResolvedValue(widget);
+    await current.openTarget(comment);
+    // ...and a later refresh that finds the quote does not jump to it.
+    view.dispatch({ changes: { from: 0, insert: 'absent quote ' } });
+    jest
+      .mocked(listComments)
+      .mockResolvedValue([{ ...comment, text: 'edited' }]);
+    await service.refresh(ENTRYPOINT);
+    await settle();
+    expect(view.dom.querySelector(BADGE)).not.toBeNull();
+    expect(scroll).not.toHaveBeenCalled();
+    view.destroy();
+  });
+});
 
 describe('image hosts', () => {
   function imageWidget() {
@@ -197,7 +324,7 @@ describe('image hosts', () => {
         path: 'project/fig.png',
         record: null,
         universe: null,
-
+        message: null,
         version: { ...NULL_VERSION, hash: 'h1' }
       },
       anchor: pointAnchor(25, 25)

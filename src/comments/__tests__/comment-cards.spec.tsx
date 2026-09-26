@@ -8,6 +8,10 @@ import { pointAnchor } from '../comment-model';
 import { CommentService } from '../comment-service';
 import { makeComment, recordTarget } from './fixtures';
 
+jest.mock('@jupyter/chat', () =>
+  jest.requireActual('../../chat-links/__tests__/chat-mock')
+);
+
 const CARD = '.jp-jupyterlab-lightcone-CommentCard';
 
 // Tell React that updates are awaited with `act`.

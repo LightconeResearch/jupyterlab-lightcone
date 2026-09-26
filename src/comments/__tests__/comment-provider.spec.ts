@@ -23,6 +23,7 @@ import { makeComment } from './fixtures';
 jest.mock('@jupyter/chat', () => {
   const { Token } = jest.requireActual('@lumino/coreutils');
   return {
+    ...jest.requireActual('../../chat-links/__tests__/chat-mock'),
     IChatCommandRegistry: new Token('@jupyter/chat:commands'),
     IChatTracker: new Token('@jupyter/chat:IChatTracker'),
     IMessagePreambleRegistry: new Token('@jupyter/chat:preambles')

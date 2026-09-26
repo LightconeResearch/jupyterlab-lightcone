@@ -905,7 +905,7 @@ its SVG and its Lumino placement/restoration use supported public APIs.
 A server/engine status-change event would remove polling from this consumer
 alongside Home, the sidebar and record tabs.
 
-## Figure comments and delivery
+## Figure and text comments
 
 ### The comment tray is inserted before the input
 
@@ -958,26 +958,59 @@ annotation-host callback.
 **Removal.** Replace the BEM selector with the public host hook and remove the
 matching selector-dependent CSS when the hook ships.
 
-### Pins are measured overlays
+### Pins and highlights are measured overlays
 
-**Where.** `src/comments/image-layer.ts`, `comment-layer.ts`.
+**Where.** `src/comments/image-layer.ts`, `text-layer.ts`, `comment-layer.ts`.
 
-**What.** An independently owned DOM layer positions each pin from percentages
-of the rendered image bounds. It observes resizes, content changes and
-scrolling, and disconnects its observers and event listeners on disposal.
+**What.** Independently owned DOM layers position image pins from percentage
+coordinates and text highlights/badges from selection bounds. They observe
+resizes, content changes and scrolling, and disconnect their observers and
+event listeners on disposal. CodeMirror decorations use its public extension
+API; only rendered previews need these measured overlays.
 
-**Why.** Neither `@astra-spec/ui` 0.0.7 nor JupyterLab's image viewer exposes an
-annotation slot. Mutating their image or React-owned child structure would
-conflict with rendering, so the extension measures the image instead.
+**Why.** Neither `@astra-spec/ui` 0.0.7 nor JupyterLab's image and Markdown
+viewers expose annotation slots. Their React and PDF.js renderers own the
+content, so the extension measures the visible image or quote without taking
+over rendering.
 
-**Upstream.** `@astra-spec/ui` and `@jupyterlab/imageviewer`: an annotation slot
-with image-coordinate conversion and notifications when bounds change.
+**Upstream.** `@astra-spec/ui`, `@jupyterlab/imageviewer` and
+`@jupyterlab/markdownviewer`: annotation slots with coordinate conversion and
+notifications when figure, text or page bounds change.
 
-**Removal.** Render through those slots and delete the measured positioning,
+**Removal.** Render through those slots and delete measured positioning,
 mutation observers and manual layer reattachment for the supported hosts.
 
-**Coverage.** Figure-host and image-layer tests exercise placement and cleanup;
-service/provider regressions cover superseded pending and full listings, disposal,
-and delivery to a known project. Backend tests verify authorized project access,
-atomic persistence and persona/composer delivery. The browser test follows a pin
-through the tray and the saved message using a deterministic test persona.
+### Messages are found by their index attribute
+
+**Where.** `src/comments/comment-hosts.ts` (`SessionHost.targetFor`,
+`CommentHosts.resolveSelection`).
+
+**What.** A selected transcript quote is mapped to a message by the exported
+message-container selector and its `data-index`; the corresponding model
+message supplies the persistent message ID stored with the comment.
+
+**Why.** Jupyter Chat 0.25 exports the container class but its rendered DOM
+identifies messages only by array index, while comments need a stable ID.
+Selections inside the composer are excluded from transcript commenting.
+
+**Upstream.** `@jupyter/chat`: expose `data-message-id` on the rendered message
+container, or a public element-to-message resolver.
+
+**Removal.** Read the stable ID directly and delete the index-to-model lookup.
+
+### Paper pages are found by `data-page`
+
+**Where.** `src/comments/selection-button.ts` and `text-layer.ts`, using
+`PAGE_ATTRIBUTE` from `comment-model.ts`.
+
+**What.** Paper selections and restored quote highlights find their 1-based
+page number from ASTRA UI's existing `data-page` attribute.
+
+**Why.** `@astra-spec/ui` 0.0.7 uses that attribute for its own page navigation,
+but exposes no documented annotation API to identify the page of a selection.
+
+**Upstream.** `@astra-spec/ui`: document and export the page attribute contract,
+or expose a page lookup through its annotation host API.
+
+**Removal.** Use the exported page lookup or attribute constant, removing the
+locally restated name and direct ancestry lookup when an API replaces it.

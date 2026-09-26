@@ -1,6 +1,13 @@
 import type { IChatPanel, IChatTracker } from '@jupyter/chat';
 import { PathExt } from '@jupyterlab/coreutils';
-import { closeIcon, editIcon, imageIcon } from '@jupyterlab/ui-components';
+import {
+  closeIcon,
+  editIcon,
+  imageIcon,
+  pdfIcon,
+  textEditorIcon,
+  type LabIcon
+} from '@jupyterlab/ui-components';
 import type { IDisposable } from '@lumino/disposable';
 import React, { useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -9,11 +16,30 @@ import { inputContainerSelector } from '../chat-links/chat-dom';
 import type { IChatProjectResolver } from '../chat-links/chat-project';
 import type { IComment } from './comments-api';
 import type { CommentService, ICommentService } from './comment-service';
-import { chipText, chipTooltip, labelGlyph, targetKind } from './comment-model';
+import {
+  chipText,
+  chipTooltip,
+  commentKind,
+  labelGlyph,
+  targetKind,
+  type CommentKind
+} from './comment-model';
+
+/** The icon of a comment's anchor, for comments on files and messages. */
+function kindIcon(kind: CommentKind): LabIcon {
+  switch (kind) {
+    case 'image':
+      return imageIcon;
+    case 'pdf':
+      return pdfIcon;
+    default:
+      return textEditorIcon;
+  }
+}
 
 /**
  * What a comment is on, as an icon: the ASTRA kind mark of a record, as the
- * inventory draws it, else the image-file icon. The mark
+ * inventory draws it, else the icon of the file or message anchor. The mark
  * takes `<base>-kind` and the icon `<base>-icon`.
  */
 export function CommentTargetIcon({
@@ -27,7 +53,8 @@ export function CommentTargetIcon({
   if (kind) {
     return <AstraKindMark kind={kind} className={`${base}-kind`} />;
   }
-  return <imageIcon.react tag="span" className={`${base}-icon`} />;
+  const Icon = kindIcon(commentKind(comment));
+  return <Icon.react tag="span" className={`${base}-icon`} />;
 }
 
 /** Keep a component in step with a project's pending comments. */
@@ -83,7 +110,7 @@ function CommentChip({
     <div
       className="jp-jupyterlab-lightcone-CommentChip"
       role="listitem"
-      data-kind="image"
+      data-kind={commentKind(comment)}
       title={chipTooltip(comment)}
     >
       <button

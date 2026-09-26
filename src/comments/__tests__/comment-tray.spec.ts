@@ -14,7 +14,7 @@ import {
 import { createChatProjectResolver } from '../../chat-links/chat-project';
 import { fetchChatProject } from '../../sessions/sessions-api';
 import { listComments } from '../comments-api';
-import { pointAnchor } from '../comment-model';
+import { emptyAnchor, pointAnchor } from '../comment-model';
 import { CommentService } from '../comment-service';
 import { ChatCommentTrays, type ICommentTrayActions } from '../comment-tray';
 import { makeComment, recordTarget, until } from './fixtures';
@@ -22,6 +22,10 @@ import { makeComment, recordTarget, until } from './fixtures';
 jest.mock('../../sessions/sessions-api', () => ({
   fetchChatProject: jest.fn()
 }));
+jest.mock('@jupyter/chat', () =>
+  jest.requireActual('../../chat-links/__tests__/chat-mock')
+);
+
 jest.mock('../comments-api', () => ({
   listComments: jest.fn(),
   createComment: jest.fn(),
@@ -132,27 +136,47 @@ describe('ChatCommentTrays', () => {
     trays.dispose();
   });
 
-  it('leads a chip with its record’s kind mark, else its image icon', async () => {
+  it('leads a chip with its record’s kind mark, else its anchor icon', async () => {
     jest.mocked(listComments).mockResolvedValue([
       comment,
-      makeComment('b', pointAnchor(20, 30), {
+      makeComment('b', emptyAnchor('text'), {
         label: 2,
+        target: recordTarget({ record: 'decisions.model' })
+      }),
+      makeComment('c', emptyAnchor('pdf'), {
+        label: 3,
+        target: recordTarget({ record: 'papers.10.1234/abc.def' })
+      }),
+      makeComment('d', emptyAnchor('text'), {
+        label: 4,
+        target: recordTarget({ record: 'sub.findings.h0.fig1' })
+      }),
+      makeComment('e', emptyAnchor('text'), {
+        label: 5,
         target: recordTarget({
           kind: 'file',
-          path: 'project/figure.png',
+          path: 'project/notes.md',
           record: null
         })
       })
     ]);
     const { chat, widget } = fakePanel();
     const { trays } = setup([chat]);
-    await until(() => widget.node.querySelectorAll(CHIP).length === 2);
+    await until(() => widget.node.querySelectorAll(CHIP).length === 5);
     const chips = Array.from(widget.node.querySelectorAll(CHIP));
     expect(
-      chips[0].querySelector('.astra-kind-glyph')?.getAttribute('data-kind')
-    ).toBe('output');
+      chips.map(
+        chip =>
+          chip
+            .querySelector(
+              '.jp-jupyterlab-lightcone-CommentChip-kind.lightcone-brand.astra-ui > .astra-kind-glyph'
+            )
+            ?.getAttribute('data-kind') ?? null
+      )
+    ).toEqual(['output', 'decision', 'paper', 'finding', null]);
+    // A file keeps the icon of its anchor.
     expect(
-      chips[1].querySelector('.jp-jupyterlab-lightcone-CommentChip-icon svg')
+      chips[4].querySelector('.jp-jupyterlab-lightcone-CommentChip-icon svg')
     ).not.toBeNull();
     trays.dispose();
   });

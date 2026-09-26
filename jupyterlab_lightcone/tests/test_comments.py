@@ -37,19 +37,30 @@ def point(text="The legend covers the high-redshift points.", record="outputs.hu
             "path": "astra.yaml",
             "record": record,
             "universe": universe,
+            "message": None,
             "version": {"commit": None, "key": None, "hash": None, "label": None, **version},
         },
         "anchor": {
-            "type": "point", "x": 42.4, "y": 31,
+            "type": "point", "x": 42.4, "y": 31, "startLine": None, "startCol": None,
+            "endLine": None, "endCol": None, "quote": None, "prefix": None, "page": None,
         },
     }
 
 
-def image_file(text="Explain the feature.", path="figure.png"):
-    """A draft on an image opened directly as a file."""
-    draft = point(text=text)
-    draft["target"].update(kind="file", path=path, record=None, universe=None)
-    return draft
+def selection(text="Explain why the magnitude offset is profiled.", path="index.md", **anchor):
+    """A draft quoting a text selection in a project file."""
+    return {
+        "text": text,
+        "target": {
+            "kind": "file", "path": path, "record": None, "universe": None, "message": None,
+            "version": {"commit": None, "key": None, "hash": "abc", "label": None},
+        },
+        "anchor": {
+            "type": "text", "x": None, "y": None, "startLine": 12, "startCol": 1,
+            "endLine": 13, "endCol": 40, "quote": "The analysis specification records the…",
+            "prefix": "## Method\n", "page": None, **anchor,
+        },
+    }
 
 
 def project(root, name="project", spec=SPEC):
@@ -99,6 +110,8 @@ def _record_without_record(draft):
     draft["target"]["record"] = None
 
 
+def _message_without_id(draft):
+    draft["target"].update(kind="message", message=None)
 
 
 def _point_without_y(draft):
@@ -117,10 +130,16 @@ def _not_a_number(draft):
     draft["anchor"]["x"] = float("nan")
 
 
+def _text_without_anchor(draft):
+    draft["anchor"].update(type="text", x=None, y=None)
 
 
+def _pdf_without_page(draft):
+    draft["anchor"].update(type="pdf", quote="a claim", page=None)
 
 
+def _quote_too_long(draft):
+    draft["anchor"].update(type="text", quote="q" * 301)
 
 
 def _record_with_space(draft):
@@ -131,6 +150,8 @@ def _null_byte_in_path(draft):
     draft["target"]["path"] = "a\x00b"
 
 
+def _line_below_zero(draft):
+    draft["anchor"].update(type="text", quote="q", startLine=-1)
 
 
 # A JSON body may escape a lone surrogate, which the UTF-8 store cannot hold.
@@ -142,6 +163,8 @@ def _lone_surrogate_in_path(draft):
     draft["target"]["path"] = "notes\ud800.md"
 
 
+def _lone_surrogate_in_quote(draft):
+    draft["anchor"].update(type="text", quote="\udfff")
 
 
 def _lone_surrogate_in_version(draft):
@@ -149,11 +172,11 @@ def _lone_surrogate_in_version(draft):
 
 
 @pytest.mark.parametrize("spoil", [
-    _without_text, _too_long, _bad_kind, _record_without_record,
+    _without_text, _too_long, _bad_kind, _record_without_record, _message_without_id,
     _point_without_y, _off_the_image, _boolean_coordinate, _not_a_number,
-    _record_with_space,
-    _null_byte_in_path, _lone_surrogate_in_text, _lone_surrogate_in_path,
-    _lone_surrogate_in_version,
+    _text_without_anchor, _pdf_without_page, _quote_too_long, _record_with_space,
+    _null_byte_in_path, _line_below_zero, _lone_surrogate_in_text, _lone_surrogate_in_path,
+    _lone_surrogate_in_quote, _lone_surrogate_in_version,
 ])
 def test_invalid_drafts_are_rejected(spoil):
     draft = point()
@@ -181,13 +204,29 @@ def test_a_patch_keeps_only_text_and_anchor():
 def test_the_store_round_trips_and_a_missing_store_is_empty(tmp_path):
     path = comments.store_path(tmp_path)
     assert comments.read_store(path) == []
-    saved = [stored(point()), stored(image_file())]
+    saved = [stored(point()), stored(selection())]
     comments.write_store(path, saved)
     assert path.parent == tmp_path / ".lightcone"
     assert comments.read_store(path) == saved
     assert json.loads(path.read_text())["version"] == 1
     # The atomic replacement leaves no temporary file behind.
     assert sorted(entry.name for entry in path.parent.iterdir()) == ["comments.json"]
+
+
+def test_figure_comments_saved_before_text_comments_remain_readable(tmp_path):
+    """The first comment layer stored only image coordinates and no message target."""
+    path = comments.store_path(tmp_path)
+    expected = stored(point())
+    original = json.loads(json.dumps(expected))
+    del original["target"]["message"]
+    original["anchor"] = {field: original["anchor"][field] for field in ("type", "x", "y")}
+    path.parent.mkdir()
+    path.write_text(json.dumps({"version": 1, "comments": [original]}))
+
+    restored = comments.read_store(path)
+    assert restored == [expected]
+    comments.write_store(path, restored)
+    assert comments.read_store(path) == [expected]
 
 
 @pytest.mark.parametrize("content", [
@@ -245,7 +284,7 @@ def test_a_write_never_outgrows_what_can_be_read(tmp_path, monkeypatch):
 def test_labels_count_pending_comments_per_target_and_close_gaps():
     first = stored(point())
     second = stored(point(text="Second"), created="2999-01-01T00:00:00+00:00")
-    other = stored(image_file())
+    other = stored(selection())
     listing = []
     for comment in (first, second, other):
         comment["label"] = comments.new_comment(comment, "", listing)["label"]
@@ -295,6 +334,27 @@ def test_the_result_file_of_an_output_is_found_with_or_without_its_universe(tmp_
     assert comments.output_file(broken, "outputs.hubble_diagram", "baseline") is None
 
 
+def test_the_block_names_records_files_versions_positions_and_quotes(tmp_path):
+    root = project(tmp_path)
+    listing = [
+        stored(point(label="a889877")),
+        stored(selection(path="project/index.md")),
+        stored(selection(
+            text="Is this claim supported?", path="project/paper.pdf", type="pdf", page=4,
+            startLine=None, endLine=None, quote="  the   Hubble\nconstant ",
+        )),
+        stored(selection(text="Only a line.", path="elsewhere/notes.md", endLine=None, quote=None, prefix=None)),
+    ]
+    files = comments.output_files(root, listing)
+    assert files == {listing[0]["id"]: "results/baseline/hubble_diagram.png"}
+    block = comments.format_comment_block(listing, "project", files)
+    assert block == "\n".join([
+        "Comments on this project (4):",
+        '① outputs.hubble_diagram (results/baseline/hubble_diagram.png, version a889877) — point at 42% across, 31% down: "The legend covers the high-redshift points."',
+        '② index.md, lines 12–13, quoting "The analysis specification records the…" — "Explain why the magnitude offset is profiled."',
+        '③ paper.pdf, page 4, quoting "the Hubble constant" — "Is this claim supported?"',
+        '④ elsewhere/notes.md, line 12 — "Only a line."',
+    ])
 
 
 def test_the_block_omits_what_is_null_and_numbers_beyond_ten_in_parentheses():
@@ -302,10 +362,10 @@ def test_the_block_omits_what_is_null_and_numbers_beyond_ten_in_parentheses():
     assert comments.describe_comment(unmaterialized, "", None) == (
         'decisions.cosmological_model — point at 42% across, 31% down: "The legend covers the high-redshift points."'
     )
-    versioned = stored(image_file(path="figure.png"))
+    versioned = stored(selection(path="notes.md", startLine=None, endLine=None, quote="claim"))
     versioned["target"]["version"]["label"] = "v2"
     assert comments.describe_comment(versioned, "", None) == (
-        'figure.png (version v2) — point at 42% across, 31% down: "Explain the feature."'
+        'notes.md (version v2), quoting "claim" — "Explain why the magnitude offset is profiled."'
     )
     block = comments.format_comment_block([unmaterialized] * 11, "", {})
     assert block.splitlines()[0] == "Comments on this project (11):"
@@ -315,14 +375,14 @@ def test_the_block_omits_what_is_null_and_numbers_beyond_ten_in_parentheses():
 
 def test_a_note_over_several_lines_stays_under_its_number():
     note = stored(point(text="The legend covers\nthe high-redshift points.\n\nMove it."))
-    block = comments.format_comment_block([note, stored(image_file(path="figure.png"))], "", {})
+    block = comments.format_comment_block([note, stored(selection(path="notes.md"))], "", {})
     assert block.split("\n") == [
         "Comments on this project (2):",
         '① outputs.hubble_diagram — point at 42% across, 31% down: "The legend covers',
         "   the high-redshift points.",
         "",
         '   Move it."',
-        '② figure.png — point at 42% across, 31% down: "Explain the feature."',
+        '② notes.md, lines 12–13, quoting "The analysis specification records the…" — "Explain why the magnitude offset is profiled."',
     ]
 
 
@@ -340,7 +400,7 @@ def test_paths_are_relative_to_the_project(path, project_dir, expected):
 async def test_delivery_marks_only_the_named_pending_comments_sent(tmp_path):
     root = project(tmp_path)
     path = comments.store_path(root)
-    sent_before = stored(image_file(), status="sent", sentWith={"chat": "old.chat", "message": "m0"})
+    sent_before = stored(selection(), status="sent", sentWith={"chat": "old.chat", "message": "m0"})
     first, second, third = stored(point()), stored(point(text="Second")), stored(point(text="Third"))
     second["label"], third["label"] = 2, 3
     comments.write_store(path, [sent_before, first, second, third])
@@ -422,7 +482,7 @@ async def test_comments_are_created_listed_edited_and_deleted(jp_fetch, served, 
     )
     first = await _create(jp_fetch, point())
     second = await _create(jp_fetch, point(text="Second"))
-    note = await _create(jp_fetch, image_file(path="project/figure.png"))
+    note = await _create(jp_fetch, selection(path="project/index.md"))
     assert (first["label"], second["label"], note["label"]) == (1, 2, 1)
     assert first["status"] == "pending" and first["sentWith"] is None and first["updated"] is None
     assert first["author"] == "researcher"
@@ -432,7 +492,7 @@ async def test_comments_are_created_listed_edited_and_deleted(jp_fetch, served, 
     listing = await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"})
     assert listing.headers["Cache-Control"] == "no-store"
     assert [comment["id"] for comment in _body(listing)["comments"]] == [first["id"], second["id"], note["id"]]
-    scoped = await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml", "target": "project/figure.png"})
+    scoped = await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml", "target": "project/index.md"})
     assert [comment["id"] for comment in _body(scoped)["comments"]] == [note["id"]]
 
     moved = {**first["anchor"], "x": 50, "y": 60}
@@ -593,7 +653,7 @@ async def test_writes_require_write_authorization(jp_fetch, served, jp_serverapp
 
 async def test_send_marks_comments_sent_and_returns_the_block(jp_fetch, served):
     first = await _create(jp_fetch, point())
-    second = await _create(jp_fetch, image_file(path="project/figure.png"))
+    second = await _create(jp_fetch, selection(path="project/index.md"))
     body = {"path": "project/astra.yaml", "ids": [first["id"], "missing"], "chat": "project/chats/talk.chat"}
     response = await jp_fetch(*ENDPOINT, "send", method="POST", body=json.dumps(body))
     block = _body(response)["block"]
@@ -634,3 +694,11 @@ def test_a_comment_sent_before_its_message_existed_is_stored(tmp_path):
     comment = stored(point(), status="sent", sentWith={"chat": "c.chat", "message": None})
     comments.write_store(path, [comment])
     assert comments.read_store(path)[0]["sentWith"] == {"chat": "c.chat", "message": None}
+
+def test_a_comment_on_a_session_message_names_the_session_and_quotes_it():
+    draft = selection(text="Why this prior?", path="project/chats/fit.chat", startLine=None, endLine=None, startCol=None, endCol=None, quote="a flat prior on Omega_m")
+    draft["target"].update(kind="message", message="m-1", version={"commit": None, "key": None, "hash": None, "label": None})
+    comment = stored(draft)
+    assert comments.describe_comment(comment, "project", None) == (
+        'session chats/fit.chat, quoting "a flat prior on Omega_m" — "Why this prior?"'
+    )

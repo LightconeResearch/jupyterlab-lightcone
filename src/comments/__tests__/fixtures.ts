@@ -31,7 +31,7 @@ export function recordTarget(
     path: 'project/astra.yaml',
     record: 'outputs.hubble_diagram',
     universe: null,
-
+    message: null,
     version: NULL_VERSION,
     ...overrides
   };

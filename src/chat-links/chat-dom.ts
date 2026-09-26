@@ -1,3 +1,7 @@
+import { MESSAGE_CONTAINER_CLASS } from '@jupyter/chat';
+
+export { MESSAGE_CONTAINER_CLASS };
+
 /**
  * Jupyter Chat's module-private RENDERED_CLASS, from
  * components/messages/message-renderer: only rendered Markdown is rewritten.
@@ -17,3 +21,6 @@ export const MESSAGES_CONTAINER_CLASS = 'jp-chat-messages-container';
 export function inputContainerSelector(inputId: string): string {
   return `${INPUT_CONTAINER_SELECTOR}[data-input-id="${CSS.escape(inputId)}"]`;
 }
+
+/** A transcript message, indexed by the Chat model through `data-index`. */
+export const CHAT_MESSAGE_SELECTOR = `.${MESSAGE_CONTAINER_CLASS}[data-index]`;
