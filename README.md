@@ -162,10 +162,7 @@ one**, say) to the chat's usual agent instead of dropping it. **Start** on Home
 with **Default agent** uses the project's agent too. A chat open in two views
 at once keeps each view's own choice.
 
-A session's toolbar states the agent's permission mode as Jupyter AI records
-it (for example "Codex: agent full access") and that the engine's sandbox
-covers only what `lc run` and `lc materialize` execute: it does not confine the
-agent's own shell. In the composer, `@` completes the project's records
+In the composer, `@` completes the project's records
 (`@hub` offers `outputs.hubble_diagram`, inserted with the version it has now)
 and `#` completes the project's sessions (inserted as their `chats/…` file), so
 the agent reads exactly what you referred to. When the ACP client records an

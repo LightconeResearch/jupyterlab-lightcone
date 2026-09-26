@@ -209,18 +209,16 @@ frontend writes the project into the chat at creation.
 ### Message metadata is read without a published schema
 
 **Where.** `src/sessions/acp-metadata.ts` (readers of `tool_calls[]`,
-`permission_status`, `diffs[].path`, `acp_config_options`, `acp_modes` and
-the `__mode__` option id), used by the session activity markers, the **Files
-edited** footer and the permission mode in a session's toolbar.
+`permission_status` and `diffs[].path`), used by the session activity markers
+and the **Files edited** footer.
 
-**What.** Activity, edited files and the agent's permission mode come from
-metadata `jupyter-ai-acp-client` 0.3 writes on messages and on the chat.
+**What.** Activity and edited files come from metadata `jupyter-ai-acp-client`
+0.3 writes on messages.
 
 **Why.** The client publishes no schema or types for that metadata.
 
 **Upstream.** jupyter-ai-acp-client: a versioned schema (JSON schema or a small
-types package) for the message and chat metadata, and a documented id for the
-mode option.
+types package) for the message metadata.
 
 **Removal.** Type the readers against the published schema.
 
@@ -261,13 +259,11 @@ matching "timed out" in the toolkit's error string.
 
 ### Chat-level metadata is read from the shared document
 
-**Where.** `src/chat-links/chat-project.ts` (`recordedChatProject`) and
-`src/sessions/session-permissions.ts`.
+**Where.** `src/chat-links/chat-project.ts` (`recordedChatProject`).
 
-**What.** The project a chat joined (`lightcone_project`) and the agent's
-permission mode (`acp_config_options`) live in the chat document's metadata,
-which the frontend reads from the `sharedModel` behind `IChatModel`, checked by
-shape.
+**What.** The project a chat joined (`lightcone_project`) lives in the chat
+document's metadata, which the frontend reads from the `sharedModel` behind
+`IChatModel`, checked by shape.
 
 **Why.** `IChatModel` exposes no chat-level metadata; the `jupyterlab-chat`
 model that holds it is not a dependency here.
