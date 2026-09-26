@@ -439,3 +439,12 @@ Code and artifact links use JupyterLab's document manager to reveal an existing
 file tab. Missing, binary, annexed, or oversized historical source files have
 an explicit unavailable state. These views inspect data and do not execute
 recipes or install packages.
+
+### Compare artifact versions
+
+**Compare with previous** compares adjacent committed outputs. Images offer
+side-by-side, swipe, and blink views; JSON metrics show numeric changes; CSV,
+TSV, and JSON tables compare their row counts and columns. Each side uses its
+historical file format, including format changes across a rename. Reads and
+metric expansion are bounded, and missing bytes or unsupported format pairs
+remain explicit. Selecting **Latest** closes comparison and resumes live data.

@@ -12,6 +12,10 @@ export interface IVersionStepperProps {
   selected: string | undefined;
   /** Select a commit; undefined returns to the newest. */
   onSelect: (commit: string | undefined) => void;
+  /** Whether a comparison of the shown version with the previous one is possible. */
+  canCompare: boolean;
+  compareOpen: boolean;
+  onCompareChange: (open: boolean) => void;
   loading: boolean;
   error: string | undefined;
 }
@@ -27,6 +31,9 @@ export function VersionStepper({
   versions,
   selected,
   onSelect,
+  canCompare,
+  compareOpen,
+  onCompareChange,
   loading,
   error
 }: IVersionStepperProps): React.ReactElement {
@@ -112,6 +119,22 @@ export function VersionStepper({
       >
         <Chevron direction="forward" />
       </Button>
+      {version && older !== undefined && (
+        <Button
+          size="small"
+          variant={compareOpen ? 'secondary' : 'quiet'}
+          aria-pressed={compareOpen}
+          disabled={!canCompare}
+          title={
+            canCompare
+              ? 'Compare this version with the previous one'
+              : 'No comparison is available for this artifact format'
+          }
+          onClick={() => onCompareChange(!compareOpen)}
+        >
+          {compareOpen ? 'Close comparison' : 'Compare with previous'}
+        </Button>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
+import type { ResolvedOutput } from '@astra-spec/sdk';
+import { tablePreviewFromDelimited } from '@astra-spec/ui/lib';
 import type { OutputRun } from '@astra-spec/ui/model';
 import { isRecord } from '../api';
-import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { IOutputVersion } from './versions-api';
 
 /** Where a commit sits in a newest-first history: "v2 of 3". */
@@ -85,6 +86,193 @@ export function isImageFormat(format: string): boolean {
 
 export function delimiterFor(format: string): string | undefined {
   return DELIMITERS.get(format);
+}
+
+/** One numeric leaf of a JSON metric, before and after. */
+export interface IMetricDelta {
+  /** Dotted path of the leaf; `value` for a bare number. */
+  key: string;
+  older: number | undefined;
+  newer: number | undefined;
+  /** newer − older, when both sides are numbers. */
+  delta: number | undefined;
+}
+
+/** The leaf-by-leaf comparison of two JSON metric documents. */
+export interface IMetricComparison {
+  deltas: IMetricDelta[];
+  /** A document held more numeric leaves than were compared. */
+  truncated: boolean;
+}
+
+/**
+ * At most this many numeric leaves are read from each document: a metric
+ * holds a handful, and a 2 MB array must not stall the page.
+ */
+export const METRIC_LEAF_LIMIT = 500;
+
+/** Collects numeric leaves up to a limit. */
+class LeafCollector {
+  constructor(readonly limit: number) {}
+
+  readonly leaves = new Map<string, number>();
+  truncated = false;
+
+  /** Add one leaf; false once the limit is reached. */
+  add(key: string, value: number): boolean {
+    if (this.leaves.size >= this.limit) {
+      this.truncated = true;
+      return false;
+    }
+    this.leaves.set(key, value);
+    return true;
+  }
+}
+
+function numericLeaves(
+  value: unknown,
+  prefix: string,
+  depth: number,
+  into: LeafCollector
+): void {
+  if (into.truncated) return;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    into.add(prefix || 'value', value);
+    return;
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) into.add(prefix || 'value', parsed);
+    return;
+  }
+  if (depth >= 3) return;
+  const child = (key: string) => (prefix ? `${prefix}.${key}` : key);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length && !into.truncated; index += 1)
+      numericLeaves(value[index], child(String(index)), depth + 1, into);
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const key of Object.keys(value)) {
+    if (into.truncated) return;
+    numericLeaves(value[key], child(key), depth + 1, into);
+  }
+}
+
+/**
+ * Numeric differences between two JSON metric documents, leaf by leaf, in
+ * the order the newer document lists them followed by leaves only the older
+ * one has. Nested objects and arrays are flattened to dotted keys, three
+ * levels deep. Each document contributes at most `limit` leaves.
+ */
+export function metricDeltas(
+  older: unknown,
+  newer: unknown,
+  limit = METRIC_LEAF_LIMIT
+): IMetricComparison {
+  const before = new LeafCollector(limit);
+  const after = new LeafCollector(limit);
+  numericLeaves(older, '', 0, before);
+  numericLeaves(newer, '', 0, after);
+  const keys = new Set([...after.leaves.keys(), ...before.leaves.keys()]);
+  const deltas = Array.from(keys, key => {
+    const a = before.leaves.get(key);
+    const b = after.leaves.get(key);
+    return {
+      key,
+      older: a,
+      newer: b,
+      delta: a !== undefined && b !== undefined ? b - a : undefined
+    };
+  });
+  return { deltas, truncated: before.truncated || after.truncated };
+}
+
+/** Format a metric value for a delta table. */
+export function formatNumber(value: number | undefined): string {
+  if (value === undefined) return '—';
+  if (Number.isInteger(value)) return value.toLocaleString();
+  const magnitude = Math.abs(value);
+  return magnitude !== 0 && (magnitude < 1e-3 || magnitude >= 1e6)
+    ? value.toExponential(3)
+    : value.toLocaleString(undefined, { maximumSignificantDigits: 6 });
+}
+
+/** Shape of a delimited table: header and row count. */
+export interface ITableShape {
+  headers: string[];
+  rows: number;
+  /** The text was cut short, so `rows` is a lower bound. */
+  truncated: boolean;
+}
+
+/** Header and record count, using the preview's quoted-field and sampling rules. */
+export function tableShape(
+  text: string,
+  delimiter: string,
+  truncated = false
+): ITableShape {
+  const preview = tablePreviewFromDelimited(text, {
+    delimiter,
+    // A complete source reports totalRows without retaining row cells.
+    // A sample has no total, so count its complete records instead.
+    maxRows: truncated ? Number.POSITIVE_INFINITY : 0,
+    maxColumns: Number.POSITIVE_INFINITY,
+    sourceTruncated: truncated
+  });
+  return {
+    headers: preview.headers,
+    rows: preview.totalRows ?? preview.rows.length,
+    truncated
+  };
+}
+
+/**
+ * Header and row count of a JSON table: an array of row objects, whose
+ * columns are their keys in order of first appearance. Undefined for any
+ * other document.
+ */
+export function tableShapeFromRows(value: unknown): ITableShape | undefined {
+  if (!Array.isArray(value) || !value.every(isRecord)) return undefined;
+  const headers = new Set<string>();
+  for (const row of value) for (const key of Object.keys(row)) headers.add(key);
+  return { headers: [...headers], rows: value.length, truncated: false };
+}
+
+/** How two table versions differ in shape. */
+export interface ITableShapeDiff {
+  older: ITableShape;
+  newer: ITableShape;
+  addedColumns: string[];
+  removedColumns: string[];
+  /** Same columns in another order. */
+  reordered: boolean;
+  /** Unknown if either count is only a lower bound from a sample. */
+  rowDelta: number | undefined;
+}
+
+/** Compare row counts and added, removed or reordered columns. */
+export function tableShapeDiff(
+  older: ITableShape,
+  newer: ITableShape
+): ITableShapeDiff {
+  const before = new Set(older.headers);
+  const after = new Set(newer.headers);
+  const addedColumns = newer.headers.filter(header => !before.has(header));
+  const removedColumns = older.headers.filter(header => !after.has(header));
+  const reordered =
+    !addedColumns.length &&
+    !removedColumns.length &&
+    older.headers.join('\u0000') !== newer.headers.join('\u0000');
+  return {
+    older,
+    newer,
+    addedColumns,
+    removedColumns,
+    reordered,
+    rowDelta:
+      older.truncated || newer.truncated ? undefined : newer.rows - older.rows
+  };
 }
 
 /** Read a string field of a manifest, or undefined. */
@@ -187,4 +375,14 @@ export function sandboxLine(
     .filter(([, item]) => ['string', 'number', 'boolean'].includes(typeof item))
     .map(([key, item]) => `${key}: ${String(item)}`);
   return parts.length ? parts.join(' · ') : undefined;
+}
+
+/** The artifact format at a commit; older servers may omit its historical path. */
+export function versionFormat(
+  output: Pick<ResolvedOutput, 'format'>,
+  version: IOutputVersion
+): string {
+  return outputFormat({
+    format: version.file?.split('.').pop() ?? output.format
+  });
 }

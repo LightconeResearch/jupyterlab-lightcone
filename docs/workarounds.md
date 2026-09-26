@@ -587,3 +587,16 @@ version cap guards the manifest schema consumed in process.
 command and exit status, or `lc log --json`. Use that source without parsing
 commit subjects. The selected-version provenance tests must still prevent
 current-sidecar facts being attributed to older runs.
+
+## Artifact comparisons
+
+The comparison uses the existing authenticated historical-content API and
+ASTRA's public preview components; it introduces no new engine or Git protocol.
+One additional layout adaptation remains: `style/versions.css` scopes a rule to
+`.astra-figure-zoom` containing `VersionCompare`, leaving room for the figure's
+zoom buttons. ASTRA UI exposes no slot for that frame. Remove this selector
+when a public figure-frame slot or page-layout API supplies the same spacing;
+`src/versions/__tests__/components.spec.tsx` covers image availability, swipe
+and blink controls. `ui-tests/tests/output-versions.spec.ts` checks a comparison
+whose two table revisions use different formats. These behavior tests do not
+assert the figure-frame spacing.

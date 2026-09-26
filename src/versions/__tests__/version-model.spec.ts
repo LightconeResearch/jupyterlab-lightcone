@@ -1,13 +1,20 @@
-import type { OutputRun } from '@astra-spec/ui/model';
-import { runView, sandboxLine } from '../version-model';
 import type { ResolvedOutput } from '@astra-spec/sdk';
+import type { OutputRun } from '@astra-spec/ui/model';
 import {
-  versionPosition,
-  stepVersion,
+  delimiterFor,
   formatBytes,
-  outputFormat,
+  formatNumber,
   isImageFormat,
-  delimiterFor
+  METRIC_LEAF_LIMIT,
+  metricDeltas,
+  outputFormat,
+  runView,
+  sandboxLine,
+  stepVersion,
+  tableShape,
+  tableShapeDiff,
+  tableShapeFromRows,
+  versionPosition
 } from '../version-model';
 import type { IOutputVersion } from '../versions-api';
 
@@ -74,6 +81,126 @@ describe('version stepper', () => {
     expect(isImageFormat('csv')).toBe(false);
     expect(delimiterFor('tsv')).toBe('\t');
     expect(delimiterFor('json')).toBeUndefined();
+  });
+});
+
+describe('metric deltas', () => {
+  it('compares numeric leaves of scalars and nested documents', () => {
+    expect(metricDeltas(1, 1.5)).toEqual({
+      deltas: [{ key: 'value', older: 1, newer: 1.5, delta: 0.5 }],
+      truncated: false
+    });
+    expect(
+      metricDeltas(
+        { value: 0.3, uncertainty: 0.05, unit: 'mag', nested: { a: 1 } },
+        { value: 0.31, uncertainty: 0.05, nested: { a: 2, b: 3 }, list: [4] }
+      ).deltas
+    ).toEqual([
+      { key: 'value', older: 0.3, newer: 0.31, delta: expect.closeTo(0.01) },
+      { key: 'uncertainty', older: 0.05, newer: 0.05, delta: 0 },
+      { key: 'nested.a', older: 1, newer: 2, delta: 1 },
+      { key: 'nested.b', older: undefined, newer: 3, delta: undefined },
+      { key: 'list.0', older: undefined, newer: 4, delta: undefined }
+    ]);
+    expect(metricDeltas({ value: '12.5' }, { value: 'text' }).deltas).toEqual([
+      { key: 'value', older: 12.5, newer: undefined, delta: undefined }
+    ]);
+    expect(metricDeltas(null, 'abc')).toEqual({ deltas: [], truncated: false });
+  });
+
+  it('reads a bounded number of leaves from a large document, promptly', () => {
+    // A JSON artifact near the 2 MB preview limit holds ~100k numbers.
+    const older = Array.from({ length: 100_000 }, (_, index) => index);
+    const newer = { rows: older.map(value => ({ x: value + 1 })) };
+    const started = Date.now();
+    const result = metricDeltas(older, newer);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result.truncated).toBe(true);
+    expect(result.deltas).toHaveLength(2 * METRIC_LEAF_LIMIT);
+    expect(result.deltas[0]).toEqual({
+      key: 'rows.0.x',
+      older: undefined,
+      newer: 1,
+      delta: undefined
+    });
+    const small = metricDeltas([1, 2, 3], [1, 2, 4], 2);
+    expect(small.truncated).toBe(true);
+    expect(small.deltas.map(delta => delta.key)).toEqual(['0', '1']);
+  });
+
+  it('formats numbers for reading', () => {
+    expect(formatNumber(undefined)).toBe('—');
+    expect(formatNumber(42)).toBe('42');
+    expect(formatNumber(0.123456789)).toBe('0.123457');
+    expect(formatNumber(1.5e-7)).toBe('1.500e-7');
+  });
+});
+
+describe('table shapes', () => {
+  it('counts rows and columns, honoring quotes and cut-off samples', () => {
+    const csv = 'name,"value, raw",note\na,1,x\nb,2,"y, z"\n';
+    expect(tableShape(csv, ',')).toEqual({
+      headers: ['name', 'value, raw', 'note'],
+      rows: 2,
+      truncated: false
+    });
+    // A sample cut in the middle of a record loses that record.
+    expect(tableShape('a,b\n1,2\n3,', ',', true).rows).toBe(1);
+    expect(tableShape('', ',')).toEqual({
+      headers: [],
+      rows: 0,
+      truncated: false
+    });
+  });
+
+  it('reads the shape of a JSON array of rows', () => {
+    expect(
+      tableShapeFromRows([
+        { z: 1, redshift: 0.1 },
+        { z: 2, mu: 35.2 }
+      ])
+    ).toEqual({ headers: ['z', 'redshift', 'mu'], rows: 2, truncated: false });
+    expect(tableShapeFromRows([])).toEqual({
+      headers: [],
+      rows: 0,
+      truncated: false
+    });
+    expect(tableShapeFromRows({ value: 1 })).toBeUndefined();
+    expect(tableShapeFromRows([1, 2])).toBeUndefined();
+  });
+
+  it('counts quoted multiline records rather than physical lines', () => {
+    const before = tableShape(
+      'id,"note\r\ntext"\r\n1,"first\r\nsecond"\r\n',
+      ','
+    );
+    const after = tableShape('id,"note\r\ntext"\r\n1,"first second"\r\n', ',');
+    expect(before.headers).toEqual(['id', 'note\r\ntext']);
+    expect(before.rows).toBe(1);
+    expect(tableShapeDiff(before, after).rowDelta).toBe(0);
+    // A line break inside an unterminated quoted field does not finish a record.
+    expect(tableShape('id,note\n1,"first\n', ',', true).rows).toBe(0);
+  });
+
+  it('does not infer exact row changes from sampled tables', () => {
+    const complete = tableShape('id\n1\n', ',');
+    const sample = tableShape('id\n1\n2\n3', ',', true);
+    expect(tableShapeDiff(complete, sample).rowDelta).toBeUndefined();
+    expect(tableShapeDiff(sample, complete).rowDelta).toBeUndefined();
+    expect(tableShapeDiff(sample, sample).rowDelta).toBeUndefined();
+  });
+
+  it('reports added, removed and reordered columns and the row delta', () => {
+    const older = tableShape('a,b,c\n1,2,3\n', ',');
+    const newer = tableShape('a,c,d\n1,3,4\n5,6,7\n', ',');
+    const diff = tableShapeDiff(older, newer);
+    expect(diff.addedColumns).toEqual(['d']);
+    expect(diff.removedColumns).toEqual(['b']);
+    expect(diff.reordered).toBe(false);
+    expect(diff.rowDelta).toBe(1);
+    expect(
+      tableShapeDiff(older, tableShape('c,b,a\n1,2,3\n', ',')).reordered
+    ).toBe(true);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   useOutputVersioning,
   VersionBar,
   VersionedArtifact,
+  VersionRail,
   type IOutputVersioning
 } from '../versioned-output';
 import type { IOutputVersion } from '../versions-api';
@@ -112,6 +113,7 @@ function Probe({
           current={<p>current artifact</p>}
         />
       </div>
+      <VersionRail versioning={versioning} output={record} />
     </>
   );
 }
@@ -156,6 +158,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   contents.dispose();
+  jest.restoreAllMocks();
 });
 
 test('shows the selected version and follows a selection changed by the host', async () => {
@@ -228,7 +231,7 @@ test('keeps the stepper and the banner out of the zoomable artifact frame', asyn
   ).toBeNull();
 });
 
-test('the stepper and the Latest button go through the host', async () => {
+test('the stepper and Latest go through the host and close comparison', async () => {
   list.mockResolvedValue({
     file: 'results/baseline/fit.png',
     annex: 'initialized',
@@ -239,16 +242,106 @@ test('the stepper and the Latest button go through the host', async () => {
     root.render(<Host initial={'b'.repeat(40)} onSelect={onSelect} />);
   });
   await flush();
+  act(() => latest?.setCompare(true));
+  expect(latest?.compare).toBe(true);
   const latestButton = Array.from(container.querySelectorAll('button')).find(
     button => button.textContent === 'Latest'
   )!;
   act(() => latestButton.click());
   expect(onSelect).toHaveBeenLastCalledWith(undefined);
   expect(latest?.selected).toBeUndefined();
+  expect(latest?.compare).toBe(false);
   act(() => latest?.select('a'.repeat(40)));
   await flush();
   expect(onSelect).toHaveBeenLastCalledWith('a'.repeat(40));
   expect(latest?.position?.ordinal).toBe(1);
+});
+
+test.each(['unsupported', 'oldest'] as const)(
+  'stepping to the %s pair closes comparison without reopening it on return',
+  async destination => {
+    list.mockResolvedValue({
+      file: 'results/baseline/fit.png',
+      annex: 'none',
+      versions: versions.map((version, index) => ({
+        ...version,
+        file:
+          destination === 'unsupported' && index === 2
+            ? 'results/baseline/fit.pdf'
+            : 'results/baseline/fit.png'
+      }))
+    });
+    act(() => {
+      root.render(
+        <Host
+          initial={destination === 'oldest' ? versions[1].commit : undefined}
+          onSelect={jest.fn()}
+        />
+      );
+    });
+    await flush();
+    act(() => latest?.setCompare(true));
+    expect(
+      container.querySelectorAll('[aria-label="Version comparison"]')
+    ).toHaveLength(1);
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Older version"]')!
+        .click();
+    });
+    await flush();
+    expect(latest?.compare).toBe(false);
+    expect(
+      container.querySelector('[aria-label="Version comparison"]')
+    ).toBeNull();
+    expect(container.textContent).not.toContain('Close comparison');
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Newer version"]')!
+        .click();
+    });
+    await flush();
+    expect(latest?.compare).toBe(false);
+    expect(
+      container.querySelector('[aria-label="Version comparison"]')
+    ).toBeNull();
+  }
+);
+
+test('a nonvisual output compares once in its rail and keeps its artifact', async () => {
+  list.mockResolvedValue({
+    file: 'results/baseline/fit.json',
+    annex: 'none',
+    versions
+  });
+  const request = jest
+    .spyOn(ServerConnection, 'makeRequest')
+    .mockImplementation(async () => new Response('{"value": 1}'));
+  act(() => {
+    root.render(
+      <Probe
+        selected={undefined}
+        onSelect={jest.fn()}
+        record={
+          { ...output(), type: 'metric', format: 'json' } as ResolvedOutput
+        }
+      />
+    );
+  });
+  await flush();
+  act(() => latest?.setCompare(true));
+  await flush();
+  const comparisons = container.querySelectorAll(
+    '[aria-label="Version comparison"]'
+  );
+  expect(comparisons).toHaveLength(1);
+  expect(
+    comparisons[0].closest('.jp-jupyterlab-lightcone-VersionRail')
+  ).not.toBeNull();
+  expect(container.querySelector('.frame')?.textContent).toBe(
+    'current artifact'
+  );
+  expect(request).toHaveBeenCalledTimes(2);
 });
 
 test('a selected commit outside the listing stays unavailable until Latest is requested', async () => {

@@ -150,7 +150,8 @@
   }
 
   .jp-jupyterlab-lightcone-VersionRail > h4,
-  .jp-jupyterlab-lightcone-Provenance > h4 {
+  .jp-jupyterlab-lightcone-Provenance > h4,
+  .jp-jupyterlab-lightcone-VersionCompare > h4 {
     margin: 0;
     color: var(--astra-color-eyebrow);
     font-size: 0.625rem;
@@ -355,5 +356,158 @@
 
   .jp-jupyterlab-lightcone-Provenance-inputs p code {
     margin-inline-end: 6px;
+  }
+
+  /* Commit hashes are lower-case hex: shown as typed, never capitalised. */
+  .jp-jupyterlab-lightcone-VersionCompare > h4 code {
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Comparison of a version with the one before it. */
+  .jp-jupyterlab-lightcone-VersionCompare {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  /* The figure frame's zoom buttons sit in its lower right corner. */
+  .astra-figure-zoom .jp-jupyterlab-lightcone-VersionCompare {
+    padding-inline-end: 48px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-modes {
+    display: flex;
+    gap: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-side {
+    margin: 0;
+    padding: 8px;
+    border: 1px solid var(--astra-color-border);
+    border-radius: var(--astra-radius-control);
+    background: var(--astra-color-artifact-paper);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-side img,
+  .jp-jupyterlab-lightcone-VersionCompare-stack img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-side figcaption,
+  .jp-jupyterlab-lightcone-VersionCompare-swipe label > span {
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-swipe {
+    display: grid;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-stack {
+    position: relative;
+    border: 1px solid var(--astra-color-border);
+    background: var(--astra-color-artifact-paper);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-stack img + img {
+    position: absolute;
+    inset: 0;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--astra-color-accent);
+    transform: translateX(-1px);
+    pointer-events: none;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blink {
+    display: grid;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blinkControls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blinkLabel {
+    flex: 1 1 auto;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-swipe label {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas {
+    width: 100%;
+    border-collapse: collapse;
+    font: var(--astra-font-size-sm) / 1.4 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas th,
+  .jp-jupyterlab-lightcone-VersionCompare-deltas td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--astra-color-border-subtle);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas thead th {
+    color: var(--astra-color-text-muted);
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas
+    tr[data-changed]
+    td:last-child {
+    color: var(--astra-color-kind-decision-ink, var(--astra-color-text));
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dl {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    font: var(--astra-font-size-sm) / 1.4 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dl > div {
+    display: grid;
+    grid-template-columns: minmax(6rem, 10rem) 1fr;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dt {
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dd code {
+    margin-inline-end: 4px;
   }
 }

@@ -43,7 +43,10 @@ outputs:
   await page.route('**/jupyterlab_lightcone/api/versions/content?*', route =>
     route.fulfill({
       contentType: 'text/csv',
-      body: 'first,second\nold-a,old-b\n'
+      body:
+        new URL(route.request().url()).searchParams.get('commit') === newer
+          ? 'first\tsecond\nnew-a\tnew-b\n'
+          : 'first,second\nold-a,old-b\n'
     })
   );
   const open = (versionCommit: string) =>
@@ -60,6 +63,13 @@ outputs:
   await expect(record.getByText('old-a', { exact: true })).toBeVisible();
   await expect(record.getByText('old-b', { exact: true })).toBeVisible();
   await expect(record).toContainText('Older version');
+  await open(newer);
+  await record
+    .getByRole('button', { name: 'Compare with previous', exact: true })
+    .click();
+  const comparison = record.getByRole('region', { name: 'Version comparison' });
+  await expect(comparison).toContainText('2 columns');
+  await expect(comparison).toContainText('unchanged');
   await open('f'.repeat(40));
   await expect(record).toContainText('outside the available history');
   await expect(record.getByText('old-a', { exact: true })).toHaveCount(0);

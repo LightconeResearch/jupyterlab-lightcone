@@ -1,3 +1,8 @@
+import {
+  compareModeFor,
+  readVersionTableShape,
+  comparisonModeFor
+} from '../version-content';
 import { TextDecoder } from 'node:util';
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import { ServerConnection } from '@jupyterlab/services';
@@ -181,4 +186,61 @@ test('a renamed table previews its historical delimiter', async () => {
   expect(preview).toEqual(
     await previewForVersion(target, output('table', 'csv'), version())
   );
+});
+
+describe('comparisons', () => {
+  it('compares figures as images, metrics by value and tables by shape', () => {
+    expect(compareModeFor(output('figure', 'png'))).toBe('image');
+    expect(compareModeFor(output('metric', 'json'))).toBe('metric');
+    expect(compareModeFor(output('table', 'json'))).toBe('table');
+    expect(compareModeFor(output('table', 'tsv'))).toBe('table');
+    expect(compareModeFor(output('data', 'npz'))).toBe('none');
+    expect(compareModeFor(output('figure', 'pdf'))).toBe('none');
+  });
+
+  it('reads the shape of delimited and JSON tables', async () => {
+    let request = serve('a,b\n1,2\n3,4\n');
+    await expect(
+      readVersionTableShape(target, 'c'.repeat(40), 'csv')
+    ).resolves.toEqual({ headers: ['a', 'b'], rows: 2, truncated: false });
+    request.mockRestore();
+    request = serve('[{"z": 0.1, "mu": 35}, {"z": 0.2, "mu": 36}]');
+    await expect(
+      readVersionTableShape(target, 'c'.repeat(40), 'json')
+    ).resolves.toEqual({ headers: ['z', 'mu'], rows: 2, truncated: false });
+    request.mockRestore();
+    serve('{"value": 1}');
+    await expect(
+      readVersionTableShape(target, 'c'.repeat(40), 'json')
+    ).rejects.toThrow('not a JSON table');
+    await expect(
+      readVersionTableShape(target, 'c'.repeat(40), 'npz')
+    ).rejects.toThrow('.npz');
+  });
+
+  it('marks a delimited table cut at the shape limit as truncated', async () => {
+    const row = '1,2\n';
+    serve(`a,b\n${row.repeat(1_100_000)}`);
+    const shape = await readVersionTableShape(target, 'c'.repeat(40), 'csv');
+    expect(shape.truncated).toBe(true);
+    expect(shape.rows).toBeGreaterThan(900_000);
+    expect(shape.rows).toBeLessThan(1_100_000);
+  });
+});
+
+test('comparison mode uses both historical formats', () => {
+  expect(
+    comparisonModeFor(
+      output('table', 'tsv'),
+      version({ file: 'table.tsv' }),
+      version({ file: 'table.csv' })
+    )
+  ).toBe('table');
+  expect(
+    comparisonModeFor(
+      output('table', 'tsv'),
+      version({ file: 'table.tsv' }),
+      version({ file: 'table.txt' })
+    )
+  ).toBe('none');
 });

@@ -9,8 +9,17 @@ import { RequestError } from '../api';
 import { isRootAnalysisOutput } from '../materialization-status';
 import type { ILoadedProjectData } from '../project-data';
 import { listVersionsCached, forgetVersions } from './version-cache';
-import { previewForVersion, type IVersionTarget } from './version-content';
-import { versionPosition, type IVersionPosition } from './version-model';
+import {
+  comparisonModeFor,
+  previewForVersion,
+  type IVersionTarget
+} from './version-content';
+import { VersionCompare } from './version-compare';
+import {
+  stepVersion,
+  versionPosition,
+  type IVersionPosition
+} from './version-model';
 import { relativeTime } from '../relative-time';
 import { VersionStepper } from './version-stepper';
 import type { IOutputVersion } from './versions-api';
@@ -27,6 +36,10 @@ export interface IOutputVersioning {
   /** The selected commit; undefined follows the newest version. */
   selected: string | undefined;
   select: (commit: string | undefined) => void;
+  compare: boolean;
+  setCompare: (open: boolean) => void;
+  /** The version made before the shown one. */
+  previous: IOutputVersion | undefined;
   /** The version shown: the selected one, else the newest. */
   shown: IOutputVersion | undefined;
   position: IVersionPosition | undefined;
@@ -76,6 +89,7 @@ export function useOutputVersioning(
     versions?: readonly IOutputVersion[];
     error?: string;
   }>({ key: '' });
+  const [compare, setCompare] = useState(false);
   const state = status?.state;
   const detail = status?.detail;
   const key = JSON.stringify([
@@ -117,6 +131,18 @@ export function useOutputVersioning(
   const versions = current?.versions ?? [];
   const position = versionPosition(versions, selected);
   const shown = position ? versions[position.index] : undefined;
+  const previousCommit = stepVersion(versions, selected, -1);
+  const previous = previousCommit
+    ? versions.find(version => version.commit === previousCommit)
+    : undefined;
+  const canCompare =
+    !!output &&
+    !!shown &&
+    !!previous &&
+    comparisonModeFor(output, shown, previous) !== 'none';
+  useEffect(() => {
+    if (!canCompare) setCompare(false);
+  }, [canCompare]);
   return {
     enabled,
     target,
@@ -130,9 +156,15 @@ export function useOutputVersioning(
     selected,
     select: commit => {
       onSelect(commit);
+      if (commit === undefined) setCompare(false);
     },
     shown,
     position,
+    previous,
+    // Hide an invalid pair immediately, then clear the user's comparison
+    // choice so stepping back to a valid pair does not silently reopen it.
+    compare: compare && canCompare,
+    setCompare,
     isLatest: !selected || position?.index === 0
   };
 }
@@ -212,15 +244,25 @@ function OlderVersionBanner({
 }
 
 function Stepper({
-  versioning
+  versioning,
+  output
 }: {
   versioning: IOutputVersioning;
+  output: ResolvedOutput;
 }): React.ReactElement {
   return (
     <VersionStepper
       versions={versioning.versions}
       selected={versioning.selected}
       onSelect={versioning.select}
+      canCompare={
+        !!versioning.shown &&
+        !!versioning.previous &&
+        comparisonModeFor(output, versioning.shown, versioning.previous) !==
+          'none'
+      }
+      compareOpen={versioning.compare}
+      onCompareChange={versioning.setCompare}
       loading={versioning.loading}
       error={versioning.error}
     />
@@ -246,7 +288,7 @@ export function VersionedArtifact({
   /** What the host renders for the current artifact. */
   current: React.ReactNode;
 }): React.ReactElement {
-  const { target, shown } = versioning;
+  const { target, shown, previous } = versioning;
   if (!versioning.enabled || !target) return <>{current}</>;
   // Never substitute current bytes while an explicitly requested commit is
   // loading or missing from the bounded listing.
@@ -269,6 +311,22 @@ export function VersionedArtifact({
     );
   }
   const older = shown && versioning.selected ? shown : undefined;
+  if (
+    !compact &&
+    isVisualOutput(output) &&
+    versioning.compare &&
+    shown &&
+    previous
+  ) {
+    return (
+      <VersionCompare
+        target={target}
+        output={output}
+        newer={shown}
+        older={previous}
+      />
+    );
+  }
   return older ? (
     <OlderVersionPreview
       target={target}
@@ -296,7 +354,7 @@ export function VersionBar({
     return null;
   return (
     <div className="jp-jupyterlab-lightcone-VersionBar">
-      <Stepper versioning={versioning} />
+      <Stepper versioning={versioning} output={output} />
       <OlderVersionBanner versioning={versioning} />
     </div>
   );
@@ -314,13 +372,21 @@ export function VersionRail({
   versioning: IOutputVersioning;
   output: ResolvedOutput;
 }): React.ReactElement | null {
-  const { target } = versioning;
+  const { target, shown, previous } = versioning;
   if (!versioning.enabled || !target || isVisualOutput(output)) return null;
   return (
     <section className="jp-jupyterlab-lightcone-VersionRail">
       <h4>Versions</h4>
       <OlderVersionBanner versioning={versioning} />
-      <Stepper versioning={versioning} />
+      <Stepper versioning={versioning} output={output} />
+      {versioning.compare && shown && previous && (
+        <VersionCompare
+          target={target}
+          output={output}
+          newer={shown}
+          older={previous}
+        />
+      )}
     </section>
   );
 }
