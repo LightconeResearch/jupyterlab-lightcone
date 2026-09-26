@@ -229,8 +229,6 @@ class PaperFetchRouteHandler(PaperRouteHandler):
                     fetch_cached_paper, doi, self.cache_root
                 )
         except PaperFetchError as error:
-            # Only failures inside astra-tools are upstream failures; anything
-            # else is a defect of this route and reported as one.
             self.log.warning("Could not fetch paper %s", doi, exc_info=True)
             raise web.HTTPError(
                 502, "Could not fetch this paper. Check the server log for details."

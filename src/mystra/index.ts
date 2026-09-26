@@ -1,14 +1,9 @@
 /**
  * TEMPORARY: the managed MySTRA Viewer, a stopgap to remove when possible.
  *
- * MyST offers no supported way to embed a running `myst start` site in
- * JupyterLab, so the `jupyterlab_lightcone.mystra` server extension runs the
- * MyST CLI and proxies it, for ASTRA themes implementing `mystra-viewer.v1`.
- * Everything the viewer needs lives in this directory and that package;
- * nothing else in Lightcone imports them. Removing the viewer means deleting
- * both and their single registrations: this plugin in `src/index.ts`, the
- * stylesheet import in `style/index.css`, and the server extension point in
- * `jupyterlab_lightcone/__init__.py`.
+ * It runs `myst start` through the `jupyterlab_lightcone.mystra` server
+ * extension. See "TEMPORARY WORKAROUND: MySTRA Viewer" in AGENTS.md for what
+ * belongs to it and how to remove it.
  */
 import {
   JupyterFrontEnd,
@@ -160,11 +155,10 @@ export const mystraPlugin: JupyterFrontEndPlugin<void> = {
       rank: 20
     });
     if (launcher && current) {
-      // After the core plugin's Lightcone Agent and ASTRA Inventory cards.
+      // Like an unranked launcher item: after every ranked project card.
       configureProjectLauncher(app, launcher, current, {
         project: [MySTRACommandIDs.open],
-        outside: [],
-        rank: 2
+        rank: Infinity
       });
     }
   }

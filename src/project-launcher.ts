@@ -7,8 +7,8 @@ export interface IProjectLauncherCommands {
   /** Offered inside an ASTRA project, in its launcher category. */
   project: readonly string[];
   /** Offered outside any project. */
-  outside: readonly string[];
-  /** Rank of the first card, placing it after another plugin's cards. */
+  outside?: readonly string[];
+  /** Rank of the first card; cards of one call keep their order. */
   rank?: number;
 }
 
@@ -36,7 +36,7 @@ export function configureProjectLauncher(
       clear();
       return;
     }
-    const commands = project ? options.project : options.outside;
+    const commands = project ? options.project : (options.outside ?? []);
     const available = commands.filter(command =>
       app.commands.hasCommand(command)
     );

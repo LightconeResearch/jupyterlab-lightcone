@@ -8,23 +8,22 @@ are confined to this extension; no dependency source is modified.
 ## MySTRA viewer embedding
 
 **Where.** The self-contained `jupyterlab_lightcone/mystra/` server extension
-(`MySTRAApp`) and `src/mystra/` frontend plugin, with `style/mystra.css`.
-Nothing else imports them; each is registered once, in
-`jupyterlab_lightcone/__init__.py`, `src/index.ts` and `style/index.css`.
+and `src/mystra/` frontend plugin; `AGENTS.md` lists every file and
+registration that belongs to them.
 
 **What and why.** MyST has no supported JupyterLab embedding API for a running
 `myst start` application. The extension supervises the CLI's process group and
 proxies its theme, content and reload WebSocket through authenticated Jupyter
 routes. This works only with ASTRA themes implementing `mystra-viewer.v1`;
 `MYSTRA_BASE_URL`, `MYSTRA_CONTENT_URL`, `MYSTRA_RELOAD_URL` and the capability
-endpoint are a private contract, not a general MyST interface. The CLI comes
-from the `mystmd` dependency and is resolved from the server's own environment
-before `PATH`. The viewer relies on `myst start`'s `--port` and
-`--server-port` options and its "Server started on port" log line;
-`ui-tests/tests/mystra.spec.ts`, run against the real CLI, fails if a MyST
-release changes them. Node.js 20 or later remains a
-system requirement, and mystmd's offer to download it is declined because it
-would prompt on the server's terminal. Keep this stopgap limited to bug fixes,
+endpoint are a private contract, not a general MyST interface. The CLI is the
+`mystmd` dependency, run by the server's own interpreter
+(`python -m mystmd_py.main`) rather than looked up on `PATH`. The viewer relies
+on `myst start`'s `--port` and `--server-port` options and its "Server started
+on port" log line; `ui-tests/tests/mystra.spec.ts`, run against the real CLI,
+fails if a MyST release changes them. Node.js 20 or later remains a system
+requirement, and mystmd's offer to download it is declined because it would
+prompt on the server's terminal. Keep this stopgap limited to bug fixes,
 as required by `AGENTS.md`.
 
 **Public APIs retained.** Viewer activation and closure use Lumino's widget
@@ -36,9 +35,8 @@ Jupyter Server's `authorized` decorators and the ContentsManager's checks.
 
 **Upstream and removal.** A first-party MyST/JupyterLab proxy or static preview
 would replace process supervision, proxy routes, capability negotiation and
-the companion theme contract. Delete the two plugin directories, the stylesheet
-and their three registrations together with the `mystmd` dependency; do not
-add theme adapters.
+the companion theme contract. Remove the viewer as `AGENTS.md` describes; do
+not add theme adapters.
 
 ### Same-server module and font requests under JupyterHub
 

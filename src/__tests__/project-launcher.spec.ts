@@ -68,8 +68,7 @@ function host() {
   // A second plugin contributing a project card after the core ones.
   configureProjectLauncher(app, launcher as unknown as ILauncher, current, {
     project: [VIEWER],
-    outside: [],
-    rank: 2
+    rank: Infinity
   });
   return {
     commands,
@@ -90,7 +89,7 @@ it('ignores filters, retains project root in subfolders, and updates late chat r
   try {
     await flush();
     expect([...h.visible.keys()]).toEqual([CommandIDs.openInventory, VIEWER]);
-    expect(h.visible.get(VIEWER)?.rank).toBe(2);
+    expect(h.visible.get(VIEWER)?.rank).toBe(Infinity);
     h.model.path = 'project/data';
     h.model.refreshed.emit();
     await flush();

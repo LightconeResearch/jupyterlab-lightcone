@@ -11,7 +11,7 @@ import re
 import shutil
 import signal
 import socket
-import sysconfig
+import sys
 import time
 from uuid import uuid4
 
@@ -54,19 +54,6 @@ class ViewerSession:
         }
 
 
-def find_executable(name):
-    """Resolve a CLI, preferring the one installed beside this interpreter.
-
-    The ``mystmd`` dependency installs ``myst`` into this environment's scripts
-    directory, which a server started without activating its environment may
-    lack on PATH; a MyST CLI installed elsewhere on PATH must not shadow it.
-    """
-    search = os.pathsep.join(
-        [sysconfig.get_path("scripts"), os.environ.get("PATH", os.defpath)]
-    )
-    return shutil.which(name, path=search)
-
-
 def free_port():
     """Choose a loopback port; startup verifies that MyST actually bound it."""
     with socket.socket() as listener:
@@ -77,16 +64,19 @@ def free_port():
 class MySTRAManager:
     """Start on demand, reuse per owner/project, and reap abandoned viewers."""
 
+    # The mystmd dependency's CLI, run by this interpreter rather than looked up
+    # on PATH; ``start`` and its ports are appended. -P keeps the project, the
+    # working directory, from shadowing modules the CLI imports.
+    command = (sys.executable, "-P", "-m", "mystmd_py.main")
+    # Seconds without a viewer heartbeat before stopping MyST.
+    idle_timeout = 120
+    # Seconds allowed to install, build and start a theme.
+    startup_timeout = 120
+
     def __init__(self, root, base_url, log):
         self.root = Path(root).resolve()
         self.base_url = base_url
         self.log = log
-        self.command = ["myst"]
-        """The CLI and any fixed arguments; ``start`` and its ports are appended."""
-        self.idle_timeout = 120
-        """Seconds without a viewer heartbeat before stopping MyST."""
-        self.startup_timeout = 120
-        """Seconds allowed to install, build and start a theme."""
         self.sessions: dict[str, ViewerSession] = {}
         self.lock = asyncio.Lock()
         self.reaper = None
@@ -234,12 +224,9 @@ class MySTRAManager:
         reader = None
         client = AsyncHTTPClient(force_instance=True)
         try:
-            executable = find_executable(self.command[0])
+            executable = shutil.which(self.command[0])
             if executable is None:
-                raise RuntimeError(
-                    "MyST CLI is unavailable. Reinstall jupyterlab-lightcone, which installs it"
-                    " with the mystmd package."
-                )
+                raise RuntimeError(f"MyST CLI is unavailable: {self.command[0]} was not found.")
             env = dict(
                 os.environ,
                 HOST="127.0.0.1",
@@ -278,7 +265,7 @@ class MySTRAManager:
                 await asyncio.sleep(0.25)
             else:
                 raise RuntimeError(
-                    "MySTRA startup timed out. Check the log, theme dependencies, and configured startup timeout."
+                    "MySTRA startup timed out. Check the log and the theme's dependencies."
                 )
             await self._verify_content_server(client, session)
             session.state = "ready"

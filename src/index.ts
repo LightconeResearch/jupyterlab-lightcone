@@ -140,6 +140,6 @@ export default [
   astraMimePlugin,
   chatPlugin,
   projectNotificationsPlugin,
-  // TEMPORARY: the MySTRA Viewer workaround; see src/mystra/index.ts.
+  // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
   mystraPlugin
 ];

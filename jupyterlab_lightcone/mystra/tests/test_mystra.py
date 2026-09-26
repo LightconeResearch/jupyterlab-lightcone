@@ -2,6 +2,7 @@
 
 import asyncio
 import gzip
+import importlib.util
 import json
 import logging
 import sys
@@ -38,28 +39,10 @@ def manager(tmp_path):
     return manager
 
 
-def executable(directory, name="myst"):
-    """An executable file named like a CLI, in its own directory."""
-    directory.mkdir()
-    path = directory / name
-    path.write_text("#!/bin/sh\n")
-    path.chmod(0o755)
-    return path
-
-
-def test_the_packaged_cli_shadows_one_on_path(tmp_path, monkeypatch):
-    packaged = executable(tmp_path / "scripts")
-    elsewhere = executable(tmp_path / "npm-global")
-    monkeypatch.setattr(mystra.sysconfig, "get_path", lambda name: str(packaged.parent))
-    monkeypatch.setenv("PATH", str(elsewhere.parent))
-    assert mystra.find_executable("myst") == str(packaged)
-
-
-def test_a_cli_on_path_is_found_without_the_packaged_one(tmp_path, monkeypatch):
-    elsewhere = executable(tmp_path / "npm-global")
-    monkeypatch.setattr(mystra.sysconfig, "get_path", lambda name: str(tmp_path / "empty"))
-    monkeypatch.setenv("PATH", str(elsewhere.parent))
-    assert mystra.find_executable("myst") == str(elsewhere)
+def test_the_default_cli_is_the_packaged_mystmd():
+    """The dependency's CLI runs with this interpreter, whatever PATH holds."""
+    assert MySTRAManager.command[:3] == (sys.executable, "-P", "-m")
+    assert importlib.util.find_spec(MySTRAManager.command[3]) is not None
 
 
 async def test_the_cli_cannot_prompt_to_install_nodejs(manager, tmp_path, monkeypatch):

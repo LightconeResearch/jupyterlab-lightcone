@@ -23,6 +23,6 @@ def _jupyter_server_extension_points():
     """The server extensions Jupyter Server loads for this package."""
     return [
         {"module": "jupyterlab_lightcone", "app": LightconeApp},
-        # TEMPORARY: the MySTRA Viewer workaround; see its package docstring.
+        # TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
         {"module": "jupyterlab_lightcone.mystra", "app": MySTRAApp},
     ]

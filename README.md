@@ -152,8 +152,8 @@ the same project reuses the viewer. Saved Markdown and research data changes
 are handled by MyST's watcher; unsaved editor changes are not rendered.
 
 The MyST CLI is installed with the extension (the `mystmd` package), and the
-viewer always runs that copy, even when the server's environment is not
-activated or another `myst` comes first on `PATH`. The **Jupyter server's**
+viewer always runs that copy with the server's own Python, even when the
+server's environment is not activated or another `myst` comes first on `PATH`. The **Jupyter server's**
 environment must still provide Node.js 20 or later; without it, the viewer
 reports that Node.js is missing rather than installing it. Projects also need
 their MySTRA plugin and an ASTRA theme implementing `mystra-viewer.v1`. It is a
@@ -190,14 +190,14 @@ Only a local filesystem ContentsManager is supported, and the Jupyter server
 must run on a POSIX system; Windows servers receive a clear error because
 process-group cleanup is not implemented there.
 
-The viewer has no configuration: startup may take up to two minutes, and
-processes stop after two minutes without a viewer. It is a temporary, self-contained plugin: its own server extension
+The viewer has no configuration; startup may take up to two minutes. It is a
+temporary, self-contained plugin: its own server extension
 (`jupyterlab_lightcone.mystra`, loaded with the package) and frontend plugin
 (`jupyterlab_lightcone:mystra`). Disable the frontend plugin with
 `jupyter labextension disable jupyterlab_lightcone:mystra`.
 
-The integration was validated with MyST 1.10.1 and 1.11.0 and Node.js 22/26. It requires
-the companion [ASTRA theme changes](https://github.com/LightconeResearch/astra-theme/pull/16)
+The integration was validated with MyST 1.10.1 and 1.11.0 and Node.js 22/26.
+It requires the companion [ASTRA theme changes](https://github.com/LightconeResearch/astra-theme/pull/16)
 and the documented `mystra-viewer.v1` contract.
 No separate preview domain or publicly exposed Node port is needed.
 

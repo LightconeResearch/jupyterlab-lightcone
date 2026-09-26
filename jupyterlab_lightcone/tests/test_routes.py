@@ -93,10 +93,6 @@ def test_rejects_invalid_dois(doi):
         routes.validate_doi(doi)
 
 
-def test_the_cache_is_astras_conventional_one(paper_cache):
-    assert routes.paper_cache_root() == paper_cache
-
-
 async def test_returns_only_requested_cached_metadata(jp_fetch, paper_cache):
     write_paper(paper_cache)
     response = await jp_fetch(
