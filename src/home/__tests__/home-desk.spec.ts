@@ -9,6 +9,7 @@ import { CommandIDs } from '../../commands';
 import { OPEN_REPORT_COMMAND } from '../home-commands';
 import { requestAPI } from '../../request';
 import { SidebarCommandIDs } from '../../sidebar/sidebar-commands';
+import { PipelineCommandIDs } from '../../versions/pipeline-commands';
 import { CREATE_CHAT_COMMAND } from '../../workbench-ids';
 import { fileModel } from '../../__tests__/project-fixtures';
 import { PersonaDirectory } from '../personas';
@@ -86,6 +87,8 @@ interface IDeskHostOptions {
   chat?: boolean;
   /** Whether the Lightcone sidebar's command is registered. */
   sidebar?: boolean;
+  /** Whether the pipeline's command is registered. */
+  pipeline?: boolean;
   sessions?: FakeSessionService;
   personas?: PersonaDirectory | null;
   state?: IStateDB | null;
@@ -114,6 +117,9 @@ function deskHost(options: IDeskHostOptions = {}) {
   }
   if (options.sidebar) {
     register(SidebarCommandIDs.showSidebar);
+  }
+  if (options.pipeline) {
+    register(PipelineCommandIDs.openPipeline);
   }
   const sessions = options.sessions ?? new FakeSessionService();
   const entries: Record<string, Contents.IModel> = {
@@ -593,6 +599,40 @@ describe('the results', () => {
       expect(h.text()).toContain('2 results');
       expect(h.text()).toContain('1 decision');
       expect(h.text()).toContain('1 input');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('links the results line to the pipeline, when the pipeline is there', async () => {
+    const pipelineLink = (h: ReturnType<typeof deskHost>) =>
+      h.query<HTMLButtonElement>(`.${C}-pipeline`);
+    const without = deskHost();
+    try {
+      await until(() => without.queryAll(`.${C}-plate`).length === 2);
+      expect(pipelineLink(without)).toBeNull();
+    } finally {
+      without.dispose();
+    }
+    const h = deskHost({ pipeline: true });
+    try {
+      await until(() => pipelineLink(h) !== null);
+      const link = pipelineLink(h)!;
+      expect(link.textContent).toBe('Pipeline');
+      // It sits in the results heading, before the link to all the results.
+      expect(
+        h
+          .queryAll<HTMLButtonElement>(
+            `.${C}-results > .${C}-sectionHead > .${C}-link`
+          )
+          .map(button => button.textContent)
+      ).toEqual(['Pipeline', 'All 2 results']);
+      link.click();
+      await flush();
+      expect(h.executed).toContainEqual([
+        PipelineCommandIDs.openPipeline,
+        { entrypoint: ENTRYPOINT }
+      ]);
     } finally {
       h.dispose();
     }

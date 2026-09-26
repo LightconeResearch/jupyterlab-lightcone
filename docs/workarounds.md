@@ -885,3 +885,13 @@ labels appear and disappear without changing the title's label, and
 tab bar. `src/sidebar/__tests__/sidebar-model.spec.ts` covers hidden/disposed
 polling, stale project responses and refresh requests arriving during a run;
 `src/__tests__/project-data-service.spec.ts` covers shared leases and refreshes.
+
+## Pipeline integration
+
+The pipeline adds no independent package workaround. It reuses
+`useMaterializationStatus` from `src/materialization-status.ts`, including
+the existing filesystem/status polling described under Project navigation.
+The graph reads resolved ASTRA input/output relationships through SDK types;
+its SVG and its Lumino placement/restoration use supported public APIs.
+A server/engine status-change event would remove polling from this consumer
+alongside Home, the sidebar and record tabs.

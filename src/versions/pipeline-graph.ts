@@ -1,0 +1,276 @@
+import type { AnalysisIndex, ResolvedRecord } from '@astra-spec/sdk';
+import { recordTitle } from '@astra-spec/ui/model';
+
+export type PipelineNodeKind = 'input' | 'output';
+
+/** One input or output of the project, placed on the layered graph. */
+export interface IPipelineNode {
+  /** Canonical record path, e.g. `outputs.hubble_diagram`. */
+  path: string;
+  id: string;
+  label: string;
+  kind: PipelineNodeKind;
+  /** The record's declared type: figure, table, metric, data, analysis… */
+  type: string;
+  /** `$` for the root analysis, else the dotted analysis path. */
+  analysisPath: string;
+  /** Column, from sources on the left to final outputs on the right. */
+  layer: number;
+  /** Row within the column. */
+  row: number;
+}
+
+/** A dependency: `to` is made from `from`. */
+export interface IPipelineEdge {
+  from: string;
+  to: string;
+  /** A declared input, or an alias (`from:`) of another record. */
+  kind: 'input' | 'alias';
+}
+
+export interface IPipelineGraph {
+  nodes: IPipelineNode[];
+  edges: IPipelineEdge[];
+  /** Number of columns. */
+  layers: number;
+  /** Height of the tallest column. */
+  rows: number;
+}
+
+function isDataRecord(
+  record: ResolvedRecord
+): record is Extract<ResolvedRecord, { kind: 'input' | 'output' }> {
+  return record.kind === 'input' || record.kind === 'output';
+}
+
+/**
+ * Lay the project's inputs and outputs out as a layered DAG: every declared
+ * input of an output, and every alias, is an edge. A node's column is one
+ * past its farthest upstream node (a longest-path layering), and rows are
+ * ordered by the average row of their predecessors so edges cross little.
+ * Cycles, which the SDK rejects anyway, are broken at the back edge.
+ */
+export function buildPipelineGraph(
+  index: Pick<AnalysisIndex, 'recordByPath' | 'analysisByRecordPath'>
+): IPipelineGraph {
+  const records = [...index.recordByPath.values()].filter(isDataRecord);
+  const known = new Set(records.map(record => record.canonicalPath));
+  const edges: IPipelineEdge[] = [];
+  const seen = new Set<string>();
+  const addEdge = (from: string, to: string, kind: IPipelineEdge['kind']) => {
+    const key = `${from}\u0000${to}`;
+    if (from === to || !known.has(from) || !known.has(to) || seen.has(key))
+      return;
+    seen.add(key);
+    edges.push({ from, to, kind });
+  };
+  for (const record of records) {
+    if (record.kind === 'output') {
+      for (const path of record.provenance.inputPaths)
+        addEdge(path, record.canonicalPath, 'input');
+    }
+    if (record.resolvedFrom)
+      addEdge(record.resolvedFrom, record.canonicalPath, 'alias');
+  }
+  const predecessors = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = predecessors.get(edge.to) ?? [];
+    list.push(edge.from);
+    predecessors.set(edge.to, list);
+  }
+  const layerOf = new Map<string, number>();
+  const visiting = new Set<string>();
+  const layer = (path: string): number => {
+    const done = layerOf.get(path);
+    if (done !== undefined) return done;
+    if (visiting.has(path)) return 0;
+    visiting.add(path);
+    let depth = 0;
+    for (const upstream of predecessors.get(path) ?? [])
+      depth = Math.max(depth, layer(upstream) + 1);
+    visiting.delete(path);
+    layerOf.set(path, depth);
+    return depth;
+  };
+  const order = new Map(
+    records.map((record, position) => [record.canonicalPath, position])
+  );
+  const nodes: IPipelineNode[] = records.map(record => ({
+    path: record.canonicalPath,
+    id: record.id,
+    label: recordTitle(record),
+    kind: record.kind,
+    type: record.type,
+    analysisPath:
+      index.analysisByRecordPath.get(record.canonicalPath)?.canonicalPath ??
+      '$',
+    layer: layer(record.canonicalPath),
+    row: 0
+  }));
+  const layers = nodes.length
+    ? Math.max(...nodes.map(node => node.layer)) + 1
+    : 0;
+  const rowOf = new Map<string, number>();
+  let rows = 0;
+  for (let column = 0; column < layers; column += 1) {
+    const members = nodes.filter(node => node.layer === column);
+    const barycenter = (node: IPipelineNode): number => {
+      const upstream = (predecessors.get(node.path) ?? [])
+        .map(path => rowOf.get(path))
+        .filter((row): row is number => row !== undefined);
+      return upstream.length
+        ? upstream.reduce((sum, row) => sum + row, 0) / upstream.length
+        : Number.POSITIVE_INFINITY;
+    };
+    members.sort((a, b) => {
+      const difference = barycenter(a) - barycenter(b);
+      if (Number.isFinite(difference) && difference !== 0) return difference;
+      if (Number.isFinite(barycenter(a)) !== Number.isFinite(barycenter(b)))
+        return Number.isFinite(barycenter(a)) ? -1 : 1;
+      return (order.get(a.path) ?? 0) - (order.get(b.path) ?? 0);
+    });
+    members.forEach((node, row) => {
+      node.row = row;
+      rowOf.set(node.path, row);
+    });
+    rows = Math.max(rows, members.length);
+  }
+  return { nodes, edges, layers, rows };
+}
+
+/** Every node reached from `path` along edges in one direction, with `path`. */
+function reachable(
+  graph: IPipelineGraph,
+  path: string,
+  direction: 'down' | 'up'
+): Set<string> {
+  const result = new Set<string>([path]);
+  const queue = [path];
+  for (
+    let current = queue.shift();
+    current !== undefined;
+    current = queue.shift()
+  ) {
+    for (const edge of graph.edges) {
+      const [near, far] =
+        direction === 'down' ? [edge.from, edge.to] : [edge.to, edge.from];
+      if (near === current && !result.has(far)) {
+        result.add(far);
+        queue.push(far);
+      }
+    }
+  }
+  return result;
+}
+
+/** Outputs downstream of a node, including itself: what a rerun would touch. */
+export function downstreamOf(graph: IPipelineGraph, path: string): Set<string> {
+  return reachable(graph, path, 'down');
+}
+
+/** Records upstream of a node, including itself: what it is made from. */
+export function upstreamOf(graph: IPipelineGraph, path: string): Set<string> {
+  return reachable(graph, path, 'up');
+}
+
+/** A node's lineage: what it is made from, and what is made from it. */
+export interface IPipelineTrace {
+  upstream: Set<string>;
+  downstream: Set<string>;
+}
+
+export function traceOf(graph: IPipelineGraph, path: string): IPipelineTrace {
+  return {
+    upstream: upstreamOf(graph, path),
+    downstream: downstreamOf(graph, path)
+  };
+}
+
+/** Whether a node lies on the trace. */
+export function inTrace(trace: IPipelineTrace, path: string): boolean {
+  return trace.upstream.has(path) || trace.downstream.has(path);
+}
+
+/**
+ * Whether an edge lies on a path through the traced node: both ends
+ * upstream of it, or both downstream. An edge that skips from an upstream
+ * record straight to a downstream one bypasses the node and stays unlit.
+ */
+export function edgeInTrace(
+  trace: IPipelineTrace,
+  edge: Pick<IPipelineEdge, 'from' | 'to'>
+): boolean {
+  return (
+    (trace.upstream.has(edge.from) && trace.upstream.has(edge.to)) ||
+    (trace.downstream.has(edge.from) && trace.downstream.has(edge.to))
+  );
+}
+
+/** Where the view draws nodes, in pixels. */
+export interface IPipelineGeometry {
+  /** Margin around the graph. */
+  pad: number;
+  /** Distance from one column's left edge to the next one's. */
+  column: number;
+  nodeWidth: number;
+  nodeHeight: number;
+  /** Distance from one row's top edge to the next one's. */
+  row: number;
+}
+
+/** A point an edge passes through. */
+export interface IPipelinePoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * The route of an edge: out of its source's right side, across every column
+ * it skips through a gap between that column's nodes (so it never runs
+ * under a node it does not belong to), and into its target's left side.
+ * Consecutive points after the first come in pairs: where the edge enters a
+ * skipped column and where it leaves it, at the same height.
+ */
+export function edgeRoute(
+  graph: IPipelineGraph,
+  from: IPipelineNode,
+  to: IPipelineNode,
+  geometry: IPipelineGeometry
+): IPipelinePoint[] {
+  const { pad, column, nodeWidth, nodeHeight, row } = geometry;
+  const x = (layer: number) => pad + layer * column;
+  const middle = (node: IPipelineNode) => pad + node.row * row + nodeHeight / 2;
+  const start = { x: x(from.layer) + nodeWidth, y: middle(from) };
+  const end = { x: x(to.layer), y: middle(to) };
+  const points: IPipelinePoint[] = [start];
+  const gap = row - nodeHeight;
+  let previous = start;
+  for (let layer = from.layer + 1; layer < to.layer; layer += 1) {
+    const size = graph.nodes.filter(node => node.layer === layer).length;
+    const centre = x(layer) + nodeWidth / 2;
+    // Where a straight line from the last point to the target would cross.
+    const wanted =
+      previous.y +
+      ((end.y - previous.y) * (centre - previous.x)) / (end.x - previous.x);
+    // Lanes: above the column, between two of its nodes, or below it.
+    const lanes = Array.from(
+      { length: size + 1 },
+      (_, index) => pad + index * row - gap / 2
+    );
+    // Clear of every node of the column, with a little air.
+    const clear = (y: number) =>
+      Array.from({ length: size }).every(
+        (_, index) =>
+          y < pad + index * row - 2 || y > pad + index * row + nodeHeight + 2
+      );
+    const y = clear(wanted)
+      ? wanted
+      : lanes.reduce((best, lane) =>
+          Math.abs(lane - wanted) < Math.abs(best - wanted) ? lane : best
+        );
+    previous = { x: x(layer) + nodeWidth, y };
+    points.push({ x: x(layer), y }, previous);
+  }
+  points.push(end);
+  return points;
+}

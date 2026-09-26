@@ -1,4 +1,4 @@
-/* Native record navigation, historical outputs and provenance inspection. */
+/* Native record navigation, historical outputs, provenance inspection and pipeline. */
 
 @layer lightcone {
   /* Record tab toolbar: history on the left, context in the middle, actions on the right. */
@@ -509,5 +509,245 @@
 
   .jp-jupyterlab-lightcone-VersionCompare-table dd code {
     margin-inline-end: 4px;
+  }
+
+  /* Pipeline view. */
+  .jp-jupyterlab-lightcone-Pipeline {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--astra-color-text);
+    background: var(--astra-color-canvas);
+    font-family: var(--astra-font-body);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-header {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px 24px;
+    padding: 20px clamp(16px, 3vw, 40px) 14px;
+    border-bottom: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-eyebrow {
+    display: block;
+    color: var(--astra-color-eyebrow);
+    font: 700 0.625rem/1.4 var(--astra-font-ui);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-header h1 {
+    margin: 2px 0 4px;
+    font: 700 1.5rem/1.15 var(--astra-font-heading);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-header p {
+    margin: 0;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li::before {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-inline-end: 6px;
+    border-radius: 50%;
+    background: var(--lc-pipeline-status, var(--astra-color-text-faint));
+    content: '';
+    vertical-align: -1px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='current'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='current'] {
+    --lc-pipeline-status: var(--jp-success-color1, #2f7d4d);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='behind'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='behind'] {
+    --lc-pipeline-status: var(--jp-warn-color1, #b4841e);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='stale'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='stale'] {
+    --lc-pipeline-status: var(--jp-error-color1, #b23a3a);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='input'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='input'] {
+    --lc-pipeline-status: var(--astra-color-kind-input);
+  }
+
+  /* The traced record, named above the graph, with the way back to it all. */
+  .jp-jupyterlab-lightcone-Pipeline-trace {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px 16px;
+    padding: 8px clamp(16px, 3vw, 40px);
+    border-bottom: 1px solid var(--astra-color-border);
+    background: var(--astra-color-surface);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-trace p {
+    margin: 0;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-trace strong {
+    color: var(--astra-color-text);
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-clear {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-clear:focus-visible {
+    outline: 2px solid var(--astra-color-focus);
+    outline-offset: 2px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px clamp(16px, 3vw, 40px) 24px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-empty {
+    padding: 24px clamp(16px, 3vw, 40px);
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-graph {
+    display: block;
+    font-family: var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-edges path {
+    fill: none;
+    stroke: var(--astra-color-border-strong);
+    stroke-width: 1.5;
+    transition: stroke 120ms ease;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-edges path[data-kind='alias'] {
+    stroke-dasharray: 4 3;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-edges path[data-highlighted] {
+    stroke: var(--astra-color-accent);
+    stroke-width: 2.5;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node {
+    cursor: pointer;
+    outline: none;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node rect {
+    fill: var(--astra-color-surface);
+    stroke: var(--astra-color-border);
+    stroke-width: 1;
+    transition:
+      stroke 120ms ease,
+      fill 120ms ease;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-kind='output'] rect {
+    fill: var(--astra-color-kind-output-soft, var(--astra-color-surface));
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-kind='input'] rect {
+    fill: var(--astra-color-kind-input-soft, var(--astra-color-surface));
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node:hover rect,
+  .jp-jupyterlab-lightcone-Pipeline-node:focus-visible rect {
+    stroke: var(--astra-color-accent);
+    stroke-width: 2;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node circle {
+    fill: var(--lc-pipeline-status, var(--astra-color-text-faint));
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node text {
+    fill: var(--astra-color-text);
+    font-size: 12px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node
+    .jp-jupyterlab-lightcone-Pipeline-meta {
+    fill: var(--astra-color-text-muted);
+    font-size: 10.5px;
+    font-weight: 400;
+  }
+
+  /* A node's kind mark sits before its meta line, at the meta's size. */
+  .jp-jupyterlab-lightcone-Pipeline-kind {
+    overflow: visible;
+    font-size: 10.5px;
+    line-height: 14px;
+    pointer-events: none;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-dimmed] {
+    opacity: 0.45;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-traced] rect {
+    stroke: var(--astra-color-accent);
+    stroke-width: 2.5;
+  }
+
+  /* The pipeline drawing in "Show in pipeline" sits like the other actions' glyphs. */
+  .jp-jupyterlab-lightcone-PipelineGlyph {
+    flex: 0 0 auto;
+    vertical-align: -1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jp-jupyterlab-lightcone-Pipeline-edges path,
+    .jp-jupyterlab-lightcone-Pipeline-node rect {
+      transition: none;
+    }
   }
 }

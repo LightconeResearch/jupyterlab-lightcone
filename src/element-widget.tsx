@@ -30,6 +30,7 @@ import {
   DialogContent,
   DialogBody,
   DialogHeader,
+  DialogAction,
   Button
 } from '@astra-spec/ui/primitives';
 import {
@@ -80,6 +81,8 @@ import {
   type IElementHistory
 } from './versions/element-history';
 import { Chevron } from './versions/chevron';
+import { PipelineCommandIDs } from './versions/pipeline-commands';
+import { PipelineGlyph } from './versions/pipeline-glyph';
 import { renderKeepingFocus } from './versions/focus-restore';
 import { restoreScrollOffset } from './versions/scroll-restore';
 /**
@@ -324,6 +327,41 @@ function OutputRecordDetail({
   );
 }
 
+interface IShowInPipelineProps {
+  commands: CommandRegistry;
+  entrypoint: string;
+  /** Canonical path of the input or output to trace. */
+  path: string;
+}
+
+/**
+ * "Show in pipeline": the record's lineage in the project's graph. The tab
+ * lists what an output is made from; only the graph also shows what is made
+ * from it, and whether that is current.
+ */
+function ShowInPipeline({
+  commands,
+  entrypoint,
+  path
+}: IShowInPipelineProps): React.ReactElement | null {
+  if (!commands.hasCommand(PipelineCommandIDs.openPipeline)) return null;
+  return (
+    <DialogAction
+      title="Trace what this record is made from and what it feeds"
+      onClick={() => {
+        void commands
+          .execute(PipelineCommandIDs.openPipeline, { entrypoint, focus: path })
+          .catch(reason =>
+            showErrorMessage('Could not open the pipeline', reason)
+          );
+      }}
+    >
+      <PipelineGlyph />
+      <span>Show in pipeline</span>
+    </DialogAction>
+  );
+}
+
 function DetailBody({
   documents,
   widget,
@@ -415,6 +453,11 @@ function DetailBody({
         );
         actions = (
           <>
+            <ShowInPipeline
+              commands={commands}
+              entrypoint={reference.entrypoint}
+              path={record.canonicalPath}
+            />
             <OutputDialogActions
               record={record}
               onOpenArtifact={
@@ -450,6 +493,13 @@ function DetailBody({
         break;
       case 'input':
         body = <InputDetail record={record} />;
+        actions = (
+          <ShowInPipeline
+            commands={commands}
+            entrypoint={reference.entrypoint}
+            path={record.canonicalPath}
+          />
+        );
         break;
       case 'prior_insight': {
         const doi = primaryLiteratureEvidence(record)?.doi;

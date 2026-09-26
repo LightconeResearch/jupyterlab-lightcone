@@ -22,6 +22,7 @@ import { homePlugin } from './home';
 import { HomeCommandIDs } from './home/home-commands';
 import { sidebarPlugin } from './sidebar';
 import { tabLabelsPlugin } from './tab-labels';
+import { versionsPlugin } from './versions';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
 import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
@@ -186,5 +187,6 @@ export default [
   mystraPlugin,
   homePlugin,
   sidebarPlugin,
+  versionsPlugin,
   tabLabelsPlugin
 ];

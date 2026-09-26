@@ -2,7 +2,7 @@ import type { ISignal } from '@lumino/signaling';
 import { isRecord } from './api';
 
 /**
- * What a workbench view (a record tab or the inventory) tells the
+ * What a workbench view (a record tab, the inventory, or the pipeline) tells the
  * sidebar and the tab labeller about itself, without them importing its class.
  */
 export interface ILightconeView {

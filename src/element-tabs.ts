@@ -7,6 +7,7 @@ import { ElementWidget } from './element-widget';
 import { CommandIDs } from './commands';
 import { ElementHistoryCommandIDs } from './versions/element-history';
 import { isSessionWidget } from './sessions/session-manager';
+import { isPipelineTab } from './versions/pipeline-placement';
 import { ELEMENT_TAB_DATASET_KEY } from './workbench-ids';
 
 export type ElementTab = MainAreaWidget<ElementWidget>;
@@ -183,14 +184,16 @@ export class ElementTabs {
     );
   }
 
-  /** Keep the first result beside a session, or beside another sufficiently wide source. */
+  /** Keep the first result beside a session, pipeline, or another sufficiently wide source. */
   add(tab: ElementTab, destination?: ElementTab, restoring = false): void {
     const source = destination ?? this.app.shell.currentWidget;
     const split =
       !restoring &&
       !destination &&
       !!source &&
-      (source.node.clientWidth >= 1000 || isSessionWidget(source));
+      (source.node.clientWidth >= 1000 ||
+        isSessionWidget(source) ||
+        isPipelineTab(source));
     this.app.shell.add(tab, 'main', {
       mode: split ? 'split-right' : 'tab-after',
       ...(source ? { ref: source.id } : {}),

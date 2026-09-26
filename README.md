@@ -511,3 +511,16 @@ folders, with actions to open or create another. Selecting a project moves the
 file browser there; it keeps existing tabs open. When tabs from different
 projects have the same visible title, their project folders appear beside
 their labels. These display labels preserve document filenames.
+
+### Project pipeline
+
+**Pipeline** on Home's results line or in the command palette shows how the
+project makes outputs from inputs, colored by the engine's materialization
+status. **Show in pipeline** on an input or output record traces what feeds
+that record and what depends on it. The graph explains the trace in words and
+dims unrelated nodes; **Show everything** or Escape clears it.
+
+Opening the graph from a record places it in the neighboring column. Clicking
+a graph node opens its record beside the graph, preserving both views. Each
+project has one reusable pipeline tab, and restoring the layout retains its
+trace. The graph is read-only: it starts no computation or materialization.

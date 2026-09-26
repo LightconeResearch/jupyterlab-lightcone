@@ -61,6 +61,8 @@ import { outputKindLabel } from '../output-kind';
 import { listOutputs } from '../project-outputs';
 import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
 import { LightconeThemeBinding } from '../theme-adapter';
+import { PipelineCommandIDs } from '../versions/pipeline-commands';
+import { PipelineGlyph } from '../versions/pipeline-glyph';
 import { listResultsCommits } from '../versions/versions-api';
 import { CREATE_CHAT_COMMAND } from '../workbench-ids';
 import {
@@ -667,6 +669,20 @@ function ResultsSection({
     trans,
     latestResultsTime
   );
+  const pipelineAvailable = useHasCommand(
+    commands,
+    PipelineCommandIDs.openPipeline
+  );
+  const openPipeline = () => {
+    void commands
+      .execute(PipelineCommandIDs.openPipeline, { entrypoint })
+      .catch(reason => {
+        void showErrorMessage(
+          trans.__('Could not open the pipeline'),
+          reason instanceof Error ? reason : String(reason)
+        );
+      });
+  };
   const open = (output: ResolvedOutput) => {
     void commands
       .execute(CommandIDs.openElement, {
@@ -703,6 +719,21 @@ function ResultsSection({
           ) : null}
           {freshness.text}
         </span>
+        {outputs.length && pipelineAvailable ? (
+          // The graph behind the freshness line: what each result is made
+          // from, and which results are current.
+          <button
+            type="button"
+            className={`${CLASS}-link ${CLASS}-pipeline`}
+            title={trans.__(
+              'How the results are made from the inputs, and which are current'
+            )}
+            onClick={openPipeline}
+          >
+            <PipelineGlyph />
+            {trans.__('Pipeline')}
+          </button>
+        ) : null}
         {outputs.length ? allResults : null}
       </div>
       {outputs.length ? (
