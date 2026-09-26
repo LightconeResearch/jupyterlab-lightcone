@@ -405,3 +405,11 @@ notifies the user when a session they are not viewing finishes or needs input.
 The project preference is a small ignored `.lightcone/agent.json` file; no
 messages or agent credentials are stored there. The workaround inventory
 explains the remaining picker-selection and metadata limitations.
+
+### Record navigation
+
+Following a related record keeps the same tab and records a short history.
+Use Back/Forward, the breadcrumb trail, or Alt+Left/Right to return to earlier
+records; their scroll positions are retained. Ctrl/Cmd-click, middle-click,
+and **Open in new tab** retain another native tab. Pinning protects a tab from
+replacement by results opened elsewhere. Reload restores each tab and pin.

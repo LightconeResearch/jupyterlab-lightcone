@@ -444,3 +444,68 @@ without allowing its private store to redirect reads or writes elsewhere.
 **Removal.** Store the preference through ordinary Contents paths once the project template offers that directory.
 
 **Coverage.** The routing suite uses a local echo persona, covering absent or stale choices, remembered agents, read-only storage and processing failures. Frontend suites exercise late picker mounting, stale defaults, list disposal, initial-message handoff, activity transitions and multiple views of one chat. The browser continuity test moves a deterministic test persona between the main area and sidebar without contacting a real agent.
+
+## Record navigation
+
+### Middle clicks on ASTRA record links
+
+**Where:** `src/element-widget.tsx` (`RECORD_TRIGGERS`). ASTRA UI's open
+callbacks carry no pointer event, and its triggers omit `auxclick`. A scoped
+capture handler recognizes only record triggers, forwards middle-click through
+the existing click callback, and resets the transient new-tab flag immediately.
+Ctrl/Cmd-click uses the same flag. Public `data-slot` hooks are preferred; the
+remaining relation/insight/paper BEM class names are enumerated in one constant.
+
+**Remove when:** `@astra-spec/ui` passes the pointer event or a `newTab` flag
+to each open callback and handles middle-click. Keep the navigation browser
+tests when deleting the handler.
+
+### Embedded ASTRA dialogs rendered as record pages
+
+**Where:** `style/base.css`. The existing embedded dialog has bounded panel
+geometry. Record tabs use documented `data-slot`, `data-mode`, and `data-layout`
+hooks to make it a scrolling page; output result/provenance, paper artifact,
+insight list and decision option parts still require their BEM classes because
+those parts expose no slots. These selectors stay scoped to the record body.
+
+**Remove when:** `@astra-spec/ui` offers `layout="page"` for record details.
+The narrow/dark record browser test guards the current adaptation.
+
+### Scroll and focus during asynchronous previews
+
+**Where:** `src/versions/scroll-restore.ts`, `focus-restore.ts`, and
+`src/element-widget.tsx`. Artifact previews grow after initial render and
+expose no load/settled callback. A ResizeObserver reapplies a saved offset
+until reached or the reader interacts; its cleanup detaches all listeners.
+Focus lost when navigation replaces its control is restored using the public
+ReactWidget `renderPromise`, without stealing focus from another widget.
+
+**Remove when:** `@astra-spec/ui` exposes preview `onSettled`; restore once
+from that callback. Unit tests cover user interruption, cleanup, and focus
+that moves elsewhere while rendering.
+
+### Update dialogs keep their record links unstyled
+
+**Where:** `src/project-notifications.tsx` (`UnstyledBodyRenderer`). JupyterLab's
+`Dialog.Renderer.createBody` applies `Styling.styleNode` to every button in a
+body, including the review's record links. The public dialog `renderer` option
+provides a narrow replacement: a subclass keeps widget and React controls
+unstyled, sends the same initial update message, and delegates text bodies to
+the stock renderer. Dialog ownership and disposal stay with JupyterLab.
+
+**Remove when:** `@jupyterlab/apputils` offers `styleBody: false`. Tests compare
+our controls with the stock renderer and cover widget, React, and text bodies.
+
+### Derived fields are excluded from authored-record comparisons
+
+**Where:** `src/project-changes.ts` (`RESOLVER_KEYS`). ASTRA SDK exposes resolved
+record types but no runtime list of derived fields. A mapped type classifies
+every key added by the resolver as recursively stripped, stripped only at the
+record root, or retained as meaningful state. This makes a new SDK-derived key
+fail compilation until reviewed, and prevents globally stripping a key shared
+with an authored field. In particular, output artifact metadata is ignored
+while an evidence record's authored artifact reference remains comparable.
+
+**Remove when:** `@astra-spec/sdk` exports runtime derived-field metadata per
+record kind, or preserves the authored record on each resolved record. Keep
+the snapshot tests for metadata-only updates and authored evidence changes.

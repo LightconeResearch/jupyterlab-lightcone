@@ -1,0 +1,68 @@
+/* Native record navigation and breadcrumb history. */
+
+@layer lightcone {
+  /* Record tab toolbar: history on the left, context in the middle, actions on the right. */
+  .jp-jupyterlab-lightcone-element-nav {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .jp-jupyterlab-lightcone-element-context {
+    flex: 1 1 12rem;
+  }
+
+  .jp-jupyterlab-lightcone-element-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    margin-inline-start: auto;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-inline-start: 6px;
+    color: var(--astra-color-text-subtle);
+    font: 0.6875rem/1.6 var(--astra-font-mono);
+  }
+
+  /* Link-like buttons for the trail crumbs. */
+  .jp-jupyterlab-lightcone-element-trail button {
+    padding: 0 2px;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail button:focus-visible {
+    outline: 2px solid var(--astra-color-focus);
+    outline-offset: 1px;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail [aria-current='page'] {
+    color: var(--astra-color-text);
+    font-weight: 600;
+  }
+
+  /* Each crumb leads with its record's kind mark, as the inventory draws it. */
+  .jp-jupyterlab-lightcone-element-trail .jp-jupyterlab-lightcone-KindMark {
+    margin-inline-end: 2px;
+  }
+
+  /* Back and Forward arrows. */
+  .jp-jupyterlab-lightcone-Chevron {
+    display: block;
+    flex: 0 0 auto;
+  }
+}

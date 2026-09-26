@@ -10,7 +10,7 @@ import type { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { Widget } from '@lumino/widgets';
 import { RecordPreview } from '@astra-spec/ui/components';
 import { resolveElement } from './element-reference';
-import { useProject } from './element-widget';
+import { useProject } from './project-data-hooks';
 import { useProjectRenderers } from './project-renderers';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';

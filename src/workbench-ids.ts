@@ -23,3 +23,11 @@ export const CREATE_CHAT_COMMAND = 'jupyterlab-chat:create';
 
 /** Jupyter Chat's document factory for `.chat` files. */
 export const CHAT_FACTORY = 'Chat';
+
+/** Record tab widget ids start with this, followed by a UUID. */
+export const ELEMENT_TAB_ID_PREFIX = 'lightcone-element-';
+
+/** Whether a widget id names a record tab. */
+export function isElementTabId(id: string): boolean {
+  return /^lightcone-element-[a-zA-Z0-9-]+$/.test(id);
+}

@@ -1,3 +1,5 @@
+import { bindLabColorScheme } from './astra-kind';
+import { ElementHistoryCommandIDs } from './versions/element-history';
 import {
   ILayoutRestorer,
   ILabShell,
@@ -100,15 +102,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     });
     app.docRegistry.addWidgetFactory(factory);
+    const themeBinding = bindLabColorScheme(themes);
+    app.shell.disposed.connect(() => themeBinding.dispose());
     registerElementCommands(app, themes, restorer, shell);
-    palette?.addItem({
-      command: CommandIDs.pinElement,
-      category: PALETTE_CATEGORY
-    });
-    palette?.addItem({
-      command: CommandIDs.unpinElement,
-      category: PALETTE_CATEGORY
-    });
+    for (const command of Object.values(ElementHistoryCommandIDs)) {
+      palette?.addItem({ command, category: PALETTE_CATEGORY });
+    }
+    palette?.addItem({ command: CommandIDs.pinElement, category: PALETTE_CATEGORY });
+    palette?.addItem({ command: CommandIDs.unpinElement, category: PALETTE_CATEGORY });
     registerCommands({
       app,
       documents,
