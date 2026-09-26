@@ -1,4 +1,4 @@
-import type { CommandRegistry } from '@lumino/commands';
+import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents } from '@jupyterlab/services';
 import { ServerConnection } from '@jupyterlab/services';
 import type { ArtifactBinding, ResolvedOutput } from '@astra-spec/sdk';
@@ -9,6 +9,9 @@ import {
   type IBoundedText
 } from './artifact-preview-data';
 import { projectDirectory } from './project-data';
+
+/** The part of the document manager that opens a file in a tab. */
+export type IDocumentOpener = Pick<IDocumentManager, 'openOrReveal'>;
 
 /** Read at most the requested bytes, including when a server ignores Range. */
 export async function readBoundedText(
@@ -54,7 +57,7 @@ export class JupyterArtifactAccess {
     private readonly contents: Contents.IManager,
     entrypoint: string,
     bindings: readonly ArtifactBinding[],
-    private readonly commands: CommandRegistry
+    private readonly documents: IDocumentOpener
   ) {
     this._projectRoot = projectDirectory(entrypoint);
     this._bindingByOutputPath = new Map(
@@ -126,7 +129,9 @@ export class JupyterArtifactAccess {
   /** Open a project file in a JupyterLab document tab, reusing an open one. */
   async openPath(relativePath: string, factory?: string): Promise<void> {
     const path = this.contents.resolvePath(this._projectRoot, relativePath);
-    await this.commands.execute('docmanager:open', { path, factory });
+    if (!this.documents.openOrReveal(path, factory)) {
+      throw new Error(`No document viewer can open ${path}.`);
+    }
   }
 
   private readonly _bindingByOutputPath: ReadonlyMap<string, ArtifactBinding>;

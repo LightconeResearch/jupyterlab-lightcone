@@ -1,3 +1,5 @@
+import type { OutputRun } from '@astra-spec/ui/model';
+import { runView, sandboxLine } from '../version-model';
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import {
   versionPosition,
@@ -72,5 +74,86 @@ describe('version stepper', () => {
     expect(isImageFormat('csv')).toBe(false);
     expect(delimiterFor('tsv')).toBe('\t');
     expect(delimiterFor('json')).toBeUndefined();
+  });
+});
+
+describe('run view', () => {
+  const record: OutputRun = {
+    finishedAt: '2026-09-15T10:00:00Z',
+    gitRevision: 'abc123',
+    recipe: 'python fit.py',
+    environment: 'sha256:env',
+    cliVersion: '0.5',
+    inputVersions: { catalog: 'sha256:input' }
+  };
+
+  it('prefers a committed version and its manifest over the current sidecar', () => {
+    const committed = version('c'.repeat(40), '2026-09-20T10:00:00Z', {
+      manifest: {
+        finished_at: '2026-09-20T09:59:00Z',
+        started_at: '2026-09-20T09:58:00Z',
+        git_sha: 'def456',
+        lc_version: '0.6',
+        env_version: 'sha256:newenv',
+        recipe: 'python fit.py --robust',
+        uv_version: '0.8.1',
+        image: { tag: 'ghcr.io/x:1' },
+        hermeticity: { backend: 'landlock', network: false },
+        input_versions: { catalog: 'sha256:input2', other: 7 },
+        decisions: { method: 'robust' }
+      }
+    });
+    const view = runView(record, committed)!;
+    expect(view).toMatchObject({
+      source: 'version',
+      short: 'ccccccc',
+      time: '2026-09-20T09:59:00Z',
+      started: '2026-09-20T09:58:00Z',
+      recipe: 'python fit.py --robust',
+      gitRevision: 'def456',
+      engineVersion: '0.6',
+      environmentVersion: 'sha256:newenv',
+      uvVersion: '0.8.1',
+      image: 'ghcr.io/x:1',
+      sandbox: 'backend: landlock · network: false',
+      inputVersions: { catalog: 'sha256:input2' },
+      decisions: { method: 'robust' }
+    });
+  });
+
+  it('falls back to the sidecar, and to nothing when neither exists', () => {
+    expect(runView(record, undefined)).toMatchObject({
+      source: 'record',
+      time: record.finishedAt,
+      recipe: record.recipe,
+      gitRevision: 'abc123',
+      engineVersion: '0.5',
+      environmentVersion: 'sha256:env',
+      inputVersions: { catalog: 'sha256:input' }
+    });
+    expect(runView(null, undefined)).toBeUndefined();
+    expect(sandboxLine({ hermeticity: 'seatbelt' })).toBe('seatbelt');
+    expect(sandboxLine({})).toBeUndefined();
+  });
+
+  it('never attributes the current sidecar to a version without a manifest', () => {
+    const older = version('a'.repeat(40), '2026-09-01T10:00:00Z');
+    const view = runView(record, older)!;
+    expect(view).toMatchObject({
+      source: 'version',
+      short: 'aaaaaaa',
+      time: '2026-09-01T10:00:00Z',
+      inputVersions: {}
+    });
+    expect(view.gitRevision).toBeUndefined();
+    expect(view.recipe).toBeUndefined();
+    expect(view.engineVersion).toBeUndefined();
+    expect(view.environmentVersion).toBeUndefined();
+    const bare = runView(
+      record,
+      version('b'.repeat(40), '2026-09-02T10:00:00Z')
+    )!;
+    expect(bare.recipe).toBeUndefined();
+    expect(bare.time).toBe('2026-09-02T10:00:00Z');
   });
 });

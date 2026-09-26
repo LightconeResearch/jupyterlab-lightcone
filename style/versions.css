@@ -1,4 +1,4 @@
-/* Native record navigation and historical output controls. */
+/* Native record navigation, historical outputs and provenance inspection. */
 
 @layer lightcone {
   /* Record tab toolbar: history on the left, context in the middle, actions on the right. */
@@ -33,9 +33,11 @@
     font: 0.6875rem/1.6 var(--astra-font-mono);
   }
 
-  /* Link-like buttons for the trail crumbs. */
-  .jp-jupyterlab-lightcone-element-trail button {
-    padding: 0 2px;
+  /* Link-like buttons: the trail crumbs and the provenance tabs' records. */
+  .jp-jupyterlab-lightcone-element-trail button,
+  .jp-jupyterlab-lightcone-Provenance-inputs button,
+  .jp-jupyterlab-lightcone-Provenance-code button {
+    padding: 0;
     border: 0;
     background: transparent;
     color: var(--astra-color-link);
@@ -43,6 +45,10 @@
     cursor: pointer;
     text-decoration: underline;
     text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail button {
+    padding: 0 2px;
   }
 
   .jp-jupyterlab-lightcone-element-trail button:focus-visible {
@@ -143,7 +149,8 @@
     margin-bottom: 20px;
   }
 
-  .jp-jupyterlab-lightcone-VersionRail > h4 {
+  .jp-jupyterlab-lightcone-VersionRail > h4,
+  .jp-jupyterlab-lightcone-Provenance > h4 {
     margin: 0;
     color: var(--astra-color-eyebrow);
     font-size: 0.625rem;
@@ -155,5 +162,198 @@
   .jp-jupyterlab-lightcone-VersionStepper-limits {
     color: var(--astra-color-text-muted);
     cursor: help;
+  }
+
+  /* Provenance tabs in the record view's rail (and the inventory dialog). */
+  .jp-jupyterlab-lightcone-Provenance {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    margin-top: 20px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    border-bottom: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist [role='tab'] {
+    margin-bottom: -1px;
+    padding: 4px 8px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--astra-color-text-muted);
+    font: 600 var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+    cursor: pointer;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist
+    [role='tab'][aria-selected='true'] {
+    border-bottom-color: var(--astra-color-accent);
+    color: var(--astra-color-text);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist [role='tab']:focus-visible {
+    outline: 2px solid var(--astra-color-focus);
+    outline-offset: -2px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-panel {
+    min-width: 0;
+    color: var(--astra-color-text);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-panel p {
+    margin: 0 0 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-facts {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row {
+    display: grid;
+    grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row dt {
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row dd code,
+  .jp-jupyterlab-lightcone-Provenance-code pre {
+    font-family: var(--astra-font-mono);
+    font-size: 0.75rem;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row [data-failed] {
+    color: var(--astra-color-danger);
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-status small {
+    flex-basis: 100%;
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-code pre {
+    margin: 0 0 8px;
+    padding: 8px;
+    overflow: auto;
+    border-radius: var(--astra-radius-control);
+    background: var(--astra-color-surface-inset);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-note {
+    color: var(--astra-color-text-muted);
+    font-size: var(--astra-font-size-xs);
+  }
+
+  /* The script as a run executed it, and its changes since. */
+  .jp-jupyterlab-lightcone-Provenance-revision pre {
+    max-height: 24rem;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-views {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-viewsLabel {
+    flex: 1 1 auto;
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-views button[aria-pressed='true'] {
+    color: var(--astra-color-text);
+    text-decoration: none;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine {
+    display: block;
+    white-space: pre;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-added {
+    background: color-mix(
+      in srgb,
+      var(--astra-color-kind-finding) 16%,
+      transparent
+    );
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-removed {
+    background: color-mix(in srgb, var(--astra-color-danger) 14%, transparent);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-gap {
+    color: var(--astra-color-text-subtle);
+    font-style: italic;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-packages {
+    margin-top: 12px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-packagesToggle {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs ul,
+  .jp-jupyterlab-lightcone-Provenance-list {
+    display: grid;
+    gap: 4px;
+    margin: 0 0 8px;
+    padding: 0;
+    list-style: none;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs li code,
+  .jp-jupyterlab-lightcone-Provenance-inputs p code {
+    color: var(--astra-color-text-muted);
+    font-family: var(--astra-font-mono);
+    font-size: 0.7rem;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs p code {
+    margin-inline-end: 6px;
   }
 }

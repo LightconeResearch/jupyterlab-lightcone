@@ -1,12 +1,11 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import type { CommandRegistry } from '@lumino/commands';
 import type { Contents } from '@jupyterlab/services';
 import type { ArtifactRenderer } from '@astra-spec/ui/components';
 import { isVisualOutput, type OutputStatus } from '@astra-spec/ui/model';
 import type { InventoryProps } from '@astra-spec/ui/views';
 import { showErrorMessage } from '@jupyterlab/apputils';
 import React, { useMemo } from 'react';
-import { JupyterArtifactAccess } from './artifact-access';
+import { JupyterArtifactAccess, type IDocumentOpener } from './artifact-access';
 import { JupyterArtifactPreview } from './artifact-preview';
 import { JupyterCodeLink } from './code-link';
 import { loadPdfJs } from './pdf-runtime';
@@ -40,23 +39,24 @@ export function hostArtifactRenderer(
 /**
  * Supply Jupyter file access and pdf.js through ASTRA UI's host slots.
  *
+ * `documents` opens project files in JupyterLab document tabs.
  * `beforeOpenDocument` runs synchronously before any project file opens in a
- * JupyterLab tab, so a host can dismiss its own dialog first. A host that
- * polls `lc status` passes `getOutputStatus`, so code links follow new runs.
+ * tab, so a host can dismiss its own dialog first. A host that polls
+ * `lc status` passes `getOutputStatus`, so code links follow new runs.
  */
 export function useProjectRenderers(
   contents: Contents.IManager,
   entrypoint: string,
   data: ILoadedProjectData,
   onFetchPaper: (doi: string) => void,
-  commands: CommandRegistry,
+  documents: IDocumentOpener,
   beforeOpenDocument?: () => void,
   getOutputStatus?: (output: ResolvedOutput) => OutputStatus | undefined
 ): InventoryProps {
   const access = useMemo(
     () =>
-      new JupyterArtifactAccess(contents, entrypoint, data.bindings, commands),
-    [contents, entrypoint, data.bindings, commands]
+      new JupyterArtifactAccess(contents, entrypoint, data.bindings, documents),
+    [contents, entrypoint, data.bindings, documents]
   );
   const renderArtifact = useMemo(() => hostArtifactRenderer(access), [access]);
   const openDocument = async (

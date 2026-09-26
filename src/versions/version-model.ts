@@ -1,3 +1,5 @@
+import type { OutputRun } from '@astra-spec/ui/model';
+import { isRecord } from '../api';
 import type { ResolvedOutput } from '@astra-spec/sdk';
 import type { IOutputVersion } from './versions-api';
 
@@ -83,4 +85,106 @@ export function isImageFormat(format: string): boolean {
 
 export function delimiterFor(format: string): string | undefined {
   return DELIMITERS.get(format);
+}
+
+/** Read a string field of a manifest, or undefined. */
+export function manifestString(
+  manifest: Record<string, unknown> | null | undefined,
+  key: string
+): string | undefined {
+  const value = manifest?.[key];
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/** Read a string map of a manifest (input or decision versions). */
+export function manifestStringMap(
+  manifest: Record<string, unknown> | null | undefined,
+  key: string
+): Record<string, string> {
+  const value = manifest?.[key];
+  if (!isRecord(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [name, item] of Object.entries(value))
+    if (typeof item === 'string') result[name] = item;
+  return result;
+}
+
+/** Everything the Run and Environment tabs show about one materialization. */
+export interface IRunView {
+  /** Where the facts come from: a committed version, or the current sidecar. */
+  source: 'version' | 'record';
+  commit?: string;
+  short?: string;
+  time?: string;
+  started?: string;
+  /**
+   * The output's recipe as the run expanded it, which names its script; not
+   * recorded by a version committed without a manifest.
+   */
+  recipe?: string;
+  gitRevision?: string;
+  engineVersion?: string;
+  environmentVersion?: string;
+  uvVersion?: string;
+  image?: string;
+  sandbox?: string;
+  definitionVersion?: string;
+  dataVersion?: string;
+  inputVersions: Record<string, string>;
+  decisions: Record<string, string>;
+}
+
+/**
+ * Describe one materialization: a committed version from its manifest at
+ * that commit, or, when no version is described, the current run record
+ * (the sidecar). A version never borrows the sidecar's facts: the sidecar
+ * describes the latest run, so a version committed without a valid manifest
+ * shows only what its commit recorded. Undefined when neither exists.
+ */
+export function runView(
+  run: OutputRun | null | undefined,
+  version: IOutputVersion | undefined
+): IRunView | undefined {
+  if (!version && !run) return undefined;
+  const manifest = version?.manifest;
+  const sidecar = version ? undefined : run;
+  const image = manifest?.image;
+  return {
+    source: version ? 'version' : 'record',
+    commit: version?.commit,
+    short: version?.short,
+    time:
+      manifestString(manifest, 'finished_at') ??
+      version?.time ??
+      sidecar?.finishedAt,
+    started: manifestString(manifest, 'started_at'),
+    recipe: manifestString(manifest, 'recipe') ?? sidecar?.recipe,
+    gitRevision: manifestString(manifest, 'git_sha') ?? sidecar?.gitRevision,
+    engineVersion:
+      manifestString(manifest, 'lc_version') ?? sidecar?.cliVersion,
+    environmentVersion:
+      manifestString(manifest, 'env_version') ?? sidecar?.environment,
+    uvVersion: manifestString(manifest, 'uv_version'),
+    image: isRecord(image) ? manifestString(image, 'tag') : undefined,
+    sandbox: sandboxLine(manifest),
+    definitionVersion: manifestString(manifest, 'definition_version'),
+    dataVersion: manifestString(manifest, 'data_version'),
+    inputVersions: manifest
+      ? manifestStringMap(manifest, 'input_versions')
+      : { ...(sidecar?.inputVersions ?? {}) },
+    decisions: manifestStringMap(manifest, 'decisions')
+  };
+}
+
+/** "landlock: enforced · network: none" from a manifest's hermeticity block. */
+export function sandboxLine(
+  manifest: Record<string, unknown> | null | undefined
+): string | undefined {
+  const value = manifest?.hermeticity;
+  if (typeof value === 'string') return value || undefined;
+  if (!isRecord(value)) return undefined;
+  const parts = Object.entries(value)
+    .filter(([, item]) => ['string', 'number', 'boolean'].includes(typeof item))
+    .map(([key, item]) => `${key}: ${String(item)}`);
+  return parts.length ? parts.join(' · ') : undefined;
 }

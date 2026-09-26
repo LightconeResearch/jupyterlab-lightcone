@@ -1,3 +1,5 @@
+import { ProvenanceTabs } from '../provenance-tabs';
+import type { IRunView } from '../version-model';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { VersionStepper } from '../version-stepper';
@@ -110,4 +112,256 @@ test('the stepper reports loading, failure and an empty history', () => {
   expect(
     container.querySelector('[role="note"]')?.getAttribute('title')
   ).toContain('git-annex keeps their content');
+});
+
+test('provenance tabs show the run and switch panels, loading sessions on demand', () => {
+  const run: IRunView = {
+    source: 'version',
+    commit: 'c'.repeat(40),
+    short: 'ccccccc',
+    time: '2026-09-20T10:00:00Z',
+    recipe: 'uv run plot.py',
+    gitRevision: 'def456',
+    engineVersion: '0.6',
+    environmentVersion: 'sha256:env',
+    sandbox: 'backend: landlock',
+    inputVersions: { catalog: 'sha256:input' },
+    decisions: { method: 'robust' }
+  };
+  const onOpenCode = jest.fn();
+  const openInput = jest.fn();
+  act(() => {
+    root.render(
+      <ProvenanceTabs
+        status={{ state: 'stale', detail: 'recipe changed' }}
+        run={run}
+        code={{ relativePath: 'plot.py', source: 'recorded run' }}
+        onOpenCode={onOpenCode}
+        inputs={[
+          {
+            id: 'catalog',
+            version: 'sha256:input',
+            record: {
+              kind: 'input',
+              id: 'catalog',
+              canonicalPath: 'inputs.catalog',
+              label: 'Catalog',
+              type: 'data'
+            } as unknown as NonNullable<
+              React.ComponentProps<
+                typeof ProvenanceTabs
+              >['inputs'][number]['record']
+            >,
+            onOpen: openInput
+          },
+          {
+            id: 'cosmology_fit',
+            version: 'sha256:upstream',
+            record: {
+              kind: 'output',
+              id: 'cosmology_fit',
+              canonicalPath: 'outputs.cosmology_fit',
+              label: 'Cosmology fit',
+              type: 'table'
+            } as unknown as NonNullable<
+              React.ComponentProps<
+                typeof ProvenanceTabs
+              >['inputs'][number]['record']
+            >
+          },
+          { id: 'dropped', version: 'sha256:dropped' }
+        ]}
+      />
+    );
+  });
+  const panel = () => container.querySelector('[role="tabpanel"]')!;
+  expect(panel().textContent).toContain('uv run plot.py');
+  expect(panel().textContent).toContain('stale');
+  expect(panel().textContent).toContain('recipe changed');
+  expect(panel().textContent).toContain('backend: landlock');
+  act(() => button('Code').click());
+  expect(panel().textContent).toContain('plot.py');
+  act(() => button('Open current file').click());
+  expect(onOpenCode).toHaveBeenCalledWith('plot.py');
+  act(() => button('Inputs').click());
+  expect(panel().textContent).toContain('Catalog');
+  // Each recorded input carries its record's inventory mark: an upstream
+  // output keeps the output mark, and an id no longer declared has none.
+  expect(
+    Array.from(
+      panel().querySelectorAll('.jp-jupyterlab-lightcone-Provenance-inputs li'),
+      row =>
+        row
+          .querySelector(
+            ':scope > .lightcone-brand.astra-ui > .astra-kind-glyph'
+          )
+          ?.getAttribute('data-kind') ?? null
+    )
+  ).toEqual(['input', 'output', null]);
+  expect(panel().textContent).toContain('Cosmology fit');
+  act(() => button('Catalog').click());
+  expect(openInput).toHaveBeenCalled();
+  act(() => button('Environment').click());
+  expect(panel().textContent).toContain('sha256:env');
+  expect(panel().textContent).toContain('robust');
+  // The decisions the run resolved carry the inventory's decision mark.
+  expect(
+    Array.from(
+      panel().querySelectorAll(
+        '.jp-jupyterlab-lightcone-Provenance-list li > .lightcone-brand.astra-ui > .astra-kind-glyph'
+      ),
+      glyph => glyph.getAttribute('data-kind')
+    )
+  ).toEqual(['decision']);
+  // The tabs are the run's own records; no session is matched to a run.
+  expect(
+    Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      tab => tab.textContent
+    )
+  ).toEqual(['Run', 'Code', 'Inputs', 'Environment']);
+});
+
+test('the Code tab shows the script as run and its changes since', () => {
+  const run: IRunView = {
+    source: 'version',
+    commit: 'c'.repeat(40),
+    gitRevision: 'd'.repeat(40),
+    inputVersions: {},
+    decisions: {}
+  };
+  const onShowCode = jest.fn();
+  const onShowEnvironment = jest.fn();
+  const render = (
+    extra: Partial<React.ComponentProps<typeof ProvenanceTabs>>
+  ) =>
+    act(() => {
+      root.render(
+        <ProvenanceTabs
+          run={run}
+          code={{ relativePath: 'src/plot.py', source: 'recorded run' }}
+          inputs={[]}
+          onShowCode={onShowCode}
+          onShowEnvironment={onShowEnvironment}
+          {...extra}
+        />
+      );
+    });
+  render({});
+  const panel = () => container.querySelector('[role="tabpanel"]')!;
+  act(() => button('Code').click());
+  expect(onShowCode).toHaveBeenCalledTimes(1);
+  expect(panel().textContent).toContain('Reading the script at ddddddd');
+  render({
+    recordedCode: {
+      loading: false,
+      source: {
+        file: 'src/plot.py',
+        commit: 'd'.repeat(40),
+        exists: true,
+        text: 'a = 1\nb = 2\n',
+        binary: false,
+        annexed: false,
+        truncated: false
+      },
+      current: 'a = 1\nb = 3\n'
+    }
+  });
+  expect(panel().querySelector('pre code')?.textContent).toBe('a = 1\nb = 2\n');
+  act(() => button('Changes since').click());
+  const diff = panel().querySelector(
+    '.jp-jupyterlab-lightcone-Provenance-diff'
+  )!;
+  expect(diff.querySelector('.jp-mod-removed')?.textContent).toBe('- b = 2\n');
+  expect(diff.querySelector('.jp-mod-added')?.textContent).toBe('+ b = 3\n');
+  render({
+    recordedCode: {
+      loading: false,
+      source: {
+        file: 'src/plot.py',
+        commit: 'd'.repeat(40),
+        exists: false,
+        text: null,
+        binary: false,
+        annexed: false,
+        truncated: false
+      },
+      current: null
+    }
+  });
+  expect(panel().textContent).toContain('did not exist at ddddddd');
+  act(() => button('Environment').click());
+  expect(onShowEnvironment).toHaveBeenCalledTimes(1);
+  render({
+    packages: {
+      loading: false,
+      locked: {
+        commit: 'd'.repeat(40),
+        packages: [
+          { name: 'numpy', version: '2.1.0' },
+          { name: 'scipy', version: '1.0' }
+        ],
+        current: [
+          { name: 'numpy', version: '2.2.0' },
+          { name: 'astropy', version: '6.0' }
+        ]
+      }
+    }
+  });
+  expect(panel().textContent).toContain('2 packages locked');
+  expect(panel().textContent).toContain('3 changes since');
+  expect(panel().textContent).toContain('numpy 2.1.0 → 2.2.0');
+  expect(panel().textContent).toContain('astropy added (6.0)');
+  expect(panel().textContent).toContain('scipy removed (was 1.0)');
+  act(() => button('Show every locked package').click());
+  expect(panel().textContent).toContain('scipy 1.0');
+});
+
+test('environment lists and compares every locked alternative of a package', () => {
+  act(() => {
+    root.render(
+      <ProvenanceTabs
+        run={{
+          source: 'version',
+          commit: 'a'.repeat(40),
+          inputVersions: {},
+          decisions: {}
+        }}
+        inputs={[]}
+        packages={{
+          loading: false,
+          locked: {
+            commit: 'a'.repeat(40),
+            packages: [
+              { name: 'numpy', version: '1.24.3' },
+              { name: 'numpy', version: '2.2.0' }
+            ],
+            current: [
+              { name: 'numpy', version: '1.24.4' },
+              { name: 'numpy', version: '2.2.0' }
+            ]
+          }
+        }}
+      />
+    );
+  });
+  act(() => button('Environment').click());
+  expect(container.textContent).toContain('1 package locked');
+  expect(container.textContent).toContain(
+    'numpy 1.24.3, 2.2.0 → 1.24.4, 2.2.0'
+  );
+  act(() => button('Show every locked package').click());
+  expect(container.textContent).toContain('numpy 1.24.3');
+  expect(container.textContent).toContain('numpy 2.2.0');
+});
+
+test('provenance tabs explain a missing or unreadable record', () => {
+  act(() => {
+    root.render(<ProvenanceTabs run={null} inputs={[]} />);
+  });
+  expect(container.textContent).toContain('No run has been recorded');
+  act(() => {
+    root.render(<ProvenanceTabs run={undefined} error="nope" inputs={[]} />);
+  });
+  expect(container.textContent).toContain('nope');
 });

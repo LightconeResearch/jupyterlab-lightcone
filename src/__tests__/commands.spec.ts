@@ -62,7 +62,7 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
       { path, ready: Promise.resolve() } as DocumentRegistry.Context,
       contents,
       themes,
-      commands
+      { openOrReveal: () => undefined }
     );
     created.push(widget);
     return widget;
@@ -263,7 +263,7 @@ describe('project opening commands', () => {
       context as DocumentRegistry.Context,
       host.contents,
       host.themes,
-      host.commands
+      { openOrReveal: () => undefined }
     );
     host.openOrReveal.mockImplementation(() => {
       opened.resolve();

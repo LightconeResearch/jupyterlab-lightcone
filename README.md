@@ -90,8 +90,8 @@ message in the headbar; status returns automatically after recovery. The
 integration currently covers local root-analysis outputs.
 
 Open a result to see its **Provenance** below Recipe: status, last run, and Git
-revision. **Details** opens the recorded recipe, input versions, environment, and
-Lightcone version without leaving the result.
+revision. The provenance tabs expose the recorded recipe, input versions,
+environment, and Lightcone version without leaving the result.
 
 Output details also offer **Open code** beside Recipe when a local script can be
 resolved. It opens the current file in a reusable editor tab, preferring the
@@ -101,8 +101,8 @@ analysis, including a script named through an `{inputs.<id>}` placeholder,
 which resolves to that input's declared source. Interpreter options before the
 script and redirections, globs or comments after it are fine. Module, inline,
 and compound commands or unresolved paths have no link, and neither does an
-output whose run record cannot be read. It does not restore the revision used
-for an earlier run.
+output whose run record cannot be read. This link opens the current script;
+the Code tab separately displays the revision recorded by an earlier run.
 
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its
@@ -426,3 +426,16 @@ The listing shows at most 200 file-changing commits. A requested commit outside
 that listing stays explicitly unavailable until you select **Latest**; it is
 never replaced silently by the current output. Selected commits survive
 Back/Forward, opening a new tab, and layout restoration.
+
+### Inspect a recorded run
+
+Output details expose Run, Code, Inputs, and Environment tabs. A selected
+version uses its committed manifest; it never borrows facts from the current
+run. Code shows the script at the recorded revision and its changes relative
+to the current file, even when the current script has been deleted. Environment compares the recorded `uv.lock` packages
+with today's lock. These reads start only when their tab is opened.
+
+Code and artifact links use JupyterLab's document manager to reveal an existing
+file tab. Missing, binary, annexed, or oversized historical source files have
+an explicit unavailable state. These views inspect data and do not execute
+recipes or install packages.

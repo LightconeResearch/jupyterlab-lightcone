@@ -1,3 +1,5 @@
+import { IDocumentManager } from '@jupyterlab/docmanager';
+import type { IDocumentOpener } from './artifact-access';
 import React, { useEffect, useRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type {
@@ -21,12 +23,18 @@ import {
 } from './astra-mime-data';
 
 interface ICardProps {
+  documents: IDocumentOpener;
   app: JupyterFrontEnd;
   themes: IThemeManager;
   reference: IAstraCard;
 }
 
-function Card({ app, themes, reference }: ICardProps): React.ReactElement {
+function Card({
+  app,
+  themes,
+  reference,
+  documents
+}: ICardProps): React.ReactElement {
   const node = useRef<HTMLDivElement>(null);
   const state = useProject(app.serviceManager.contents, reference);
   useEffect(() => {
@@ -40,7 +48,7 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
     >
       {state.error && <p role="status">{state.error}</p>}
       {state.data ? (
-        <CardBody {...{ app, reference, state }} />
+        <CardBody {...{ app, reference, state, documents }} />
       ) : (
         <p>
           {state.error
@@ -63,6 +71,7 @@ function isCardContentEvent(event: React.MouseEvent<HTMLElement>): boolean {
 }
 
 function CardBody({
+  documents,
   app,
   reference,
   state
@@ -75,7 +84,7 @@ function CardBody({
     reference.entrypoint,
     data,
     state.fetchPaper,
-    app.commands
+    documents
   );
   let resolved: ReturnType<typeof resolveElement>;
   try {
@@ -175,7 +184,8 @@ export class AstraCardElement extends HTMLElement {
 export class AstraMimeRenderer extends Widget implements IRenderMime.IRenderer {
   constructor(
     private readonly app: JupyterFrontEnd,
-    private readonly themes: IThemeManager
+    private readonly themes: IThemeManager,
+    private readonly documents: IDocumentOpener
   ) {
     super({ node: document.createElement('lightcone-astra-card') });
   }
@@ -189,6 +199,7 @@ export class AstraMimeRenderer extends Widget implements IRenderMime.IRenderer {
           key={JSON.stringify(reference)}
           app={this.app}
           themes={this.themes}
+          documents={this.documents}
           reference={reference}
         />
       );
@@ -209,11 +220,12 @@ export const astraMimePlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:astra-mime',
   description: 'Render ASTRA preview cards in MIME messages and outputs.',
   autoStart: true,
-  requires: [IRenderMimeRegistry, IThemeManager],
+  requires: [IRenderMimeRegistry, IThemeManager, IDocumentManager],
   activate: (
     app: JupyterFrontEnd,
     registry: IRenderMimeRegistry,
-    themes: IThemeManager
+    themes: IThemeManager,
+    documents: IDocumentManager
   ) => {
     if (!customElements.get('lightcone-astra-card'))
       customElements.define('lightcone-astra-card', AstraCardElement);
@@ -223,7 +235,7 @@ export const astraMimePlugin: JupyterFrontEndPlugin<void> = {
         // authenticated Contents API; no HTML, scripts or arbitrary URLs execute.
         safe: true,
         mimeTypes: [ASTRA_MIME_TYPE],
-        createRenderer: () => new AstraMimeRenderer(app, themes)
+        createRenderer: () => new AstraMimeRenderer(app, themes, documents)
       },
       40
     );

@@ -1,3 +1,4 @@
+import type { IDocumentOpener } from './artifact-access';
 import React, {
   useCallback,
   useEffect,
@@ -97,6 +98,7 @@ const RECORD_TRIGGERS = [
 ].join(', ');
 
 interface IDetailProps {
+  documents: IDocumentOpener;
   widget: ElementWidget;
   contents: Contents.IManager;
   commands: CommandRegistry;
@@ -105,7 +107,8 @@ interface IDetailProps {
 function Detail({
   widget,
   contents,
-  commands
+  commands,
+  documents
 }: IDetailProps): React.ReactElement {
   const state = useProject(contents, widget.reference);
   // A modifier or middle click on a record link asks for a new tab; the
@@ -147,6 +150,7 @@ function Detail({
           widget={widget}
           contents={contents}
           commands={commands}
+          documents={documents}
           data={state.data}
           fetchPaper={state.fetchPaper}
           wantsNewTab={() => newTab.current}
@@ -228,6 +232,7 @@ function HistoryControls({
 }
 
 interface IOutputRecordDetailProps {
+  documents: IDocumentOpener;
   widget: ElementWidget;
   contents: Contents.IManager;
   data: ILoadedProjectData;
@@ -240,6 +245,7 @@ interface IOutputRecordDetailProps {
 
 /** An output with its materialization status, version history and provenance. */
 function OutputRecordDetail({
+  documents,
   widget,
   contents,
   data,
@@ -304,6 +310,8 @@ function OutputRecordDetail({
                 output={output}
                 status={status}
                 version={versioning.shown}
+                documents={documents}
+                onOpenRecord={open}
               />
             )}
           </>
@@ -317,6 +325,7 @@ function OutputRecordDetail({
 }
 
 function DetailBody({
+  documents,
   widget,
   contents,
   commands,
@@ -334,7 +343,7 @@ function DetailBody({
     reference.entrypoint,
     data,
     fetchPaper,
-    commands
+    documents
   );
   const [expanded, setExpanded] = useState(false);
   // The body remounts for every record shown; one the tab comes back to
@@ -395,6 +404,7 @@ function DetailBody({
           <OutputRecordDetail
             widget={widget}
             contents={contents}
+            documents={documents}
             data={data}
             record={record}
             renderers={renderers}
@@ -594,6 +604,7 @@ export class ElementWidget extends ReactWidget {
     private contents: Contents.IManager,
     themes: IThemeManager,
     private commands: CommandRegistry,
+    private documents: IDocumentOpener,
     public identity: string,
     readonly tabId: string,
     private _isPinned = false
@@ -730,7 +741,12 @@ export class ElementWidget extends ReactWidget {
 
   render(): React.ReactElement {
     return (
-      <Detail widget={this} contents={this.contents} commands={this.commands} />
+      <Detail
+        widget={this}
+        contents={this.contents}
+        commands={this.commands}
+        documents={this.documents}
+      />
     );
   }
 

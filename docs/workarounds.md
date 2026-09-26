@@ -91,9 +91,12 @@ without environment activation, ordering and idempotence.
 ### Inventory dialogs close before a file tab activates
 
 **Where.** `src/inventory-panel.tsx` (`beforeOpenDocument` supplied to
-`useProjectRenderers`). This existing adapter uses React's public `flushSync`
-to clear only the inventory's detail state before JupyterLab opens a file tab;
-otherwise the dialog's later focus restoration can steal focus from that tab.
+`useProjectRenderers` and `JupyterOutputProvenance`). This adapter uses React's public `flushSync`
+to clear only the inventory's detail state before JupyterLab opens a file tab.
+The detail callback delivers the ReactWidget update through Lumino's public
+`MessageLoop.sendMessage(this, Widget.Msg.UpdateRequest)` inside that flush.
+`Widget.update()` only queues a future render; the dialog's later focus
+restoration would then steal focus from the newly opened tab.
 ASTRA UI accepts an asynchronous artifact-open callback, but invokes it without
 coordinating closure and focus restoration of the controlled detail stack.
 
@@ -101,7 +104,9 @@ coordinating closure and focus restoration of the controlled detail stack.
 has closed and restored focus would replace the synchronous flush. The CSV, JSON and
 SVG artifact-opening cases in `ui-tests/tests/jupyterlab_lightcone.spec.ts`
 assert that the inventory dialog closes, the file tab becomes current, and
-reopening reuses that tab.
+reopening reuses that tab. `ui-tests/tests/code-link.spec.ts` also checks that
+the current source editor receives keyboard focus on first open and reuse,
+including the provenance Code tab's separate `Open current file` action.
 
 ## Validation-only extension isolation
 
@@ -554,3 +559,31 @@ git-annex wheel installs it there. Tests verify clone reads make no changes.
 **Remove when:** git-annex provides a guaranteed non-initializing state query.
 The engine's own executable lookup should also search its interpreter's scripts
 directory so installations launched without an activated shell remain usable.
+
+## Provenance inspection
+
+### Hidden-file policy for a historical source path
+
+**Where:** `versions.py` (`validate_source_path`). ContentsManager.is_hidden
+requires a file on disk, while a historical blob may no longer exist there.
+The route validates the project-relative path and applies the dot-segment
+rule by name, honoring the server's `allow_hidden` setting. Authentication,
+contents authorization and project containment remain enforced. Tests reject
+absolute/traversing paths and hidden components before querying a blob.
+
+**Remove when:** jupyter_core publishes a name-only hidden-path predicate;
+replace the local rule while keeping the authorization and path tests.
+
+### A run is described by the engine manifest
+
+**Where:** `src/versions/provenance-tabs.tsx`, `version-model.ts`, and the
+version routes. The engine's materialization commits include DataLad run
+records, but its public status response does not expose a structured complete
+run. The UI shows only validated manifest facts and commit metadata; it does
+not infer an exit status or command from commit prose. The existing engine
+version cap guards the manifest schema consumed in process.
+
+**Remove when:** lightcone-cli publishes structured run records, including
+command and exit status, or `lc log --json`. Use that source without parsing
+commit subjects. The selected-version provenance tests must still prevent
+current-sidecar facts being attributed to older runs.

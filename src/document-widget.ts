@@ -1,4 +1,4 @@
-import type { CommandRegistry } from '@lumino/commands';
+import type { IDocumentOpener } from './artifact-access';
 import type { IThemeManager } from '@jupyterlab/apputils';
 import {
   ABCWidgetFactory,
@@ -19,11 +19,11 @@ export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
     context: DocumentRegistry.Context,
     contents: Contents.IManager,
     themeManager: IThemeManager,
-    commands: CommandRegistry
+    documents: IDocumentOpener
   ) {
     super({
       context,
-      content: new AstraInventoryPanel(contents, themeManager, commands)
+      content: new AstraInventoryPanel(contents, themeManager, documents)
     });
     this.addClass('jp-jupyterlab-lightcone-Document');
     context.pathChanged.connect(this._onProjectPathChanged, this);
@@ -76,7 +76,7 @@ export class InventoryDocumentFactory extends ABCWidgetFactory<InventoryDocument
   constructor(
     private readonly _contents: Contents.IManager,
     private readonly _themes: IThemeManager,
-    private readonly _commands: CommandRegistry
+    private readonly _documents: IDocumentOpener
   ) {
     super({
       name: INVENTORY_FACTORY,
@@ -97,7 +97,7 @@ export class InventoryDocumentFactory extends ABCWidgetFactory<InventoryDocument
       context,
       this._contents,
       this._themes,
-      this._commands
+      this._documents
     );
   }
 }

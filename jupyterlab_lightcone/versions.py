@@ -16,6 +16,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import tomllib
 import urllib.parse
 
 from dulwich.errors import NotGitRepository
@@ -58,6 +59,15 @@ CONTENT_TYPES = {
     "npz": "application/octet-stream",
 }
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
+
+MAX_SOURCE_BYTES = 1024 * 1024
+"""The largest script the source route returns as text."""
+
+MAX_LOCK_BYTES = 8 * 1024 * 1024
+"""The largest ``uv.lock`` the packages route parses."""
+
+MAX_SOURCE_PATH = 1024
+"""The longest project-relative path the source route accepts."""
 
 COMMIT_NAME = re.compile(r"[0-9a-f]{7,40}|[0-9a-f]{64}")
 """A commit as the routes and the agent's tools accept it, in lower case: abbreviated, or any full name listed."""
@@ -441,6 +451,126 @@ def _flat_changes(entry: WalkEntry) -> list:
 
 
 # =============================================================================
+# The recorded revision: scripts and the locked environment
+# =============================================================================
+
+
+def validate_source_path(file, allow_hidden: bool) -> str:
+    """A project-relative POSIX path that stays inside the project and is not hidden.
+
+    The contents manager refuses hidden files unless the server allows them;
+    history must not become a way around that rule.
+    """
+    if not isinstance(file, str) or not file or len(file) > MAX_SOURCE_PATH or "\\" in file or "\x00" in file:
+        raise web.HTTPError(400, "A project-relative file path is required")
+    parts = file.split("/")
+    if file.startswith("/") or any(part in ("", ".", "..") for part in parts):
+        raise web.HTTPError(400, "A project-relative file path is required")
+    if not allow_hidden and any(part.startswith(".") for part in parts):
+        raise web.HTTPError(403, "Hidden files are not available on this server")
+    return file
+
+
+def read_source(project: Path, commit: str, file: str) -> dict:
+    """A text file as the project held it at a commit: the script a run executed.
+
+    ``text`` is None when the file did not exist then, is larger than
+    ``MAX_SOURCE_BYTES`` (``truncated``), is not UTF-8 text (``binary``) or is
+    an annexed file (``annexed``), whose bytes are data rather than code.
+    """
+    repository = require_repository(project)
+    try:
+        resolved = repository.resolve(commit)
+        answer = {
+            "file": file,
+            "commit": resolved.id.decode("ascii"),
+            "exists": False,
+            "text": None,
+            "binary": False,
+            "annexed": False,
+            "truncated": False,
+        }
+        entry = repository.entry(resolved, file)
+        if entry is None:
+            return answer
+        answer["exists"] = True
+        mode, blob = entry
+        if repository.annex_state() == "initialized":
+            ref = repository.tree_ref(resolved, file)
+            if annex.lookup_keys(repository.root, [ref])[ref] is not None:
+                answer["annexed"] = True
+                return answer
+        if len(blob.data) > MAX_SOURCE_BYTES:
+            answer["truncated"] = True
+            return answer
+        if b"\x00" in blob.data:
+            answer["binary"] = True
+            return answer
+        try:
+            answer["text"] = blob.data.decode("utf-8")
+        except UnicodeDecodeError:
+            answer["binary"] = True
+        return answer
+    finally:
+        repository.close()
+
+
+def parse_lock_packages(data: bytes) -> list[dict] | None:
+    """The packages a ``uv.lock`` pins, sorted by name; None when it is not a lock.
+
+    Each entry is ``{"name", "version"}``; packages without a version have a
+    null version. A universal lock can pin several versions of the same
+    package for different Python versions or platforms. Keep every distinct
+    name/version pair, without claiming which one a particular run installed.
+    """
+    try:
+        lock = tomllib.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    packages = lock.get("package")
+    if not isinstance(packages, list):
+        return None
+    pinned: set[tuple[str, str | None]] = set()
+    for package in packages:
+        if not isinstance(package, dict) or not isinstance(package.get("name"), str):
+            continue
+        version = package.get("version")
+        pinned.add((package["name"], version if isinstance(version, str) else None))
+    return [
+        {"name": name, "version": version}
+        for name, version in sorted(pinned, key=lambda item: (item[0], item[1] or ""))
+    ]
+
+
+def locked_packages(project: Path, commit: str) -> dict:
+    """The environment a run was locked to, and the one locked now, from ``uv.lock``.
+
+    ``packages`` is the lock at the commit and ``current`` the lock in the
+    working tree; either is None when that lock is absent, oversized or
+    unreadable.
+    """
+    repository = require_repository(project)
+    try:
+        resolved = repository.resolve(commit)
+        entry = repository.entry(resolved, "uv.lock")
+        packages = None
+        if entry is not None and len(entry[1].data) <= MAX_LOCK_BYTES:
+            packages = parse_lock_packages(entry[1].data)
+    finally:
+        repository.close()
+    current = None
+    lock = project / "uv.lock"
+    try:
+        # A visible lock path must not turn project authorization into a
+        # read of another project or a file outside the server root.
+        if lock.resolve().is_relative_to(project.resolve()) and lock.is_file() and lock.stat().st_size <= MAX_LOCK_BYTES:
+            current = parse_lock_packages(lock.read_bytes())
+    except OSError:
+        current = None
+    return {"commit": resolved.id.decode("ascii"), "packages": packages, "current": current}
+
+
+# =============================================================================
 # Handlers
 # =============================================================================
 
@@ -541,13 +671,44 @@ class OutputVersionContentHandler(ProjectAPIHandler):
         super().write_error(status_code, **kwargs)
 
 
+class RevisionSourceHandler(ProjectAPIHandler):
+    """A project file as a recorded revision held it, for a run's Code tab."""
+
+    unavailable_message = "Recorded code requires local files"
+
+    @web.authenticated
+    @authorized
+    async def get(self):
+        """Return the file's text at the commit, or say why it cannot be shown."""
+        project = await self.project()
+        commit = self.get_query_argument("commit")
+        file = validate_source_path(self.get_query_argument("file"), self.contents_manager.allow_hidden)
+        self.finish(await in_thread(read_source, project, commit, file))
+
+
+class LockedPackagesHandler(ProjectAPIHandler):
+    """The packages ``uv.lock`` pinned at a commit, beside today's, for a run's Environment tab."""
+
+    unavailable_message = "Recorded environments require local files"
+
+    @web.authenticated
+    @authorized
+    async def get(self):
+        """Return both package lists; either is null when its lock cannot be read."""
+        project = await self.project()
+        commit = self.get_query_argument("commit")
+        self.finish(await in_thread(locked_packages, project, commit))
+
+
 def setup_versions_handlers(web_app):
-    """Register the listing and content routes under the server base URL."""
+    """Register the listing, content, source and packages routes under the server base URL."""
     api = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "versions")
     web_app.add_handlers(
         ".*$",
         [
             (api, OutputVersionsHandler),
             (url_path_join(api, "content"), OutputVersionContentHandler),
+            (url_path_join(api, "source"), RevisionSourceHandler),
+            (url_path_join(api, "packages"), LockedPackagesHandler),
         ],
     )

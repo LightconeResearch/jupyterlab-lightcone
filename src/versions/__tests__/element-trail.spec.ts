@@ -62,6 +62,7 @@ test('the tab history trail marks each record with its kind', async () => {
     contents,
     new FakeThemeManager(),
     commands,
+    { openOrReveal: () => undefined },
     JSON.stringify([ENTRYPOINT, 'inputs.catalog', null]),
     'lightcone-element-trail'
   );

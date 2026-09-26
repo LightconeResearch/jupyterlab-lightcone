@@ -1,3 +1,4 @@
+import type { IDocumentOpener } from './artifact-access';
 import { COMMIT_PATTERN } from './versions/versions-api';
 import type {
   ILabShell,
@@ -128,6 +129,7 @@ const SHOW_PROPERTIES = {
 /** Expose record views and validate references before publishing chat previews. */
 export function registerElementCommands(
   app: JupyterFrontEnd,
+  documents: IDocumentOpener,
   themes: IThemeManager,
   restorer: ILayoutRestorer | null,
   shell: ILabShell | null
@@ -228,6 +230,7 @@ export function registerElementCommands(
           app.serviceManager.contents,
           themes,
           app.commands,
+          documents,
           key,
           id,
           // A tab asked for explicitly is kept: a group has one preview, and

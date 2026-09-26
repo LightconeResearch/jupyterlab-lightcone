@@ -148,3 +148,109 @@ export function versionContentUrl(
 ): string {
   return `${apiUrl('api/versions/content', settings)}?${query(entrypoint, universe, output, { commit })}`;
 }
+
+/** A project file as a recorded revision held it. */
+export interface IRevisionSource {
+  /** Project-relative path. */
+  file: string;
+  /** The full commit name the revision resolved to. */
+  commit: string;
+  /** Whether the file existed at that revision. */
+  exists: boolean;
+  /** The file's text; null when it is absent, binary, annexed or too large. */
+  text: string | null;
+  binary: boolean;
+  annexed: boolean;
+  truncated: boolean;
+}
+
+/**
+ * One distinct name/version pin in `uv.lock`; local packages may have no
+ * version. A universal lock can list several versions of the same package.
+ */
+export interface ILockedPackage {
+  name: string;
+  version: string | null;
+}
+
+/** The packages locked at a revision and those locked now. */
+export interface ILockedPackages {
+  commit: string;
+  /** Null when the revision has no readable `uv.lock`. */
+  packages: ILockedPackage[] | null;
+  /** Null when the working tree has no readable `uv.lock`. */
+  current: ILockedPackage[] | null;
+}
+
+/** Narrow a server payload to a file at a revision. */
+export function isRevisionSource(value: unknown): value is IRevisionSource {
+  return (
+    isRecord(value) &&
+    typeof value.file === 'string' &&
+    typeof value.commit === 'string' &&
+    typeof value.exists === 'boolean' &&
+    (value.text === null || typeof value.text === 'string') &&
+    typeof value.binary === 'boolean' &&
+    typeof value.annexed === 'boolean' &&
+    typeof value.truncated === 'boolean'
+  );
+}
+
+function isLockedPackageList(value: unknown): value is ILockedPackage[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      item =>
+        isRecord(item) &&
+        typeof item.name === 'string' &&
+        (item.version === null || typeof item.version === 'string')
+    )
+  );
+}
+
+/** Narrow a server payload to the locked packages of a revision. */
+export function isLockedPackages(value: unknown): value is ILockedPackages {
+  return (
+    isRecord(value) &&
+    typeof value.commit === 'string' &&
+    (value.packages === null || isLockedPackageList(value.packages)) &&
+    (value.current === null || isLockedPackageList(value.current))
+  );
+}
+
+/** Read a project file (a recipe's script) as a commit held it. */
+export async function fetchRevisionSource(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  commit: string,
+  file: string
+): Promise<IRevisionSource> {
+  try {
+    const params = new URLSearchParams({ path: entrypoint, commit, file });
+    const data = await requestAPI(`api/versions/source?${params}`, settings);
+    if (!isRevisionSource(data)) {
+      throw new Error('The server returned an invalid recorded file.');
+    }
+    return data;
+  } catch (error) {
+    throw new RequestError('Recorded code', error);
+  }
+}
+
+/** Read the packages `uv.lock` pinned at a commit, beside today's. */
+export async function fetchLockedPackages(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  commit: string
+): Promise<ILockedPackages> {
+  try {
+    const params = new URLSearchParams({ path: entrypoint, commit });
+    const data = await requestAPI(`api/versions/packages?${params}`, settings);
+    if (!isLockedPackages(data)) {
+      throw new Error('The server returned an invalid package list.');
+    }
+    return data;
+  } catch (error) {
+    throw new RequestError('Recorded environment', error);
+  }
+}
