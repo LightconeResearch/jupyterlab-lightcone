@@ -159,11 +159,20 @@ The project retains its own `site.template` and plugin configuration; Lightcone
 does not substitute a renderer or install MyST automatically. The first theme
 launch may install its dependencies and require network access.
 
+MyST caches downloaded themes under `_build/templates`. If an older cached
+ASTRA theme renders the report but live updates or navigation fail, close its
+viewer tabs and wait two minutes for the process to expire. Run
+`myst clean --templates` in the project, then open the report again to fetch
+the current theme. Restarting the viewer alone reuses the cache.
+See [MyST’s theme update instructions](https://mystmd.org/guide/update-myst).
+
 The tab shows status and a bounded build log during startup or on errors;
 the controls disappear when the report is ready. **Restart MySTRA Viewer** in
 the command palette stops and restarts the active project's process group.
 Closing the tab stops its heartbeat; processes expire after two minutes
-without a viewer and stop when Jupyter shuts down. An expired tab explains
+without a viewer and stop when Jupyter shuts down. **Open report** opens a new
+tab after closing, reusing the process while it is still warm or starting a new
+one after expiry. An expired tab explains
 that its session ended and offers a restart. If another process takes one of
 the ports chosen for MyST, the tab reports it and a restart picks new ports. Up to five sessions can run at once. Each session belongs to its Jupyter
 identity, and different project directories receive distinct routes/processes.

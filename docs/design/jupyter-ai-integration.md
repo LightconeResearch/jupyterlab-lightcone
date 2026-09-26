@@ -315,13 +315,9 @@ authoring documents. No skill-package change is required.
 
 ## Future simplifications
 
-These are optional follow-ups, with no upstream PR planned now:
-
-- Jupyter AI's public rich-message publishing API could replace persona-registry access.
-- Correct MIME-widget disposal in Chat could remove our custom-element lifecycle adapter.
-- A shared message-body/role extension API with explicit project context could make inline references practical.
-- Publishing the shared path API in `@astra-spec/sdk` could remove the vendored grammar.
-- Workbench guidance in `agent-skills` could reduce repeated onboarding instructions.
+Dependency adapters, their containment, regression coverage and upstream removal
+conditions are documented incrementally in [the workaround inventory](../workarounds.md).
+No upstream or sibling-package changes are part of this stack.
 
 ## Validation boundaries
 

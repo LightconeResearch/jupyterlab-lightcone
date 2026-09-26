@@ -26,6 +26,10 @@ The workaround lives in:
   `style/myst-logo.svg`
 - `jupyterlab_lightcone/tests/test_mystra.py` and `ui-tests/tests/mystra.spec.ts`
 
+Document unavoidable dependency workarounds in
+[`docs/workarounds.md`](docs/workarounds.md) with the feature that needs them.
+Remove each entry when its code can be removed.
+
 **Undo all of this** once MyST or JupyterLab offers a supported way to embed a
 `myst start` site (for example a first-party proxy or a static-build preview),
 and drop the matching `mystra-viewer.v1` support from `astra-theme`. Do not

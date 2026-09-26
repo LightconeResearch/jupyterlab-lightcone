@@ -16,6 +16,8 @@ class LightconeApp(ExtensionApp):
     """Own viewer processes through Jupyter's normal shutdown lifecycle."""
 
     name = "jupyterlab_lightcone"
+    manager: MySTRAManager | None = None
+    """Viewer processes, created with the handlers; None until then."""
     mystra_command = List(
         Unicode(),
         default_value=["myst"],
@@ -83,6 +85,14 @@ class LightconeApp(ExtensionApp):
         setup_mystra_handlers(app, self.manager)
 
     async def stop_extension(self):
-        """Stop all CLI processes before Jupyter exits."""
-        if hasattr(self, "manager"):
-            await self.manager.close()
+        """Stop the MySTRA viewer before Jupyter exits.
+
+        Isolated: Jupyter Server awaits this hook without a guard before
+        shutting kernels down, so a failure here must not skip the server's
+        own cleanup.
+        """
+        if self.manager is not None:
+            try:
+                await self.manager.close()
+            except Exception:
+                self.log.warning("Could not stop the MySTRA viewer.", exc_info=True)

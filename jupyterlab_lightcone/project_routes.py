@@ -44,6 +44,14 @@ class ProjectAPIHandler(APIHandler):
     auth_resource = "contents"
     unavailable_message = "This endpoint requires local files"
 
+    def set_default_headers(self):
+        """Never cache project answers or errors after an edit changes their meaning.
+
+        Routes serving immutable content override this header in their verb.
+        """
+        super().set_default_headers()
+        self.set_header("Cache-Control", "no-store")
+
     @property
     def contents_root(self) -> Path:
         """The local contents root; other managers cannot host a Lightcone project."""
@@ -58,7 +66,6 @@ class ProjectAPIHandler(APIHandler):
         project = project_root(root, path)
         # Apply the contents manager's read and hidden-file rules too.
         await contents_call(self.contents_manager.get, path, content=False, type="file")
-        self.set_header("Cache-Control", "no-store")
         return project
 
 

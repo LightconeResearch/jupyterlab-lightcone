@@ -319,3 +319,15 @@ async def test_changing_the_current_project_requires_write_permission(jp_fetch, 
     response = await jp_fetch(*CURRENT, method="PUT", body=json.dumps({"entrypoint": "astra.yaml"}), raise_error=False)
     assert response.code == 403
     assert projects.CURRENT_PROJECT not in jp_serverapp.web_app.settings
+
+
+@pytest.mark.parametrize("method,kwargs,status", [
+    ("GET", {"params": {"path": "."}}, 200),
+    ("GET", {"params": {"path": "../outside"}}, 400),
+    ("POST", {"body": "{}"}, 400),
+])
+async def test_project_answers_and_errors_are_not_cached(jp_fetch, method, kwargs, status):
+    """Setup and validation replies must be refreshed after the project changes."""
+    response = await jp_fetch(*ENDPOINT, method=method, raise_error=False, **kwargs)
+    assert response.code == status
+    assert response.headers.get("Cache-Control") == "no-store"
