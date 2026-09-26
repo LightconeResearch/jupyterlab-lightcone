@@ -139,3 +139,163 @@ dependency pin and the broad download error mapping after tests.
 
 **Coverage.** `test_routes.py` checks cache lookup, invalid DOI input, bounded PDF
 streaming, authorization and failed downloads without fetching external papers.
+
+## Project sessions and binding
+
+### The persona manager is a subclass, installed through Jupyter AI's config file
+
+**Where.** `jupyterlab_lightcone/agent_workspace.py` (`PersonaManager`,
+`get_chat_dir`, `section_names`) and
+`jupyter-config/persona-manager/jupyter_jupyter_ai_persona_manager_config.json`,
+installed as `etc/jupyter/jupyter_jupyter_ai_persona_manager_config.json`.
+
+**What.** Jupyter AI's ACP personas start their agent session in the chat
+file's folder. The workbench wants the chat's ASTRA project instead, so it
+ships a `PersonaManager` subclass overriding `get_chat_dir()` and selects it
+through the public `PersonaManagerExtension.persona_manager_class` trait, in
+the configuration file Jupyter Server reads for that extension. The subclass
+keeps the upstream class name and dedupes `section_names()`.
+
+**Why.** persona-manager 0.2 has no hook for the working directory other than
+replacing the manager class. `PersonaManagerExtension._default_persona_id`
+seeds the picker's default from the config section named after the class, so
+a differently named subclass would silently drop a deployment's
+`c.PersonaManager.default_persona_id`; two same-named classes make traitlets
+merge that section twice, hence `section_names()`.
+
+**Upstream.** persona-manager: a `chat_dir` hook that needs no subclass (a
+configurable callable, or an entry point contributing the manager class), and
+`_default_persona_id` resolving the override through
+`PersonaManagerClass.section_names()` instead of `__name__`.
+
+**Removal.** Delete the config file, the `pyproject.toml` shared-data line and
+the class-name and `section_names()` accommodations; keep only what the hook
+needs.
+
+### The persona id prefix is restated
+
+**Where.** `jupyterlab_lightcone/sessions.py` (`PERSONA_PREFIX`) and
+`src/sessions/session-user.ts` (`PERSONA_USERNAME_PREFIX`).
+
+**What.** Persona senders are told from people by the documented
+`jupyter-ai-personas::` prefix of `BasePersona.id`, spelled once per language.
+
+**Why.** Neither package exports the prefix or a predicate (`is_persona` is a
+module function that `__init__` does not re-export).
+
+**Upstream.** persona-manager: export `PERSONA_ID_PREFIX` and `is_persona`
+from the Python and TypeScript package roots.
+
+**Removal.** Import them.
+
+### The browser reports the current project before the chat opens
+
+**Where.** `src/current-project.ts` (the `PUT api/current-project` report on
+change and on window focus), `jupyterlab_lightcone/project_routes.py`
+(`CurrentProjectHandler`), `projects.py` (`join_project`).
+
+**What.** Jupyter AI creates the agent session as soon as a chat opens, before
+any message could carry context, and a chat created from Jupyter Chat's own
+entry points may sit outside every project. The server therefore keeps the
+project the browser last reported as current, joins chats to it on first
+opening and records the choice in the chat's metadata.
+
+**Why.** Jupyter Chat's create command accepts no initial metadata and
+persona-manager decides the working directory eagerly.
+
+**Upstream.** Jupyter Chat: `jupyterlab-chat:create` accepting initial
+metadata; persona-manager: resolving the working directory on the first
+message, or from chat metadata.
+
+**Removal.** Delete the route, the report and the server-side setting; the
+frontend writes the project into the chat at creation.
+
+### Chat-level metadata is read from the shared document
+
+**Where.** `src/chat-links/chat-project.ts` (`recordedChatProject`).
+
+**What.** The project a chat joined (`lightcone_project`) lives in the chat
+document's metadata, which the frontend reads from the `sharedModel` behind
+`IChatModel`, checked by shape.
+
+**Why.** `IChatModel` exposes no chat-level metadata; the `jupyterlab-chat`
+model that holds it is not a dependency here.
+
+**Upstream.** `@jupyter/chat`: `readonly metadata` and `metadataChanged` on
+`IChatModel`; jupyterlab-chat: `YChat.getMetadata()`.
+
+**Removal.** Read the model's metadata.
+
+### Session tabs show their title through CSS
+
+**Where.** `src/sessions/session-manager.ts` (`syncSessionTabTitle`) and
+`style/sessions.css`.
+
+**What.** The first human message supplies a tab title through the public
+`Title.dataset`, rendered by `::before`; the document label stays the filename.
+The active tab retains its top border through JupyterLab's private CSS variable.
+
+**Why.** `DocumentWidget` renames its file whenever `title.label` changes, so
+setting a descriptive title would rename every reopened session.
+
+**Upstream.** `@jupyterlab/docregistry`: an opt-out of rename-on-label.
+
+**Removal.** Set the ordinary label and remove the dataset and CSS rules.
+
+### Session listings are polled
+
+**Where.** `src/sessions/session-manager.ts` (`POLL_INTERVAL`).
+
+**Why.** Jupyter Chat's WebSocket transport writes chat files directly, so
+neither `contents_service` events nor `Contents.IManager.fileChanged` fire.
+
+**Upstream.** jupyterlab_chat: a `message` Jupyter Event, or saving through
+the contents manager.
+
+### Chat files are parsed for session listings
+
+**Where.** `jupyterlab_lightcone/sessions.py`.
+
+**What.** Sessions are listed from their `.chat` files, read
+through the contents manager and parsed with Jupyter Chat's `Message` and
+`User` dataclasses, item by item.
+
+**Why.** jupyterlab_chat has no read-only loader that needs no room.
+
+**Upstream.** jupyterlab_chat: a tolerant `load_chat(text)`.
+
+### Commands and the factory are named by string
+
+**Where.** `src/workbench-ids.ts` (`CREATE_CHAT_COMMAND`, `CHAT_FACTORY`).
+
+**Upstream.** `@jupyter/chat`: export the `jupyterlab-chat` command ids and
+factory name.
+
+### The sessions route is not `api/sessions`
+
+**Where.** `sessions.py` (`setup_session_handlers`).
+
+**Why.** Galata's `Routes.sessions` regex is unanchored and would mock any URL
+containing `/api/sessions` in the UI tests.
+
+**Upstream.** `@jupyterlab/galata`: anchor the runner routes to the base URL.
+
+### Focus returns to a session on a timer
+
+**Where.** `src/sessions/session-manager.ts` (`_onCurrentChanged`).
+
+**Why.** `ILabShell.currentChanged` fires from the closing widget's `disposed`
+signal, before the dock has switched tabs.
+
+**Upstream.** `@jupyterlab/application`: a post-layout signal.
+
+### Ignore `chats/` and `*.chat` in the project template
+
+Sessions are Jupyter Chat documents under `<project>/chats/`. `lc materialize`
+refuses to start on a dirty tree, and the extension never writes to `.git` or
+`.gitignore`. The required lightcone-cli 0.5.0rc3 or newer template ignores
+`chats/` and `*.chat` when initializing a project. Existing projects must also
+ignore chat documents before materialization; this extension does not change
+their Git configuration.
+
+**Coverage.** Session unit tests cover listing, malformed documents, hidden files, symlinked project paths, titles, repeated untitled renames, and command availability. Agent workspace tests exercise the shipped configuration and project binding without preparing real agents.

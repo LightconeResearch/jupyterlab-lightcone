@@ -369,3 +369,22 @@ this extension owns layout, theme synchronization and the `astra-isolate` scope.
 
 The shared rendering contract uses published `@astra-spec/ui` 0.0.7 and
 `@lightcone-research/brand` 0.0.3, installed from npm.
+
+### Project sessions
+
+Use **New session** in the command palette to open a Jupyter Chat document in
+`<project>/chats/`. Sessions open in the main area and stay beside record tabs.
+An empty session is named after its first human message; reopening an existing
+conversation preserves its filename. **Lightcone Agent** reuses an open session
+for the project and leaves record discussion text as an unsent draft.
+
+The session service lists chat documents through the Contents API, respecting
+its hidden-file and authorization rules. Jupyter AI uses the project-aware
+persona manager selected through its public configuration trait. Chats outside
+a project record the current project on first opening so later navigation does
+not change the agent's working directory. Deployments may still configure their
+own persona manager class.
+
+Chat documents must be ignored by Git before materialization; the extension
+never changes a project's Git configuration. Compatibility details and upstream
+removal conditions are in [the workaround inventory](docs/workarounds.md).

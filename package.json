@@ -140,7 +140,7 @@
         "outputDir": "jupyterlab_lightcone/labextension",
         "sharedPackages": {
             "@jupyter/chat": {
-                "bundled": true,
+                "bundled": false,
                 "singleton": true
             }
         }

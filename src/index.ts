@@ -1,3 +1,5 @@
+import { sessionsPlugin, sessionPlaceholderPlugin } from './sessions';
+import { chatProjectPlugin } from './chat-links/project-plugin';
 import {
   ILayoutRestorer,
   ILabShell,
@@ -138,6 +140,9 @@ export default [
   projectStatusPlugin,
   plugin,
   astraMimePlugin,
+  sessionsPlugin,
+  sessionPlaceholderPlugin,
+  chatProjectPlugin,
   chatPlugin,
   projectNotificationsPlugin,
   // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
