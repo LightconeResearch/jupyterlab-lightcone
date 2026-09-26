@@ -15,6 +15,7 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
+import { chatLinksPlugin } from './chat-links';
 import { chatPlugin } from './chat-plugin';
 import { chatProjectPlugin } from './chat-links/project-plugin';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
@@ -165,6 +166,7 @@ export default [
   agentContinuityPlugin,
   chatProjectPlugin,
   chatPlugin,
+  chatLinksPlugin,
   projectNotificationsPlugin,
   // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
   mystraPlugin

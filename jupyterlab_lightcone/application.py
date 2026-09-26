@@ -1,5 +1,7 @@
 """Jupyter lifecycle integration for Lightcone's server routes."""
 
+import os
+
 from jupyter_server.extension.application import ExtensionApp
 
 from .agent_activity import watch_persona_activity
@@ -23,6 +25,19 @@ class LightconeApp(ExtensionApp):
         expose_engine_tools()
         self._root_agents_in_projects()
         watch_persona_activity(self.serverapp)
+        self._publish_server_root()
+
+    def _publish_server_root(self):
+        """Publish the absolute contents root for paths linked in agent replies.
+
+        JupyterLab abbreviates roots inside the home directory as ``~/...``;
+        absolute filesystem paths cannot be resolved against that spelling.
+        """
+        root = getattr(self.serverapp.contents_manager, "root_dir", None)
+        if isinstance(root, str) and root:
+            config = self.serverapp.web_app.settings.setdefault("page_config_data", {})
+            config["lightconeServerRoot"] = os.path.abspath(root)
+
 
     def _root_agents_in_projects(self):
         """Start Jupyter AI agents at their project root; a no-op without Jupyter AI.

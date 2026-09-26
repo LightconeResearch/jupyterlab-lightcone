@@ -15,6 +15,7 @@ from jupyterlab_lightcone.projects import expose_engine_tools
 
 ENDPOINT = ('jupyterlab_lightcone', 'api', 'versions')
 CONTENT = (*ENDPOINT, 'content')
+RESULTS_ROUTE = (*ENDPOINT, 'results')
 SOURCE = (*ENDPOINT, 'source')
 PACKAGES = (*ENDPOINT, 'packages')
 RESULTS = Path('results', 'baseline')
@@ -392,6 +393,7 @@ def test_a_project_below_the_repository_root_reads_its_own_paths(tmp_path):
     expected_key = key_of(root, commit, 'analysis/results/baseline/table.csv')
     assert (version['commit'], version['present'], version['annex']['key']) == (commit, True, expected_key)
     assert bytes_of(root, 'baseline', 'table', commit)[1] == b'x,y\n'
+    assert versions.results_commits(root)[0]['outputs'] == [{'universe': 'baseline', 'output': 'table'}]
 
 
 def test_an_output_without_a_file_is_not_found(project):
@@ -407,6 +409,7 @@ def test_a_folder_without_git_has_no_history(tmp_path):
     (tmp_path / RESULTS).mkdir(parents=True)
     (tmp_path / RESULTS / 'fig.png').write_bytes(b'\x89PNG')
     assert versions.list_versions(tmp_path, 'baseline', 'fig') == {'file': 'results/baseline/fig.png', 'annex': 'none', 'versions': []}
+    assert versions.results_commits(tmp_path) == []
     with pytest.raises(HTTPError) as raised:
         versions.read_version(tmp_path, 'baseline', 'fig', 'a' * 40)
     assert raised.value.reason == 'repository'
@@ -428,6 +431,7 @@ def test_a_repository_before_its_first_commit_has_no_history(tmp_path):
     (root / RESULTS).mkdir(parents=True)
     (root / RESULTS / 'fig.png').write_bytes(b'\x89PNG')
     assert versions.list_versions(root, 'baseline', 'fig')['versions'] == []
+    assert versions.results_commits(root) == []
 
 
 def test_an_uncommitted_or_unmade_output_has_no_history(project):
@@ -596,6 +600,51 @@ def test_content_disposition_names_the_file_safely():
     assert versions.content_disposition('fi"g é.png') == 'inline; filename="fi_g _.png"; filename*=UTF-8\'\'fi%22g%20%C3%A9.png'
 
 
+# --- commits touching results ------------------------------------------------
+
+
+@pytest.mark.parametrize('path, expected', [
+    (b'results/baseline/fig.png', ('baseline', 'fig')),
+    (b'results/baseline/.fig.manifest.json', ('baseline', 'fig')),
+    (b'results/baseline/table.tar.gz', ('baseline', 'table')),
+    (b'results/README.md', None),
+    (b'results/baseline/.hidden', None),
+    (b'results/.dot/fig.png', None),
+    (b'data/baseline/fig.png', None),
+    (b'results/baseline/deep/fig.png', None),
+])
+def test_output_identities_follow_the_engines_layout(path, expected):
+    assert versions.output_identity(path) == expected
+
+
+def test_results_of_a_sibling_project_are_not_this_projects(tmp_path):
+    repository = init_repo(tmp_path / 'repository', annexed=False)
+    for name in ('proj', 'prod'):
+        (repository / name / RESULTS).mkdir(parents=True)
+        (repository / name / RESULTS / f'{name}.csv').write_text('x\n')
+        (repository / name / RESULTS / f'.{name}.manifest.json').write_text('{}')
+    commit_all(repository, 'Both projects at once')
+    assert versions.results_commits(repository / 'proj')[0]['outputs'] == [{'universe': 'baseline', 'output': 'proj'}]
+    assert versions.results_commits(repository / 'prod')[0]['outputs'] == [{'universe': 'baseline', 'output': 'prod'}]
+
+
+def test_lists_the_commits_that_touched_results_with_their_outputs(project):
+    root, (second, first) = project
+    aside = materialize(root, b'{}', output='fit', extension='json', when=1_700_000_200)
+    (root / 'notes.md').write_text('no result here\n')
+    commit_all(root, 'Notes only', when=1_700_000_300)
+    listed = versions.results_commits(root)
+    assert [(entry['commit'], entry['outputs']) for entry in listed] == [
+        (aside, [{'universe': 'baseline', 'output': 'fit'}]),
+        (second, [{'universe': 'baseline', 'output': 'fig'}]),
+        (first, [{'universe': 'baseline', 'output': 'fig'}]),
+    ]
+    assert listed[0]['short'] == aside[:7]
+    assert datetime.fromisoformat(listed[0]['time']).timestamp() == 1_700_000_200
+    assert versions.results_commits(root, since=1_700_000_050, until=1_700_000_150) == [listed[1]]
+    assert versions.results_commits(root, limit=1) == [listed[0]]
+
+
 async def test_versions_endpoint(jp_fetch, jp_serverapp):
     root = init_repo(Path(jp_serverapp.contents_manager.root_dir) / 'project')
     first = materialize(root, b'\x89PNG one')
@@ -667,7 +716,21 @@ async def test_absent_content_is_a_distinguishable_404(jp_fetch, jp_serverapp):
     assert response.code == 400
 
 
-@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT, SOURCE, PACKAGES])
+async def test_results_endpoint(jp_fetch, jp_serverapp):
+    root = init_repo(Path(jp_serverapp.contents_manager.root_dir) / 'project')
+    first = materialize(root, b'\x89PNG one', when=1_700_000_000)
+    second = materialize(root, b'\x89PNG two', when=1_700_000_100)
+    response = await jp_fetch(*RESULTS_ROUTE, params={'path': 'project/astra.yaml'})
+    assert [entry['commit'] for entry in json.loads(response.body)['commits']] == [second, first]
+    window = {'path': 'project/astra.yaml', 'since': '1700000050', 'until': '1700000150'}
+    response = await jp_fetch(*RESULTS_ROUTE, params=window)
+    assert [entry['commit'] for entry in json.loads(response.body)['commits']] == [second]
+    for params in [{'since': 'yesterday'}, {'limit': '0'}, {'limit': str(versions.MAX_RESULTS_COMMITS + 1)}]:
+        refused = await jp_fetch(*RESULTS_ROUTE, params={'path': 'project/astra.yaml', **params}, raise_error=False)
+        assert refused.code == 400
+
+
+@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT, RESULTS_ROUTE, SOURCE, PACKAGES])
 async def test_requires_authentication(jp_fetch, endpoint):
     params = {'path': 'astra.yaml', 'universe': 'baseline', 'output': 'fig', 'commit': 'a' * 7, 'file': 'fig.py'}
     response = await jp_fetch(
@@ -676,7 +739,7 @@ async def test_requires_authentication(jp_fetch, endpoint):
     assert response.code in (302, 403)
 
 
-@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT, SOURCE, PACKAGES])
+@pytest.mark.parametrize('endpoint', [ENDPOINT, CONTENT, RESULTS_ROUTE, SOURCE, PACKAGES])
 async def test_requires_read_authorization(jp_fetch, jp_serverapp, monkeypatch, endpoint):
     (Path(jp_serverapp.contents_manager.root_dir) / 'astra.yaml').write_text('version: 0.0.14\n')
     authorize = Mock(return_value=False)

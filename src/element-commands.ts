@@ -1,4 +1,6 @@
 import type { IDocumentOpener } from './artifact-access';
+import type { IAstraCardVersion } from './astra-mime-data';
+import { latestCardVersion } from './versions/card-version';
 import { COMMIT_PATTERN } from './versions/versions-api';
 import type {
   ILabShell,
@@ -48,6 +50,8 @@ export type ElementOpenResult = IElementTabResult | IInventoryScopeResult;
 /** What a chat preview card is made from, as `resolvePreview` reports it. */
 export interface IPreviewCard extends PinnedReference {
   label: string;
+  /** The committed output snapshot this card represents. */
+  outputVersion?: IAstraCardVersion;
 }
 
 /** What a tab shows beyond the reference itself, and whether it is kept. */
@@ -345,12 +349,19 @@ export function registerElementCommands(
     },
     execute: (args): Promise<IPreviewCard> => {
       const reference = parseElementReference(args);
-      return withResolved(reference, async ({ resolved, pinned }) => {
+      return withResolved(reference, async ({ data, resolved, pinned }) => {
+        const outputVersion = await latestCardVersion(
+          app.serviceManager.contents,
+          reference.entrypoint,
+          data,
+          resolved.record
+        );
         return {
           ...pinned,
           label: resolved.record
             ? recordTitle(resolved.record)
-            : (resolved.paper?.title ?? analysisTitle(resolved.analysis))
+            : (resolved.paper?.title ?? analysisTitle(resolved.analysis)),
+          ...(outputVersion ? { outputVersion } : {})
         };
       });
     }

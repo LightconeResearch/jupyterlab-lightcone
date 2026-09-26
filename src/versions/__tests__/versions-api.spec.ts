@@ -4,8 +4,10 @@ import {
   fetchRevisionSource,
   isLockedPackages,
   isOutputVersion,
+  isResultsCommit,
   isRevisionSource,
   absentReason,
+  listResultsCommits,
   listVersions,
   versionContentUrl
 } from '../versions-api';
@@ -210,6 +212,48 @@ test('reads a script at a recorded revision and the locked packages', async () =
   await expect(
     fetchLockedPackages(settings, 'project/astra.yaml', 'ddddddd')
   ).rejects.toThrow('Recorded environment request failed (404)');
+});
+
+test('lists the commits that touched the results, bounded to a window', async () => {
+  const commit = {
+    commit: 'e'.repeat(40),
+    short: 'eeeeeee',
+    time: '2026-09-21T10:00:00Z',
+    subject: 'materialize hubble_diagram',
+    outputs: [{ universe: 'baseline', output: 'hubble_diagram' }]
+  };
+  expect(isResultsCommit(commit)).toBe(true);
+  expect(isResultsCommit({ ...commit, outputs: [{ universe: 1 }] })).toBe(
+    false
+  );
+  const request = jest
+    .spyOn(ServerConnection, 'makeRequest')
+    .mockImplementation(
+      async () => new Response(JSON.stringify({ commits: [commit] }))
+    );
+  await expect(
+    listResultsCommits(settings, 'project/astra.yaml', {
+      since: 1000.7,
+      until: 2000,
+      limit: 5
+    })
+  ).resolves.toEqual([commit]);
+  const url = new URL(request.mock.calls[0][0]);
+  expect(url.pathname).toBe('/lab/jupyterlab_lightcone/api/versions/results');
+  expect(url.searchParams.get('path')).toBe('project/astra.yaml');
+  expect(url.searchParams.get('since')).toBe('1000');
+  expect(url.searchParams.get('until')).toBe('2000');
+  expect(url.searchParams.get('limit')).toBe('5');
+  await listResultsCommits(settings, 'project/astra.yaml');
+  expect(new URL(request.mock.calls[1][0]).searchParams.has('since')).toBe(
+    false
+  );
+  request.mockImplementation(
+    async () => new Response(JSON.stringify({ commits: [{}] }))
+  );
+  await expect(
+    listResultsCommits(settings, 'project/astra.yaml')
+  ).rejects.toThrow('invalid results history');
 });
 
 test('says where absent bytes are', () => {

@@ -1,0 +1,152 @@
+/* Turn results under the last message of a reply, in JupyterLab's own chrome. */
+.jp-jupyterlab-lightcone-TurnResults {
+  max-width: 100%;
+  margin: 4px 0 0;
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-TurnResults-section
+  + .jp-jupyterlab-lightcone-TurnResults-section {
+  margin-top: 6px;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-title {
+  margin: 0 0 4px;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--jp-ui-font-color1);
+}
+
+.jp-jupyterlab-lightcone-TurnResults-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-item {
+  margin: 0;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-tile {
+  display: flex;
+  flex-direction: column;
+  width: 112px;
+  padding: 0;
+  overflow: hidden;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: var(--jp-layout-color0);
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+}
+
+.jp-jupyterlab-lightcone-TurnResults-tile:hover,
+.jp-jupyterlab-lightcone-TurnResults-tile:focus-visible {
+  border-color: var(--jp-brand-color1);
+  outline: none;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72px;
+  overflow: hidden;
+  background: var(--jp-layout-color1);
+}
+
+.jp-jupyterlab-lightcone-TurnResults-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-kind,
+.jp-jupyterlab-lightcone-TurnResults-metric {
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-TurnResults-metric {
+  font-family: var(--jp-code-font-family);
+  color: var(--jp-ui-font-color1);
+}
+
+.jp-jupyterlab-lightcone-TurnResults-label {
+  padding: 3px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--jp-ui-font-color1);
+}
+
+/* The result's name follows the inventory's kind mark for outputs. */
+.jp-jupyterlab-lightcone-TurnResults-label > .jp-jupyterlab-lightcone-KindMark {
+  margin-inline-end: 3px;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-file {
+  padding: 0;
+  font: inherit;
+  font-family: var(--jp-code-font-family);
+  color: var(--jp-content-link-color);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.jp-jupyterlab-lightcone-TurnResults-file:hover,
+.jp-jupyterlab-lightcone-TurnResults-file:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+@layer lightcone {
+  /* Version chip under a chat card. */
+  .jp-jupyterlab-lightcone-card-version {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin: 0 12px 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--jp-border-color2);
+    border-radius: 999px;
+    background: var(--jp-layout-color1);
+    color: var(--jp-ui-font-color2);
+    font: var(--jp-ui-font-size0) / 1.5 var(--jp-ui-font-family);
+    cursor: pointer;
+  }
+
+  .jp-jupyterlab-lightcone-card-version[data-state='superseded'] {
+    border-color: var(--jp-warn-color1);
+    color: var(--jp-ui-font-color1);
+  }
+
+  .jp-jupyterlab-lightcone-card-version[data-state='missing'] {
+    border-style: dashed;
+  }
+
+  .jp-jupyterlab-lightcone-card-version:focus-visible {
+    outline: 2px solid var(--jp-brand-color1);
+    outline-offset: 2px;
+  }
+}

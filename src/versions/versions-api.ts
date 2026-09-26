@@ -55,6 +55,22 @@ export function absentReason(version: IOutputVersion): string {
   return 'The bytes of this version are not in this repository.';
 }
 
+/** An output a commit under `results/` changed. */
+export interface ICommittedOutput {
+  universe: string;
+  output: string;
+}
+
+/** A commit that touched the project's results, and the outputs it changed. */
+export interface IResultsCommit {
+  commit: string;
+  short: string;
+  /** Commit time, ISO 8601. */
+  time: string;
+  subject: string;
+  outputs: ICommittedOutput[];
+}
+
 /** The history of one output. */
 export interface IVersionListing {
   /** Project-relative path of the output file. */
@@ -95,6 +111,64 @@ export function isOutputVersion(value: unknown): value is IOutputVersion {
     (value.annex === null || isAnnexedBytes(value.annex)) &&
     (value.manifest === null || isRecord(value.manifest))
   );
+}
+
+function isCommittedOutput(value: unknown): value is ICommittedOutput {
+  return (
+    isRecord(value) &&
+    typeof value.universe === 'string' &&
+    typeof value.output === 'string'
+  );
+}
+
+/** Narrow a server payload to a results commit. */
+export function isResultsCommit(value: unknown): value is IResultsCommit {
+  return (
+    isRecord(value) &&
+    typeof value.commit === 'string' &&
+    typeof value.short === 'string' &&
+    typeof value.time === 'string' &&
+    typeof value.subject === 'string' &&
+    Array.isArray(value.outputs) &&
+    value.outputs.every(isCommittedOutput)
+  );
+}
+
+/** Bounds of a results history request; times are seconds since the epoch. */
+export interface IResultsWindow {
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+/**
+ * The commits that touched the project's results, newest first, with the
+ * outputs each one changed; bounded to the window when one is given.
+ */
+export async function listResultsCommits(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  window: IResultsWindow = {}
+): Promise<IResultsCommit[]> {
+  const params = new URLSearchParams({ path: entrypoint });
+  for (const [name, value] of Object.entries(window)) {
+    if (value !== undefined) {
+      params.set(name, String(Math.floor(value)));
+    }
+  }
+  try {
+    const data = await requestAPI(`api/versions/results?${params}`, settings);
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.commits) ||
+      !data.commits.every(isResultsCommit)
+    ) {
+      throw new Error('The server returned an invalid results history.');
+    }
+    return data.commits;
+  } catch (error) {
+    throw new RequestError('Results history', error);
+  }
 }
 
 function query(

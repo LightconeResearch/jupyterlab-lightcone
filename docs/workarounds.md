@@ -600,3 +600,114 @@ when a public figure-frame slot or page-layout API supplies the same spacing;
 and blink controls. `ui-tests/tests/output-versions.spec.ts` checks a comparison
 whose two table revisions use different formats. These behavior tests do not
 assert the figure-frame spacing.
+
+## Chat cards, links and reply results
+
+### Reply links and images need a DOM adapter
+
+**Where:** `src/chat-links/link-fixer.ts`, `chat-paths.ts`, and `chat-dom.ts`.
+Jupyter Chat renders Markdown with the application registry but exposes no
+per-message URL resolver or link handler. A scoped capture listener opens
+server-local links with `IDocumentManager`; a `MutationObserver` rewrites local
+image sources to Jupyter's authenticated files route. Only rendered message
+bodies are touched. The module-private `RENDERED_CLASS` from
+`components/messages/message-renderer` is restated once. The panel's disposal
+removes the listener and observer, and pending work checks disposal.
+
+**Remove when:** `@jupyter/chat` exposes RenderMime `resolver`/`linkHandler`
+options or a registry for them. Retain the path-containment, URL and disposal
+tests while replacing the DOM adapter with those public hooks.
+
+### The absolute contents root is published
+
+**Where:** `jupyterlab_lightcone/application.py` (`_publish_server_root`) and
+`src/chat-links/chat-paths.ts` (`serverRoots`). JupyterLab's `serverRoot` page
+option abbreviates the home directory as `~`, so it cannot match the absolute
+paths agents write. The extension publishes the local contents root, when
+available; jupyter-lsp's `rootUri` can supply the resolved spelling as well.
+Nonlocal contents managers publish nothing.
+
+**Remove when:** `jupyterlab_server` exposes an absolute server-root page option.
+Use that option and remove the custom publication and its server tests.
+
+### Agent preview tools repeat the originating-persona lookup
+
+**Where:** `jupyterlab_lightcone/agent_tools.py` (`_origin_manager`,
+`_origin_persona`). The MCP routing middleware exposes the originating browser
+id but not the persona. The tools repeat its header-to-registry lookup and
+check that the persona's processing message names that same browser and its chat id matches
+the request header. The
+persona's own chat model publishes the card under the agent's identity. No
+browser id means no command execution; tools never broadcast.
+
+**Remove when:** `jupyter-server-mcp` exposes a per-call `calling_persona`
+context alongside the client id, and injects the server/settings handle into
+tools. Keep the wrong-browser and absent-persona regressions.
+
+### Command timeouts have no structured error code
+
+**Where:** `agent_tools.py` (`_command`). The command toolkit returns a timeout
+as error text. A narrow check for "timed out" supplies recovery guidance to the
+agent; other errors preserve the upstream result.
+
+**Remove when:** `jupyterlab-commands-toolkit` includes a stable timeout code.
+
+### Saved MIME records need explicit hydration for deduplication
+
+**Where:** `agent_tools.py` (`lightcone_preview_element`). Jupyter Chat's `Message(**dict)`
+leaves its nested `mime_model` as a dict when loading a saved conversation. The
+preview tool constructs the exported `MimeModel` before comparing the card and
+prompt metadata, so a retry after reload does not insert a duplicate card.
+
+**Remove when:** `jupyterlab_chat.Message` hydrates nested MIME models on load.
+
+### MIME renderer disposal uses a custom element
+
+**Where:** `src/astra-mime.tsx` (`AstraCardElement`, `AstraMimeRenderer`).
+Jupyter Chat 0.25 inserts the renderer's node without disposing its widget.
+Connection callbacks own the React root so closing a chat or removing a message
+releases project leases and historical-preview effects. The scoped
+`.jp-chat-rendered-message.jp-OutputArea` rule in `style/base.css` also removes
+that wrapper's clipping around ASTRA cards.
+
+**Remove when:** `@jupyter/chat` disposes RenderMime widgets on rerender/removal
+and offers a documented wrapper style hook. Replace the custom element with a
+normal widget-owned root and remove the wrapper selector.
+
+### Reply results observe in-place message updates
+
+**Where:** `src/chat-links/turn-results-footer.tsx`. Jupyter Chat mutates
+`IChatModel.messages` in place; message/state signals advance a revision used
+by React memos so streamed messages are not missed. Engine results have no
+chat/turn id, so the footer correlates bounded Git result commits with server
+message timestamps and refreshes once the reply settles. The existing guarded
+ACP metadata readers provide edited paths; no additional schema is invented.
+
+**Remove when:** Chat exposes immutable message snapshots or a revision field,
+and Lightcone commits expose a producing turn id. Use those identities and
+remove timestamp matching; retain cache and streamed-turn regressions. Until
+then the label says **Results updated**, since manual result commits also
+qualify. Tiles read and open the recorded commit; an unavailable historical
+thumbnail falls back to its output-kind label, never to current file bytes.
+
+### The card contract is validated on both sides
+
+**Where:** `agent_tools.py` and `src/astra-mime-data.ts`. The MIME type and small
+versioned payload are necessarily spelled in Python and TypeScript. Both
+validate the optional output commit/key; the browser uses the existing history
+commit predicate and never evaluates executable card contents.
+
+**Remove when:** a shared published schema/code generator owns the card
+contract. Keep malformed-payload tests in both runtimes.
+
+### Authored ASTRA paths still need the vendored MySTRA grammar
+
+**Where:** `src/vendor/mystra-path.ts`, the path-only subset of MySTRA revision
+`8b7dd797`, with its adjacent license. The ASTRA SDK exposes canonical indexes
+but no parser for authored shorthand or option/evidence paths. Record commands
+and chat card references use one existing grammar; this layer only replaces
+unchecked collection casts with type guards and removes a non-null assertion.
+
+**Remove when:** `@astra-spec/sdk` exports a browser-safe `parseAstraPath`, its
+`AstraPath` type, and a canonical record path resolver.
+Retain the record-reference resolution tests when replacing the vendored file.

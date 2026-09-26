@@ -7,6 +7,14 @@ import type {
 import { ServerConnection } from '@jupyterlab/services';
 import { apiUrl, requestAPI } from './request';
 
+/** Whether a request to the Jupyter server (Contents included) answered 404. */
+export function isNotFoundResponse(error: unknown): boolean {
+  return (
+    error instanceof ServerConnection.ResponseError &&
+    error.response.status === 404
+  );
+}
+
 export interface IProjectFolder {
   path: string;
   directory: string;

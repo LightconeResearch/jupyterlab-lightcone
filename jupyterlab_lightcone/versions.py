@@ -34,11 +34,14 @@ from tornado.iostream import StreamClosedError
 
 from . import annex
 from .project_routes import ProjectAPIHandler
-from .provenance import MAX_RECORD_BYTES, ensure_results_visible, record_path, validate_record
-from .results import universe_directory
+from .provenance import MAX_RECORD_BYTES, ensure_results_visible, record_path, validate_output_identity, validate_record
+from .results import MANIFEST_SUFFIX, RESULTS_DIRECTORY, universe_directory
 
 MAX_VERSIONS = 200
 """How many commits one listing reaches back."""
+
+MAX_RESULTS_COMMITS = 200
+"""How many commits touching ``results/`` one history request lists."""
 
 MAX_CONTENT_BYTES = 50 * 1024 * 1024
 """The largest version the content route serves."""
@@ -440,14 +443,84 @@ def content_disposition(name: str) -> str:
 
 
 # =============================================================================
-# Tree changes for historical rename tracking
+# Commits touching results: what a run made, and when
 # =============================================================================
+
+
+def output_identity(path: bytes) -> tuple[str, str] | None:
+    """The ``(universe, output)`` a path under ``results/`` belongs to, if any.
+
+    A materialization commits ``results/<universe>/<output>.<ext>`` with its
+    sidecar ``results/<universe>/.<output>.manifest.json``; an output id has no
+    dot, so either name gives it back. Anything else under ``results/`` (a
+    README, a nested folder's file, a name no output could have) is not an
+    output.
+    """
+    parts = path.decode("utf-8", "replace").split("/")
+    if len(parts) != 3 or parts[0] != RESULTS_DIRECTORY:
+        return None
+    universe, name = parts[1], parts[2]
+    if name.startswith("."):
+        if not name.endswith(MANIFEST_SUFFIX):
+            return None
+        output = name[1 : -len(MANIFEST_SUFFIX)]
+    else:
+        output = name.partition(".")[0]
+    try:
+        validate_output_identity(universe, output)
+    except web.HTTPError:
+        return None
+    return universe, output
 
 
 def _flat_changes(entry: WalkEntry) -> list:
     """A walk entry's tree changes; a merge lists each parent's changes."""
     changes = entry.changes()
     return [change for group in changes for change in group] if changes and isinstance(changes[0], list) else changes
+
+
+def _changed_paths(entry) -> list[bytes]:
+    """Every path a walk entry's commit changed; a merge lists each parent's changes."""
+    paths = []
+    for change in _flat_changes(entry):
+        for side in (change.new, change.old):
+            if side is not None and side.path is not None:
+                paths.append(side.path)
+    return paths
+
+
+def results_commits(
+    project: Path, since: int | None = None, until: int | None = None, limit: int = MAX_RESULTS_COMMITS
+) -> list[dict]:
+    """The commits that touched the project's ``results/``, newest first, with the outputs each changed.
+
+    Bounded by commit time when ``since`` and ``until`` (seconds since the
+    epoch) are given, so a chat can ask what a reply materialized. A project
+    outside git, or before its first commit, has none.
+    """
+    repository = open_repository(project)
+    if repository is None:
+        return []
+    try:
+        listed = []
+        results = repository.path(RESULTS_DIRECTORY)
+        prefix = len(results) - len(RESULTS_DIRECTORY.encode())
+        for entry in repository.walk([RESULTS_DIRECTORY], since=since, until=until, max_entries=limit):
+            outputs = []
+            # A commit may touch more than this project's results; only those count.
+            for path in _changed_paths(entry):
+                if not path.startswith(results + b"/"):
+                    continue
+                identity = output_identity(path[prefix:])
+                if identity is not None and identity not in outputs:
+                    outputs.append(identity)
+            listed.append({
+                **describe_commit(entry.commit),
+                "outputs": [{"universe": universe, "output": output} for universe, output in outputs],
+            })
+        return listed
+    finally:
+        repository.close()
 
 
 # =============================================================================
@@ -671,6 +744,35 @@ class OutputVersionContentHandler(ProjectAPIHandler):
         super().write_error(status_code, **kwargs)
 
 
+class ResultsHistoryHandler(ProjectAPIHandler):
+    """The commits that touched the project's results, for a window of time."""
+
+    unavailable_message = "Result history requires local files"
+
+    def _whole_number(self, name: str, what: str) -> int | None:
+        """An optional query argument that must be a whole number of ``what``; None when absent."""
+        value = self.get_query_argument(name, None)
+        if value is None:
+            return None
+        if not value.isdigit():
+            raise web.HTTPError(400, f"{name} must be a whole number of {what}")
+        return int(value)
+
+    @web.authenticated
+    @authorized
+    async def get(self):
+        """``?path=&since=&until=&limit=`` → ``{"commits": [...]}``, newest first."""
+        project = await self.project()
+        since = self._whole_number("since", "seconds since the epoch")
+        until = self._whole_number("until", "seconds since the epoch")
+        limit = self._whole_number("limit", "commits")
+        if limit is None:
+            limit = MAX_RESULTS_COMMITS
+        if not 1 <= limit <= MAX_RESULTS_COMMITS:
+            raise web.HTTPError(400, f"limit must be between 1 and {MAX_RESULTS_COMMITS}")
+        self.finish({"commits": await in_thread(results_commits, project, since, until, limit)})
+
+
 class RevisionSourceHandler(ProjectAPIHandler):
     """A project file as a recorded revision held it, for a run's Code tab."""
 
@@ -701,13 +803,14 @@ class LockedPackagesHandler(ProjectAPIHandler):
 
 
 def setup_versions_handlers(web_app):
-    """Register the listing, content, source and packages routes under the server base URL."""
+    """Register the listing, content, results, source and packages routes under the server base URL."""
     api = url_path_join(web_app.settings.get("base_url", "/"), "jupyterlab_lightcone", "api", "versions")
     web_app.add_handlers(
         ".*$",
         [
             (api, OutputVersionsHandler),
             (url_path_join(api, "content"), OutputVersionContentHandler),
+            (url_path_join(api, "results"), ResultsHistoryHandler),
             (url_path_join(api, "source"), RevisionSourceHandler),
             (url_path_join(api, "packages"), LockedPackagesHandler),
         ],

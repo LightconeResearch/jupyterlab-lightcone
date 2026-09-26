@@ -6,6 +6,7 @@ import type { IElementReference } from './element-reference';
 import { ElementWidget } from './element-widget';
 import { CommandIDs } from './commands';
 import { ElementHistoryCommandIDs } from './versions/element-history';
+import { isSessionWidget } from './sessions/session-manager';
 import { ELEMENT_TAB_DATASET_KEY } from './workbench-ids';
 
 export type ElementTab = MainAreaWidget<ElementWidget>;
@@ -182,11 +183,14 @@ export class ElementTabs {
     );
   }
 
-  /** Add one native tab; split only the first result beside a sufficiently wide source. */
+  /** Keep the first result beside a session, or beside another sufficiently wide source. */
   add(tab: ElementTab, destination?: ElementTab, restoring = false): void {
     const source = destination ?? this.app.shell.currentWidget;
     const split =
-      !restoring && !destination && !!source && source.node.clientWidth >= 1000;
+      !restoring &&
+      !destination &&
+      !!source &&
+      (source.node.clientWidth >= 1000 || isSessionWidget(source));
     this.app.shell.add(tab, 'main', {
       mode: split ? 'split-right' : 'tab-after',
       ...(source ? { ref: source.id } : {}),

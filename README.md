@@ -265,8 +265,11 @@ The agent calls `lightcone_preview_element`, which inserts a rich MIME card into
 its conversation. Cards display the existing ASTRA previews directly, including
 supported figures and tables. Click a card to open it in a tab; links and controls
 inside the card keep their own actions. They persist in saved
-chats and resolve the current project data in the universe each card recorded
-when it was created.
+chats and retain the universe each card recorded when it was created. Cards
+for committed root-analysis outputs pin that commit: both the preview and the
+record tab opened from it show the recorded bytes, including while the newest
+commit has uncommitted edits. A missing or unreadable recorded version is
+reported as unavailable; it never silently substitutes current output data.
 The text fallback remains readable without Lightcone installed. These cards work
 with both the stock Markdown renderer and `jupyterlab-myst` enabled.
 
@@ -282,6 +285,18 @@ never passes a project path. Multiple universes are not yet selectable from
 chat. Tools require a connected originating browser and a chat with a project.
 Cards are attributed to the calling agent; repeated previews of the same target
 in one prompt reuse the card.
+The **Lightcone Agent** command reuses the active session of the project, or
+creates one through the session service. A record discussion leaves a draft in
+the composer for the user to send. File links in agent replies open through
+JupyterLab's document manager beside the conversation; directories open in the
+file browser. Server-local image links use authenticated Jupyter file URLs.
+
+The last agent message of a reply lists **Results updated** and **Files
+edited**. Output links open the commit that changed during that reply. The
+footer includes both engine runs and manual result commits, matching bounded Git history to the reply's time window; concurrent runs
+in that same window cannot be attributed to a particular agent. Edits come from
+the ACP client's reported tool metadata, not a scan of arbitrary files.
+
 Existing agent terminal tools, `lc`, and research skills remain available through
 the agent's normal setup; Lightcone observes changes without starting recipes.
 

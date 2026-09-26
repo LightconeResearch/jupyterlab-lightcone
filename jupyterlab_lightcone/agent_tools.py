@@ -3,6 +3,14 @@
 Imports are lazy so the inventory works even where Jupyter AI was removed.
 """
 
+import re
+
+from .versions import COMMIT_NAME
+
+ASTRA_MIME_TYPE = "application/vnd.lightcone.astra+json"
+PROMPT_METADATA_KEY = "lightcone_prompt"
+_KEY_LIMIT = 256
+
 TOOLS = [
     "jupyterlab_lightcone.agent_tools:lightcone_preview_element",
     "jupyterlab_lightcone.agent_tools:lightcone_open_element",
@@ -20,8 +28,10 @@ def _origin_manager():
     """Find the calling chat's persona manager from Jupyter AI's MCP headers."""
     from fastmcp.server.dependencies import get_http_headers
 
+    from jupyter_server_mcp.client_routing import CHAT_ID_HEADER
+
     managers = _settings().get("jupyter-ai", {}).get("persona-managers", {})
-    return managers.get(get_http_headers().get("x-jupyter-chat-id"))
+    return managers.get(get_http_headers().get(CHAT_ID_HEADER))
 
 
 def _origin_entrypoint() -> str | None:
@@ -87,6 +97,24 @@ async def lightcone_open_element(target: str) -> dict:
     return await _command("open-element", {"target": target})
 
 
+def _card_version(value) -> dict | None:
+    """The committed output version the browser pinned for a card, when well formed.
+
+    The browser names the newest commit of an output's file (and its git-annex
+    key); anything malformed pins nothing, so the card follows current data.
+    """
+    if not isinstance(value, dict):
+        return None
+    commit = value.get("commit")
+    if not isinstance(commit, str) or not COMMIT_NAME.fullmatch(commit.lower()):
+        return None
+    version = {"commit": commit.lower()}
+    key = value.get("key")
+    if isinstance(key, str) and 0 < len(key) <= _KEY_LIMIT and not re.search(r"[\s/\\]", key):
+        version["key"] = key
+    return version
+
+
 def _origin_persona():
     """Resolve the calling persona using the same registry as MCP routing.
 
@@ -97,10 +125,14 @@ def _origin_persona():
     from fastmcp.server.dependencies import get_http_headers
     from jupyterlab_commands_toolkit.tools import target_client_id
 
+    from jupyter_server_mcp.client_routing import (
+        CHAT_ID_HEADER, PERSONA_ID_HEADER, WEB_CLIENT_ID_METADATA_KEY,
+    )
+
     headers = get_http_headers()
     manager = _origin_manager()
     persona = (
-        manager.personas.get(headers.get("x-jupyterai-persona-id"))
+        manager.personas.get(headers.get(PERSONA_ID_HEADER))
         if manager else None
     )
     message = getattr(persona, "processing_message", None)
@@ -108,8 +140,8 @@ def _origin_persona():
     if (
         not client
         or message is None
-        or (message.metadata or {}).get("web_client_id") != client
-        or persona.chat.get_id() != headers.get("x-jupyter-chat-id")
+        or (message.metadata or {}).get(WEB_CLIENT_ID_METADATA_KEY) != client
+        or persona.chat.get_id() != headers.get(CHAT_ID_HEADER)
     ):
         return None
     return persona
@@ -126,6 +158,7 @@ async def lightcone_preview_element(target: str) -> dict:
     separate tab is explicitly wanted. Do not emit JSON or MySTRA roles in
     prose to create cards. No recipes execute and no papers are downloaded.
     Repeated previews of the same target in one prompt reuse the card.
+    Output cards retain the committed snapshot the browser resolved.
     """
     result = await _command("resolve-preview", {"target": target})
     if not result.get("success"):
@@ -162,7 +195,10 @@ async def lightcone_preview_element(target: str) -> dict:
         "target": element["target"],
         "universeId": element["universeId"],
     }
-    mime_type = "application/vnd.lightcone.astra+json"
+    output_version = _card_version(element.get("outputVersion"))
+    if output_version is not None:
+        payload["outputVersion"] = output_version
+    mime_type = ASTRA_MIME_TYPE
     prompt_id = persona.processing_message.id
     for message in persona.chat.get_messages():
         mime = message.mime_model
@@ -173,7 +209,7 @@ async def lightcone_preview_element(target: str) -> dict:
             not message.deleted
             and message.sender == persona.id
             and mime is not None
-            and (mime.metadata or {}).get("lightcone_prompt") == prompt_id
+            and (mime.metadata or {}).get(PROMPT_METADATA_KEY) == prompt_id
             and mime.data.get(mime_type) == payload
         ):
             return {"success": True, "message_id": message.id, "reused": True}
@@ -187,7 +223,7 @@ async def lightcone_preview_element(target: str) -> dict:
             sender=persona.id,
             mime_model=MimeModel(
                 data={mime_type: payload, "text/plain": fallback},
-                metadata={"lightcone_prompt": prompt_id},
+                metadata={PROMPT_METADATA_KEY: prompt_id},
             ),
         )
     )
