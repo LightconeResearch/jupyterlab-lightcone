@@ -127,6 +127,36 @@ async def test_shutdown_terminates_real_process_group(manager, tmp_path):
     assert not manager.sessions
 
 
+async def test_heartbeats_retain_process_then_idle_reaping_allows_reopen(manager, tmp_path, monkeypatch):
+    """Live viewers renew a shared process; the last closed viewer lets it expire."""
+    cli = tmp_path / "idle_cli.py"
+    cli.write_text("import time\ntime.sleep(60)\n")
+    manager.command = [sys.executable, str(cli)]
+    manager.idle_timeout = 0.2
+    monkeypatch.setattr(manager, "_theme_ready", AsyncMock(return_value=True))
+    monkeypatch.setattr(manager, "_verify_content_server", AsyncMock())
+    try:
+        session = await manager.start("alice", *manager.project_root(""))
+        assert await manager.start("alice", *manager.project_root("")) is session
+        for _ in range(4):
+            await asyncio.sleep(0.1)
+            assert manager.get(session.id, "alice") is session
+        assert session.state == "ready"
+        assert session.process.returncode is None
+
+        async def expired():
+            while session.id in manager.sessions:
+                await asyncio.sleep(0.02)
+
+        await asyncio.wait_for(expired(), 5)
+        assert session.process.returncode is not None
+        replacement = await manager.start("alice", *manager.project_root(""))
+        assert replacement.id != session.id
+    finally:
+        await manager.close()
+    assert not manager.sessions
+
+
 async def test_orphaned_child_cannot_hang_a_stopped_session(manager, tmp_path, monkeypatch, loopback_server):
     """A grandchild holding the log pipe must not keep a dead session 'ready'."""
 

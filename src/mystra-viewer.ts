@@ -26,6 +26,7 @@ export class MySTRAViewer extends Widget {
     this.title.caption = session.path;
     this.title.icon = mystIcon;
     this.title.closable = true;
+    this.node.tabIndex = -1;
     this.addClass('jp-jupyterlab-lightcone-MySTRA');
     const layout = new PanelLayout();
     this.layout = layout;
@@ -70,11 +71,22 @@ export class MySTRAViewer extends Widget {
     super.dispose();
   }
 
+  /** A closed tab must leave the tracker and release its heartbeat. */
+  protected onCloseRequest(): void {
+    this.dispose();
+  }
+
+  /** Let the shell's focus tracker target Close and Restart at this viewer. */
+  protected onActivateRequest(): void {
+    this.node.focus();
+  }
+
   /**
    * Adopt a session for this project, for example one freshly started after
    * the previous one expired, and resume polling it.
    */
   adopt(session: IMySTRASession): void {
+    if (this.isDisposed) return;
     const replaced = session.id !== this.session.id;
     // Polls still in flight for the previous session must not overwrite this one.
     if (replaced) this.generation++;
@@ -101,6 +113,7 @@ export class MySTRAViewer extends Widget {
     try {
       // Stopping is idempotent on the server, so an expired session is fine.
       await stopMySTRA(this.settings, this.session.id);
+      if (this.isDisposed) return;
       const session = await startMySTRA(this.settings, this.path);
       if (!this.isDisposed) this.adopt(session);
     } catch (error) {
