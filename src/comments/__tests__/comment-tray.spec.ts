@@ -1,0 +1,220 @@
+import type { IChatPanel, IChatTracker } from '@jupyter/chat';
+import { ServerConnection } from '@jupyterlab/services';
+import { Signal } from '@lumino/signaling';
+import { Widget } from '@lumino/widgets';
+import {
+  analysis,
+  createContents,
+  fileModel
+} from '../../__tests__/project-fixtures';
+import {
+  INPUT_CONTAINER_CLASS,
+  MESSAGES_CONTAINER_CLASS
+} from '../../chat-links/chat-dom';
+import { createChatProjectResolver } from '../../chat-links/chat-project';
+import { fetchChatProject } from '../../sessions/sessions-api';
+import { listComments } from '../comments-api';
+import { pointAnchor } from '../comment-model';
+import { CommentService } from '../comment-service';
+import { ChatCommentTrays, type ICommentTrayActions } from '../comment-tray';
+import { makeComment, recordTarget, until } from './fixtures';
+
+jest.mock('../../sessions/sessions-api', () => ({
+  fetchChatProject: jest.fn()
+}));
+jest.mock('../comments-api', () => ({
+  listComments: jest.fn(),
+  createComment: jest.fn(),
+  updateComment: jest.fn(),
+  deleteComment: jest.fn()
+}));
+
+const ENTRYPOINT = 'project/astra.yaml';
+const HOST = '.jp-jupyterlab-lightcone-CommentTrayHost';
+const CHIP = '.jp-jupyterlab-lightcone-CommentChip';
+
+/** A chat panel as Jupyter Chat lays it out: messages, then the input. */
+function fakePanel(area: 'main' | 'sidebar' = 'main') {
+  const widget = new Widget();
+  widget.node.innerHTML =
+    `<div class="${MESSAGES_CONTAINER_CLASS}"></div>` +
+    `<div class="${INPUT_CONTAINER_CLASS}" data-input-id="in1"></div>`;
+  document.body.appendChild(widget.node);
+  const panel = {
+    area,
+    widget,
+    isDisposed: false,
+    disposed: new Signal<object, void>({}),
+    model: {
+      name: 'project/chats/a.chat',
+      input: { id: 'in1' },
+      messagesUpdated: new Signal<object, void>({})
+    }
+  };
+  return { panel, chat: panel as unknown as IChatPanel, widget };
+}
+
+/** A tracker that already knows `panels`. */
+function fakeTracker(panels: IChatPanel[]) {
+  const widgetAdded = new Signal<IChatTracker, IChatPanel>(
+    {} as unknown as IChatTracker
+  );
+  const tracker = {
+    widgetAdded,
+    forEach: (callback: (panel: IChatPanel) => void) => panels.forEach(callback)
+  };
+  return { tracker: tracker as unknown as IChatTracker, widgetAdded };
+}
+
+function setup(panels: IChatPanel[]) {
+  const { contents } = createContents({
+    [ENTRYPOINT]: fileModel(analysis('demo')),
+    'project/chats/a.chat': fileModel('{}')
+  });
+  const service = new CommentService(ServerConnection.makeSettings());
+  const actions: jest.Mocked<ICommentTrayActions> = {
+    open: jest.fn(),
+    edit: jest.fn(),
+    remove: jest.fn().mockResolvedValue(undefined)
+  };
+  const { tracker, widgetAdded } = fakeTracker(panels);
+  const trays = new ChatCommentTrays(tracker, {
+    service,
+    projects: createChatProjectResolver(contents, () => undefined),
+    actions,
+    chatPath: panel => panel.model.name
+  });
+  return { service, actions, trays, widgetAdded };
+}
+
+const comment = makeComment('a', pointAnchor(10, 20), {
+  text: 'The legend covers the high-redshift points.'
+});
+
+beforeEach(() => {
+  jest.mocked(fetchChatProject).mockReset();
+  jest
+    .mocked(fetchChatProject)
+    .mockImplementation(async (_settings, path) =>
+      path.startsWith('project/') ? 'project/astra.yaml' : null
+    );
+  jest.mocked(listComments).mockReset();
+  jest.mocked(listComments).mockResolvedValue([comment]);
+  document.body.innerHTML = '';
+});
+
+describe('ChatCommentTrays', () => {
+  it('lists pending comments just above the chat input', async () => {
+    const { chat, widget } = fakePanel();
+    const { trays, actions } = setup([chat]);
+    await until(() => !!widget.node.querySelector(CHIP));
+    expect(fetchChatProject).toHaveBeenCalledWith(
+      expect.anything(),
+      'project/chats/a.chat'
+    );
+    const host = widget.node.querySelector(HOST);
+    expect(host?.nextElementSibling?.className).toBe(INPUT_CONTAINER_CLASS);
+    const chip = widget.node.querySelector<HTMLElement>(CHIP);
+    expect(chip?.textContent).toContain('①');
+    expect(chip?.getAttribute('title')).toBe(
+      'The legend covers the high-redshift points. · outputs.hubble_diagram'
+    );
+    widget.node
+      .querySelector<HTMLButtonElement>(
+        '.jp-jupyterlab-lightcone-CommentChip-open'
+      )
+      ?.click();
+    expect(actions.open).toHaveBeenCalledWith(comment);
+    widget.node
+      .querySelector<HTMLButtonElement>('[aria-label="Delete comment"]')
+      ?.click();
+    expect(actions.remove).toHaveBeenCalledWith(ENTRYPOINT, comment);
+    trays.dispose();
+  });
+
+  it('leads a chip with its record’s kind mark, else its image icon', async () => {
+    jest.mocked(listComments).mockResolvedValue([
+      comment,
+      makeComment('b', pointAnchor(20, 30), {
+        label: 2,
+        target: recordTarget({
+          kind: 'file',
+          path: 'project/figure.png',
+          record: null
+        })
+      })
+    ]);
+    const { chat, widget } = fakePanel();
+    const { trays } = setup([chat]);
+    await until(() => widget.node.querySelectorAll(CHIP).length === 2);
+    const chips = Array.from(widget.node.querySelectorAll(CHIP));
+    expect(
+      chips[0].querySelector('.astra-kind-glyph')?.getAttribute('data-kind')
+    ).toBe('output');
+    expect(
+      chips[1].querySelector('.jp-jupyterlab-lightcone-CommentChip-icon svg')
+    ).not.toBeNull();
+    trays.dispose();
+  });
+
+  it('keeps an opening click from the chat, which would take the focus back', async () => {
+    const { chat, widget } = fakePanel();
+    // Jupyter Chat focuses its input on a click that leaves the focus outside.
+    const chatClick = jest.fn();
+    widget.node.addEventListener('click', chatClick);
+    const { trays, actions } = setup([chat]);
+    await until(() => !!widget.node.querySelector(CHIP));
+    widget.node
+      .querySelector<HTMLButtonElement>(
+        '.jp-jupyterlab-lightcone-CommentChip-open'
+      )
+      ?.click();
+    expect(actions.open).toHaveBeenCalledWith(comment);
+    expect(chatClick).not.toHaveBeenCalled();
+    trays.dispose();
+  });
+
+  it('follows the input when the chat renders it again', async () => {
+    const { chat, widget } = fakePanel();
+    const { trays } = setup([chat]);
+    await until(() => !!widget.node.querySelector(CHIP));
+    const replacement = document.createElement('div');
+    replacement.className = INPUT_CONTAINER_CLASS;
+    replacement.dataset.inputId = 'in1';
+    widget.node.querySelector(`.${INPUT_CONTAINER_CLASS}`)?.remove();
+    widget.node.appendChild(replacement);
+    await until(
+      () => widget.node.querySelector(HOST)?.nextElementSibling === replacement
+    );
+    trays.dispose();
+    expect(widget.node.querySelector(HOST)).toBeNull();
+  });
+
+  it('fetches the pending list again after new messages', async () => {
+    jest.useFakeTimers({ advanceTimers: true });
+    try {
+      const { chat, panel, widget } = fakePanel();
+      const { trays } = setup([chat]);
+      await until(() => !!widget.node.querySelector(CHIP));
+      const calls = jest.mocked(listComments).mock.calls.length;
+      panel.model.messagesUpdated.emit();
+      jest.advanceTimersByTime(1000);
+      expect(jest.mocked(listComments).mock.calls.length).toBe(calls + 1);
+      trays.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('leaves side-panel chats alone and removes a tray with its chat', async () => {
+    const side = fakePanel('sidebar');
+    const main = fakePanel();
+    const { trays, widgetAdded } = setup([side.chat]);
+    widgetAdded.emit(main.chat);
+    await until(() => !!main.widget.node.querySelector(CHIP));
+    expect(side.widget.node.querySelector(HOST)).toBeNull();
+    main.panel.disposed.emit();
+    expect(main.widget.node.querySelector(HOST)).toBeNull();
+    trays.dispose();
+  });
+});

@@ -1,0 +1,274 @@
+import { PageConfig } from '@jupyterlab/coreutils';
+import type { ServerConnection } from '@jupyterlab/services';
+import { isRecord, RequestError } from '../api';
+import { requestAPI } from '../request';
+
+/** Whether a comment is still waiting in the composer or already went out. */
+export type CommentStatus = 'pending' | 'sent';
+
+/** What a comment is attached to. */
+export interface ICommentTarget {
+  /** A record of the project or an image file. */
+  kind: 'record' | 'file';
+  /** Contents path: the `astra.yaml` for records, or the image file. */
+  path: string;
+  /** Canonical record path such as `outputs.hubble_diagram`, for records. */
+  record: string | null;
+  /** Universe the record was resolved in, when relevant. */
+  universe: string | null;
+  /** The version the comment was made on. */
+  version: {
+    commit: string | null;
+    key: string | null;
+    hash: string | null;
+    label: string | null;
+  };
+}
+
+/** Where inside the target the comment sits. */
+export interface ICommentAnchor {
+  type: 'point';
+  /** Percent across the image, for points. */
+  x: number | null;
+  /** Percent down the image, for points. */
+  y: number | null;
+}
+
+/** A comment as the server stores it. */
+export interface IComment {
+  id: string;
+  created: string;
+  updated: string | null;
+  author: string;
+  status: CommentStatus;
+  /**
+   * The chat and message a sent comment went with; the message is null when
+   * the composer appended the comment before the message had an id.
+   */
+  sentWith: { chat: string; message: string | null } | null;
+  /** 1-based number among the pending comments of the same target. */
+  label: number;
+  text: string;
+  target: ICommentTarget;
+  anchor: ICommentAnchor;
+}
+
+/** What the client sends to create a comment. */
+export interface ICommentDraft {
+  text: string;
+  target: ICommentTarget;
+  anchor: ICommentAnchor;
+}
+
+/** What the client may change on a pending comment. */
+export interface ICommentPatch {
+  text?: string;
+  anchor?: ICommentAnchor;
+}
+
+/**
+ * How pending comments reach the agent: appended by the server to the prompt
+ * copy the persona receives, or, where another persona manager runs, appended
+ * by the composer to the message text itself.
+ */
+export type CommentDelivery = 'prompt' | 'message';
+
+/** The page option in which the server states its comment delivery. */
+export const COMMENT_DELIVERY_OPTION = 'lightconeCommentDelivery';
+
+/**
+ * The delivery the server stated in the page configuration. Without a
+ * statement the composer appends the comments itself: that never sends them
+ * twice, since the server skips comments already marked sent.
+ */
+export function commentDelivery(
+  option: string = PageConfig.getOption(COMMENT_DELIVERY_OPTION)
+): CommentDelivery {
+  return option === 'prompt' ? 'prompt' : 'message';
+}
+
+/** Filters for listing comments. */
+export interface ICommentQuery {
+  status?: CommentStatus | 'all';
+  /** Only comments whose `target.path` equals this Contents path. */
+  target?: string;
+}
+
+function isStringOrNull(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isNumberOrNull(value: unknown): value is number | null {
+  return value === null || typeof value === 'number';
+}
+
+function isTarget(value: unknown): value is ICommentTarget {
+  return (
+    isRecord(value) &&
+    (value.kind === 'record' || value.kind === 'file') &&
+    typeof value.path === 'string' &&
+    isStringOrNull(value.record) &&
+    isStringOrNull(value.universe) &&
+    isRecord(value.version) &&
+    isStringOrNull(value.version.commit) &&
+    isStringOrNull(value.version.key) &&
+    isStringOrNull(value.version.hash) &&
+    isStringOrNull(value.version.label)
+  );
+}
+
+function isAnchor(value: unknown): value is ICommentAnchor {
+  return (
+    isRecord(value) &&
+    value.type === 'point' &&
+    isNumberOrNull(value.x) &&
+    isNumberOrNull(value.y)
+  );
+}
+
+/** Narrow a server payload to a comment. */
+export function isComment(value: unknown): value is IComment {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.created === 'string' &&
+    isStringOrNull(value.updated) &&
+    typeof value.author === 'string' &&
+    (value.status === 'pending' || value.status === 'sent') &&
+    (value.sentWith === null ||
+      (isRecord(value.sentWith) &&
+        typeof value.sentWith.chat === 'string' &&
+        isStringOrNull(value.sentWith.message))) &&
+    typeof value.label === 'number' &&
+    typeof value.text === 'string' &&
+    isTarget(value.target) &&
+    isAnchor(value.anchor)
+  );
+}
+
+function withPath(
+  endpoint: string,
+  entrypoint: string,
+  extra: Record<string, string> = {}
+): string {
+  return `${endpoint}?${new URLSearchParams({ path: entrypoint, ...extra })}`;
+}
+
+/** List the project's comments; pending ones by default. */
+export async function listComments(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  query: ICommentQuery = {}
+): Promise<IComment[]> {
+  try {
+    const extra: Record<string, string> = {};
+    if (query.status) extra.status = query.status;
+    if (query.target) extra.target = query.target;
+    const data = await requestAPI(
+      withPath('api/comments', entrypoint, extra),
+      settings
+    );
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.comments) ||
+      !data.comments.every(isComment)
+    ) {
+      throw new Error('The server returned an invalid comment listing.');
+    }
+    return data.comments;
+  } catch (error) {
+    throw new RequestError('Comments', error);
+  }
+}
+
+/**
+ * Mark pending comments sent with the next message of a chat and return
+ * their block for the composer to append; null when none was pending.
+ */
+export async function sendComments(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  ids: readonly string[],
+  chat: string
+): Promise<string | null> {
+  try {
+    const data = await requestAPI('api/comments/send', settings, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: entrypoint, ids, chat })
+    });
+    if (
+      !isRecord(data) ||
+      !(data.block === null || typeof data.block === 'string')
+    ) {
+      throw new Error('The server returned an invalid comment block.');
+    }
+    return data.block;
+  } catch (error) {
+    throw new RequestError('Comments', error);
+  }
+}
+
+/** Save a new pending comment. */
+export async function createComment(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  draft: ICommentDraft
+): Promise<IComment> {
+  try {
+    const data = await requestAPI('api/comments', settings, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: entrypoint, comment: draft })
+    });
+    if (!isComment(data)) {
+      throw new Error('The server returned an invalid comment.');
+    }
+    return data;
+  } catch (error) {
+    throw new RequestError('Comments', error);
+  }
+}
+
+/** Change the text or anchor of a pending comment. */
+export async function updateComment(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  id: string,
+  patch: ICommentPatch
+): Promise<IComment> {
+  try {
+    const data = await requestAPI(
+      withPath(`api/comments/${encodeURIComponent(id)}`, entrypoint),
+      settings,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      }
+    );
+    if (!isComment(data)) {
+      throw new Error('The server returned an invalid comment.');
+    }
+    return data;
+  } catch (error) {
+    throw new RequestError('Comments', error);
+  }
+}
+
+/** Delete a pending comment. */
+export async function deleteComment(
+  settings: ServerConnection.ISettings,
+  entrypoint: string,
+  id: string
+): Promise<void> {
+  try {
+    await requestAPI(
+      withPath(`api/comments/${encodeURIComponent(id)}`, entrypoint),
+      settings,
+      { method: 'DELETE' }
+    );
+  } catch (error) {
+    throw new RequestError('Comments', error);
+  }
+}

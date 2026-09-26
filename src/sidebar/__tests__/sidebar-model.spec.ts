@@ -19,6 +19,7 @@ import {
 } from '../sidebar-model';
 import {
   FakeChatPanel,
+  FakeCommentService,
   FakeCurrentProject,
   FakeSessionService,
   PROJECT_SPEC,
@@ -73,6 +74,7 @@ function setDocumentHidden(hidden: boolean | undefined): void {
 function host(
   options: {
     sessions?: boolean;
+    comments?: boolean;
     entries?: Record<string, Contents.IModel>;
   } = {}
 ) {
@@ -106,6 +108,8 @@ function host(
       activity: 'working'
     })
   ]);
+  const comments = options.comments === false ? null : new FakeCommentService();
+  comments?.counts.set('project/astra.yaml', 2);
   const shell = {
     currentWidget: null as Widget | null,
     currentChanged: new Signal<object, unknown>({})
@@ -114,7 +118,8 @@ function host(
     contents,
     shell,
     current,
-    sessions
+    sessions,
+    comments
   });
   const states: ISidebarState[] = [];
   model.changed.connect((_sender, state) => states.push(state));
@@ -123,6 +128,7 @@ function host(
     get,
     current,
     sessions,
+    comments,
     shell,
     model,
     states,
@@ -138,7 +144,7 @@ beforeEach(() => {
 });
 
 describe('SidebarModel', () => {
-  it('gathers project data, statuses, sessions', async () => {
+  it('gathers project data, statuses, sessions and comments', async () => {
     const h = host();
     try {
       h.model.visible = true;
@@ -156,6 +162,8 @@ describe('SidebarModel', () => {
         'Hubble diagram with error bars',
         'Contour styling'
       ]);
+      expect(state.pendingComments).toBe(2);
+      expect(h.comments?.refresh).toHaveBeenCalledWith('project/astra.yaml');
       expect(state.error).toBeUndefined();
       expect(state.statusError).toBeUndefined();
     } finally {
@@ -163,7 +171,7 @@ describe('SidebarModel', () => {
     }
   });
 
-  it('prefers the live activity of an open chat', async () => {
+  it('prefers the live activity of an open chat and follows comment changes', async () => {
     const h = host();
     try {
       h.model.visible = true;
@@ -173,6 +181,15 @@ describe('SidebarModel', () => {
       expect(h.model.activity(second)).toBe('working');
       h.sessions!.live.set(first.path, 'attention');
       expect(h.model.activity(first)).toBe('attention');
+      h.comments!.counts.set('project/astra.yaml', 3);
+      h.comments!.changed.emit('project/astra.yaml');
+      await flush();
+      expect(h.model.state.pendingComments).toBe(3);
+      // Another project's comments do not count.
+      h.comments!.counts.set('other/astra.yaml', 9);
+      h.comments!.changed.emit('other/astra.yaml');
+      await flush();
+      expect(h.model.state.pendingComments).toBe(3);
     } finally {
       h.dispose();
     }
@@ -273,6 +290,7 @@ describe('SidebarModel', () => {
       await flush();
       expect(h.model.state.sessions).toEqual([]);
       expect(h.model.state.data).toBeUndefined();
+      expect(h.model.state.pendingComments).toBe(0);
       // The slow listing for the previous project arrives too late to count.
       release([]);
       await until(() => h.model.state.sessionsLoaded);
@@ -490,13 +508,14 @@ describe('SidebarModel', () => {
     }
   });
 
-  it('works without sessions and stops after disposal', async () => {
-    const h = host({ sessions: false });
+  it('works without sessions or comments and stops after disposal', async () => {
+    const h = host({ sessions: false, comments: false });
     try {
       h.model.visible = true;
       await until(() => !!h.model.state.data);
       expect(h.model.sessionService).toBeNull();
       expect(h.model.state.sessionsLoaded).toBe(false);
+      expect(h.model.state.pendingComments).toBe(0);
       expect(h.model.activity(session({ activity: 'working' }))).toBe(
         'working'
       );

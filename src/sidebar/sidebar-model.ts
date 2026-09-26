@@ -5,6 +5,7 @@ import { Poll } from '@lumino/polling';
 import { Signal, type ISignal } from '@lumino/signaling';
 import type { Widget } from '@lumino/widgets';
 import { RequestError } from '../api';
+import type { ICommentService } from '../comments/comment-service';
 import type { ICurrentProject } from '../current-project';
 import { sessionActivity } from '../home/home-model';
 import {
@@ -45,6 +46,8 @@ export interface ISidebarState {
   /** Whether the sessions have been listed at least once for this project. */
   sessionsLoaded: boolean;
   sessionsError: string | undefined;
+  /** Number of pending comments in the project. */
+  pendingComments: number;
   /** The Lightcone view the current main-area widget shows. */
   view: ICurrentView;
 }
@@ -61,6 +64,7 @@ export interface ISidebarModelOptions {
   shell: ISidebarShell;
   current: ICurrentProject;
   sessions: ISessionService | null;
+  comments: ICommentService | null;
 }
 
 /**
@@ -133,7 +137,7 @@ export class CoalescingRunner {
 
 /**
  * Follow the current project and gather what the sidebar shows: project data,
- * materialization status, sessions and the current view.
+ * materialization status, sessions, pending comments and the current view.
  * Nothing is fetched or polled while the sidebar is hidden, and the polls
  * also stand by while the browser tab is hidden.
  */
@@ -143,6 +147,7 @@ export class SidebarModel implements IDisposable {
     this._shell = options.shell;
     this._current = options.current;
     this._sessions = options.sessions;
+    this._comments = options.comments;
     this._statusRunner = new CoalescingRunner(() => this._updateStatuses());
     this._sessionsRunner = new CoalescingRunner(() => this._updateSessions());
     this._statusPoll = new Poll({
@@ -161,6 +166,7 @@ export class SidebarModel implements IDisposable {
     this._current.changed.connect(this._bind, this);
     this._contents.fileChanged.connect(this._onFileChanged, this);
     this._sessions?.changed.connect(this._onSessionsChanged, this);
+    this._comments?.changed.connect(this._onCommentsChanged, this);
     this._shell.currentChanged?.connect(this._onCurrentChanged, this);
     this._follow(this._shell.currentWidget);
     this._view = describeWidget(this._shell.currentWidget);
@@ -178,6 +184,7 @@ export class SidebarModel implements IDisposable {
       sessions: this._sessionList,
       sessionsLoaded: this._sessionsLoaded,
       sessionsError: this._sessionsError,
+      pendingComments: this._pendingComments,
       view: this._view
     };
   }
@@ -228,10 +235,12 @@ export class SidebarModel implements IDisposable {
     if (this._isDisposed || !this._entrypoint) {
       return;
     }
+    const entrypoint = this._entrypoint;
     await Promise.all([
       this._lease?.service.refresh().catch(() => undefined),
       this._statusRunner.request().catch(() => undefined),
-      this._sessionsRunner.request().catch(() => undefined)
+      this._sessionsRunner.request().catch(() => undefined),
+      this._refreshComments(entrypoint)
     ]);
   }
 
@@ -263,6 +272,7 @@ export class SidebarModel implements IDisposable {
     this._current.changed.disconnect(this._bind, this);
     this._contents.fileChanged.disconnect(this._onFileChanged, this);
     this._sessions?.changed.disconnect(this._onSessionsChanged, this);
+    this._comments?.changed.disconnect(this._onCommentsChanged, this);
     this._shell.currentChanged?.disconnect(this._onCurrentChanged, this);
     this._follow(null);
     this._release();
@@ -288,6 +298,7 @@ export class SidebarModel implements IDisposable {
     this._sessionList = [];
     this._sessionsLoaded = false;
     this._sessionsError = undefined;
+    this._pendingComments = 0;
     if (this._visible) {
       this._acquire();
       void this.refresh();
@@ -388,6 +399,30 @@ export class SidebarModel implements IDisposable {
     }
   }
 
+  private async _refreshComments(entrypoint: string): Promise<void> {
+    const service = this._comments;
+    if (!service) {
+      return;
+    }
+    const generation = this._generation;
+    try {
+      await service.refresh(entrypoint);
+    } catch (error) {
+      console.warn('Could not refresh Lightcone comments.', error);
+    }
+    if (generation !== this._generation || this._isDisposed) {
+      return;
+    }
+    this._setPendingComments(service.pending(entrypoint).length);
+  }
+
+  private _setPendingComments(count: number): void {
+    if (count !== this._pendingComments) {
+      this._pendingComments = count;
+      this._schedule();
+    }
+  }
+
   private _onFileChanged(
     _sender: Contents.IManager,
     change: Contents.IChangedArgs
@@ -430,6 +465,15 @@ export class SidebarModel implements IDisposable {
   // Failures are already in the state; the poll backs off on its own ticks.
   private _request(runner: CoalescingRunner): void {
     void runner.request().catch(() => undefined);
+  }
+
+  private _onCommentsChanged(
+    sender: ICommentService,
+    entrypoint: string
+  ): void {
+    if (this._entrypoint && entrypoint === this._entrypoint) {
+      this._setPendingComments(sender.pending(entrypoint).length);
+    }
   }
 
   private _onCurrentChanged(): void {
@@ -490,6 +534,7 @@ export class SidebarModel implements IDisposable {
   private readonly _shell: ISidebarShell;
   private readonly _current: ICurrentProject;
   private readonly _sessions: ISessionService | null;
+  private readonly _comments: ICommentService | null;
   private readonly _statusRunner: CoalescingRunner;
   private readonly _sessionsRunner: CoalescingRunner;
   private readonly _statusPoll: Poll;
@@ -504,6 +549,7 @@ export class SidebarModel implements IDisposable {
   private _sessionList: readonly ISessionInfo[] = [];
   private _sessionsLoaded = false;
   private _sessionsError: string | undefined;
+  private _pendingComments = 0;
   private _view: ICurrentView = {};
   private _followed: Widget | null = null;
   private _viewSignals: ISignal<unknown, unknown>[] = [];

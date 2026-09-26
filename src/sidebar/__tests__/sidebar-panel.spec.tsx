@@ -14,6 +14,7 @@ import { SidebarModel } from '../sidebar-model';
 import { LightconeSidebar } from '../sidebar-panel';
 import {
   FakeChatPanel,
+  FakeCommentService,
   FakeCurrentProject,
   FakeSessionService,
   PROJECT_SPEC,
@@ -106,6 +107,8 @@ function host(
       activity: 'working'
     })
   ]);
+  const comments = new FakeCommentService();
+  comments.counts.set('project/astra.yaml', 1);
   const shell = {
     currentWidget: null as Widget | null,
     currentChanged: new Signal<object, unknown>({})
@@ -114,7 +117,8 @@ function host(
     contents,
     shell,
     current,
-    sessions
+    sessions,
+    comments
   });
   const panel = new LightconeSidebar({
     commands,
@@ -138,6 +142,7 @@ function host(
     executed,
     current,
     sessions,
+    comments,
     shell,
     model,
     panel,
@@ -169,6 +174,7 @@ describe('LightconeSidebar', () => {
       expect(h.model.visible).toBe(true);
       expect(h.text()).toContain('project');
       expect(h.text()).toContain('New session');
+      expect(h.text()).toContain('1 pending comment');
       expect(h.panel.content.widgets.map(widget => widget.title.label)).toEqual(
         ['Sessions', 'Results', 'Analysis']
       );
@@ -551,6 +557,7 @@ describe('sidebarPlugin', () => {
       new FakeThemeManager(),
       null,
       restorer,
+      null,
       null,
       palette,
       null

@@ -133,6 +133,7 @@ export function SidebarHeader({
 
 export interface ISidebarActionsProps {
   trans: TranslationBundle;
+  pendingComments: number;
   /** Absent when sessions are unavailable. */
   onNewSession?: () => void;
 }
@@ -140,9 +141,10 @@ export interface ISidebarActionsProps {
 /** The verbs at the top of the sidebar: New session. */
 export function SidebarActions({
   trans,
+  pendingComments,
   onNewSession
 }: ISidebarActionsProps): React.ReactElement | null {
-  if (!onNewSession) {
+  if (!onNewSession && !pendingComments) {
     return null;
   }
   return (
@@ -158,6 +160,16 @@ export function SidebarActions({
             {trans.__('New session')}
           </span>
         </button>
+      ) : null}
+      {pendingComments > 0 ? (
+        <div className={`${BASE}-comments`} role="status">
+          {trans._n(
+            '%1 pending comment',
+            '%1 pending comments',
+            pendingComments,
+            pendingComments
+          )}
+        </div>
       ) : null}
     </div>
   );

@@ -524,3 +524,18 @@ Opening the graph from a record places it in the neighboring column. Clicking
 a graph node opens its record beside the graph, preserving both views. Each
 project has one reusable pipeline tab, and restoring the layout retains its
 trace. The graph is read-only: it starts no computation or materialization.
+
+### Comments
+
+Click a figure in a record tab or an image opened in JupyterLab to pin a comment
+at that point. Comments are
+numbered per target (①, ②, …), pinned to the version they were made on, and
+kept in `<project>/.lightcone/comments.json`; pins on images can be dragged,
+and every pending comment can be edited or deleted. Pending comments appear as
+chips above the composer of every session in the project and as a count in the
+sidebar; a chip opens its target. Sending the next message in a session sends
+the pending comments with it: the agent's prompt gains a short list of them, the
+chat keeps your message as typed and shows them as cards on it, and they leave
+the pending list. Where a deployment configures its own Jupyter AI persona
+manager, which does not append them to the prompt, the list is appended to the
+message text itself instead.

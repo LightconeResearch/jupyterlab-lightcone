@@ -7,6 +7,7 @@ import { ICommandPalette, IThemeManager } from '@jupyterlab/apputils';
 import { IStateDB } from '@jupyterlab/statedb';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import { projectFolders } from '../api';
+import { ICommentService } from '../comments/comment-service';
 import { ICurrentProject } from '../current-project';
 import { ISessionService } from '../sessions/session-service';
 import { PALETTE_CATEGORY } from '../workbench-ids';
@@ -39,6 +40,7 @@ export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
     ISessionService,
     ILayoutRestorer,
     ITranslator,
+    ICommentService,
     ICommandPalette,
     IStateDB
   ],
@@ -49,6 +51,7 @@ export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
     sessions: ISessionService | null,
     restorer: ILayoutRestorer | null,
     translator: ITranslator | null,
+    comments: ICommentService | null,
     palette: ICommandPalette | null,
     state: IStateDB | null
   ): void => {
@@ -57,7 +60,8 @@ export const sidebarPlugin: JupyterFrontEndPlugin<void> = {
       contents: app.serviceManager.contents,
       shell: app.shell,
       current,
-      sessions
+      sessions,
+      comments
     });
     const recent = new RecentProjects(state);
     const remember = () => {

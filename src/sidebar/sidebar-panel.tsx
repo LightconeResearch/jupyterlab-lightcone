@@ -373,6 +373,7 @@ export class LightconeSidebar extends SidePanel {
     return (
       <SidebarActions
         trans={trans}
+        pendingComments={state.pendingComments}
         onNewSession={
           sessions
             ? () =>

@@ -323,16 +323,19 @@ their Git configuration.
 
 ## Agent continuity and activity
 
-### Messages naming no installed agent are re-addressed
+### Messages naming no installed agent are re-addressed, and comments appended
 
 **Where.** `agent_workspace.py` (`on_chat_message`, `_usual_persona`,
-`_deliver`) and `agent_defaults.py`.
+`_deliver`, `_with_comments`) and `agent_defaults.py`.
 
 **What.** Upstream drops a message whose `to_persona` names no installed
 persona, and its picker restarts from the server default every time a chat's
 view is rebuilt. The override sends such a message to the agent the chat last
 addressed, else the one recorded for its project (`.lightcone/agent.json`),
-calls upstream's own `on_chat_message` with an addressed copy, so upstream still does the processing.
+appends selected pending comments to that addressed copy, then calls upstream's
+own `on_chat_message`, so upstream still owns processing. The saved chat keeps
+the user's text. A deployment using another persona manager receives an explicit
+page-config option telling the composer to append the comments visibly instead.
 
 **Why.** persona-manager 0.2 resolves the persona and schedules processing in
 one method with no hook between them, and never consults `default_persona`
@@ -432,11 +435,16 @@ absent, and bundling would create a second `Token`.
 
 **Upstream.** JupyterLab builder: `optional: true` in `sharedPackages`.
 
-### The project agent is stored in a hidden folder
+### Comments and the project agent are stored in a hidden folder
 
-**Where.** `jupyterlab_lightcone/project_store.py` and `agent_defaults.py`.
+**Where.** `jupyterlab_lightcone/project_store.py`, `agent_defaults.py` and
+`comments.py`.
 
-**What.** The last-used persona id is saved atomically in `<project>/.lightcone/agent.json`; reads are bounded and malformed stores act as an absent preference. A read-only project still receives its agent response.
+**What.** The last-used persona id is saved atomically in
+`<project>/.lightcone/agent.json`; reads are bounded and malformed stores act as
+an absent preference. Comments use the same project store boundary, with a
+separate atomic `comments.json` file and per-project write locks. A read-only
+project still receives its agent response.
 
 **Why.** The engine already ignores `.lightcone/`, but the Contents API refuses hidden paths unless `allow_hidden` is enabled server-wide. The route authorizes the project through its ContentsManager before reading the small preference store from disk.
 
@@ -824,7 +832,8 @@ validate the bounded result-commit listing.
 
 ### The isolation reset forces host controls into a layer
 
-**Where.** `style/home.css` (the Home preview controls layer).
+**Where.** `style/home.css` and `style/comments.css`, with the layer order
+declared in `style/base.css`.
 
 **Why.** `isolate.css` resets everything inside an `astra-isolate` root with
 `all: revert-layer`, so host controls placed inside must live in a layer
@@ -895,3 +904,80 @@ The graph reads resolved ASTRA input/output relationships through SDK types;
 its SVG and its Lumino placement/restoration use supported public APIs.
 A server/engine status-change event would remove polling from this consumer
 alongside Home, the sidebar and record tabs.
+
+## Figure comments and delivery
+
+### The comment tray is inserted before the input
+
+**Where.** `src/comments/comment-tray.tsx` (`TrayMount.place`).
+
+**What.** Pending comments show as chips above a session's composer. The tray
+is a React root placed before the chat's input container and put back
+whenever the chat re-renders around it.
+
+**Why.** Jupyter Chat has no slot between the messages and the input; the
+input toolbar registry renders inside the toolbar row.
+
+**Upstream.** `@jupyter/chat`: an input-header registry mirroring
+`IMessagePreambleRegistry`, or at least an exported input-container class.
+
+**Removal.** Register the tray; delete the placement and the observer.
+
+### Chip clicks stop propagation
+
+**Where.** `src/comments/comment-tray.tsx` (the chip click handler).
+
+**What.** The handler stops the click from bubbling after opening the pinned
+figure or its image file.
+
+**Why.** Jupyter Chat 0.25's `ChatWidget` refocuses its input for every click
+inside its node. A chip opens another document, whose focus would immediately
+be taken back by the chat.
+
+**Upstream.** `@jupyter/chat`: skip input refocusing when a click originated
+from an interactive element or its handler already moved focus.
+
+**Removal.** Delete the chip's `stopPropagation()` once upstream respects the
+focused document; keep the ordinary command-driven target opening.
+
+### Commentable figures are found by a BEM class
+
+**Where.** `src/comments/comment-hosts.ts` (`ElementHost`),
+`style/comments.css`.
+
+**What.** The record host finds the output image under
+`.astra-output-detail__artifact` and places the comment layer beside it.
+
+**Why.** `@astra-spec/ui` 0.0.7 exposes no annotation host or stable `data-slot`
+on this figure. Re-rendering remains owned by ASTRA UI; the extension only
+observes the image and owns its separate layer.
+
+**Upstream.** `@astra-spec/ui`: expose a documented figure `data-slot` or an
+annotation-host callback.
+
+**Removal.** Replace the BEM selector with the public host hook and remove the
+matching selector-dependent CSS when the hook ships.
+
+### Pins are measured overlays
+
+**Where.** `src/comments/image-layer.ts`, `comment-layer.ts`.
+
+**What.** An independently owned DOM layer positions each pin from percentages
+of the rendered image bounds. It observes resizes, content changes and
+scrolling, and disconnects its observers and event listeners on disposal.
+
+**Why.** Neither `@astra-spec/ui` 0.0.7 nor JupyterLab's image viewer exposes an
+annotation slot. Mutating their image or React-owned child structure would
+conflict with rendering, so the extension measures the image instead.
+
+**Upstream.** `@astra-spec/ui` and `@jupyterlab/imageviewer`: an annotation slot
+with image-coordinate conversion and notifications when bounds change.
+
+**Removal.** Render through those slots and delete the measured positioning,
+mutation observers and manual layer reattachment for the supported hosts.
+
+**Coverage.** Figure-host and image-layer tests exercise placement and cleanup;
+service/provider regressions cover superseded pending and full listings, disposal,
+and delivery to a known project. Backend tests verify authorized project access,
+atomic persistence and persona/composer delivery. The browser test follows a pin
+through the tray and the saved message using a deterministic test persona.

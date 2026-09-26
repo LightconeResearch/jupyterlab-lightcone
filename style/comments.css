@@ -1,0 +1,326 @@
+/* Comments: pins, the popover, the tray and cards. */
+
+/* A widget carrying a comment layer becomes the layer's containing block. */
+.jp-jupyterlab-lightcone-CommentHost {
+  position: relative;
+}
+
+.jp-jupyterlab-lightcone-CommentHost img.jp-jupyterlab-lightcone-Commentable,
+.jp-jupyterlab-lightcone-CommentHost
+  figure.astra-artifact:has(> img.jp-jupyterlab-lightcone-Commentable) {
+  cursor: crosshair;
+}
+
+.jp-jupyterlab-lightcone-CommentLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/*
+ * In a host that scrolls its own content (the image viewer), the layer moves
+ * with that content from the scroll origin and the host clips what it holds.
+ */
+.jp-jupyterlab-lightcone-CommentLayer[data-host-scrolls] {
+  inset: 0 auto auto 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+}
+
+.jp-jupyterlab-lightcone-CommentFrame {
+  position: absolute;
+  pointer-events: none;
+}
+
+.jp-jupyterlab-lightcone-CommentFrame[hidden] {
+  display: none;
+}
+
+/*
+ * Pins. Inside a record tab, an `astra-ui astra-isolate` root,
+ * @astra-spec/ui's reset `.astra-ui.astra-isolate :is(button, …) { all:
+ * revert-layer }` rolls unlayered styles back to the layered ones, so the
+ * controls are styled in `@layer lightcone` (ordered last in base.css) and
+ * the reset resolves to these rules. Outside such a root JupyterLab's own
+ * unlayered button rules (`.jp-ThemedContainer button`: font family, border
+ * radius, focus outline) would beat the layer, so those few properties are
+ * restated unlayered below.
+ */
+@layer lightcone {
+  .jp-jupyterlab-lightcone-CommentPin {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    margin: 0;
+    padding: 0 4px;
+    border: 1px solid var(--jp-brand-color1);
+    background: var(--jp-brand-color1);
+    color: var(--jp-ui-inverse-font-color1);
+    font: 600 var(--jp-ui-font-size1) / 1 var(--jp-ui-font-family);
+    line-height: 20px;
+    cursor: pointer;
+    pointer-events: auto;
+    box-shadow: var(--jp-elevation-z2);
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .jp-jupyterlab-lightcone-CommentPin:hover {
+    background: var(--jp-brand-color0);
+    border-color: var(--jp-brand-color0);
+  }
+
+  .jp-jupyterlab-lightcone-CommentPin:focus-visible {
+    outline: 2px solid var(--jp-brand-color2);
+    outline-offset: 1px;
+  }
+
+  .jp-jupyterlab-lightcone-CommentFlash {
+    animation: jp-jupyterlab-lightcone-comment-flash 1.5s ease-in-out;
+  }
+}
+
+/* What JupyterLab's unlayered button rules would otherwise set outside an isolate root. */
+.jp-jupyterlab-lightcone-CommentPin {
+  font-family: var(--jp-ui-font-family);
+  border-radius: 50%;
+}
+
+.jp-jupyterlab-lightcone-CommentPin:focus-visible {
+  outline: 2px solid var(--jp-brand-color2);
+  outline-offset: 1px;
+}
+
+.jp-jupyterlab-lightcone-CommentDraft {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px dashed var(--jp-brand-color1);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: color-mix(in srgb, var(--jp-brand-color1) 20%, transparent);
+  pointer-events: none;
+}
+
+@keyframes jp-jupyterlab-lightcone-comment-flash {
+  0%,
+  100% {
+    box-shadow: var(--jp-elevation-z2);
+  }
+
+  25%,
+  75% {
+    box-shadow: 0 0 0 6px
+      color-mix(in srgb, var(--jp-warn-color1) 55%, transparent);
+  }
+}
+
+/* The popover. */
+.jp-jupyterlab-lightcone-CommentPopover {
+  position: fixed;
+  z-index: 1020;
+  width: 320px;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-layout-color0);
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  box-shadow: var(--jp-elevation-z8);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  padding: 6px 8px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-input-active-background, var(--jp-layout-color0));
+  color: var(--jp-ui-font-color0);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-input:focus {
+  outline: none;
+  border-color: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-counter {
+  align-self: flex-end;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-text {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-error {
+  margin: 0;
+  color: var(--jp-error-color1);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-CommentPopover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* The pending tray above a session's input. */
+.jp-jupyterlab-lightcone-CommentTrayHost:empty {
+  display: none;
+}
+
+.jp-jupyterlab-lightcone-CommentTray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 32px 2px;
+}
+
+.jp-jupyterlab-lightcone-CommentChip {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-CommentChip button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-CommentChip button:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-CommentChip-open {
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-text {
+  overflow: hidden;
+  max-width: 220px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-label {
+  color: var(--jp-brand-color1);
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-icon svg,
+.jp-jupyterlab-lightcone-CommentChip-action svg,
+.jp-jupyterlab-lightcone-CommentCard-icon svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: middle;
+}
+
+.jp-jupyterlab-lightcone-CommentChip-action {
+  border-left: 1px solid var(--jp-border-color2);
+}
+
+/* A comment on a record leads with the record's ASTRA kind mark, in place of
+ * the anchor icon and at about its size. */
+.jp-jupyterlab-lightcone-CommentChip-kind,
+.jp-jupyterlab-lightcone-CommentCard-kind {
+  font-size: var(--jp-ui-font-size1);
+}
+
+/* Cards on a sent message. */
+.jp-jupyterlab-lightcone-CommentCards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.jp-jupyterlab-lightcone-CommentCard {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--jp-border-color2);
+  border-left: 3px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius, 2px);
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color1);
+  font: var(--jp-ui-font-size1) var(--jp-ui-font-family);
+  text-align: left;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-CommentCard:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-CommentCard-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-CommentCard-label {
+  color: var(--jp-brand-color1);
+  font-weight: 600;
+}
+
+.jp-jupyterlab-lightcone-CommentCard-target {
+  font-family: var(--jp-code-font-family);
+  color: var(--jp-ui-font-color1);
+}
+
+.jp-jupyterlab-lightcone-CommentCard-where {
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+  font-style: italic;
+}
+
+.jp-jupyterlab-lightcone-CommentCard-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

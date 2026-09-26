@@ -134,6 +134,12 @@
   min-width: 0;
 }
 
+.jp-jupyterlab-lightcone-Sidebar-comments {
+  padding: 4px 6px 2px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}
+
 .jp-jupyterlab-lightcone-Sidebar-section {
   min-height: 50px;
   overflow: auto;

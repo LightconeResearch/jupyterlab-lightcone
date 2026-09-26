@@ -1,6 +1,8 @@
 import { DocumentWidget, type DocumentRegistry } from '@jupyterlab/docregistry';
 import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
+import type { ICommentService } from '../../comments/comment-service';
+import type { IComment } from '../../comments/comments-api';
 import type { ICurrentProject } from '../../current-project';
 import type { IProjectRoot } from '../../project-root';
 import type {
@@ -100,6 +102,22 @@ export class FakeSessionService implements ISessionService {
   activity(path: string): SessionState | undefined {
     return this.live.get(path);
   }
+}
+
+/** A comment service that only counts. */
+export class FakeCommentService implements ICommentService {
+  readonly changed = new Signal<this, string>(this);
+  counts = new Map<string, number>();
+  pending(entrypoint: string): readonly IComment[] {
+    return Array.from(
+      { length: this.counts.get(entrypoint) ?? 0 },
+      (_, index) => ({ id: `c${index}` }) as unknown as IComment
+    );
+  }
+  readonly refresh = jest.fn(async () => undefined);
+  readonly add = jest.fn();
+  readonly update = jest.fn();
+  readonly remove = jest.fn();
 }
 
 /** Poll until `predicate` holds, failing after `timeout` ms. */

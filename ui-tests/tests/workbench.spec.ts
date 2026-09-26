@@ -1,5 +1,7 @@
 import { expect, test } from '@jupyterlab/galata';
 import type { Page } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const project = `version: "0.0.14"
 name: Workbench project
@@ -72,6 +74,13 @@ const TOOLBAR = '.jp-jupyterlab-lightcone-element-toolbar';
 const CONTENT = '.jp-jupyterlab-lightcone-element-content';
 
 const CHAT_INPUT = '.jp-chat-input-container';
+
+const FIGURE = '.astra-output-detail__artifact img';
+const PIN = '.jp-jupyterlab-lightcone-CommentPin';
+const CHIP =
+  '.jp-jupyterlab-lightcone-CommentTray .jp-jupyterlab-lightcone-CommentChip';
+const CARD = '.jp-jupyterlab-lightcone-CommentCard';
+const COMMENTS_API = '/jupyterlab_lightcone/api/comments';
 
 /** A 320×200 single-color PNG: a figure large enough to point at. */
 const FIGURE_PNG =
@@ -547,4 +556,140 @@ test('a narrow record beside Home keeps a readable context line', async ({
   await expect(context).toBeVisible();
   const box = await context.boundingBox();
   expect(box?.width ?? 0).toBeGreaterThanOrEqual(150);
+});
+
+test('a comment pinned on a figure waits above the composer and travels with the next message', async ({
+  page,
+  tmpPath
+}) => {
+  await page.contents.uploadContent(
+    fs.readFileSync(
+      path.resolve(__dirname, '../fixtures/personas/lightcone_persona.py'),
+      'utf8'
+    ),
+    'text',
+    `${tmpPath}/.jupyter/personas/lightcone_persona.py`
+  );
+  await page.contents.uploadContent(
+    FIGURE_PNG,
+    'base64',
+    `${tmpPath}/results/default/hubble_diagram.png`
+  );
+  await openWorkbench(page, tmpPath);
+  await page
+    .locator('.jp-jupyterlab-lightcone-Home-plate', {
+      hasText: 'Hubble diagram'
+    })
+    .click();
+  const record = page.locator(RECORD).first();
+  const figure = record.locator(FIGURE);
+  await expect(figure).toHaveClass(/jp-jupyterlab-lightcone-Commentable/);
+
+  // A click on the figure drops a point and asks for the comment.
+  const box = await figure.boundingBox();
+  if (!box) {
+    throw new Error('The figure has no layout box.');
+  }
+  await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.3);
+  const popover = page.getByRole('dialog', { name: 'Comment' });
+  await expect(popover).toBeVisible();
+  const created = page.waitForResponse(
+    response =>
+      response.url().includes(COMMENTS_API) &&
+      response.request().method() === 'POST'
+  );
+  await popover
+    .getByRole('textbox', { name: 'Comment' })
+    .fill('Move the legend');
+  await page.keyboard.press('Enter');
+  expect((await created).status()).toBe(201);
+  await expect(popover).toBeHidden();
+  const pin = record.locator(PIN);
+  await expect(pin).toHaveText('①');
+  await expect(page.locator(SIDEBAR)).toContainText('1 pending comment');
+  // The pin is drawn where the figure was clicked, not at its corner: the
+  // record tab's reset of native controls must leave the pin's own look.
+  const [pinBox, figureBox] = await Promise.all([
+    pin.boundingBox(),
+    figure.boundingBox()
+  ]);
+  if (!pinBox || !figureBox) {
+    throw new Error('The pin or the figure has no layout box.');
+  }
+  expect(
+    Math.abs(
+      pinBox.x + pinBox.width / 2 - (figureBox.x + figureBox.width * 0.4)
+    )
+  ).toBeLessThan(2);
+  expect(
+    Math.abs(
+      pinBox.y + pinBox.height / 2 - (figureBox.y + figureBox.height * 0.3)
+    )
+  ).toBeLessThan(2);
+  // The keyboard opens a pin too, with Edit and Delete.
+  await pin.focus();
+  await page.keyboard.press('Enter');
+  await expect(popover).toContainText('Move the legend');
+  await expect(popover.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(popover.getByRole('button', { name: 'Delete' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(popover).toBeHidden();
+
+  // Every session of the project shows it above the composer...
+  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  await expect(page.locator(CHAT_INPUT)).toBeVisible();
+  const chip = page.locator(CHIP);
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toContainText('①');
+  await expect(chip).toContainText('Move the legend');
+
+  // ...and its chip leads back to the pin on the figure.
+  await chip.locator('.jp-jupyterlab-lightcone-CommentChip-open').click();
+  await expect.poll(() => currentTitle(page)).toBe('Hubble diagram');
+  await expect(pin).toBeInViewport();
+
+  // Sending the next message takes the comment to the agent, not into the chat.
+  await page.locator('.lm-TabBar-tab', { hasText: 'untitled.chat' }).click();
+  const composer = page.locator(CHAT_INPUT).getByRole('combobox');
+  await composer.fill('Compare the options.');
+  await page.locator('.jp-chat-send-button').click();
+  const received = page
+    .locator('.jp-chat-rendered-message')
+    .filter({ hasText: 'Agent received:' });
+  await expect(received).toContainText('Comments on this project (1)', {
+    timeout: 30000
+  });
+  await expect(received).toContainText('outputs.hubble_diagram');
+  await expect(received).toContainText('"Move the legend"');
+  // The cards sit in the message's preamble, above its rendered body.
+  const sent = page
+    .locator('.jp-chat-message')
+    .filter({ has: page.locator(CARD) });
+  await expect(sent).toContainText('Compare the options.');
+  await expect(sent).not.toContainText('Comments on this project');
+  await expect(sent.locator(CARD)).toContainText('Move the legend');
+
+  // It is no longer pending anywhere: not above the composer, not in the
+  // sidebar, and not on the figure once it is shown again.
+  await expect(chip).toHaveCount(0);
+  await expect(page.locator(SIDEBAR)).not.toContainText('pending comment');
+  await page.locator('.lm-TabBar-tab', { hasText: 'Hubble diagram' }).click();
+  await expect(figure).toBeVisible();
+  await expect(pin).toHaveCount(0);
+  const response = await page.request.get(
+    `${COMMENTS_API}?${new URLSearchParams({
+      path: `${tmpPath}/astra.yaml`,
+      status: 'sent'
+    })}`
+  );
+  const { comments } = (await response.json()) as {
+    comments: { text: string; sentWith: { chat: string } | null }[];
+  };
+  expect(comments.map(comment => comment.text)).toEqual(['Move the legend']);
+  // The session is renamed after its first message, which may happen before
+  // or after the server records where the comment went.
+  expect([
+    `${tmpPath}/chats/untitled.chat`,
+    `${tmpPath}/chats/compare-the-options.chat`
+  ]).toContain(comments[0].sentWith?.chat);
 });

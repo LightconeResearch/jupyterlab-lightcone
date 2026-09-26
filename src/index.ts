@@ -16,6 +16,7 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
 import { chatLinksPlugin } from './chat-links';
+import { commentsPlugin } from './comments';
 import { chatPlugin } from './chat-plugin';
 import { chatProjectPlugin } from './chat-links/project-plugin';
 import { homePlugin } from './home';
@@ -187,6 +188,7 @@ export default [
   mystraPlugin,
   homePlugin,
   sidebarPlugin,
+  commentsPlugin,
   versionsPlugin,
   tabLabelsPlugin
 ];
