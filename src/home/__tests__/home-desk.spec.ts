@@ -325,13 +325,12 @@ describe('the sessions list', () => {
       );
 
       // Without the sidebar there is nowhere to list them all.
-      expect(h.text()).not.toContain('All 2 →');
+      const all = () => h.query<HTMLButtonElement>(`.${C}-sessions .${C}-link`);
+      expect(all()).toBeNull();
       h.register(SidebarCommandIDs.showSidebar);
-      await until(() => h.text().includes('All 2 →'));
-      const all = h
-        .queryAll<HTMLButtonElement>(`.${C}-sessions .${C}-link`)
-        .find(button => button.textContent === 'All 2 →');
-      all!.click();
+      await until(() => all() !== null);
+      expect(all()!.textContent).toBe('All 2');
+      all()!.click();
       await flush();
       expect(h.executed).toContainEqual([SidebarCommandIDs.showSidebar, {}]);
     } finally {
@@ -416,12 +415,16 @@ describe('the results', () => {
       expect(
         plates.map(plate => plate.querySelector(`.${C}-plateKind`)!.textContent)
       ).toEqual(['Figure', 'Table']);
-      // Each plate names its output after the inventory's output mark.
+      // Each plate's caption names its output, then its kind after the
+      // inventory's output mark.
+      expect(
+        plates.map(plate => plate.querySelector(`.${C}-plateName`)!.textContent)
+      ).toEqual(['Hubble diagram', 'Cosmology fit']);
       expect(
         plates.map(plate =>
           plate
             .querySelector(
-              `.${C}-plateCaption > .lightcone-brand.astra-ui > .astra-kind-glyph`
+              `.${C}-plateMeta > .lightcone-brand.astra-ui > .astra-kind-glyph`
             )
             ?.getAttribute('data-kind')
         )
@@ -433,7 +436,7 @@ describe('the results', () => {
         { entrypoint: ENTRYPOINT, target: 'outputs.hubble_diagram' }
       ]);
       h.queryAll<HTMLButtonElement>(`.${C}-link`)
-        .find(button => button.textContent === 'See all')!
+        .find(button => button.textContent === 'All 2 results')!
         .click();
       await flush();
       expect(h.executed).toContainEqual([
@@ -447,7 +450,7 @@ describe('the results', () => {
         CommandIDs.openInventory,
         { path: ENTRYPOINT }
       ]);
-      // The badges under the title carry the inventory's kind marks.
+      // The colophon under the title carries the inventory's kind marks.
       const badges = h.queryAll<HTMLElement>(`.${C}-badge`);
       expect(badges.map(badge => badge.dataset.kind)).toEqual([
         'output',
@@ -484,14 +487,14 @@ describe('the results', () => {
       await until(() => pipelineLink(h) !== null);
       const link = pipelineLink(h)!;
       expect(link.textContent).toBe('Pipeline');
-      // It sits in the results line, before See all.
+      // It sits in the results heading, before the link to all the results.
       expect(
         h
           .queryAll<HTMLButtonElement>(
-            `.${C}-section[aria-label="Results"] .${C}-link`
+            `.${C}-results > .${C}-sectionHead > .${C}-link`
           )
           .map(button => button.textContent)
-      ).toEqual(['Pipeline', 'See all']);
+      ).toEqual(['Pipeline', 'All 2 results']);
       link.click();
       await flush();
       expect(h.executed).toContainEqual([
@@ -527,10 +530,68 @@ describe('the results', () => {
       // Two plates, two results; the nested analysis still adds its input.
       expect(badge('output')).toBe('◆2 results');
       expect(badge('input')).toBe('▤2 inputs');
-      const seeAll = h
-        .queryAll<HTMLButtonElement>(`.${C}-link`)
-        .find(button => button.textContent === 'See all');
-      expect(seeAll?.getAttribute('aria-label')).toBe('See all results');
+      // The link to all the results counts the same results.
+      expect(
+        h
+          .queryAll<HTMLButtonElement>(`.${C}-link`)
+          .some(button => button.textContent === 'All 2 results')
+      ).toBe(true);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('names the results past the plates, each one click away', async () => {
+    const runs = Array.from(
+      { length: 9 },
+      (_, index) => `  - id: run_${index + 1}
+    label: Run ${index + 1}
+    type: data
+    format: csv
+    inputs: [catalog]
+`
+    ).join('');
+    const h = deskHost({
+      spec: RESULTS_SPEC.replace('decisions:\n', `${runs}decisions:\n`)
+    });
+    try {
+      await until(() => h.queryAll(`.${C}-plate`).length === 8);
+      // Figures and tables come first on the plates; the last three runs
+      // are named in the line after them.
+      const more = h.query(`.${C}-more`)!;
+      expect(more.querySelector(`.${C}-moreLabel`)!.textContent).toBe('3 more');
+      const links = h.queryAll<HTMLButtonElement>(`.${C}-moreLink`);
+      expect(links.map(link => link.textContent)).toEqual([
+        'Run 7',
+        'Run 8',
+        'Run 9'
+      ]);
+      links[1].click();
+      await flush();
+      expect(h.executed).toContainEqual([
+        CommandIDs.openElement,
+        { entrypoint: ENTRYPOINT, target: 'outputs.run_8' }
+      ]);
+      // The line ends with the way to all of them.
+      more.querySelector<HTMLButtonElement>(`.${C}-link`)!.click();
+      await flush();
+      expect(h.executed).toContainEqual([
+        CommandIDs.openInventory,
+        { path: ENTRYPOINT }
+      ]);
+      expect(more.querySelector(`.${C}-link`)!.textContent).toBe(
+        'All 11 results'
+      );
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('leaves the line out while every result has a plate', async () => {
+    const h = deskHost();
+    try {
+      await until(() => h.queryAll(`.${C}-plate`).length === 2);
+      expect(h.query(`.${C}-more`)).toBeNull();
     } finally {
       h.dispose();
     }

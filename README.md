@@ -83,26 +83,34 @@ Launcher**, Ctrl+Shift+L, the file browser's button, an emptied main area and
 `/lab/tree/...` URLs. Browsing into or out of a project switches an open tab
 between Home and the stock launcher.
 
-The left column shows the project's name, a line of badges counting what the
-ASTRA analysis holds (results, decisions, inputs, findings, papers, each with
-the kind mark the inventory uses), and its description rendered as Markdown.
-The description's pencil opens its original Markdown for editing. Below them, **Open
-report** (only when the project has a `myst.yml` or `myst.yaml`; it opens the
-[MySTRA Viewer](#mystra-viewer)) and **Open ASTRA**, which opens the ASTRA
-inventory. Result plates follow under one freshness line, with **Pipeline**
-(the graph behind that line, see [record tabs](#record-tabs-versions-and-provenance)) and **See all**
-leading to the inventory.
+The left column opens like a book's title page: the project's name over a
+rule, its description rendered as Markdown, and a line counting what the ASTRA
+analysis holds (results, decisions, inputs, findings, papers, each with the
+kind mark the inventory uses). The description's pencil opens its original
+Markdown for editing. Below them, **Open report** (only when the project has a
+`myst.yml` or `myst.yaml`; it opens the [MySTRA Viewer](#mystra-viewer)) and
+**Open ASTRA**, which opens the ASTRA inventory; the report's button is the
+filled one, and **Open ASTRA** takes the fill when there is no report. Result
+plates follow under the **Results** heading and its freshness line, with
+**Pipeline** (the graph behind that line, see
+[record tabs](#record-tabs-versions-and-provenance)) and **All _n_ results**
+leading to the inventory. Results past the first eight plates are named in a
+line after them, each opening its result.
 When results are stale or behind, the freshness line names them (see
 [materialization](#materialization)); materializing is the agent's job, or
 yours in a terminal. The right
-column is the desk: a composer with an agent picker and **Start**, then recent
-sessions with a working or needs-input marker. **Start** is the only action on
-Home that sends a message. The **Agent** picker lists the project's available
+column is the desk, beside the title page from the top: a composer with an
+agent picker and **Start**, then recent sessions with a working or
+needs-input marker. In a tab narrower than 900 pixels the page is one column:
+the title page, the composer, the results, then the sessions. **Start** is the
+only action on Home that sends a message. The **Agent** picker lists the project's available
 agents before its first session opens. It suggests the project's last agent,
 an available configured default, or its sole agent; otherwise choose one before
 pressing **Start**. The first message waits for the chat's agent list and is
 sent only if the chosen agent is available. Home reads JupyterLab's theme variables, so it looks
-native under any theme; showing it starts no kernel, MyST or recipe.
+native under any theme; the Lightcone themes set its title, the rule under it
+and its links' rules in antique gold. Showing it starts no kernel, MyST or
+recipe.
 
 The small pencil beside the project title opens **Rename project** and saves
 its display name. Project folders and file paths stay the same.

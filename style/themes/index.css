@@ -375,11 +375,14 @@
 
   /* Lightcone extras read by Home and the sidebar; each has a JupyterLab
    * fallback in the surfaces that read it. `--lc-paper` is the surface of
-   * documents and panels (Home's desk and result plates), so it matches
-   * `--jp-layout-color0` in both palettes and carries the UI text colors. */
+   * documents and panels (Home's composer and result plates), so it matches
+   * `--jp-layout-color0` in both palettes and carries the UI text colors.
+   * `--lc-display-accent` sets Home's title, the rule under it and its link
+   * underlines in antique gold; the title is large text, so it needs 3:1 on
+   * the canvas. */
   --lc-font-heading:
     'Lightcone Brand Quattrocento', georgia, 'Times New Roman', serif;
-  --lc-eyebrow: #3f7280; /* slate blue */
+  --lc-display-accent: #a67c3c; /* antique gold */
   --lc-accent-contrast: #fff;
   --lc-paper: #fff;
 }
@@ -594,7 +597,7 @@
   --jp-scrollbar-thumb-color: 74, 71, 72; /* an RGB triplet: layout color 3 */
 
   /* Lightcone extras */
-  --lc-eyebrow: #82a3ac; /* slate blue 65% / white */
+  --lc-display-accent: #c5aa80; /* antique gold 65% / white */
   --lc-accent-contrast: #221f20;
   --lc-paper: #221f20; /* charcoal: documents and panels */
 }
