@@ -1,3 +1,4 @@
+import { COMMIT_PATTERN } from './versions/versions-api';
 import type {
   ILabShell,
   JupyterFrontEnd,
@@ -50,6 +51,8 @@ export interface IPreviewCard extends PinnedReference {
 
 /** What a tab shows beyond the reference itself, and whether it is kept. */
 interface IShowOptions {
+  /** Show this committed output version first. */
+  versionCommit?: string;
   /** Keep the tab rather than letting the next open replace it. */
   pinned: boolean;
 }
@@ -77,8 +80,14 @@ interface IResolvedProject {
 }
 
 function parseShowOptions(args: ReadonlyPartialJSONObject): IShowOptions {
+  const versionCommit =
+    typeof args.versionCommit === 'string' &&
+    COMMIT_PATTERN.test(args.versionCommit)
+      ? args.versionCommit
+      : undefined;
   return {
-    pinned: args.pinned === true
+    pinned: args.pinned === true,
+    ...(versionCommit ? { versionCommit } : {})
   };
 }
 
@@ -109,7 +118,11 @@ const REFERENCE_PROPERTIES = {
 };
 
 const SHOW_PROPERTIES = {
-  pinned: { type: 'boolean' }
+  pinned: { type: 'boolean' },
+  versionCommit: {
+    type: 'string',
+    description: 'Show this committed output version first'
+  }
 };
 
 /** Expose record views and validate references before publishing chat previews. */
@@ -206,6 +219,7 @@ export function registerElementCommands(
     const reused = !!widget;
     if (!widget && !restoring && !newTab)
       widget = tabs.preview(reference, destination);
+    const display = { versionCommit: options.versionCommit };
     if (!widget) {
       const id = restoredId ?? `${ELEMENT_TAB_ID_PREFIX}${UUID.uuid4()}`;
       widget = new MainAreaWidget({
@@ -222,7 +236,7 @@ export function registerElementCommands(
         )
       });
       widget.id = id;
-      widget.content.display(reference, key, label);
+      widget.content.display(reference, key, label, display);
       tabs.add(widget, destination, restoring);
       await tracker.add(widget);
       const tab = widget;
@@ -231,7 +245,7 @@ export function registerElementCommands(
       tab.content.historyChanged.connect(() => tabs.save(tab));
       widget.disposed.connect(() => tabs.sync());
     } else {
-      widget.content.display(reference, key, label);
+      widget.content.display(reference, key, label, display);
       if (options.pinned) tabs.pin(widget);
     }
     if (!reused) tabs.remember(widget);
@@ -384,7 +398,10 @@ export function registerElementCommands(
         ...widget.content.reference,
         widgetId: widget.id,
         pinned: widget.content.isPinned,
-        label: widget.title.label
+        label: widget.title.label,
+        ...(widget.content.selectedVersion
+          ? { versionCommit: widget.content.selectedVersion }
+          : {})
       }),
       name: widget => widget.id
     });

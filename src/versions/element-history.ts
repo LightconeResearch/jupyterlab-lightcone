@@ -17,6 +17,11 @@ export interface IHistoryEntry {
   /** Stable identity of the record: entrypoint, target and universe. */
   identity: string;
   label: string;
+  /**
+   * The committed output version this entry shows; undefined follows the
+   * newest one. Set by an open that names a version and by the stepper.
+   */
+  versionCommit?: string;
   /** How far the tab was scrolled when it left this entry. */
   scrollTop?: number;
 }
@@ -52,7 +57,10 @@ export function pushHistory(
     entries[history.index] = {
       ...current,
       reference: entry.reference,
-      label: entry.label
+      label: entry.label,
+      ...(entry.versionCommit === undefined
+        ? {}
+        : { versionCommit: entry.versionCommit })
     };
     return { entries, index: history.index };
   }
@@ -60,6 +68,22 @@ export function pushHistory(
   const overflow = Math.max(0, entries.length - HISTORY_LIMIT);
   const kept = entries.slice(overflow);
   return { entries: kept, index: kept.length - 1 };
+}
+
+/**
+ * Record the output version the current entry shows, so that Back, Forward,
+ * a new tab and a restored tab all come back to it. Undefined follows the
+ * newest version. Returns the same history when nothing changes.
+ */
+export function selectEntryVersion(
+  history: IElementHistory,
+  commit: string | undefined
+): IElementHistory {
+  const current = currentEntry(history);
+  if (!current || current.versionCommit === commit) return history;
+  const entries = history.entries.slice();
+  entries[history.index] = { ...current, versionCommit: commit };
+  return { entries, index: history.index };
 }
 
 /**

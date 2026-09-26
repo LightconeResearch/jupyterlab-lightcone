@@ -320,8 +320,9 @@ Missing outputs stay unavailable and papers download only through **Fetch paper*
 Inline `{astra}` roles in response text do not produce hover previews. The
 previous Markdown DOM adapter has been removed: MyST consumes unknown roles,
 and neither renderer offers a shared inline extension hook. Agents should use
-the preview tool instead. Full MyST documents, block/value/citation roles,
-and historical result snapshots are outside this implementation.
+the preview tool instead. Full MyST documents and block/value/citation roles
+are outside this implementation. Committed output snapshots are available in
+record tabs through the version controls.
 
 See [the workaround inventory](docs/workarounds.md) for the compatibility
 boundary and the upstream changes that would simplify it.
@@ -413,3 +414,15 @@ Use Back/Forward, the breadcrumb trail, or Alt+Left/Right to return to earlier
 records; their scroll positions are retained. Ctrl/Cmd-click, middle-click,
 and **Open in new tab** retain another native tab. Pinning protects a tab from
 replacement by results opened elsewhere. Reload restores each tab and pin.
+
+### Committed output versions
+
+Record tabs offer Older/Newer controls for local root-analysis outputs. Each
+version reads the bytes and run manifest from that commit; renamed artifacts
+keep their historical filename and format. Missing git-annex content is
+identified with its known remote holders and is never fetched automatically.
+
+The listing shows at most 200 file-changing commits. A requested commit outside
+that listing stays explicitly unavailable until you select **Latest**; it is
+never replaced silently by the current output. Selected commits survive
+Back/Forward, opening a new tab, and layout restoration.

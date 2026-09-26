@@ -1,4 +1,4 @@
-/* Native record navigation and breadcrumb history. */
+/* Native record navigation and historical output controls. */
 
 @layer lightcone {
   /* Record tab toolbar: history on the left, context in the middle, actions on the right. */
@@ -64,5 +64,96 @@
   .jp-jupyterlab-lightcone-Chevron {
     display: block;
     flex: 0 0 auto;
+  }
+
+  /*
+   * A figure or table with versions: the version bar sits above the reader
+   * layout, outside the figure frame that zooms and pans its content.
+   */
+  .jp-jupyterlab-lightcone-VersionedOutput {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .jp-jupyterlab-lightcone-VersionBar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--astra-color-border);
+    background: var(--astra-color-canvas);
+  }
+
+  /* Version stepper, above a figure or table, or in the provenance rail. */
+
+  .jp-jupyterlab-lightcone-VersionStepper {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-summary {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px;
+    padding: 0 4px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-summary strong {
+    color: var(--astra-color-text);
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-summary code {
+    font-family: var(--astra-font-mono);
+  }
+
+  .jp-jupyterlab-lightcone-VersionBanner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--astra-color-kind-decision);
+    border-radius: var(--astra-radius-control);
+    color: var(--astra-color-text);
+    background: color-mix(
+      in srgb,
+      var(--astra-color-kind-decision) 12%,
+      var(--astra-color-surface)
+    );
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionBar .jp-jupyterlab-lightcone-VersionBanner {
+    flex: 1 1 16rem;
+  }
+
+  .jp-jupyterlab-lightcone-VersionRail {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionRail > h4 {
+    margin: 0;
+    color: var(--astra-color-eyebrow);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-limits {
+    color: var(--astra-color-text-muted);
+    cursor: help;
   }
 }

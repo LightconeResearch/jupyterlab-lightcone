@@ -18,6 +18,7 @@ import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../../commands';
 import { registerElementCommands } from '../../element-commands';
 import type { ElementWidget } from '../../element-widget';
+import { ElementHistoryCommandIDs } from '../element-history';
 
 // Record bodies are not under test: their project never loads.
 jest.mock('../../project-renderers', () => ({
@@ -162,6 +163,104 @@ test('two restored tabs showing the same record stay two tabs with their own pin
   // Restoring an id that is already open reuses that tab.
   await restore(bench.commands, 'lightcone-element-two');
   expect(bench.tabs()).toHaveLength(2);
+});
+
+test('moving through the history and stepping versions is what a reload restores', async () => {
+  await restore(bench.commands, 'lightcone-element-one');
+  const [tab] = bench.tabs();
+  const record = tab.content;
+  record.display(
+    { entrypoint: ENTRYPOINT, target: 'decisions.model', universeId: null },
+    identity('decisions.model'),
+    'Model'
+  );
+  await settle();
+  expect(bench.restoreArgs(tab)).toMatchObject({
+    target: 'decisions.model',
+    label: 'Model'
+  });
+  record.back();
+  await settle();
+  expect(bench.restoreArgs(tab)).toMatchObject({
+    target: 'outputs.fit',
+    label: 'Fit'
+  });
+  record.selectVersion('a889877');
+  await settle();
+  expect(bench.restoreArgs(tab)).toMatchObject({
+    target: 'outputs.fit',
+    versionCommit: 'a889877'
+  });
+  // Forward and back again come back to the stepped version.
+  record.forward();
+  record.back();
+  expect(record.selectedVersion).toBe('a889877');
+  record.selectVersion(undefined);
+  await settle();
+  expect(bench.restoreArgs(tab)?.versionCommit).toBeUndefined();
+});
+
+test('a restored tab shows the version it was saved with', async () => {
+  await restore(bench.commands, 'lightcone-element-one', {
+    versionCommit: 'b'.repeat(40)
+  });
+  const [tab] = bench.tabs();
+  expect(tab.content.selectedVersion).toBe('b'.repeat(40));
+  await restore(bench.commands, 'lightcone-element-two', {
+    versionCommit: 'not a commit'
+  });
+  expect(bench.tabs()[1].content.selectedVersion).toBeUndefined();
+});
+
+test('a version requested for the record a tab shows replaces its selection', async () => {
+  await restore(bench.commands, 'lightcone-element-one');
+  const [tab] = bench.tabs();
+  const changed = jest.fn();
+  tab.content.historyChanged.connect(changed);
+  tab.content.display(
+    { entrypoint: ENTRYPOINT, target: 'outputs.fit', universeId: null },
+    identity('outputs.fit'),
+    'Fit',
+    { versionCommit: 'c'.repeat(7) }
+  );
+  expect(tab.content.selectedVersion).toBe('c'.repeat(7));
+  expect(tab.content.history.entries).toHaveLength(1);
+  expect(changed).toHaveBeenCalled();
+  // A reopen that names no version keeps what the reader selected.
+  tab.content.display(
+    { entrypoint: ENTRYPOINT, target: 'outputs.fit', universeId: null },
+    identity('outputs.fit'),
+    'Fit'
+  );
+  expect(tab.content.selectedVersion).toBe('c'.repeat(7));
+});
+
+test('"Open in new tab" opens the version the tab shows now', async () => {
+  await restore(bench.commands, 'lightcone-element-one', {
+    versionCommit: 'c'.repeat(40)
+  });
+  const [tab] = bench.tabs();
+  const execute = bench.commands.execute.bind(bench.commands);
+  const opened: ReadonlyPartialJSONObject[] = [];
+  jest
+    .spyOn(bench.commands, 'execute')
+    .mockImplementation(async (id, args = {}) => {
+      if (id !== CommandIDs.openElement) return execute(id, args);
+      opened.push(args);
+      return undefined;
+    });
+  // "Latest" on the stepper returns the tab to the newest version.
+  tab.content.selectVersion(undefined);
+  await bench.commands.execute(ElementHistoryCommandIDs.openInNewTab, {
+    widgetId: tab.id
+  });
+  expect(opened[0]).toMatchObject({ target: 'outputs.fit', newTab: true });
+  expect(opened[0].versionCommit).toBeUndefined();
+  tab.content.selectVersion('a'.repeat(40));
+  await bench.commands.execute(ElementHistoryCommandIDs.openInNewTab, {
+    widgetId: tab.id
+  });
+  expect(opened[1].versionCommit).toBe('a'.repeat(40));
 });
 
 test('keyboard focus stays in the tab when showing another record replaces the focused control', async () => {

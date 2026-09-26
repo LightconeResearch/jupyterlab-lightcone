@@ -6,6 +6,7 @@ from .agent_activity import watch_persona_activity
 from .agent_defaults import setup_project_agent_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
+from .versions import setup_versions_handlers
 from .routes import setup_route_handlers
 from .project_routes import setup_project_handlers
 from .projects import expose_engine_tools
@@ -55,3 +56,4 @@ class LightconeApp(ExtensionApp):
         setup_provenance_handlers(app)
         setup_session_handlers(app)
         setup_project_agent_handlers(app)
+        setup_versions_handlers(app)

@@ -1,4 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react';
 import {
   showErrorMessage,
   ReactWidget,
@@ -35,11 +41,23 @@ import {
   primaryLiteratureEvidence,
   isInsight
 } from '@astra-spec/ui/model';
-import type { ResolvedRecord } from '@astra-spec/sdk';
+import type { ResolvedOutput, ResolvedRecord } from '@astra-spec/sdk';
 import type { IProjectDataState } from './project-data-service';
 import { useProject } from './project-data-hooks';
 import { resolveReference, type IElementReference } from './element-reference';
 import { useProjectRenderers } from './project-renderers';
+import type { ILoadedProjectData } from './project-data';
+import {
+  outputMaterializationStatus,
+  useMaterializationStatus
+} from './materialization-status';
+import { JupyterOutputProvenance } from './output-provenance';
+import {
+  useOutputVersioning,
+  VersionBar,
+  VersionedArtifact,
+  VersionRail
+} from './versions/versioned-output';
 import { AstraKindMark } from './astra-kind';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
@@ -56,6 +74,7 @@ import {
   historyTrail,
   pushHistory,
   rememberScroll,
+  selectEntryVersion,
   stepHistory,
   type IElementHistory
 } from './versions/element-history';
@@ -208,6 +227,95 @@ function HistoryControls({
   );
 }
 
+interface IOutputRecordDetailProps {
+  widget: ElementWidget;
+  contents: Contents.IManager;
+  data: ILoadedProjectData;
+  record: ResolvedOutput;
+  renderers: ReturnType<typeof useProjectRenderers>;
+  open: (next: ResolvedRecord) => void;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+}
+
+/** An output with its materialization status, version history and provenance. */
+function OutputRecordDetail({
+  widget,
+  contents,
+  data,
+  record,
+  renderers,
+  open,
+  expanded,
+  onExpandedChange
+}: IOutputRecordDetailProps): React.ReactElement {
+  const entrypoint = widget.reference.entrypoint;
+  const materialization = useMaterializationStatus(
+    contents,
+    entrypoint,
+    data.document
+  );
+  const status = outputMaterializationStatus(
+    materialization.statuses,
+    data,
+    record
+  );
+  // The tab owns the selected version: an open naming a version, the
+  // stepper and the history all move the same selection.
+  const selectVersion = useCallback(
+    (commit: string | undefined) => widget.selectVersion(commit),
+    [widget]
+  );
+  const versioning = useOutputVersioning(
+    contents,
+    entrypoint,
+    data,
+    record,
+    status,
+    widget.selectedVersion,
+    selectVersion
+  );
+  const universe = data.document.universe.universeId;
+  return (
+    <div className="jp-jupyterlab-lightcone-VersionedOutput">
+      <VersionBar versioning={versioning} output={record} />
+      <OutputDetail
+        record={record}
+        relations={outputRelations(data.index, record)}
+        renderArtifact={(output, options) => (
+          <VersionedArtifact
+            versioning={versioning}
+            output={output}
+            compact={options.compact}
+            current={renderers.renderArtifact?.(output, options) ?? null}
+          />
+        )}
+        renderCodeLink={renderers.renderCodeLink}
+        renderProvenance={output => (
+          <>
+            <VersionRail versioning={versioning} output={output} />
+            {versioning.selected && !versioning.shown ? null : (
+              <JupyterOutputProvenance
+                key={`${entrypoint}:${universe}:${output.canonicalPath}`}
+                contents={contents}
+                entrypoint={entrypoint}
+                universe={universe}
+                index={data.index}
+                output={output}
+                status={status}
+                version={versioning.shown}
+              />
+            )}
+          </>
+        )}
+        onOpenRecord={open}
+        expanded={expanded}
+        onExpandedChange={onExpandedChange}
+      />
+    </div>
+  );
+}
+
 function DetailBody({
   widget,
   contents,
@@ -284,12 +392,13 @@ function DetailBody({
     switch (record.kind) {
       case 'output':
         body = (
-          <OutputDetail
+          <OutputRecordDetail
+            widget={widget}
+            contents={contents}
+            data={data}
             record={record}
-            relations={outputRelations(data.index, record)}
-            renderArtifact={renderers.renderArtifact}
-            renderCodeLink={renderers.renderCodeLink}
-            onOpenRecord={open}
+            renderers={renderers}
+            open={open}
             expanded={expanded}
             onExpandedChange={setExpanded}
           />
@@ -465,6 +574,16 @@ function DetailBody({
   );
 }
 
+/** What `display` may say beyond the reference itself. */
+export interface IDisplayOptions {
+  /**
+   * Show this committed version of the output, replacing the version the tab
+   * showed for it; without one, a tab already showing the record keeps its
+   * selection.
+   */
+  versionCommit?: string;
+}
+
 /**
  * Native ASTRA view with replaceable content, an explicit user-owned pin and
  * a history of the references it has shown. It uses native JupyterLab tabs and public layout APIs.
@@ -520,6 +639,27 @@ export class ElementWidget extends ReactWidget {
     return canGoForward(this._history);
   }
 
+  /**
+   * The committed output version this tab shows (a full or abbreviated
+   * commit); undefined while it follows the newest version.
+   */
+  get selectedVersion(): string | undefined {
+    return currentEntry(this._history)?.versionCommit;
+  }
+
+  /**
+   * Show another committed version of the current output; undefined returns
+   * to the newest. The choice belongs to the current history entry, so Back,
+   * Forward, "Open in new tab" and a restored layout keep it.
+   */
+  selectVersion(commit: string | undefined): void {
+    const next = selectEntryVersion(this._history, commit);
+    if (next === this._history) return;
+    this._history = next;
+    this.update();
+    this._historyChanged.emit();
+  }
+
   /** Update retention without changing the displayed record or its live data. */
   setPinned(pinned: boolean): void {
     this._isPinned = pinned;
@@ -532,11 +672,17 @@ export class ElementWidget extends ReactWidget {
    * navigates too: the pin protects it from being reused by opens made
    * elsewhere, not from links followed inside it.
    */
-  display(reference: IElementReference, identity: string, label: string): void {
+  display(
+    reference: IElementReference,
+    identity: string,
+    label: string,
+    options: IDisplayOptions = {}
+  ): void {
     this._history = pushHistory(this._leave(), {
       reference,
       identity,
-      label
+      label,
+      ...(options.versionCommit ? { versionCommit: options.versionCommit } : {})
     });
     this._show();
   }

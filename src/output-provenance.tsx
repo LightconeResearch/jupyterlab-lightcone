@@ -3,7 +3,8 @@ import { OutputProvenance } from '@astra-spec/ui/components';
 import type { OutputRun, OutputStatus } from '@astra-spec/ui/model';
 import type { Contents } from '@jupyterlab/services';
 import React, { useEffect, useState } from 'react';
-import { fetchRunRecord } from './api';
+import type { IOutputVersion } from './versions/versions-api';
+import { fetchRunRecord, parseRunRecord } from './api';
 import { isRootAnalysisOutput } from './materialization-status';
 
 /** Mounted only for the open output detail; never reads every output's record. */
@@ -13,7 +14,8 @@ export function JupyterOutputProvenance({
   index,
   universe,
   output,
-  status
+  status,
+  version
 }: {
   contents: Contents.IManager;
   entrypoint: string;
@@ -21,6 +23,8 @@ export function JupyterOutputProvenance({
   universe: string;
   output: ResolvedOutput;
   status: OutputStatus | undefined;
+  /** The selected commit supplies its own manifest, never today's sidecar. */
+  version?: IOutputVersion;
 }): React.ReactElement {
   const [result, setResult] = useState<{
     record?: OutputRun | null;
@@ -67,8 +71,10 @@ export function JupyterOutputProvenance({
   return (
     <OutputProvenance
       status={status}
-      run={result?.record}
-      error={result?.error}
+      run={
+        version ? parseRunRecord({ record: version.manifest }) : result?.record
+      }
+      error={version ? undefined : result?.error}
     />
   );
 }

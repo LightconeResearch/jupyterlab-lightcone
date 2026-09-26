@@ -509,3 +509,48 @@ while an evidence record's authored artifact reference remains comparable.
 **Remove when:** `@astra-spec/sdk` exports runtime derived-field metadata per
 record kind, or preserves the authored record on each resolved record. Keep
 the snapshot tests for metadata-only updates and authored evidence changes.
+
+## Historical output access
+
+### The content route mirrors the Jupyter files security policy
+
+**Where:** `versions.py` (`OutputVersionContentHandler`). Committed SVG/PDF
+bytes can be active documents. Jupyter Server's FilesHandler hard-codes its
+CSP sandbox and same-site XSRF check without an extractable public mixin. This
+authenticated, contents-authorized route therefore applies the same sandbox
+and `check_xsrf_cookie()` policy, streams bounded content off the event loop,
+and never caches error responses as immutable content. Tests exercise both
+read authorization and cross-site inclusion.
+
+**Remove when:** Jupyter Server exposes its files security policy as a public
+mixin; use it while retaining the adversarial route tests.
+
+### Engine output locations are not a public discovery API
+
+**Where:** `versions.py`, `results.py`, and `provenance.py`. The pinned
+lightcone-cli engine's `plan.build()` supplies the declared output location.
+For an output no longer declared, a bounded repository lookup uses the engine's
+results layout. Hidden manifest sidecars are read after authorizing their
+containing visible directory through the contents manager, and their schema
+and output identity are validated before exposing data. Git history and rename
+tracking use dulwich; git-annex keys and bytes use documented JSON commands.
+
+**Remove when:** lightcone-cli publishes output paths and manifest data through
+a stable read-only API (or `lc status --json`); remove the layout fallback and
+hidden-file reads. Until then the existing engine minor-version cap guards the
+in-process API. Tests cover renamed/deleted outputs, nested projects, manifest
+validation, and containment.
+
+### Avoid initializing a git-annex clone while reading it
+
+**Where:** `versions.py` (`Repository.annex_state`) and `annex.py`. Even a
+lookup can initialize an annex clone. A repository with a `*/git-annex` ref
+and no local `annex.uuid` is reported as uninitialized without invoking any
+annex command. Otherwise lookupkey/examinekey/whereis/contentlocation use their
+documented JSON or path outputs; no annex pointer or object layout is decoded.
+The executable is resolved beside this interpreter before PATH, because the
+git-annex wheel installs it there. Tests verify clone reads make no changes.
+
+**Remove when:** git-annex provides a guaranteed non-initializing state query.
+The engine's own executable lookup should also search its interpreter's scripts
+directory so installations launched without an activated shell remain usable.

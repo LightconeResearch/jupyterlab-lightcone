@@ -9,16 +9,18 @@ import {
   HISTORY_LIMIT,
   pushHistory,
   rememberScroll,
+  selectEntryVersion,
   stepHistory,
   type IElementHistory,
   type IHistoryEntry
 } from '../element-history';
 
-function entry(target: string): IHistoryEntry {
+function entry(target: string, versionCommit?: string): IHistoryEntry {
   return {
     reference: { entrypoint: 'project/astra.yaml', target, universeId: null },
     identity: JSON.stringify(['project/astra.yaml', target, null]),
-    label: target.split('.').pop() ?? target
+    label: target.split('.').pop() ?? target,
+    ...(versionCommit ? { versionCommit } : {})
   };
 }
 
@@ -79,11 +81,16 @@ test('pushing after going back drops the forward entries, as a browser does', ()
 test('reopening the current record refreshes it in place instead of duplicating', () => {
   const history = trail('outputs.a', 'decisions.b');
   const same = pushHistory(history, {
-    ...entry('decisions.b'),
+    ...entry('decisions.b', 'a889877abcdef'),
     label: 'Cosmological model'
   });
   expect(same.entries).toHaveLength(2);
   expect(currentEntry(same)?.label).toBe('Cosmological model');
+  expect(currentEntry(same)?.versionCommit).toBe('a889877abcdef');
+  // A later plain reopen keeps the version it was asked for.
+  expect(
+    currentEntry(pushHistory(same, entry('decisions.b')))?.versionCommit
+  ).toBe('a889877abcdef');
 });
 
 test('keeps at most the newest entries', () => {
@@ -159,4 +166,31 @@ test('papers are identified by DOI and the root analysis by name', () => {
   expect(historyCaption(trail(''))).toBe('analysis');
   expect(historyTrail(paper).crumbs[0].kind).toBe('paper');
   expect(historyTrail(trail('')).crumbs[0].kind).toBe('analysis');
+});
+
+test('the current entry keeps the version it shows through moves and reopens', () => {
+  const history = trail('outputs.a', 'decisions.b');
+  const back = stepHistory(history, -1)!;
+  const stepped = selectEntryVersion(back, 'a889877');
+  expect(currentEntry(stepped)?.versionCommit).toBe('a889877');
+  // The other entries and the original history are untouched.
+  expect(currentEntry(back)?.versionCommit).toBeUndefined();
+  expect(stepped.entries[1].versionCommit).toBeUndefined();
+  expect(selectEntryVersion(stepped, 'a889877')).toBe(stepped);
+  // Forward and back again return to the stepped version.
+  const returned = stepHistory(stepHistory(stepped, +1)!, -1)!;
+  expect(currentEntry(returned)?.versionCommit).toBe('a889877');
+  // A reopen without a version keeps it; one naming a version replaces it.
+  expect(
+    currentEntry(pushHistory(returned, entry('outputs.a')))?.versionCommit
+  ).toBe('a889877');
+  expect(
+    currentEntry(pushHistory(returned, entry('outputs.a', 'b'.repeat(40))))
+      ?.versionCommit
+  ).toBe('b'.repeat(40));
+  // Returning to the newest version clears it.
+  expect(
+    currentEntry(selectEntryVersion(returned, undefined))?.versionCommit
+  ).toBeUndefined();
+  expect(selectEntryVersion(EMPTY_HISTORY, 'a889877')).toBe(EMPTY_HISTORY);
 });
