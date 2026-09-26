@@ -620,6 +620,8 @@ export class ElementWidget extends ReactWidget {
     this._theme = new LightconeThemeBinding(themes, this.node);
   }
 
+  readonly lightconeView = true as const;
+
   /** The Contents path of the project's `astra.yaml` this tab shows. */
   get entrypoint(): string {
     return this.reference.entrypoint;

@@ -497,3 +497,17 @@ Home replaces `@jupyterlab/launcher-extension:plugin` atomically through the
 extension manifest and its own `ILauncher` provider. Disabling Lightcone Lab
 restores JupyterLab's stock launcher. Other launcher replacements conflict
 with this provider.
+
+### Project sidebar
+
+The Lightcone icon in the left sidebar opens the current project's sessions,
+results and analysis tree. **New session** starts an empty chat; sessions can
+be renamed in place and show their live activity. Results carry the engine's
+materialization state, and the selected record or analysis follows the active
+tab. Home's sessions section can open the full list in the sidebar.
+
+The project switcher lists recently visited projects and nearby project
+folders, with actions to open or create another. Selecting a project moves the
+file browser there; it keeps existing tabs open. When tabs from different
+projects have the same visible title, their project folders appear beside
+their labels. These display labels preserve document filenames.

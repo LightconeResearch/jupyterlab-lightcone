@@ -3,7 +3,9 @@
 @import url('@astra-spec/ui/isolate.css');
 @import url('./base.css');
 @import url('./home.css');
+@import url('./sidebar.css');
 @import url('./sessions.css');
 @import url('./mystra.css');
 @import url('./versions.css');
 @import url('./chat-links.css');
+@import url('./tab-labels.css');

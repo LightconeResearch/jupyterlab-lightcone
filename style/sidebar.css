@@ -1,0 +1,385 @@
+/* The Lightcone sidebar reads only JupyterLab theme variables, so it looks
+   native under every theme and branded under the Lightcone themes. */
+
+.jp-jupyterlab-lightcone-Sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: var(--jp-sidebar-min-width);
+  height: 100%;
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+}
+
+/* The stock header is a one-line uppercase strip; ours stacks two blocks. */
+.jp-jupyterlab-lightcone-Sidebar > .jp-SidePanel-header {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  font-size: var(--jp-ui-font-size1);
+  font-weight: normal;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 10px 8px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 22px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-mark svg {
+  width: 18px;
+  height: 22px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-identity {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-name {
+  overflow: hidden;
+  font-family: var(--lc-font-heading, var(--jp-ui-font-family));
+  font-size: var(--jp-ui-font-size2);
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-path {
+  overflow: hidden;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-iconButton {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  background: transparent;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-iconButton:hover,
+.jp-jupyterlab-lightcone-Sidebar-iconButton:focus-visible {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-button {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--jp-ui-font-size1);
+  line-height: 26px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px 6px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-action:hover,
+.jp-jupyterlab-lightcone-Sidebar-action:focus-visible {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-action .jp-icon3[fill] {
+  fill: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-actionLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-section {
+  min-height: 50px;
+  overflow: auto;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-count {
+  align-self: center;
+  padding: 0 8px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: normal;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-count:empty {
+  display: none;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-message {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-message.jp-mod-error {
+  color: var(--jp-error-color1);
+}
+
+/* A quiet line whose detail is in its tooltip, as in the inventory's bar. */
+.jp-jupyterlab-lightcone-Sidebar-note {
+  margin: 0;
+  padding: 4px 12px 0;
+  color: var(--jp-warn-color1);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-list,
+.jp-jupyterlab-lightcone-Sidebar-tree {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-item,
+.jp-jupyterlab-lightcone-Sidebar-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 26px;
+  padding: 2px 10px;
+  border: 0;
+  border-inline-start: 2px solid transparent;
+  color: var(--jp-ui-font-color1);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-node {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  padding-block: 4px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-item:hover,
+.jp-jupyterlab-lightcone-Sidebar-item:focus-visible,
+.jp-jupyterlab-lightcone-Sidebar-node:hover,
+.jp-jupyterlab-lightcone-Sidebar-node:focus-visible {
+  background: var(--jp-layout-color2);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-item.jp-mod-active,
+.jp-jupyterlab-lightcone-Sidebar-node.jp-mod-active {
+  border-inline-start-color: var(--jp-brand-color1);
+  background: var(--jp-layout-color2);
+}
+
+/* A session row: the open button, with a rename button over its end on hover. */
+.jp-jupyterlab-lightcone-Sidebar-row {
+  position: relative;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rowAction {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color2);
+  opacity: 0;
+  cursor: pointer;
+  transform: translateY(-50%);
+  inset-inline-end: 6px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rowAction:hover,
+.jp-jupyterlab-lightcone-Sidebar-rowAction:focus-visible {
+  background: var(--jp-layout-color3);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-row:hover
+  .jp-jupyterlab-lightcone-Sidebar-rowAction,
+.jp-jupyterlab-lightcone-Sidebar-row:focus-within
+  .jp-jupyterlab-lightcone-Sidebar-rowAction {
+  opacity: 1;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-rowAction svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* A result's title leads with the ASTRA kind mark the inventory draws for
+ * outputs, on the title's baseline. */
+.jp-jupyterlab-lightcone-Sidebar-kind {
+  margin-inline-end: 6px;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-meta {
+  flex: 0 0 auto;
+  color: var(--jp-ui-font-color3);
+  font-size: var(--jp-ui-font-size0);
+  white-space: nowrap;
+}
+
+/* Session activity: a pulsing dot while an agent works, "!" when it waits. */
+.jp-jupyterlab-lightcone-Sidebar-marker {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-marker[data-state='working'] {
+  background: var(--jp-brand-color1);
+  animation: jp-jupyterlab-lightcone-sidebar-pulse 1.6s ease-in-out infinite;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-marker[data-state='attention'] {
+  color: var(--jp-ui-inverse-font-color1);
+  background: var(--jp-warn-color1);
+}
+
+@keyframes jp-jupyterlab-lightcone-sidebar-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jp-jupyterlab-lightcone-Sidebar-marker[data-state='working'] {
+    animation: none;
+  }
+}
+
+/* Result freshness from `lc status`. */
+.jp-jupyterlab-lightcone-Sidebar-status {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-status[data-state='current'] {
+  background: var(--jp-success-color1);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-status[data-state='behind'] {
+  background: var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-status[data-state='stale'] {
+  background: var(--jp-error-color1);
+}
+
+.jp-jupyterlab-lightcone-Sidebar-status[data-state='unknown'] {
+  border: 1px solid var(--jp-border-color1);
+  box-sizing: border-box;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-more {
+  display: block;
+  width: 100%;
+  padding: 4px 12px 6px;
+  border: 0;
+  color: var(--jp-brand-color1);
+  background: transparent;
+  font: inherit;
+  font-size: var(--jp-ui-font-size0);
+  text-align: start;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Sidebar-more:hover,
+.jp-jupyterlab-lightcone-Sidebar-more:focus-visible {
+  text-decoration: underline;
+}
+
+/* Counts wrap as whole tallies in a narrow sidebar or a deeply nested row,
+ * never clipped mid-mark. */
+.jp-jupyterlab-lightcone-Sidebar-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px 10px;
+  color: var(--jp-ui-font-color3);
+  font-size: var(--jp-ui-font-size0);
+  white-space: nowrap;
+}
+
+/* One count of an analysis row, behind its kind's ASTRA mark. Mark and
+ * count share a baseline, as in the inventory's outline, since centring
+ * their boxes lifts the mark above the count's figures. */
+.jp-jupyterlab-lightcone-Sidebar-tally {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}

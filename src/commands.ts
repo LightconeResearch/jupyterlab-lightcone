@@ -347,7 +347,6 @@ export function registerCommands(options: ICommandOptions): void {
             description: 'Project directory contents path'
           },
           analysisPath: { type: 'string' },
-          scope: { type: 'string' },
           openReference: {
             type: 'object',
             description: 'ASTRA record or paper reference'
@@ -377,7 +376,6 @@ export function registerCommands(options: ICommandOptions): void {
               ...(typeof args.analysisPath === 'string'
                 ? { analysisPath: args.analysisPath }
                 : {}),
-              ...(typeof args.scope === 'string' ? { scope: args.scope } : {}),
               ...(openReference ? { openReference } : {})
             },
             widget.context.path

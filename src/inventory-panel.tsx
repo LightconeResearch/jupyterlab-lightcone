@@ -9,6 +9,7 @@ import { analysisTitle } from '@astra-spec/ui/model';
 import { SurfaceHeader } from '@astra-spec/ui/primitives';
 import { Inventory } from '@astra-spec/ui/views';
 import type { DetailEntry } from '@astra-spec/ui/lib';
+import { Signal, type ISignal } from '@lumino/signaling';
 import React, { useId } from 'react';
 import { flushSync } from 'react-dom';
 import { useProjectRenderers } from './project-renderers';
@@ -292,6 +293,18 @@ export class AstraInventoryPanel extends ReactWidget {
     return this._subscription.refresh();
   }
 
+  /** The analysis the inventory shows, once the project has loaded. */
+  get analysisPath(): string | undefined {
+    return this._state.status === 'ready'
+      ? this._state.analysisPath
+      : undefined;
+  }
+
+  /** Emitted when `analysisPath` changes, so the sidebar can follow the scope. */
+  get scopeChanged(): ISignal<this, void> {
+    return this._scopeChanged;
+  }
+
   dispose(): void {
     if (this.isDisposed) return;
     this._subscription.dispose();
@@ -332,8 +345,12 @@ export class AstraInventoryPanel extends ReactWidget {
   }
 
   private _setState(state: InventoryPanelState): void {
+    const scope = this.analysisPath;
     this._state = state;
     this.update();
+    if (this.analysisPath !== scope) {
+      this._scopeChanged.emit();
+    }
   }
 
   protected render(): React.ReactElement {
@@ -369,4 +386,5 @@ export class AstraInventoryPanel extends ReactWidget {
   private readonly _subscription: ProjectSubscription;
   private _state: InventoryPanelState = { status: 'loading' };
   private readonly _themeBinding: LightconeThemeBinding;
+  private readonly _scopeChanged = new Signal<this, void>(this);
 }

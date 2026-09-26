@@ -846,3 +846,42 @@ handoff, while `ui-tests/tests/launcher-agents.spec.ts` verifies the native
 picker. `project-description.spec.ts` exercises Enter paragraphs and preserved
 Markdown in the real dialog; the native Home plate/theme case covers the
 preview controls inside ASTRA isolation.
+
+## Project navigation
+
+### Colliding tab labels need a secondary label
+
+**Where.** `src/tab-labels/`, `style/tab-labels.css`; session titles continue
+using the earlier session-title workaround.
+
+**What and why.** Lumino exposes no secondary tab label, and changing a
+`DocumentWidget` title would rename its file. The extension keeps each title's
+label intact and places the colliding project's folder in public
+`Title.dataset`, using its full project path when folder names also collide.
+Namespaced CSS renders that secondary text.
+
+**Upstream and removal.** A rendered `Title.sublabel` on Lumino's default tab
+renderer would replace the dataset/CSS label.
+
+### Project and session changes require polling
+
+**Where.** `src/sidebar/sidebar-model.ts` (`CoalescingRunner`),
+`src/project-data-service.ts`, `src/materialization-status.ts`.
+
+**What and why.** Writes by agents, Git and the Lightcone engine do not emit
+`Contents.IManager.fileChanged`. The sidebar polls visible project data,
+materialization states and session listings; local Contents changes refresh
+it promptly. `CoalescingRunner` retains one requested refresh while work runs
+because `Poll.refresh()` cancels a refresh requested during an active tick.
+
+**Upstream and removal.** Jupyter Server filesystem Contents events and a
+Lumino queued-refresh option would replace polling and the small runner.
+The engine can also expose a status revision or change event to avoid polling
+`lc status`.
+
+**Coverage.** `src/tab-labels/__tests__/tab-labels.spec.ts` verifies collision
+labels appear and disappear without changing the title's label, and
+`ui-tests/tests/workbench-features.spec.ts` checks two projects in the native
+tab bar. `src/sidebar/__tests__/sidebar-model.spec.ts` covers hidden/disposed
+polling, stale project responses and refresh requests arriving during a run;
+`src/__tests__/project-data-service.spec.ts` covers shared leases and refreshes.

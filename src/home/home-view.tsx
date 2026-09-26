@@ -59,6 +59,7 @@ import type { ISessionService } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import { outputKindLabel } from '../output-kind';
 import { listOutputs } from '../project-outputs';
+import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { listResultsCommits } from '../versions/versions-api';
 import { CREATE_CHAT_COMMAND } from '../workbench-ids';
@@ -462,6 +463,7 @@ function HomeRoot({
             contents={contents}
             themes={options.themes}
             state={options.state}
+            commands={commands}
             entrypoint={project.entrypoint}
             isVisible={isVisible}
             shown={shown}
@@ -841,6 +843,7 @@ interface IDeskProps {
   sessions: ISessionService;
   personas: PersonaDirectory | null;
   state: IStateDB | null;
+  commands: CommandRegistry;
   entrypoint: string;
   isVisible: () => boolean;
   shown: ISignal<HomeView, void>;
@@ -852,6 +855,7 @@ function Desk({
   sessions,
   personas,
   state,
+  commands,
   entrypoint,
   isVisible,
   shown
@@ -871,6 +875,7 @@ function Desk({
       />
       <SessionsList
         sessions={sessions}
+        commands={commands}
         entrypoint={entrypoint}
         isVisible={isVisible}
         shown={shown}
@@ -1214,6 +1219,7 @@ function useSessions(
 
 interface ISessionsListProps {
   sessions: ISessionService;
+  commands: CommandRegistry;
   entrypoint: string;
   isVisible: () => boolean;
   shown: ISignal<HomeView, void>;
@@ -1222,6 +1228,7 @@ interface ISessionsListProps {
 
 function SessionsList({
   sessions,
+  commands,
   entrypoint,
   isVisible,
   shown,
@@ -1235,9 +1242,22 @@ function SessionsList({
     shown,
     refreshKey
   );
+  // The sidebar lists every session; its command is how Home reaches it.
+  const sidebarAvailable = useHasCommand(
+    commands,
+    SidebarCommandIDs.showSidebar
+  );
   if (!listing.sessions.length) {
     return null;
   }
+  const showSidebar = () => {
+    void commands.execute(SidebarCommandIDs.showSidebar).catch(reason => {
+      void showErrorMessage(
+        trans.__('Could not show the Lightcone sidebar'),
+        reason instanceof Error ? reason : String(reason)
+      );
+    });
+  };
   const open = (path: string) => {
     void sessions.openSession(path).catch(reason => {
       void showErrorMessage(
@@ -1254,6 +1274,16 @@ function SessionsList({
           <span className={`${CLASS}-headNote`} title={listing.error}>
             {trans.__('List may be out of date')}
           </span>
+        ) : null}
+        {sidebarAvailable ? (
+          <button
+            type="button"
+            className={`${CLASS}-link`}
+            onClick={showSidebar}
+          >
+            {trans.__('All %1', listing.sessions.length)}
+            <HomeGlyph name="chevron" />
+          </button>
         ) : null}
       </div>
       <ul className={`${CLASS}-sessionList`}>

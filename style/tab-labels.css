@@ -1,0 +1,22 @@
+/*
+ * A tab whose label another project's tab also shows carries its project's
+ * folder name, after its label and before its close button.
+ */
+.lm-DockPanel-tabBar .lm-TabBar-tab[data-lightcone-project]::after {
+  flex: 0 1 auto;
+  order: 1;
+  min-width: 0;
+  max-width: 45%;
+  margin-inline-start: 4px;
+  overflow: hidden;
+  color: var(--jp-ui-font-color2);
+  content: '· ' attr(data-lightcone-project);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lm-DockPanel-tabBar
+  .lm-TabBar-tab[data-lightcone-project]
+  > .lm-TabBar-tabCloseIcon {
+  order: 2;
+}

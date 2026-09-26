@@ -8,6 +8,7 @@ import {
 import { CommandIDs } from '../../commands';
 import { OPEN_REPORT_COMMAND } from '../home-commands';
 import { requestAPI } from '../../request';
+import { SidebarCommandIDs } from '../../sidebar/sidebar-commands';
 import { CREATE_CHAT_COMMAND } from '../../workbench-ids';
 import { fileModel } from '../../__tests__/project-fixtures';
 import { PersonaDirectory } from '../personas';
@@ -83,6 +84,8 @@ beforeEach(() => {
 interface IDeskHostOptions {
   /** Whether Jupyter Chat's create command is registered. */
   chat?: boolean;
+  /** Whether the Lightcone sidebar's command is registered. */
+  sidebar?: boolean;
   sessions?: FakeSessionService;
   personas?: PersonaDirectory | null;
   state?: IStateDB | null;
@@ -108,6 +111,9 @@ function deskHost(options: IDeskHostOptions = {}) {
   }
   if (options.chat !== false) {
     register(CREATE_CHAT_COMMAND);
+  }
+  if (options.sidebar) {
+    register(SidebarCommandIDs.showSidebar);
   }
   const sessions = options.sessions ?? new FakeSessionService();
   const entries: Record<string, Contents.IModel> = {
@@ -421,7 +427,7 @@ describe('the sessions list', () => {
     return service;
   }
 
-  it('lists the project sessions and opens them', async () => {
+  it('lists the project sessions, opens them and leads to the sidebar', async () => {
     const h = deskHost({ sessions: sessions() });
     try {
       await until(() => h.sessionRows().length === 2);
@@ -443,6 +449,16 @@ describe('the sessions list', () => {
       expect(h.sessions.openSession).toHaveBeenCalledWith(
         'project/chats/hubble.chat'
       );
+
+      // Without the sidebar there is nowhere to list them all.
+      const all = () => h.query<HTMLButtonElement>(`.${C}-sessions .${C}-link`);
+      expect(all()).toBeNull();
+      h.register(SidebarCommandIDs.showSidebar);
+      await until(() => all() !== null);
+      expect(all()!.textContent).toBe('All 2');
+      all()!.click();
+      await flush();
+      expect(h.executed).toContainEqual([SidebarCommandIDs.showSidebar, {}]);
     } finally {
       h.dispose();
     }

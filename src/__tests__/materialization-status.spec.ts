@@ -1,7 +1,5 @@
-import {
-  parseMaterializationStatuses,
-  outputMaterializationStatus
-} from '../materialization-status';
+import { parseMaterializationStatuses } from '../materialization-api';
+import { outputMaterializationStatus } from '../materialization-status';
 import { assembleLoadedProject, resolveProject } from '../project-data';
 import { createContents, fileModel } from './project-fixtures';
 

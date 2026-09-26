@@ -18,6 +18,9 @@ export const ELEMENT_TAB_DATASET_KEY = 'lightcone-element';
  */
 export const SESSION_TITLE_DATASET_KEY = 'lightcone-session-title';
 
+/** The title data key naming a tab's project when labels collide. */
+export const TAB_PROJECT_DATASET_KEY = 'lightcone-project';
+
 /** Jupyter Chat's command creating a chat document (`jupyterlab-chat` extension). */
 export const CREATE_CHAT_COMMAND = 'jupyterlab-chat:create';
 
