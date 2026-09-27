@@ -323,8 +323,8 @@ and neither renderer offers a shared inline extension hook. Agents should use
 the preview tool instead. Full MyST documents, block/value/citation roles,
 and historical result snapshots are outside this implementation.
 
-See the [integration design](docs/design/jupyter-ai-integration.md) for the
-compatibility boundary and future ways to simplify it.
+See [the workaround inventory](docs/workarounds.md) for the compatibility
+boundary and the upstream changes that would simplify it.
 
 ### Appearance
 
