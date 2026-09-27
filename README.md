@@ -38,9 +38,6 @@ restart JupyterLab; the agent then appears in the picker.
 | Claude | [Claude Code](https://code.claude.com/docs/en/setup), then run `claude` once | `npm install -g @agentclientprotocol/claude-agent-acp` |
 | Codex  | [Codex CLI](https://developers.openai.com/codex/cli), then `codex login`     | `npm install -g @agentclientprotocol/codex-acp`        |
 
-Copilot, Goose, Kilo, Kiro, Mistral Vibe and OpenCode work too: see
-[Jupyter AI's agent guide](https://jupyter-ai.readthedocs.io/en/stable/getting-started.html#install-agents).
-
 ## Get started
 
 1. Choose **New Lightcone project** in the launcher, or browse into any folder
