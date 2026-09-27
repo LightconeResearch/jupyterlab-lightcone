@@ -350,20 +350,21 @@ test('adapts figure and decision details to narrow panels and the dark theme', a
     path: test.info().outputPath('figure-wide.png'),
     contentType: 'image/png'
   });
+  // The details sit below the figure at every width, never beside it.
+  const stacked = async () => {
+    const result = await page
+      .locator(`${viewer} .astra-output-detail__result`)
+      .boundingBox();
+    const provenance = await page
+      .locator(`${viewer} .astra-output-detail__provenance`)
+      .boundingBox();
+    return (
+      !!result && !!provenance && provenance.y >= result.y + result.height - 1
+    );
+  };
+  await expect.poll(stacked).toBe(true);
   await page.setViewportSize({ width: 850, height: 800 });
-  await expect
-    .poll(async () => {
-      const result = await page
-        .locator(`${viewer} .astra-output-detail__result`)
-        .boundingBox();
-      const provenance = await page
-        .locator(`${viewer} .astra-output-detail__provenance`)
-        .boundingBox();
-      return (
-        !!result && !!provenance && provenance.y >= result.y + result.height - 1
-      );
-    })
-    .toBe(true);
+  await expect.poll(stacked).toBe(true);
   const zoomOut = page.getByRole('button', { name: 'Zoom figure out' });
   await expect(zoomOut).toBeDisabled();
   await page.getByRole('button', { name: 'Zoom figure in' }).click();

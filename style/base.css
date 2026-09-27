@@ -46,7 +46,7 @@
     font-family: var(--astra-font-body);
   }
 
-  .jp-jupyterlab-lightcone-project-topbar {
+  .jp-jupyterlab-lightcone-ProjectTopbar {
     position: sticky;
     z-index: 40;
     top: 0;
@@ -63,7 +63,7 @@
     backdrop-filter: blur(10px);
   }
 
-  .jp-jupyterlab-lightcone-project-brand {
+  .jp-jupyterlab-lightcone-ProjectTopbar-brand {
     display: flex;
     align-items: center;
     gap: 0.625rem;
@@ -72,7 +72,7 @@
     white-space: nowrap;
   }
 
-  .jp-jupyterlab-lightcone-project-logo {
+  .jp-jupyterlab-lightcone-ProjectTopbar-logo {
     flex: 0 0 20px;
     width: 20px;
     height: 24px;
@@ -160,7 +160,7 @@
   }
 
   @media (width < 800px) {
-    .jp-jupyterlab-lightcone-project-topbar {
+    .jp-jupyterlab-lightcone-ProjectTopbar {
       gap: 0.875rem;
       padding-inline: 1rem;
     }
@@ -221,12 +221,15 @@
     background: var(--astra-color-canvas);
   }
 
+  /* Beside a session a record tab can be a third of the window wide: its
+   * parts wrap onto further lines rather than squeezing words apart. */
   .jp-jupyterlab-lightcone-element-toolbar {
     display: flex;
     flex: 0 0 auto;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px 12px;
     padding: 10px 20px;
     border-bottom: 1px solid var(--astra-color-border);
   }
@@ -253,15 +256,18 @@
     container-type: inline-size;
   }
 
+  /* ASTRA UI's documented styling hooks are its data-slot, data-mode and
+     data-layout attributes; the record tab restyles the embedded dialog into
+     a page through them. Parts without a slot keep their class below. */
   .jp-jupyterlab-lightcone-element-content[data-reader='false']
-    > .astra-dialog {
+    > [data-slot='dialog'] {
     max-width: 800px;
     margin-inline: auto;
   }
 
   .jp-jupyterlab-lightcone-element-content
-    .astra-dialog[data-mode='embedded']
-    > .astra-dialog__panel {
+    [data-slot='dialog'][data-mode='embedded']
+    > [data-slot='dialog-panel'] {
     display: flex;
     flex-direction: column;
     height: auto;
@@ -274,7 +280,7 @@
     box-shadow: none;
   }
 
-  .jp-jupyterlab-lightcone-element-content .astra-dialog__header {
+  .jp-jupyterlab-lightcone-element-content [data-slot='dialog-header'] {
     flex-wrap: wrap;
     align-items: flex-start;
     margin-bottom: 22px;
@@ -295,7 +301,7 @@
     overflow-wrap: anywhere;
   }
 
-  .jp-jupyterlab-lightcone-element-content .astra-dialog__body {
+  .jp-jupyterlab-lightcone-element-content [data-slot='dialog-body'] {
     display: block;
     height: auto;
     max-height: none;
@@ -304,18 +310,19 @@
     border-top: 1px solid var(--astra-color-border);
   }
 
-  .jp-jupyterlab-lightcone-element-content .astra-detail__layout {
+  .jp-jupyterlab-lightcone-element-content [data-slot='detail-layout'] {
     height: auto;
     max-height: none;
   }
 
-  .jp-jupyterlab-lightcone-element-content .astra-detail__main {
+  .jp-jupyterlab-lightcone-element-content [data-slot='detail-main'] {
     display: block;
     padding: 24px 0;
     overflow: visible;
   }
 
-  .jp-jupyterlab-lightcone-element-content .astra-detail__section:first-child {
+  .jp-jupyterlab-lightcone-element-content
+    [data-slot='detail-section']:first-child {
     border-block-start: 0;
   }
 
@@ -330,10 +337,11 @@
     overflow: hidden;
   }
 
-  .jp-jupyterlab-lightcone-element-content[data-kind='paper'] > .astra-dialog,
   .jp-jupyterlab-lightcone-element-content[data-kind='paper']
-    > .astra-dialog
-    > .astra-dialog__panel {
+    > [data-slot='dialog'],
+  .jp-jupyterlab-lightcone-element-content[data-kind='paper']
+    > [data-slot='dialog']
+    > [data-slot='dialog-panel'] {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -341,35 +349,45 @@
   }
 
   .jp-jupyterlab-lightcone-element-content[data-kind='paper']
-    .astra-dialog__header {
+    [data-slot='dialog-header'] {
     flex: 0 0 auto;
   }
 
   .jp-jupyterlab-lightcone-element-content[data-kind='paper']
-    .astra-dialog__body {
+    [data-slot='dialog-body'] {
     flex: 1;
     min-height: 0;
     overflow: auto;
     container-type: size;
   }
 
-  .jp-jupyterlab-lightcone-element-content .astra-output-detail__layout {
+  /* A record tab stacks an output at every width: the result, then its
+     description and provenance below it, never side by side. */
+  .jp-jupyterlab-lightcone-element-content [data-slot='output-detail'] {
+    display: block;
     height: auto;
+    min-height: 0;
     max-height: none;
-    grid-template-columns: minmax(0, 1fr) 240px;
-  }
-
-  .jp-jupyterlab-lightcone-element-content
-    .astra-output-detail__layout[data-layout='single'] {
-    grid-template-columns: 1fr;
   }
 
   .jp-jupyterlab-lightcone-element-content .astra-output-detail__result {
-    padding: 24px 20px 24px 0;
+    min-height: 0;
+    overflow: visible;
+    padding: 24px 0;
   }
 
   .jp-jupyterlab-lightcone-element-content .astra-output-detail__provenance {
-    padding: 24px 0 24px 20px;
+    position: static;
+    overflow: visible;
+    padding: 24px 0;
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-element-content
+    [data-slot='output-detail'][data-layout='single']
+    .astra-output-detail__provenance {
+    border-block-start: 0;
   }
 
   .jp-jupyterlab-lightcone-element-content .astra-insight-list {
@@ -382,21 +400,10 @@
   }
 
   @container (width < 700px) {
-    .jp-jupyterlab-lightcone-element-content .astra-output-detail__layout,
-    .jp-jupyterlab-lightcone-element-content .astra-paper-detail__layout,
-    .jp-jupyterlab-lightcone-element-content .astra-detail__layout {
+    .jp-jupyterlab-lightcone-element-content [data-slot='paper-detail'],
+    .jp-jupyterlab-lightcone-element-content [data-slot='detail-layout'] {
       grid-template-columns: minmax(0, 1fr);
       max-height: none;
-    }
-
-    .jp-jupyterlab-lightcone-element-content .astra-output-detail__result {
-      padding: 20px 0;
-    }
-
-    .jp-jupyterlab-lightcone-element-content .astra-output-detail__provenance {
-      padding: 20px 0;
-      border-left: 0;
-      border-top: 1px solid var(--astra-color-border);
     }
 
     .jp-jupyterlab-lightcone-element-content .astra-decision-options li {
@@ -478,10 +485,6 @@
   font-weight: 500;
 }
 
-.jp-jupyterlab-lightcone-ProjectSetup h2 {
-  font-size: 16px;
-}
-
 .jp-jupyterlab-lightcone-ProjectSetup p {
   line-height: 1.6;
 }
@@ -508,11 +511,45 @@
   font-size: 12px;
 }
 
-.jp-jupyterlab-lightcone-ProjectSetup-confirm {
-  margin: 24px 0;
-  padding: 16px;
-  background: var(--jp-layout-color1);
-  overflow-wrap: anywhere;
+/* Announces each busy phase to screen readers; the button shows it visually. */
+.jp-jupyterlab-lightcone-ProjectSetup-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-spinner {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: jp-jupyterlab-lightcone-setup-spin 0.8s linear infinite;
+}
+
+@keyframes jp-jupyterlab-lightcone-setup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jp-jupyterlab-lightcone-ProjectSetup-spinner {
+    animation: none;
+  }
 }
 
 .jp-jupyterlab-lightcone-ProjectSetup pre {
@@ -549,7 +586,7 @@
 }
 
 @layer lightcone {
-  .jp-jupyterlab-lightcone-status-error {
+  .jp-jupyterlab-lightcone-ProjectTopbar-statusError {
     margin-inline-start: auto;
     max-width: 50%;
     color: var(--astra-color-danger);
@@ -557,7 +594,7 @@
     text-align: right;
   }
 
-  /* Updates remain quiet until the user asks to review them. */
+  /* The public dialog renderer leaves the review controls unstyled. */
   .jp-jupyterlab-lightcone-ProjectUpdates {
     width: min(420px, 70vw);
     max-height: 55vh;
@@ -588,7 +625,7 @@
     font-size: var(--jp-ui-font-size0);
   }
 
-  .jp-jupyterlab-lightcone-ProjectUpdates button,
+  .jp-jupyterlab-lightcone-ProjectUpdates li > button,
   .jp-jupyterlab-lightcone-ProjectUpdates strong {
     padding: 0;
     border: 0;
@@ -599,9 +636,27 @@
     overflow-wrap: anywhere;
   }
 
-  .jp-jupyterlab-lightcone-ProjectUpdates button {
+  .jp-jupyterlab-lightcone-ProjectUpdates li > button {
     cursor: pointer;
     text-decoration: underline;
     text-underline-offset: 3px;
   }
+}
+
+/* The ASTRA record-kind mark (src/astra-kind.tsx). Its brand scope supplies
+ * only the kind colour: ASTRA's root background, font size and line height
+ * would otherwise box the glyph, so the surrounding UI sets those. */
+.jp-jupyterlab-lightcone-KindMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  background: none;
+  font-size: inherit;
+  line-height: 1;
+}
+
+.jp-jupyterlab-lightcone-KindMark .astra-kind-glyph {
+  font-size: inherit;
 }

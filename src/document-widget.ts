@@ -1,4 +1,4 @@
-import type { CommandRegistry } from '@lumino/commands';
+import type { IDocumentOpener } from './artifact-access';
 import type { IThemeManager } from '@jupyterlab/apputils';
 import {
   ABCWidgetFactory,
@@ -6,6 +6,8 @@ import {
   DocumentWidget
 } from '@jupyterlab/docregistry';
 import type { Contents } from '@jupyterlab/services';
+import type { ISignal } from '@lumino/signaling';
+import type { ILightconeView } from './workbench-view';
 import { AstraInventoryPanel } from './inventory-panel';
 
 export const ASTRA_FILE_TYPE = 'astra-analysis';
@@ -14,16 +16,19 @@ export const ASTRA_FILE_PATTERN = '^(?:[^/:]+:)?astra\\.yaml$';
 export const INVENTORY_FACTORY = 'Lightcone Lab';
 
 /** Read-only inventory backed by JupyterLab's ordinary text document context. */
-export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
+export class InventoryDocument
+  extends DocumentWidget<AstraInventoryPanel>
+  implements ILightconeView
+{
   constructor(
     context: DocumentRegistry.Context,
     contents: Contents.IManager,
     themeManager: IThemeManager,
-    commands: CommandRegistry
+    documents: IDocumentOpener
   ) {
     super({
       context,
-      content: new AstraInventoryPanel(contents, themeManager, commands)
+      content: new AstraInventoryPanel(contents, themeManager, documents)
     });
     this.addClass('jp-jupyterlab-lightcone-Document');
     context.pathChanged.connect(this._onProjectPathChanged, this);
@@ -33,6 +38,23 @@ export class InventoryDocument extends DocumentWidget<AstraInventoryPanel> {
       .catch(error => {
         console.error('Could not open the Lightcone Lab document.', error);
       });
+  }
+
+  readonly lightconeView = true as const;
+
+  /** The project's `astra.yaml`: the document itself. */
+  get entrypoint(): string {
+    return this.context.path;
+  }
+
+  /** The analysis the inventory shows, once the project has loaded. */
+  get analysisPath(): string | undefined {
+    return this.content.analysisPath;
+  }
+
+  /** Emitted when the inventory moves to another analysis. */
+  get scopeChanged(): ISignal<AstraInventoryPanel, void> {
+    return this.content.scopeChanged;
   }
 
   dispose(): void {
@@ -76,7 +98,7 @@ export class InventoryDocumentFactory extends ABCWidgetFactory<InventoryDocument
   constructor(
     private readonly _contents: Contents.IManager,
     private readonly _themes: IThemeManager,
-    private readonly _commands: CommandRegistry
+    private readonly _documents: IDocumentOpener
   ) {
     super({
       name: INVENTORY_FACTORY,
@@ -97,7 +119,7 @@ export class InventoryDocumentFactory extends ABCWidgetFactory<InventoryDocument
       context,
       this._contents,
       this._themes,
-      this._commands
+      this._documents
     );
   }
 }

@@ -5,6 +5,8 @@ const esModules = [
   '@codemirror',
   '@marijn',
   '@microsoft',
+  '@jupyter-ai/',
+  '@jupyter/chat',
   '@jupyter/react-components',
   '@jupyter/web-components',
   '@jupyter/ydoc',

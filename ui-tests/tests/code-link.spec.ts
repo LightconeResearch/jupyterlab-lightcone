@@ -53,7 +53,8 @@ outputs:
     `${tmpPath}/results/default/.plot.manifest.json`
   );
   const ids: string[] = [];
-  for (let i = 0; i < 2; i++) {
+  // Open and reuse from the header, then reuse from the provenance Code tab.
+  for (let i = 0; i < 3; i++) {
     await page.evaluate(async path => {
       await window.jupyterapp.commands.execute(
         'jupyterlab_lightcone:open-inventory',
@@ -65,7 +66,14 @@ outputs:
       'title',
       /current file: src\/plot code\.py .*recorded run/
     );
-    await link.click();
+    if (i < 2) {
+      await link.click();
+    } else {
+      await page.getByRole('tab', { name: 'Code', exact: true }).click();
+      await page
+        .getByRole('button', { name: 'Open current file', exact: true })
+        .click();
+    }
     await expect
       .poll(() =>
         page.evaluate(() => {
@@ -76,10 +84,13 @@ outputs:
         })
       )
       .toBe(source);
+    await expect(
+      page.locator('.jp-FileEditor:visible .cm-content')
+    ).toBeFocused();
     ids.push(
       await page.evaluate(() => window.jupyterapp.shell.currentWidget!.id)
     );
     await expect(page.getByRole('dialog')).toHaveCount(0);
   }
-  expect(ids[0]).toBe(ids[1]);
+  expect(new Set(ids).size).toBe(1);
 });

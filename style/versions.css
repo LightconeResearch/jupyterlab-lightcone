@@ -1,0 +1,753 @@
+/* Native record navigation, historical outputs, provenance inspection and pipeline. */
+
+@layer lightcone {
+  /* Record tab toolbar: history on the left, context in the middle, actions on the right. */
+  .jp-jupyterlab-lightcone-element-nav {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .jp-jupyterlab-lightcone-element-context {
+    flex: 1 1 12rem;
+  }
+
+  .jp-jupyterlab-lightcone-element-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    margin-inline-start: auto;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-inline-start: 6px;
+    color: var(--astra-color-text-subtle);
+    font: 0.6875rem/1.6 var(--astra-font-mono);
+  }
+
+  /* Link-like buttons: the trail crumbs and the provenance tabs' records. */
+  .jp-jupyterlab-lightcone-element-trail button,
+  .jp-jupyterlab-lightcone-Provenance-inputs button,
+  .jp-jupyterlab-lightcone-Provenance-code button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail button {
+    padding: 0 2px;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail button:focus-visible {
+    outline: 2px solid var(--astra-color-focus);
+    outline-offset: 1px;
+  }
+
+  .jp-jupyterlab-lightcone-element-trail [aria-current='page'] {
+    color: var(--astra-color-text);
+    font-weight: 600;
+  }
+
+  /* Each crumb leads with its record's kind mark, as the inventory draws it. */
+  .jp-jupyterlab-lightcone-element-trail .jp-jupyterlab-lightcone-KindMark {
+    margin-inline-end: 2px;
+  }
+
+  /* Back and Forward arrows. */
+  .jp-jupyterlab-lightcone-Chevron {
+    display: block;
+    flex: 0 0 auto;
+  }
+
+  /*
+   * A figure or table with versions: the version bar sits above the reader
+   * layout, outside the figure frame that zooms and pans its content.
+   */
+  .jp-jupyterlab-lightcone-VersionedOutput {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .jp-jupyterlab-lightcone-VersionBar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--astra-color-border);
+    background: var(--astra-color-canvas);
+  }
+
+  /* Version stepper, above a figure or table, or in the provenance rail. */
+
+  .jp-jupyterlab-lightcone-VersionStepper {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-summary {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px;
+    padding: 0 4px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-summary strong {
+    color: var(--astra-color-text);
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-summary code {
+    font-family: var(--astra-font-mono);
+  }
+
+  .jp-jupyterlab-lightcone-VersionBanner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid var(--astra-color-kind-decision);
+    border-radius: var(--astra-radius-control);
+    color: var(--astra-color-text);
+    background: color-mix(
+      in srgb,
+      var(--astra-color-kind-decision) 12%,
+      var(--astra-color-surface)
+    );
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionBar .jp-jupyterlab-lightcone-VersionBanner {
+    flex: 1 1 16rem;
+  }
+
+  .jp-jupyterlab-lightcone-VersionRail {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionRail > h4,
+  .jp-jupyterlab-lightcone-Provenance > h4,
+  .jp-jupyterlab-lightcone-VersionCompare > h4 {
+    margin: 0;
+    color: var(--astra-color-eyebrow);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .jp-jupyterlab-lightcone-VersionStepper-limits {
+    color: var(--astra-color-text-muted);
+    cursor: help;
+  }
+
+  /* Provenance tabs in the record view's rail (and the inventory dialog). */
+  .jp-jupyterlab-lightcone-Provenance {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    margin-top: 20px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    border-bottom: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist [role='tab'] {
+    margin-bottom: -1px;
+    padding: 4px 8px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--astra-color-text-muted);
+    font: 600 var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+    cursor: pointer;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist
+    [role='tab'][aria-selected='true'] {
+    border-bottom-color: var(--astra-color-accent);
+    color: var(--astra-color-text);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-tablist [role='tab']:focus-visible {
+    outline: 2px solid var(--astra-color-focus);
+    outline-offset: -2px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-panel {
+    min-width: 0;
+    color: var(--astra-color-text);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-panel p {
+    margin: 0 0 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-facts {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row {
+    display: grid;
+    grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row dt {
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row dd code,
+  .jp-jupyterlab-lightcone-Provenance-code pre {
+    font-family: var(--astra-font-mono);
+    font-size: 0.75rem;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-row [data-failed] {
+    color: var(--astra-color-danger);
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-status small {
+    flex-basis: 100%;
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-code pre {
+    margin: 0 0 8px;
+    padding: 8px;
+    overflow: auto;
+    border-radius: var(--astra-radius-control);
+    background: var(--astra-color-surface-inset);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-note {
+    color: var(--astra-color-text-muted);
+    font-size: var(--astra-font-size-xs);
+  }
+
+  /* The script as a run executed it, and its changes since. */
+  .jp-jupyterlab-lightcone-Provenance-revision pre {
+    max-height: 24rem;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-views {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-viewsLabel {
+    flex: 1 1 auto;
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-views button[aria-pressed='true'] {
+    color: var(--astra-color-text);
+    text-decoration: none;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine {
+    display: block;
+    white-space: pre;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-added {
+    background: color-mix(
+      in srgb,
+      var(--astra-color-kind-finding) 16%,
+      transparent
+    );
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-removed {
+    background: color-mix(in srgb, var(--astra-color-danger) 14%, transparent);
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-diffLine.jp-mod-gap {
+    color: var(--astra-color-text-subtle);
+    font-style: italic;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-packages {
+    margin-top: 12px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-packagesToggle {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs ul,
+  .jp-jupyterlab-lightcone-Provenance-list {
+    display: grid;
+    gap: 4px;
+    margin: 0 0 8px;
+    padding: 0;
+    list-style: none;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs li code,
+  .jp-jupyterlab-lightcone-Provenance-inputs p code {
+    color: var(--astra-color-text-muted);
+    font-family: var(--astra-font-mono);
+    font-size: 0.7rem;
+  }
+
+  .jp-jupyterlab-lightcone-Provenance-inputs p code {
+    margin-inline-end: 6px;
+  }
+
+  /* Commit hashes are lower-case hex: shown as typed, never capitalised. */
+  .jp-jupyterlab-lightcone-VersionCompare > h4 code {
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Comparison of a version with the one before it. */
+  .jp-jupyterlab-lightcone-VersionCompare {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  /* The figure frame's zoom buttons sit in its lower right corner. */
+  .astra-figure-zoom .jp-jupyterlab-lightcone-VersionCompare {
+    padding-inline-end: 48px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-modes {
+    display: flex;
+    gap: 6px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-side {
+    margin: 0;
+    padding: 8px;
+    border: 1px solid var(--astra-color-border);
+    border-radius: var(--astra-radius-control);
+    background: var(--astra-color-artifact-paper);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-side img,
+  .jp-jupyterlab-lightcone-VersionCompare-stack img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-side figcaption,
+  .jp-jupyterlab-lightcone-VersionCompare-swipe label > span {
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-swipe {
+    display: grid;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-stack {
+    position: relative;
+    border: 1px solid var(--astra-color-border);
+    background: var(--astra-color-artifact-paper);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-stack img + img {
+    position: absolute;
+    inset: 0;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--astra-color-accent);
+    transform: translateX(-1px);
+    pointer-events: none;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blink {
+    display: grid;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blinkControls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-blinkLabel {
+    flex: 1 1 auto;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-swipe label {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas {
+    width: 100%;
+    border-collapse: collapse;
+    font: var(--astra-font-size-sm) / 1.4 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas th,
+  .jp-jupyterlab-lightcone-VersionCompare-deltas td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--astra-color-border-subtle);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas thead th {
+    color: var(--astra-color-text-muted);
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-deltas
+    tr[data-changed]
+    td:last-child {
+    color: var(--astra-color-kind-decision-ink, var(--astra-color-text));
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dl {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    font: var(--astra-font-size-sm) / 1.4 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dl > div {
+    display: grid;
+    grid-template-columns: minmax(6rem, 10rem) 1fr;
+    gap: 8px;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dt {
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .jp-jupyterlab-lightcone-VersionCompare-table dd code {
+    margin-inline-end: 4px;
+  }
+
+  /* Pipeline view. */
+  .jp-jupyterlab-lightcone-Pipeline {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--astra-color-text);
+    background: var(--astra-color-canvas);
+    font-family: var(--astra-font-body);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-header {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px 24px;
+    padding: 20px clamp(16px, 3vw, 40px) 14px;
+    border-bottom: 1px solid var(--astra-color-border);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-eyebrow {
+    display: block;
+    color: var(--astra-color-eyebrow);
+    font: 700 0.625rem/1.4 var(--astra-font-ui);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-header h1 {
+    margin: 2px 0 4px;
+    font: 700 1.5rem/1.15 var(--astra-font-heading);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-header p {
+    margin: 0;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-xs) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li::before {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-inline-end: 6px;
+    border-radius: 50%;
+    background: var(--lc-pipeline-status, var(--astra-color-text-faint));
+    content: '';
+    vertical-align: -1px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='current'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='current'] {
+    --lc-pipeline-status: var(--jp-success-color1, #2f7d4d);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='behind'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='behind'] {
+    --lc-pipeline-status: var(--jp-warn-color1, #b4841e);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='stale'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='stale'] {
+    --lc-pipeline-status: var(--jp-error-color1, #b23a3a);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-legend li[data-status='input'],
+  .jp-jupyterlab-lightcone-Pipeline-node[data-status='input'] {
+    --lc-pipeline-status: var(--astra-color-kind-input);
+  }
+
+  /* The traced record, named above the graph, with the way back to it all. */
+  .jp-jupyterlab-lightcone-Pipeline-trace {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px 16px;
+    padding: 8px clamp(16px, 3vw, 40px);
+    border-bottom: 1px solid var(--astra-color-border);
+    background: var(--astra-color-surface);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-trace p {
+    margin: 0;
+    color: var(--astra-color-text-muted);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-trace strong {
+    color: var(--astra-color-text);
+    font-weight: 600;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-clear {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--astra-color-link);
+    font: var(--astra-font-size-sm) / 1.5 var(--astra-font-ui);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-clear:focus-visible {
+    outline: 2px solid var(--astra-color-focus);
+    outline-offset: 2px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px clamp(16px, 3vw, 40px) 24px;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-empty {
+    padding: 24px clamp(16px, 3vw, 40px);
+    color: var(--astra-color-text-muted);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-graph {
+    display: block;
+    font-family: var(--astra-font-ui);
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-edges path {
+    fill: none;
+    stroke: var(--astra-color-border-strong);
+    stroke-width: 1.5;
+    transition: stroke 120ms ease;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-edges path[data-kind='alias'] {
+    stroke-dasharray: 4 3;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-edges path[data-highlighted] {
+    stroke: var(--astra-color-accent);
+    stroke-width: 2.5;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node {
+    cursor: pointer;
+    outline: none;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node rect {
+    fill: var(--astra-color-surface);
+    stroke: var(--astra-color-border);
+    stroke-width: 1;
+    transition:
+      stroke 120ms ease,
+      fill 120ms ease;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-kind='output'] rect {
+    fill: var(--astra-color-kind-output-soft, var(--astra-color-surface));
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-kind='input'] rect {
+    fill: var(--astra-color-kind-input-soft, var(--astra-color-surface));
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node:hover rect,
+  .jp-jupyterlab-lightcone-Pipeline-node:focus-visible rect {
+    stroke: var(--astra-color-accent);
+    stroke-width: 2;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node circle {
+    fill: var(--lc-pipeline-status, var(--astra-color-text-faint));
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node text {
+    fill: var(--astra-color-text);
+    font-size: 12px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node
+    .jp-jupyterlab-lightcone-Pipeline-meta {
+    fill: var(--astra-color-text-muted);
+    font-size: 10.5px;
+    font-weight: 400;
+  }
+
+  /* A node's kind mark sits before its meta line, at the meta's size. */
+  .jp-jupyterlab-lightcone-Pipeline-kind {
+    overflow: visible;
+    font-size: 10.5px;
+    line-height: 14px;
+    pointer-events: none;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-dimmed] {
+    opacity: 0.45;
+  }
+
+  .jp-jupyterlab-lightcone-Pipeline-node[data-traced] rect {
+    stroke: var(--astra-color-accent);
+    stroke-width: 2.5;
+  }
+
+  /* The pipeline drawing in "Show in pipeline" sits like the other actions' glyphs. */
+  .jp-jupyterlab-lightcone-PipelineGlyph {
+    flex: 0 0 auto;
+    vertical-align: -1px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jp-jupyterlab-lightcone-Pipeline-edges path,
+    .jp-jupyterlab-lightcone-Pipeline-node rect {
+      transition: none;
+    }
+  }
+}

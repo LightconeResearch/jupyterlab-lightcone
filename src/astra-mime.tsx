@@ -1,36 +1,58 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IThemeManager, showErrorMessage } from '@jupyterlab/apputils';
+import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import type { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { Widget } from '@lumino/widgets';
-import { RecordPreview } from '@astra-spec/ui/components';
+import {
+  ArtifactPreview,
+  RecordPreview,
+  type ArtifactRenderer
+} from '@astra-spec/ui/components';
+import type { ResolvedOutput } from '@astra-spec/sdk';
+import type { IDocumentOpener } from './artifact-access';
 import { resolveElement } from './element-reference';
-import { useProject } from './element-widget';
+import { useProject } from './project-data-hooks';
+import { isRootAnalysisOutput } from './materialization-status';
+import type { ILoadedProjectData } from './project-data';
 import { useProjectRenderers } from './project-renderers';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
 import {
   ASTRA_MIME_TYPE,
   parseAstraCard,
-  type IAstraCard
+  type IAstraCard,
+  type IAstraCardVersion
 } from './astra-mime-data';
+import { forgetVersions, listVersionsCached } from './versions/version-cache';
+import type { IVersionTarget } from './versions/version-content';
+import { OlderVersionPreview } from './versions/versioned-output';
+import type { IOutputVersion } from './versions/versions-api';
 
 interface ICardProps {
   app: JupyterFrontEnd;
   themes: IThemeManager;
+  documents: IDocumentOpener;
   reference: IAstraCard;
 }
 
-function Card({ app, themes, reference }: ICardProps): React.ReactElement {
+function Card({
+  app,
+  themes,
+  documents,
+  reference
+}: ICardProps): React.ReactElement {
   const node = useRef<HTMLDivElement>(null);
   const state = useProject(app.serviceManager.contents, reference);
   useEffect(() => {
-    const binding = new LightconeThemeBinding(themes, node.current!);
+    const root = node.current;
+    if (!root) return undefined;
+    const binding = new LightconeThemeBinding(themes, root);
     return () => binding.dispose();
   }, [themes]);
   return (
@@ -40,7 +62,13 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
     >
       {state.error && <p role="status">{state.error}</p>}
       {state.data ? (
-        <CardBody {...{ app, reference, state }} />
+        <CardBody
+          app={app}
+          documents={documents}
+          reference={reference}
+          data={state.data}
+          fetchPaper={state.fetchPaper}
+        />
       ) : (
         <p>
           {state.error
@@ -49,6 +77,203 @@ function Card({ app, themes, reference }: ICardProps): React.ReactElement {
         </p>
       )}
     </div>
+  );
+}
+
+/** How a card's recorded version relates to the output's history. */
+export type CardVersionState = 'unknown' | 'latest' | 'superseded' | 'missing';
+
+/** The version of a newest-first history a card's commit names, if any. */
+export function findCardVersion(
+  version: IAstraCardVersion,
+  versions: readonly IOutputVersion[]
+): IOutputVersion | undefined {
+  return versions.find(
+    candidate =>
+      candidate.commit === version.commit ||
+      candidate.commit.startsWith(version.commit)
+  );
+}
+
+/** Compare a card's commit with the newest-first history of its output. */
+export function cardVersionState(
+  version: IAstraCardVersion,
+  versions: readonly IOutputVersion[] | undefined
+): CardVersionState {
+  if (!versions) return 'unknown';
+  const recorded = findCardVersion(version, versions);
+  if (!recorded) return 'missing';
+  return recorded === versions[0] ? 'latest' : 'superseded';
+}
+
+const CARD_VERSION_TEXT: Record<CardVersionState, string> = {
+  unknown: '',
+  latest: 'latest',
+  superseded: 'newer available',
+  missing: 'not in the current history'
+};
+
+/** The history of a card's output; `settled` once the listing answered or failed. */
+function useCardVersions(
+  target: IVersionTarget | undefined,
+  cacheToken: string
+): {
+  versions?: readonly IOutputVersion[];
+  settled: boolean;
+} {
+  const [listing, setListing] = useState<{
+    target?: IVersionTarget;
+    versions?: readonly IOutputVersion[];
+  }>({});
+  const previous = useRef<{ target: IVersionTarget; cacheToken: string }>();
+  useEffect(() => {
+    if (!target) return;
+    let active = true;
+    // Preserve the recorded preview, but refresh availability and the badge
+    // when project polling notices another materialization of this output.
+    if (
+      previous.current?.target === target &&
+      previous.current.cacheToken !== cacheToken
+    ) {
+      forgetVersions(
+        target.settings,
+        target.entrypoint,
+        target.universe,
+        target.outputId
+      );
+    }
+    previous.current = { target, cacheToken };
+    listVersionsCached(
+      target.settings,
+      target.entrypoint,
+      target.universe,
+      target.outputId
+    ).then(
+      result => {
+        if (active) setListing({ target, versions: result.versions });
+      },
+      () => {
+        if (active) setListing({ target });
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [target, cacheToken]);
+  const current = !!target && listing.target === target;
+  return {
+    versions: current ? listing.versions : undefined,
+    settled: !target || current
+  };
+}
+
+export interface IVersionedCardProps {
+  app: JupyterFrontEnd;
+  reference: IAstraCard;
+  /** The version the card was made from. */
+  version: IAstraCardVersion;
+  data: ILoadedProjectData;
+  /** The output the card shows. */
+  output: ResolvedOutput;
+  /** How the host renders an output's current artifact. */
+  renderArtifact: ArtifactRenderer | undefined;
+  /** Render the card's preview with the given artifact renderer. */
+  renderPreview: (renderArtifact: ArtifactRenderer) => React.ReactNode;
+  onOpen: () => void;
+}
+
+/**
+ * A card made from a committed version of an output: it shows that version's
+ * bytes even when it is the newest commit, so edits in the working tree do
+ * not change an earlier turn. If history cannot resolve the recorded commit,
+ * the card reports unavailable instead of substituting current data.
+ */
+export function VersionedCard({
+  app,
+  reference,
+  version,
+  data,
+  output,
+  renderArtifact,
+  renderPreview,
+  onOpen
+}: IVersionedCardProps): React.ReactElement {
+  const contents = app.serviceManager.contents;
+  const comparable =
+    isRootAnalysisOutput(data.index, output) &&
+    !contents.driveName(reference.entrypoint);
+  const settings = contents.serverSettings;
+  const universe = data.document.universe.universeId;
+  const target = useMemo<IVersionTarget | undefined>(
+    () =>
+      comparable
+        ? {
+            settings,
+            entrypoint: reference.entrypoint,
+            universe,
+            outputId: output.id
+          }
+        : undefined,
+    [comparable, settings, reference.entrypoint, universe, output.id]
+  );
+  const cacheToken =
+    data.bindings.find(binding => binding.outputPath === output.canonicalPath)
+      ?.cacheToken ?? '';
+  const { versions, settled } = useCardVersions(target, cacheToken);
+  const state = cardVersionState(version, versions);
+  const recorded = versions ? findCardVersion(version, versions) : undefined;
+  const detail = CARD_VERSION_TEXT[state];
+  const renderVersioned: ArtifactRenderer = (item, options) => {
+    if (item.canonicalPath !== output.canonicalPath)
+      return renderArtifact?.(item, options) ?? null;
+    if (!settled) {
+      return (
+        <ArtifactPreview
+          output={item}
+          preview={{ kind: 'loading' }}
+          compact={options.compact}
+          caption={null}
+        />
+      );
+    }
+    return target && recorded ? (
+      <OlderVersionPreview
+        target={target}
+        output={item}
+        version={recorded}
+        compact={options.compact}
+      />
+    ) : (
+      <ArtifactPreview
+        output={item}
+        preview={{
+          kind: 'unavailable',
+          reason: 'The recorded version is unavailable.'
+        }}
+        compact={options.compact}
+        caption={null}
+      />
+    );
+  };
+  return (
+    <>
+      {renderPreview(renderVersioned)}
+      <button
+        type="button"
+        className="jp-jupyterlab-lightcone-card-version"
+        data-state={state}
+        title={`Open ${output.label ?? output.id} as it was at ${version.commit}`}
+        onClick={onOpen}
+      >
+        <span>Version {version.commit.slice(0, 7)}</span>
+        {detail && (
+          <>
+            <span aria-hidden="true"> · </span>
+            <span>{detail}</span>
+          </>
+        )}
+      </button>
+    </>
   );
 }
 
@@ -64,18 +289,20 @@ function isCardContentEvent(event: React.MouseEvent<HTMLElement>): boolean {
 
 function CardBody({
   app,
+  documents,
   reference,
-  state
+  data,
+  fetchPaper
 }: Omit<ICardProps, 'themes'> & {
-  state: ReturnType<typeof useProject>;
+  data: ILoadedProjectData;
+  fetchPaper: (doi: string) => void;
 }): React.ReactElement {
-  const data = state.data!;
   const renderers = useProjectRenderers(
     app.serviceManager.contents,
     reference.entrypoint,
     data,
-    state.fetchPaper,
-    app.commands
+    fetchPaper,
+    documents
   );
   let resolved: ReturnType<typeof resolveElement>;
   try {
@@ -85,14 +312,23 @@ function CardBody({
       <p role="status">This ASTRA element is unavailable: {String(reason)}</p>
     );
   }
+  const { outputVersion, ...pinnedReference } = reference;
   const navigate = (target: string, pinned = false) => {
     void app.commands
-      .execute(CommandIDs.openElement, { ...reference, target, pinned })
+      .execute(CommandIDs.openElement, {
+        ...pinnedReference,
+        target,
+        pinned,
+        // A card shows what the agent showed; its version travels with it.
+        ...(outputVersion && target === reference.target
+          ? { versionCommit: outputVersion.commit }
+          : {})
+      })
       .catch(reason =>
         showErrorMessage('Could not open ASTRA element', reason)
       );
   };
-  return (
+  const preview = (renderArtifact: ArtifactRenderer | undefined) => (
     <RecordPreview
       className="jp-jupyterlab-lightcone-card-preview"
       role="link"
@@ -128,7 +364,7 @@ function CardBody({
       }
       document={data.document}
       index={data.index}
-      renderArtifact={renderers.renderArtifact}
+      renderArtifact={renderArtifact}
       onOpenRecord={record => navigate(record.canonicalPath)}
       onOpenAnalysis={() =>
         navigate(
@@ -139,11 +375,30 @@ function CardBody({
       }
     />
   );
+  if (!outputVersion || resolved.record?.kind !== 'output')
+    return preview(renderers.renderArtifact);
+  return (
+    <VersionedCard
+      app={app}
+      reference={reference}
+      version={outputVersion}
+      data={data}
+      output={resolved.record}
+      renderArtifact={renderers.renderArtifact}
+      renderPreview={preview}
+      onOpen={() => navigate(reference.target)}
+    />
+  );
 }
 
-/** Chat 0.25 mounts only a MIME widget's DOM node, without disposing the widget.
- * A custom element gives React (and its project leases) actual DOM lifecycles,
- * including message deletion, rerendering and closing the chat.
+/** The tag `AstraCardElement` is defined under. */
+export const ASTRA_CARD_TAG = 'lightcone-astra-card';
+
+/**
+ * Chat 0.25 mounts only a MIME widget's DOM node, without disposing the
+ * widget (`MessageRenderer` never calls `dispose()` nor sends `BeforeDetach`).
+ * A custom element gives React (and its project leases) actual DOM
+ * lifecycles, including message deletion, rerendering and closing the chat.
  */
 export class AstraCardElement extends HTMLElement {
   content: React.ReactElement | null = null;
@@ -171,59 +426,69 @@ export class AstraCardElement extends HTMLElement {
   }
 }
 
-/** Native RenderMime integration, independent of Chat's Markdown renderer. */
+/**
+ * Native RenderMime integration, independent of Chat's Markdown renderer.
+ * `AstraCardElement` must be defined before a renderer is constructed; the
+ * plugin defines it before registering the factory.
+ */
 export class AstraMimeRenderer extends Widget implements IRenderMime.IRenderer {
   constructor(
     private readonly app: JupyterFrontEnd,
-    private readonly themes: IThemeManager
+    private readonly themes: IThemeManager,
+    private readonly documents: IDocumentOpener
   ) {
-    super({ node: document.createElement('lightcone-astra-card') });
+    const card = new AstraCardElement();
+    super({ node: card });
+    this._card = card;
   }
 
   async renderModel(model: IRenderMime.IMimeModel): Promise<void> {
-    const node = this.node as AstraCardElement;
     try {
       const reference = parseAstraCard(model.data[ASTRA_MIME_TYPE]);
-      node.content = (
+      this._card.content = (
         <Card
           key={JSON.stringify(reference)}
           app={this.app}
           themes={this.themes}
+          documents={this.documents}
           reference={reference}
         />
       );
     } catch (reason) {
-      node.content = <p role="status">{String(reason)}</p>;
+      this._card.content = <p role="status">{String(reason)}</p>;
     }
-    node.update();
+    this._card.update();
   }
 
   dispose(): void {
     if (this.isDisposed) return;
-    (this.node as AstraCardElement).clear();
+    this._card.clear();
     super.dispose();
   }
+
+  private readonly _card: AstraCardElement;
 }
 
 export const astraMimePlugin: JupyterFrontEndPlugin<void> = {
   id: 'jupyterlab_lightcone:astra-mime',
   description: 'Render ASTRA preview cards in MIME messages and outputs.',
   autoStart: true,
-  requires: [IRenderMimeRegistry, IThemeManager],
+  requires: [IRenderMimeRegistry, IThemeManager, IDocumentManager],
   activate: (
     app: JupyterFrontEnd,
     registry: IRenderMimeRegistry,
-    themes: IThemeManager
+    themes: IThemeManager,
+    documents: IDocumentManager
   ) => {
-    if (!customElements.get('lightcone-astra-card'))
-      customElements.define('lightcone-astra-card', AstraCardElement);
+    if (!customElements.get(ASTRA_CARD_TAG))
+      customElements.define(ASTRA_CARD_TAG, AstraCardElement);
     registry.addFactory(
       {
         // Only validated references are accepted. Renderers load through Jupyter's
         // authenticated Contents API; no HTML, scripts or arbitrary URLs execute.
         safe: true,
         mimeTypes: [ASTRA_MIME_TYPE],
-        createRenderer: () => new AstraMimeRenderer(app, themes)
+        createRenderer: () => new AstraMimeRenderer(app, themes, documents)
       },
       40
     );

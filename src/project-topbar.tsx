@@ -1,27 +1,33 @@
+import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import React from 'react';
+
+const CLASS = 'jp-jupyterlab-lightcone-ProjectTopbar';
+
+export interface IProjectTopbarProps {
+  /** Why `lc status` could not be read, when it could not. */
+  statusError?: string;
+  translator?: ITranslator;
+}
 
 /** Identify the host inside an inventory tab. */
 export function ProjectTopbar({
-  statusError
-}: {
-  statusError?: string;
-}): React.ReactElement {
+  statusError,
+  translator
+}: IProjectTopbarProps): React.ReactElement {
+  const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
   return (
-    <header className="jp-jupyterlab-lightcone-project-topbar">
-      <span className="jp-jupyterlab-lightcone-project-brand">
-        <span
-          className="jp-jupyterlab-lightcone-project-logo"
-          aria-hidden="true"
-        />
-        Lightcone Lab
+    <header className={CLASS}>
+      <span className={`${CLASS}-brand`}>
+        <span className={`${CLASS}-logo`} aria-hidden="true" />
+        {trans.__('Lightcone Lab')}
       </span>
       {statusError ? (
         <span
-          className="jp-jupyterlab-lightcone-status-error"
+          className={`${CLASS}-statusError`}
           role="status"
           title={statusError}
         >
-          Materialization status unavailable
+          {trans.__('Materialization status unavailable')}
         </span>
       ) : null}
     </header>

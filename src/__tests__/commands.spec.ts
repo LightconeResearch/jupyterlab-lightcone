@@ -10,8 +10,14 @@ import { Widget } from '@lumino/widgets';
 import { browseProjectFolder } from '../project-browser';
 import { inspectProjectFolder } from '../api';
 import { ProjectSetup } from '../project-setup';
-import { CommandIDs, registerCommands, requireProject } from '../commands';
+import {
+  CommandIDs,
+  newProjectFolder,
+  registerCommands,
+  requireProject
+} from '../commands';
 import { InventoryDocument } from '../document-widget';
+import { HomeCommandIDs } from '../home/home-commands';
 import { fileModel } from './project-fixtures';
 
 jest.mock('../project-browser', () => ({ browseProjectFolder: jest.fn() }));
@@ -62,7 +68,7 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
       { path, ready: Promise.resolve() } as DocumentRegistry.Context,
       contents,
       themes,
-      commands
+      { openOrReveal: () => undefined }
     );
     created.push(widget);
     return widget;
@@ -122,6 +128,31 @@ describe('project opening commands', () => {
       expect(host.openOrReveal).not.toHaveBeenCalled();
     } finally {
       launcher.dispose();
+      host.dispose();
+    }
+  });
+
+  it('brings the project’s Home forward rather than stacking a launcher', async () => {
+    const cd = jest.fn().mockResolvedValue(undefined);
+    const local = { model: { path: '', cd } };
+    const host = commandHost({
+      tracker: { currentWidget: local, find: () => local }
+    } as unknown as IFileBrowserFactory);
+    const home = new Widget();
+    const openHome = jest.fn().mockReturnValue(home);
+    const createLauncher = jest.fn();
+    host.commands.addCommand(HomeCommandIDs.openHome, { execute: openHome });
+    host.commands.addCommand('launcher:create', { execute: createLauncher });
+    jest.mocked(browseProjectFolder).mockResolvedValue('project');
+    try {
+      expect(await host.commands.execute(CommandIDs.openExistingProject)).toBe(
+        home
+      );
+      expect(cd).toHaveBeenCalledWith('/project');
+      expect(openHome).toHaveBeenCalledWith({ cwd: 'project' });
+      expect(createLauncher).not.toHaveBeenCalled();
+    } finally {
+      home.dispose();
       host.dispose();
     }
   });
@@ -263,7 +294,7 @@ describe('project opening commands', () => {
       context as DocumentRegistry.Context,
       host.contents,
       host.themes,
-      host.commands
+      { openOrReveal: () => undefined }
     );
     host.openOrReveal.mockImplementation(() => {
       opened.resolve();
@@ -356,4 +387,60 @@ describe('project opening commands', () => {
       }
     }
   );
+});
+
+describe('newProjectFolder', () => {
+  /** Contents holding exactly `paths`; everything else is missing. */
+  function contentsWith(paths: string[]): ContentsManager {
+    const contents = new ContentsManager();
+    jest.spyOn(contents, 'get').mockImplementation(async path => {
+      if (!paths.includes(path)) {
+        throw new ServerConnection.ResponseError(
+          new Response('', { status: 404 })
+        );
+      }
+      return fileModel(path);
+    });
+    return contents;
+  }
+
+  it('proposes my-project, numbered past folders that already exist', async () => {
+    const contents = contentsWith(['work/my-project', 'work/my-project-2']);
+    try {
+      expect(await newProjectFolder(contents, 'work')).toBe(
+        'work/my-project-3'
+      );
+      expect(await newProjectFolder(contents, 'elsewhere')).toBe(
+        'elsewhere/my-project'
+      );
+    } finally {
+      contents.dispose();
+    }
+  });
+
+  it('proposes a folder beside the project the browser is inside', async () => {
+    const contents = contentsWith(['work/analysis/astra.yaml']);
+    try {
+      expect(await newProjectFolder(contents, 'work/analysis/data')).toBe(
+        'work/my-project'
+      );
+    } finally {
+      contents.dispose();
+    }
+  });
+
+  it('falls back to cwd/my-project when the folders cannot be read', async () => {
+    const contents = new ContentsManager();
+    jest.spyOn(contents, 'get').mockRejectedValue(new Error('offline'));
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    try {
+      expect(await newProjectFolder(contents, 'work')).toBe('work/my-project');
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      contents.dispose();
+    }
+  });
 });

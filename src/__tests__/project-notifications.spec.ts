@@ -1,23 +1,45 @@
-import { Notification } from '@jupyterlab/apputils';
+import { Dialog, Notification, ReactWidget } from '@jupyterlab/apputils';
 import type { Contents, ContentsManager } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
-import { ProjectNotifications } from '../project-notifications';
+import { Widget } from '@lumino/widgets';
+import { act, createElement, isValidElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  changeKind,
+  ProjectNotifications,
+  UnstyledBodyRenderer
+} from '../project-notifications';
 import {
   acquireProjectDataService,
   type IProjectDataLease
 } from '../project-data-service';
 import { analysis, createContents, fileModel } from './project-fixtures';
 
-jest.mock('@jupyterlab/apputils', () => ({
-  Notification: {
-    emit: jest.fn(() => 'notification'),
-    update: jest.fn(() => true),
-    dismiss: jest.fn(),
-    manager: { has: jest.fn(() => true) }
-  },
-  Dialog: jest.fn(),
-  showErrorMessage: jest.fn()
-}));
+jest.mock('@jupyterlab/apputils', () => {
+  const actual = jest.requireActual<typeof import('@jupyterlab/apputils')>(
+    '@jupyterlab/apputils'
+  );
+  return {
+    ...actual,
+    Notification: {
+      emit: jest.fn(() => 'notification'),
+      update: jest.fn(() => true),
+      dismiss: jest.fn(),
+      manager: { has: jest.fn(() => true) }
+    },
+    // The review stays open and has no stock buttons; only its body is read.
+    // Its renderer builds on the stock one, which stays real.
+    Dialog: Object.assign(
+      jest.fn(() => ({
+        launch: () => new Promise(() => undefined),
+        dispose: jest.fn(),
+        resolve: jest.fn()
+      })),
+      { okButton: jest.fn(() => ({})), Renderer: actual.Dialog.Renderer }
+    ),
+    showErrorMessage: jest.fn()
+  };
+});
 const faults = { snapshot: 0 };
 jest.mock('../project-changes', () => {
   const actual = jest.requireActual('../project-changes');
@@ -199,4 +221,95 @@ it('keeps watching after a comparison fails', async () => {
   } finally {
     failed.mockRestore();
   }
+});
+
+it('names the kind mark of every kind of change row', () => {
+  expect(
+    ['project', 'subanalysis', 'output', 'result', 'decision'].map(changeKind)
+  ).toEqual(['analysis', 'analysis', 'output', 'output', 'decision']);
+  expect(['input', 'finding', 'insight', 'paper'].map(changeKind)).toEqual([
+    'input',
+    'finding',
+    'prior_insight',
+    'paper'
+  ]);
+  expect(changeKind('unknown')).toBeUndefined();
+});
+
+it('marks each row of the review with its kind, as the inventory does', async () => {
+  fixture = harness();
+  await fixture.write('Initial');
+  await fixture.settle();
+  await fixture.write('Renamed');
+  await fixture.settle();
+  const review = jest.mocked(Notification.emit).mock.calls[0][2]?.actions?.[0];
+  review?.callback(new MouseEvent('click'));
+  const body = jest.mocked(Dialog).mock.calls[0]?.[0]?.body;
+  expect(jest.mocked(Dialog).mock.calls[0]?.[0]?.renderer).toBeInstanceOf(
+    UnstyledBodyRenderer
+  );
+  expect(isValidElement(body)).toBe(true);
+  const node = document.createElement('div');
+  const root = createRoot(node);
+  const actEnvironment: unknown = Reflect.get(
+    globalThis,
+    'IS_REACT_ACT_ENVIRONMENT'
+  );
+  Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true);
+  try {
+    act(() => root.render(isValidElement(body) ? body : null));
+    const rows = Array.from(node.querySelectorAll('li'));
+    expect(rows.map(row => row.textContent)).toEqual([
+      expect.stringContaining('project changed')
+    ]);
+    expect(
+      rows[0]
+        .querySelector('span > .lightcone-brand.astra-ui > .astra-kind-glyph')
+        ?.getAttribute('data-kind')
+    ).toBe('analysis');
+  } finally {
+    act(() => root.unmount());
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', actEnvironment);
+  }
+});
+
+describe('UnstyledBodyRenderer', () => {
+  it('leaves the body’s own buttons unstyled, unlike the stock renderer', () => {
+    fixture = harness();
+    const control = () => {
+      const widget = new Widget();
+      widget.node.append(
+        Object.assign(document.createElement('button'), {
+          type: 'button',
+          textContent: 'Open'
+        })
+      );
+      return widget;
+    };
+    const renderer = new UnstyledBodyRenderer();
+    const body = renderer.createBody(control());
+    const stock = new Dialog.Renderer().createBody(control());
+    const text = renderer.createBody('Plain');
+    const react = renderer.createBody(
+      createElement('div', null, createElement('button', null, 'Open'))
+    );
+    try {
+      expect(body.hasClass('jp-Dialog-body')).toBe(true);
+      expect(
+        body.node.querySelector('button')?.classList.contains('jp-mod-styled')
+      ).toBe(false);
+      expect(
+        stock.node.querySelector('button')?.classList.contains('jp-mod-styled')
+      ).toBe(true);
+      expect(text.hasClass('jp-Dialog-body')).toBe(true);
+      expect(text.node.textContent).toBe('Plain');
+      expect(react).toBeInstanceOf(ReactWidget);
+      expect(react.hasClass('jp-Dialog-body')).toBe(true);
+    } finally {
+      body.dispose();
+      stock.dispose();
+      text.dispose();
+      react.dispose();
+    }
+  });
 });

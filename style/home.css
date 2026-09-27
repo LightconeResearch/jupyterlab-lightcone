@@ -1,0 +1,968 @@
+/* Home reads JupyterLab theme variables only, plus optional --lc-* extras the
+ * Lightcone themes define. Under any other theme it looks like that Lab; the
+ * Lightcone themes set the title, its rule and the link rules in antique gold
+ * (--lc-display-accent). */
+
+.jp-jupyterlab-lightcone-Home {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--jp-layout-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-launcher {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.jp-jupyterlab-lightcone-Home-stockBar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-jupyterlab-lightcone-HomeView {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  container: lightcone-home / inline-size;
+  color: var(--jp-ui-font-color1);
+  background: var(--jp-layout-color1);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+}
+
+/* The page spans the tab so that the running head's rule reaches its edges.
+ * The head and the body set their content on one centred measure of at most
+ * 1152px through the gutter. */
+.jp-jupyterlab-lightcone-Home-page {
+  --jp-jupyterlab-lightcone-home-gutter: max(32px, calc((100% - 1152px) / 2));
+
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* The running head. */
+.jp-jupyterlab-lightcone-Home-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  box-sizing: border-box;
+  min-height: 56px;
+  padding: 8px var(--jp-jupyterlab-lightcone-home-gutter);
+  border-bottom: 1px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Home-identity {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  color: var(--jp-ui-font-color0);
+}
+
+.jp-jupyterlab-lightcone-Home-mark {
+  display: inline-flex;
+}
+
+.jp-jupyterlab-lightcone-Home-mark svg {
+  width: 19px;
+  height: 22px;
+}
+
+.jp-jupyterlab-lightcone-Home-brand {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-brand b {
+  font-weight: 800;
+}
+
+.jp-jupyterlab-lightcone-Home-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 24px;
+  overflow: hidden;
+  border-left: 1px solid var(--jp-border-color1);
+  color: var(--jp-ui-font-color3);
+  font-size: 14px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-tools {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-brand-color1);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-tools:hover {
+  border-color: var(--jp-brand-color1);
+  background: var(--lc-paper, var(--jp-layout-color0));
+}
+
+/* Home's small glyphs sit on the text's centre line. */
+.jp-jupyterlab-lightcone-HomeGlyph {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+/* The title page, set like a monograph's: the title, its rule, the lead,
+ * the colophon and the two ways into the work. */
+.jp-jupyterlab-lightcone-Home-titlePage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 640px;
+}
+
+/* The title and its rename button share the title's lines, so the button
+ * follows the last word. A long title wraps to three lines at most; the
+ * heading's tooltip holds all of it. */
+.jp-jupyterlab-lightcone-Home-titleRow {
+  display: -webkit-box;
+  max-width: 100%;
+  padding-bottom: 0.06em;
+  overflow: hidden;
+  font-family: var(--lc-font-heading, var(--jp-content-font-family));
+  font-size: clamp(32px, 3.75cqi, 48px);
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.jp-jupyterlab-lightcone-Home-title {
+  display: inline;
+  margin: 0;
+  color: var(--lc-display-accent, var(--jp-ui-font-color0));
+  font: inherit;
+}
+
+/* The quiet edit buttons beside the title and the description. */
+.jp-jupyterlab-lightcone-Home-inlineEdit {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: var(--jp-border-radius);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.45;
+}
+
+.jp-jupyterlab-lightcone-Home-inlineEdit:hover,
+.jp-jupyterlab-lightcone-Home-inlineEdit:focus-visible {
+  background: var(--jp-layout-color2);
+  opacity: 1;
+}
+
+.jp-jupyterlab-lightcone-Home-inlineEdit:disabled {
+  cursor: default;
+  opacity: 0.25;
+}
+
+.jp-jupyterlab-lightcone-Home-rename {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 4px;
+  letter-spacing: 0;
+  vertical-align: 0.12em;
+}
+
+.jp-jupyterlab-lightcone-Home-rename svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* The gold rule under the title, on the lead's measure. */
+.jp-jupyterlab-lightcone-Home-rule {
+  align-self: stretch;
+  max-width: 624px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--lc-display-accent, var(--jp-border-color1)) 70%,
+    transparent
+  );
+}
+
+.jp-jupyterlab-lightcone-Home-description {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 624px;
+  color: var(--jp-content-font-color1);
+  font-family: var(--jp-content-font-family);
+  font-size: calc(var(--jp-content-font-size1) * 1.2);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown {
+  flex: 1;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown .jp-RenderedMarkdown {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown
+  .jp-RenderedMarkdown
+  > :first-child {
+  margin-top: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-descriptionMarkdown
+  .jp-RenderedMarkdown
+  > :last-child {
+  margin-bottom: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-editDescription {
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 4px;
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-ui-font-family);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-editDescription svg {
+  width: 16px;
+  height: 16px;
+}
+
+.jp-jupyterlab-lightcone-DescriptionInput {
+  width: min(560px, 70vw);
+}
+
+.jp-jupyterlab-lightcone-DescriptionInput textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* The colophon: what the analysis holds, in small capitals, the counts
+ * parted by gold points. Every count carries its point in a 36px lead; the
+ * list starts one lead early and clips it, so no line begins with a point. */
+.jp-jupyterlab-lightcone-Home-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 0 -36px;
+  padding: 0;
+  color: var(--jp-ui-font-color2);
+  font-size: 11px;
+  font-variant-numeric: lining-nums;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  list-style: none;
+  text-transform: uppercase;
+  clip-path: inset(0 0 0 36px);
+}
+
+.jp-jupyterlab-lightcone-Home-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-badge::before {
+  position: relative;
+  top: -1px;
+  flex: none;
+  width: 36px;
+  margin-right: -7px;
+  color: var(--lc-display-accent, var(--jp-ui-font-color3));
+  font-size: 15px;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: center;
+  content: '·' / '';
+}
+
+.jp-jupyterlab-lightcone-Home-badge strong {
+  color: var(--jp-ui-font-color0);
+  font-weight: 800;
+}
+
+.jp-jupyterlab-lightcone-Home-message,
+.jp-jupyterlab-lightcone-Home-warning {
+  margin: 0;
+  color: var(--jp-ui-font-color2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-warning {
+  padding-left: 10px;
+  border-left: 3px solid var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+/* Open report and Open ASTRA share one shape. The report is filled, since
+ * it is what the project is for; without one, Open ASTRA takes the fill. */
+.jp-jupyterlab-lightcone-Home-report,
+.jp-jupyterlab-lightcone-Home-astra {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 22px 0 18px;
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-report,
+.jp-jupyterlab-lightcone-Home-astra[data-primary] {
+  color: var(--lc-accent-contrast, var(--jp-ui-inverse-font-color1));
+  background: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-report:hover,
+.jp-jupyterlab-lightcone-Home-astra[data-primary]:hover {
+  border-color: var(--jp-brand-color0);
+  background: var(--jp-brand-color0);
+}
+
+.jp-jupyterlab-lightcone-Home-report:focus-visible,
+.jp-jupyterlab-lightcone-Home-astra:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
+.jp-jupyterlab-lightcone-Home-astra:not([data-primary]) {
+  color: var(--jp-brand-color1);
+  background: transparent;
+}
+
+.jp-jupyterlab-lightcone-Home-astra:not([data-primary]):hover {
+  background: color-mix(in srgb, var(--jp-brand-color1) 10%, transparent);
+}
+
+.jp-jupyterlab-lightcone-Home-actionIcon {
+  display: inline-flex;
+}
+
+.jp-jupyterlab-lightcone-Home-actionIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* The MyST logo's grey and orange would not read on the action colour: it
+ * takes the button's text colour, white on blue ink and dark on the lighter
+ * accent of dark themes. The ASTRA sparkle keeps its own gold outline. */
+.jp-jupyterlab-lightcone-Home-report
+  .jp-jupyterlab-lightcone-Home-actionIcon
+  svg
+  path {
+  fill: currentcolor;
+}
+
+/* The title page and the results, with the new session and the sessions in
+ * a margin column beside them from the top. */
+.jp-jupyterlab-lightcone-Home-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 344px;
+  gap: 0 48px;
+  align-items: start;
+  padding: 32px var(--jp-jupyterlab-lightcone-home-gutter) 48px;
+}
+
+.jp-jupyterlab-lightcone-Home-body[data-desk='false'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.jp-jupyterlab-lightcone-Home-main {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  min-width: 0;
+}
+
+/* Each section opens with a Quattrocento heading over a hairline. */
+.jp-jupyterlab-lightcone-Home-sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Home-heading {
+  margin: 0;
+  color: var(--jp-ui-font-color0);
+  font-family: var(--lc-font-heading, var(--jp-content-font-family));
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.jp-jupyterlab-lightcone-Home-headNote,
+.jp-jupyterlab-lightcone-Home-freshness {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--jp-ui-font-color2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-freshness[data-state='attention'] {
+  color: var(--jp-ui-font-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-freshnessDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--jp-ui-font-color3);
+  vertical-align: 1px;
+}
+
+.jp-jupyterlab-lightcone-Home-freshness[data-state='current']
+  .jp-jupyterlab-lightcone-Home-freshnessDot {
+  background: var(--jp-success-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-freshness[data-state='attention']
+  .jp-jupyterlab-lightcone-Home-freshnessDot {
+  background: var(--jp-warn-color1);
+}
+
+/* Links to other views: blue ink over a gold rule. */
+.jp-jupyterlab-lightcone-Home-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  color: var(--jp-brand-color1);
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline 1px var(--lc-display-accent, transparent);
+  text-underline-offset: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-link:hover {
+  text-decoration-color: currentcolor;
+}
+
+/* A heading's links sit at the right of its row; a freshness line or note
+ * between them takes the room instead. */
+.jp-jupyterlab-lightcone-Home-sectionHead
+  > .jp-jupyterlab-lightcone-Home-heading {
+  margin-right: auto;
+}
+
+.jp-jupyterlab-lightcone-Home-results {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-plates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 24px;
+}
+
+.jp-jupyterlab-lightcone-Home-plate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The plates reuse ASTRA UI's artifact preview. Its tokens map to the Lab
+ * theme here, as Home forces no palette or font of its own: a plate reads like
+ * the rest of Lab under any theme, and the Lightcone themes bring the brand
+ * through these same variables. Each is mounted like a plate in a book, a
+ * frame with a plate mark inside it. */
+.jp-jupyterlab-lightcone-Home-platePreview {
+  --astra-color-canvas: var(--jp-layout-color0);
+  --astra-color-surface-muted: var(--jp-layout-color2);
+  --astra-color-artifact-paper: var(--jp-layout-color0);
+  --astra-color-artifact-ink: var(--jp-content-font-color1);
+  --astra-color-text: var(--jp-ui-font-color1);
+  --astra-color-text-muted: var(--jp-ui-font-color2);
+  --astra-color-text-subtle: var(--jp-ui-font-color2);
+  --astra-color-text-faint: var(--jp-ui-font-color3);
+  --astra-color-border: var(--jp-border-color2);
+  --astra-color-kind-output: var(--jp-brand-color1);
+  --astra-font-ui: var(--jp-ui-font-family);
+  --astra-font-body: var(--jp-content-font-family);
+  --astra-font-mono: var(--jp-code-font-family);
+  --astra-font-size-xs: var(--jp-ui-font-size0);
+  --astra-font-size-2xs: 10px;
+  --astra-radius-preview: var(--jp-border-radius);
+
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  aspect-ratio: 4 / 3;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 13px;
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius);
+  background: var(--lc-paper, var(--jp-layout-color0));
+  transition: border-color 150ms ease;
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview::before {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--jp-border-color2);
+  pointer-events: none;
+  content: '';
+}
+
+.jp-jupyterlab-lightcone-Home-plate:hover
+  .jp-jupyterlab-lightcone-Home-platePreview {
+  border-color: var(--jp-brand-color1);
+}
+
+/* The plate is the frame: the preview inside draws none of its own. */
+.jp-jupyterlab-lightcone-Home-platePreview > .astra-artifact {
+  width: 100%;
+  max-height: 100%;
+  margin: 0;
+  overflow: hidden;
+  border: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview > figure.astra-artifact {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A value list (a one-row table) reads from the plate's top left. */
+.jp-jupyterlab-lightcone-Home-platePreview > .astra-artifact[data-type='text'] {
+  align-self: stretch;
+}
+
+/* ASTRA UI's isolation reset rolls native elements back to the highest
+ * declared layer, which is this one (see base.css and isolate.css): host
+ * chrome styles the preview's `pre` from here, not by out-specifying it. */
+@layer lightcone {
+  .jp-jupyterlab-lightcone-Home-platePreview pre {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    color: var(--jp-content-font-color1);
+    background: transparent;
+    font: 10.5px/1.6 var(--jp-code-font-family);
+    white-space: pre;
+  }
+}
+
+.jp-jupyterlab-lightcone-Home-platePreview img {
+  max-width: 100%;
+  max-height: 100%;
+  padding: 0;
+  object-fit: contain;
+}
+
+/* The caption: the result's name, then its kind mark and kind. */
+.jp-jupyterlab-lightcone-Home-plateCaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-plateName {
+  overflow: hidden;
+  color: var(--jp-ui-font-color0);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jp-jupyterlab-lightcone-Home-plate:hover
+  .jp-jupyterlab-lightcone-Home-plateName {
+  text-decoration: underline 1px var(--lc-display-accent, currentcolor);
+  text-underline-offset: 4px;
+}
+
+.jp-jupyterlab-lightcone-Home-plateMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--jp-ui-font-color3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+
+/* The results past the plates, by name. */
+.jp-jupyterlab-lightcone-Home-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--jp-border-color2);
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.jp-jupyterlab-lightcone-Home-moreLabel {
+  color: var(--jp-ui-font-color3);
+  font-size: 11px;
+  font-variant-numeric: lining-nums;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.jp-jupyterlab-lightcone-Home-moreLink {
+  padding: 0;
+  border: 0;
+  color: var(--jp-brand-color1);
+  background: none;
+  font: inherit;
+  text-decoration: underline 1px var(--jp-border-color1);
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-moreLink:hover {
+  text-decoration-color: var(--lc-display-accent, currentcolor);
+}
+
+/* The margin column. */
+.jp-jupyterlab-lightcone-Home-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.jp-jupyterlab-lightcone-Home-composerInput {
+  border: 1px solid var(--jp-border-color1);
+  border-radius: var(--jp-border-radius);
+  background: var(--lc-paper, var(--jp-layout-color0));
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.jp-jupyterlab-lightcone-Home-composerInput:focus-within {
+  border-color: var(--jp-brand-color1);
+  box-shadow: 0 0 0 1px var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 76px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 0;
+  color: var(--jp-content-font-color1);
+  background: transparent;
+  font-family: var(--jp-content-font-family);
+  font-size: var(--jp-content-font-size1);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.jp-jupyterlab-lightcone-Home-textarea::placeholder {
+  color: var(--jp-ui-font-color2);
+  opacity: 1;
+}
+
+.jp-jupyterlab-lightcone-Home-textarea:focus {
+  outline: none;
+}
+
+.jp-jupyterlab-lightcone-Home-composerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-top: 1px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Home-agentPicker.jp-ThemedContainer {
+  display: flex;
+  min-width: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+/* Outranks Jupyter AI's `.jp-ThemedContainer .jp-jai-personaControls` whatever the stylesheet order. */
+.jp-jupyterlab-lightcone-Home-agentPicker.jp-ThemedContainer
+  .jp-jai-personaControls {
+  min-height: 32px;
+  max-width: 100%;
+  padding: 4px 6px;
+  border-radius: var(--jp-border-radius);
+}
+
+.jp-jupyterlab-lightcone-Home-agentPicker .jp-jai-personaControls-persona {
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Home-start {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 14px 0 16px;
+  border: 1px solid var(--jp-brand-color1);
+  border-radius: var(--jp-border-radius);
+  color: var(--lc-accent-contrast, var(--jp-ui-inverse-font-color1));
+  background: var(--jp-brand-color1);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-start:disabled {
+  border-color: var(--jp-border-color2);
+  color: var(--jp-ui-font-color2);
+  background: var(--jp-layout-color2);
+  cursor: default;
+}
+
+.jp-jupyterlab-lightcone-Home-start:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
+.jp-jupyterlab-lightcone-Home-start:hover:enabled {
+  border-color: var(--jp-brand-color0);
+  background: var(--jp-brand-color0);
+}
+
+.jp-jupyterlab-lightcone-Home-composerError {
+  margin: 0;
+  color: var(--jp-error-color1);
+  font-size: var(--jp-ui-font-size0);
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-sessions {
+  display: flex;
+  flex-direction: column;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionList > li {
+  border-bottom: 1px solid var(--jp-border-color2);
+}
+
+.jp-jupyterlab-lightcone-Home-session {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: baseline;
+  width: 100%;
+  padding: 10px 0;
+  gap: 2px 10px;
+  border: 0;
+  color: var(--jp-ui-font-color1);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionDot {
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border: 1.5px solid var(--jp-ui-font-color3);
+  border-radius: 50%;
+  place-self: start center;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionDot[data-activity='working'] {
+  border-color: var(--jp-brand-color1);
+  background: var(--jp-brand-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-sessionDot[data-activity='attention'] {
+  border-color: var(--jp-warn-color1);
+  background: var(--jp-warn-color1);
+}
+
+.jp-jupyterlab-lightcone-Home-sessionTitle,
+.jp-jupyterlab-lightcone-Home-sessionMeta {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionTitle {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.jp-jupyterlab-lightcone-Home-session:hover
+  .jp-jupyterlab-lightcone-Home-sessionTitle {
+  text-decoration: underline 1px var(--lc-display-accent, currentcolor);
+  text-underline-offset: 4px;
+}
+
+.jp-jupyterlab-lightcone-Home-sessionMeta {
+  color: var(--jp-ui-font-color2);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.jp-jupyterlab-lightcone-Home-tools:focus-visible,
+.jp-jupyterlab-lightcone-Home-inlineEdit:focus-visible,
+.jp-jupyterlab-lightcone-Home-plate:focus-visible,
+.jp-jupyterlab-lightcone-Home-session:focus-visible,
+.jp-jupyterlab-lightcone-Home-link:focus-visible,
+.jp-jupyterlab-lightcone-Home-moreLink:focus-visible {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
+/* The Tools menu: kernel icons from their spec URL. */
+.jp-jupyterlab-lightcone-HomeTools-kernelIcon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+/* A wide results column holds the plates four across. */
+@container lightcone-home (width >= 1100px) {
+  .jp-jupyterlab-lightcone-Home-plates {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* A Home tab beside a session or a result is half a screen wide, judged by
+ * the tab's own width rather than the viewport's. The page becomes one
+ * column in reading order: the title page, the new session, the results,
+ * then the sessions. */
+@container lightcone-home (width < 900px) {
+  .jp-jupyterlab-lightcone-Home-page {
+    --jp-jupyterlab-lightcone-home-gutter: 20px;
+  }
+
+  .jp-jupyterlab-lightcone-Home-body {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 32px;
+  }
+
+  .jp-jupyterlab-lightcone-Home-main,
+  .jp-jupyterlab-lightcone-Home-desk {
+    display: contents;
+  }
+
+  .jp-jupyterlab-lightcone-Home-composer {
+    order: 1;
+  }
+
+  .jp-jupyterlab-lightcone-Home-results {
+    order: 2;
+  }
+
+  .jp-jupyterlab-lightcone-Home-sessions {
+    order: 3;
+  }
+}

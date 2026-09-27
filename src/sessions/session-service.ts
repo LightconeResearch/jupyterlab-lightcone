@@ -2,12 +2,20 @@ import { Token } from '@lumino/coreutils';
 import type { ISignal } from '@lumino/signaling';
 import type { ISessionInfo } from './sessions-api';
 
+/** Activity as the workbench sees it, including open chats waiting for the user. */
+export type SessionState = 'working' | 'idle' | 'attention';
+
 /** Options for starting a project session. */
 export interface ISessionStartOptions {
-  /** Title used to name the chat file; untitled when absent. */
+  /** Title used to name the chat file; derived from `firstMessage` when absent. */
   title?: string;
+  /** A message to send as soon as the session is open. */
+  firstMessage?: string;
+  /** Persona ID to address the first message to; the chat default otherwise. */
+  persona?: string;
   /**
-   * Text left in the composer for the user to finish, unsent.
+   * Text left in the composer for the user to finish, unsent; ignored when
+   * `firstMessage` is sent instead.
    */
   draft?: string;
 }
@@ -25,6 +33,8 @@ export interface ISessionService {
   openSession(path: string): Promise<void>;
   /** Emitted with the entrypoint whose sessions changed. */
   readonly changed: ISignal<ISessionService, string>;
+  /** Live activity of a session, when the workbench knows it. */
+  activity(path: string): SessionState | undefined;
 }
 
 /**

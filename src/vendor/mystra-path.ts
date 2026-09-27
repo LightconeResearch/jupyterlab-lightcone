@@ -62,8 +62,16 @@ const CHILD_BY_COLLECTION: Partial<Record<Collection, ChildCollection>> = {
   prior_insights: 'evidence'
 };
 
+function isCollection(seg: string): seg is Collection {
+  return COLLECTIONS.has(seg);
+}
+
+function isChildCollection(seg: string): seg is ChildCollection {
+  return CHILD_COLLECTIONS.has(seg);
+}
+
 function canonicalCollection(seg: string): Collection | null {
-  return COLLECTIONS.has(seg) ? (seg as Collection) : null;
+  return isCollection(seg) ? seg : null;
 }
 
 export interface AstraPath {
@@ -167,26 +175,26 @@ export function parseAstraPath(raw: string): AstraPath {
             `unexpected segment "${segs[i]}" after ${collection}.${id}`
           );
         }
-        if (CHILD_COLLECTIONS.has(segs[i])) {
+        const next = segs[i];
+        if (isChildCollection(next)) {
           // Explicit long form: `…options.<id>` / `…evidence.<id>`.
-          const cc = segs[i] as ChildCollection;
           const cid = segs[i + 1];
-          if (cc !== expectedChild) {
+          if (next !== expectedChild) {
             throw new Error(
-              `${collection}.${id} has "${expectedChild}", not "${cc}"`
+              `${collection}.${id} has "${expectedChild}", not "${next}"`
             );
           }
-          if (!cid) throw new Error(`missing ${cc} id in "${raw}"`);
+          if (!cid) throw new Error(`missing ${next} id in "${raw}"`);
           if (i + 2 !== segs.length) {
             throw new Error(`unexpected segment "${segs[i + 2]}" in "${raw}"`);
           }
-          child = { collection: cc, id: cid };
+          child = { collection: next, id: cid };
         } else {
           // Short form: the child collection is implied by the parent kind.
           if (i + 1 !== segs.length) {
             throw new Error(`unexpected segment "${segs[i + 1]}" in "${raw}"`);
           }
-          child = { collection: expectedChild, id: segs[i] };
+          child = { collection: expectedChild, id: next };
         }
       }
       break;
@@ -200,9 +208,12 @@ export function parseAstraPath(raw: string): AstraPath {
   // A path that ends on a bare sub-analysis step targets that sub-analysis:
   // normalize to the explicit `analyses.<id>` form so every consumer sees one
   // shape instead of special-casing `collection: null`.
-  if (!collection && scope.length > 0) {
-    collection = 'analyses';
-    id = scope.pop()!;
+  if (!collection) {
+    const last = scope.pop();
+    if (last !== undefined) {
+      collection = 'analyses';
+      id = last;
+    }
   }
 
   return { scope, collection, id, child };

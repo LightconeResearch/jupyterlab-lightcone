@@ -1,38 +1,23 @@
-import type { CommandRegistry } from '@lumino/commands';
+import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents } from '@jupyterlab/services';
 import { ServerConnection } from '@jupyterlab/services';
 import type { ArtifactBinding, ResolvedOutput } from '@astra-spec/sdk';
+import type { ArtifactPreviewData } from '@astra-spec/ui/lib';
 import {
-  metricPreviewFromJson,
-  tablePreviewFromDelimited,
-  tablePreviewFromRows,
-  type ArtifactPreviewData
-} from '@astra-spec/ui/lib';
+  previewFromSource,
+  type IArtifactSource,
+  type IBoundedText
+} from './artifact-preview-data';
 import { projectDirectory } from './project-data';
 
-const TABLE_PREVIEW_ROWS = 30;
-const TABLE_PREVIEW_COLUMNS = 30;
-const TABLE_PREVIEW_RANGE_BYTES = 65_536;
-const JSON_PREVIEW_MAX_BYTES = 2_000_000;
-const TABLE_DELIMITERS = new Map([
-  ['csv', ','],
-  ['tsv', '\t']
-]);
-const IMAGE_FORMATS = new Set([
-  'avif',
-  'gif',
-  'jpeg',
-  'jpg',
-  'png',
-  'svg',
-  'webp'
-]);
+/** The part of the document manager that opens a file in a tab. */
+export type IDocumentOpener = Pick<IDocumentManager, 'openOrReveal'>;
 
 /** Read at most the requested bytes, including when a server ignores Range. */
 export async function readBoundedText(
   response: Pick<Response, 'body'>,
   maxBytes: number
-): Promise<{ text: string; truncated: boolean }> {
+): Promise<IBoundedText> {
   if (!response.body) {
     throw new Error('The artifact response has no readable body.');
   }
@@ -58,10 +43,6 @@ export async function readBoundedText(
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function withCacheToken(url: string, cacheToken: string): string {
   const hashIndex = url.indexOf('#');
   const base = hashIndex < 0 ? url : url.slice(0, hashIndex);
@@ -76,7 +57,7 @@ export class JupyterArtifactAccess {
     private readonly contents: Contents.IManager,
     entrypoint: string,
     bindings: readonly ArtifactBinding[],
-    private readonly commands: CommandRegistry
+    private readonly documents: IDocumentOpener
   ) {
     this._projectRoot = projectDirectory(entrypoint);
     this._bindingByOutputPath = new Map(
@@ -98,101 +79,43 @@ export class JupyterArtifactAccess {
     return withCacheToken(url, binding.cacheToken);
   }
 
+  /** Bounded preview data for the output's current artifact. */
   async getPreview(
     output: ResolvedOutput,
     signal?: AbortSignal
   ): Promise<ArtifactPreviewData> {
     const binding = this.bindingFor(output);
-    if (!binding || !output.artifact) {
+    const artifact = output.artifact;
+    if (!binding || !artifact) {
       return {
         kind: 'unavailable',
         reason: 'This output has not been materialized.'
       };
     }
-    const format = (output.format ?? '').replace(/^\./, '').toLowerCase();
     const url = await this.getUrl(output);
-
-    if (output.type === 'figure' && IMAGE_FORMATS.has(format)) {
-      return { kind: 'image', url };
-    }
-
-    const delimiter = TABLE_DELIMITERS.get(format);
-    if (output.type === 'table' && delimiter !== undefined) {
-      const response = await ServerConnection.makeRequest(
-        url,
-        {
-          headers: { Range: `bytes=0-${TABLE_PREVIEW_RANGE_BYTES - 1}` },
-          signal
-        },
-        this.contents.serverSettings
-      );
-      if (!response.ok) {
-        throw await ServerConnection.ResponseError.create(response);
-      }
-      const sample = await readBoundedText(response, TABLE_PREVIEW_RANGE_BYTES);
-      const table = tablePreviewFromDelimited(sample.text, {
-        delimiter,
-        maxRows: TABLE_PREVIEW_ROWS,
-        maxColumns: TABLE_PREVIEW_COLUMNS,
-        sourceTruncated:
-          sample.truncated ||
-          (response.status === 206 &&
-            output.artifact.byteSize > TABLE_PREVIEW_RANGE_BYTES)
-      });
-      return table;
-    }
-
-    if (
-      (output.type === 'table' || output.type === 'metric') &&
-      format === 'json' &&
-      output.artifact.byteSize <= JSON_PREVIEW_MAX_BYTES
-    ) {
-      const response = await ServerConnection.makeRequest(
-        url,
-        { signal },
-        this.contents.serverSettings
-      );
-      if (!response.ok) {
-        throw await ServerConnection.ResponseError.create(response);
-      }
-      const sample = await readBoundedText(response, JSON_PREVIEW_MAX_BYTES);
-      if (sample.truncated) {
+    const source: IArtifactSource = {
+      url,
+      size: artifact.byteSize,
+      readText: async (maxBytes, readSignal) => {
+        // Ask for a range; a drive that serves the whole file is cut while read.
+        const response = await ServerConnection.makeRequest(
+          url,
+          { headers: { Range: `bytes=0-${maxBytes - 1}` }, signal: readSignal },
+          this.contents.serverSettings
+        );
+        if (!response.ok) {
+          throw await ServerConnection.ResponseError.create(response);
+        }
+        const sample = await readBoundedText(response, maxBytes);
         return {
-          kind: 'unavailable',
-          reason: 'The JSON artifact exceeds the preview limit.'
+          text: sample.text,
+          truncated:
+            sample.truncated ||
+            (response.status === 206 && artifact.byteSize > maxBytes)
         };
       }
-      try {
-        const value: unknown = JSON.parse(sample.text);
-        if (output.type === 'metric') {
-          return (
-            metricPreviewFromJson(value) ?? {
-              kind: 'unavailable',
-              reason: 'The file is not a JSON metric.'
-            }
-          );
-        }
-        if (Array.isArray(value) && value.every(isRecord)) {
-          return tablePreviewFromRows(value, {
-            maxRows: TABLE_PREVIEW_ROWS,
-            maxColumns: TABLE_PREVIEW_COLUMNS
-          });
-        }
-      } catch {
-        // Fall through to the unavailable preview below.
-      }
-      return {
-        kind: 'unavailable',
-        reason: `The file is not a JSON ${output.type}.`
-      };
-    }
-
-    return {
-      kind: 'unavailable',
-      reason: format
-        ? `No bounded preview is available for .${format} artifacts.`
-        : 'This output does not declare an artifact format.'
     };
+    return previewFromSource(output, source, signal);
   }
 
   async open(output: ResolvedOutput): Promise<void> {
@@ -206,7 +129,9 @@ export class JupyterArtifactAccess {
   /** Open a project file in a JupyterLab document tab, reusing an open one. */
   async openPath(relativePath: string, factory?: string): Promise<void> {
     const path = this.contents.resolvePath(this._projectRoot, relativePath);
-    await this.commands.execute('docmanager:open', { path, factory });
+    if (!this.documents.openOrReveal(path, factory)) {
+      throw new Error(`No document viewer can open ${path}.`);
+    }
   }
 
   private readonly _bindingByOutputPath: ReadonlyMap<string, ArtifactBinding>;

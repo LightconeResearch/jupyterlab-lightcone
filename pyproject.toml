@@ -36,7 +36,10 @@ dependencies = [
     "jupyterlab-chat>=0.25.0,<0.26",
     # TEMPORARY, for the MySTRA Viewer: the MyST CLI it runs (Node.js >= 20 is
     # still required).
-    "mystmd>=1.10.1"
+    "mystmd>=1.10.1",
+    # Read committed output metadata in process and retained bytes through git-annex.
+    "dulwich>=1.0",
+    "git-annex>=10.2026"
 ]
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 

@@ -4,9 +4,9 @@ A session is a Jupyter Chat document under `<project>/chats/`, where the
 workbench creates them. Jupyter Chat's own entry points (its file menu and
 launcher) create a chat in the browser's current folder instead, so chats
 beside `astra.yaml` are sessions too. This module lists them through the
-contents manager, on its terms, with a readable title and message count, and
-names the project a chat belongs to; it never creates, deletes or renames a
-chat, which the browser does through the Contents API, and never touches the
+contents manager, on its terms, with a readable title, message count and live
+agent activity, and names the project a chat belongs to; it never creates,
+deletes or renames a chat, which the browser does through the Contents API, and never touches the
 project's git configuration: the engine's own `.gitignore` template is where
 `chats/` has to be ignored.
 """
@@ -22,6 +22,7 @@ from jupyter_server.utils import url_path_join
 from jupyterlab_chat.models import Message, User
 from tornado import web
 
+from .agent_activity import working_chats
 from .project_routes import ProjectAPIHandler, contents_call
 from .projects import CHAT_PROJECT, owning_project, project_directory, project_entrypoint, spec_project
 
@@ -191,6 +192,13 @@ def _last_agent(messages: list[Message], users: dict[str, User]) -> str | None:
     return None
 
 
+def chat_id(document: dict | None) -> str | None:
+    """The id Jupyter Chat gave the document, under which its personas report their state."""
+    metadata = document.get("metadata") if document else None
+    identifier = metadata.get("id") if isinstance(metadata, dict) else None
+    return identifier if isinstance(identifier, str) else None
+
+
 @dataclass(frozen=True)
 class ChatSummary:
     """What a session listing shows of a chat document.
@@ -204,6 +212,8 @@ class ChatSummary:
     messages: int | None = None
     """The number of messages the chat still shows."""
     last_agent: str | None = None
+    chat_id: str | None = None
+    """The stable chat id used to look up live activity without rereading its file."""
 
 
 def summarize_chat(document: dict | None) -> ChatSummary:
@@ -216,6 +226,7 @@ def summarize_chat(document: dict | None) -> ChatSummary:
         title=_first_line(messages, users),
         messages=len(messages),
         last_agent=_last_agent(messages, users),
+        chat_id=chat_id(document),
     )
 
 
@@ -261,7 +272,12 @@ def modified_time(model: dict) -> str:
     return model["last_modified"].isoformat(timespec="milliseconds")
 
 
-def describe_session(model: dict, summary: ChatSummary) -> dict:
+def activity_state(summary: ChatSummary, working: set[str]) -> str:
+    """``working`` while a persona processes a message in this chat, else ``idle``."""
+    return "working" if summary.chat_id is not None and summary.chat_id in working else "idle"
+
+
+def describe_session(model: dict, summary: ChatSummary, working: set[str]) -> dict:
     """One session as the workbench lists it, from the manager's model of the chat and its summary."""
     return {
         "path": model["path"],
@@ -269,14 +285,16 @@ def describe_session(model: dict, summary: ChatSummary) -> dict:
         "modified": modified_time(model),
         "messages": summary.messages,
         "lastAgent": summary.last_agent,
+        "activity": activity_state(summary, working),
     }
 
 
-async def list_sessions(manager, project_path: str, summaries: ChatSummaries) -> list[dict]:
+async def list_sessions(manager, project_path: str, summaries: ChatSummaries, working: set[str]) -> list[dict]:
     """Every session of a project, `chats/` and beside `astra.yaml`, newest first.
 
     A chat that cannot be read is still listed by name; one removed while
-    listing is left out.
+    listing is left out. Live activity is looked up separately from the cached
+    summary, since it can change without a file modification.
     """
     sessions = []
     for directory in (chats_directory(project_path), project_path):
@@ -287,7 +305,7 @@ async def list_sessions(manager, project_path: str, summaries: ChatSummaries) ->
                 if error.status_code != 404:
                     raise
                 continue
-            sessions.append(describe_session(model, summary))
+            sessions.append(describe_session(model, summary, working))
     return sorted(sessions, key=lambda session: (session["modified"], session["path"]), reverse=True)
 
 
@@ -305,10 +323,12 @@ class ProjectSessionsHandler(ProjectAPIHandler):
     @web.authenticated
     @authorized
     async def get(self):
-        """List the project's sessions, newest first, with their titles."""
+        """List the project's sessions, newest first, with their live activity."""
         entrypoint = self.get_query_argument("path")
         await self.project_named(entrypoint)
-        sessions = await list_sessions(self.contents_manager, project_directory(entrypoint), self.summaries)
+        sessions = await list_sessions(
+            self.contents_manager, project_directory(entrypoint), self.summaries, working_chats(self.settings)
+        )
         self.finish({"sessions": sessions})
 
 

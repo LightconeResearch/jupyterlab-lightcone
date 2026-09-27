@@ -8,10 +8,16 @@ import { PathExt } from '@jupyterlab/coreutils';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import {
   collectInventoryPapers,
-  type InventoryPaper
+  type InventoryPaper,
+  type SurfaceKind
 } from '@astra-spec/ui/model';
 import type { ILoadedProjectData } from './project-data';
-import { canonicalRecordPath, parseAstraPath } from './vendor/mystra-path';
+import {
+  canonicalRecordPath,
+  parseAstraPath,
+  type AstraPath,
+  type Collection
+} from './vendor/mystra-path';
 
 export interface IProjectContext {
   entrypoint: string;
@@ -28,6 +34,41 @@ export interface IResolvedElement {
   record?: ResolvedRecord;
   paper?: InventoryPaper;
   target: string;
+}
+
+/** The kind of record each `astra.yaml` collection holds. */
+const COLLECTION_KINDS: Readonly<Record<Collection, SurfaceKind>> = {
+  inputs: 'input',
+  outputs: 'output',
+  decisions: 'decision',
+  findings: 'finding',
+  prior_insights: 'prior_insight',
+  analyses: 'analysis'
+};
+
+/**
+ * The kind a reference names, for its kind mark: `paper` for a DOI, the
+ * record kind of a record path (or of the record owning an option or an
+ * evidence), and `analysis` for an analysis scope or the empty root path.
+ *
+ * Like `parseAstraPath`, it reads syntax only and never checks that the
+ * scope exists: any dotted name without a collection reads as an analysis
+ * scope, so `notes/readme.md` and `papers.10.1234/x` are both `analysis`.
+ * Callers pass record targets, with papers told apart by their DOI first.
+ * Undefined only when the target is not ASTRA path syntax at all.
+ */
+export function referenceKind(
+  target: string,
+  doi?: string
+): SurfaceKind | undefined {
+  if (doi) return 'paper';
+  let path: AstraPath;
+  try {
+    path = parseAstraPath(target);
+  } catch {
+    return undefined;
+  }
+  return path.collection ? COLLECTION_KINDS[path.collection] : 'analysis';
 }
 
 /** Validate public command arguments before loading a project. */

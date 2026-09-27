@@ -1,0 +1,224 @@
+import type { IInputModel } from '@jupyter/chat';
+import { ServerConnection } from '@jupyterlab/services';
+import { PromiseDelegate } from '@lumino/coreutils';
+import {
+  analysis,
+  createContents,
+  fileModel
+} from '../../__tests__/project-fixtures';
+import { createChatProjectResolver } from '../../chat-links/chat-project';
+import { fetchChatProject } from '../../sessions/sessions-api';
+import {
+  commentDelivery,
+  createComment,
+  listComments,
+  sendComments,
+  type IComment
+} from '../comments-api';
+import { pointAnchor } from '../comment-model';
+import { CommentService } from '../comment-service';
+import { commentCommandProvider } from '../index';
+import { makeComment } from './fixtures';
+
+jest.mock('@jupyter/chat', () => {
+  const { Token } = jest.requireActual('@lumino/coreutils');
+  return {
+    ...jest.requireActual('../../chat-links/__tests__/chat-mock'),
+    IChatCommandRegistry: new Token('@jupyter/chat:commands'),
+    IChatTracker: new Token('@jupyter/chat:IChatTracker'),
+    IMessagePreambleRegistry: new Token('@jupyter/chat:preambles')
+  };
+});
+jest.mock('../../sessions/sessions-api', () => ({
+  fetchChatProject: jest.fn()
+}));
+jest.mock('../comments-api', () => ({
+  ...jest.requireActual('../comments-api'),
+  listComments: jest.fn(),
+  createComment: jest.fn(),
+  updateComment: jest.fn(),
+  deleteComment: jest.fn(),
+  sendComments: jest.fn()
+}));
+jest.mock('../../commands', () => ({
+  CommandIDs: { openElement: 'jupyterlab_lightcone:open-element' }
+}));
+jest.mock('../../element-widget', () => ({ ElementWidget: class {} }));
+
+const settings = ServerConnection.makeSettings();
+
+/** The part of Jupyter Chat's input model the provider uses. */
+function fakeInput(name: string, metadata: Record<string, unknown> = {}) {
+  const state = {
+    chatContext: { name },
+    isDisposed: false,
+    value: 'Please fix these.',
+    metadata,
+    getMetadata: () => state.metadata,
+    updateMetadata: jest.fn((patch: Record<string, unknown>) => {
+      state.metadata = { ...state.metadata, ...patch };
+    })
+  };
+  return { state, input: state as unknown as IInputModel };
+}
+
+function setup(delivery: 'prompt' | 'message' = 'prompt') {
+  const { contents } = createContents({
+    'project/astra.yaml': fileModel(analysis('demo')),
+    'project/chats/talk.chat': fileModel('{}'),
+    'loose/talk.chat': fileModel('{}')
+  });
+  const service = new CommentService(settings);
+  const provider = commentCommandProvider(
+    service,
+    createChatProjectResolver(contents, () => undefined),
+    delivery
+  );
+  return { service, provider };
+}
+
+beforeEach(() => {
+  jest.mocked(fetchChatProject).mockReset();
+  jest
+    .mocked(fetchChatProject)
+    .mockImplementation(async (_settings, path) =>
+      path.startsWith('project/') ? 'project/astra.yaml' : null
+    );
+  jest.mocked(listComments).mockReset();
+  jest.mocked(createComment).mockReset();
+  jest.mocked(sendComments).mockReset();
+  jest.useFakeTimers();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+describe('the comments chat command provider', () => {
+  it('sends a saved comment after an older refresh of a known project finishes', async () => {
+    const path = 'project/astra.yaml';
+    const added = makeComment('a', pointAnchor(1, 2));
+    const stale = new PromiseDelegate<IComment[]>();
+    jest.mocked(listComments).mockResolvedValueOnce([]);
+    jest.mocked(createComment).mockResolvedValue(added);
+    const { provider, service } = setup();
+    await service.refresh(path);
+    expect(service.known(path)).toBe(true);
+    jest.mocked(listComments).mockReturnValueOnce(stale.promise);
+    const refreshing = service.refresh(path);
+    await service.add(path, added);
+    stale.resolve([]);
+    await refreshing;
+    const { state, input } = fakeInput('project/chats/talk.chat');
+    await provider.onSubmit(input);
+    expect(fetchChatProject).toHaveBeenCalledWith(
+      expect.anything(),
+      'project/chats/talk.chat'
+    );
+    expect(state.metadata).toEqual({ lightcone: { comments: ['a'] } });
+    expect(listComments).toHaveBeenCalledTimes(2);
+    service.dispose();
+  });
+
+  it('sends the pending comment ids with the next message only', async () => {
+    jest
+      .mocked(listComments)
+      .mockResolvedValue([
+        makeComment('a', pointAnchor(1, 2)),
+        makeComment('b', pointAnchor(3, 4), { label: 2 })
+      ]);
+    const { provider, service } = setup();
+    const { state, input } = fakeInput('project/chats/talk.chat', {
+      agent: 'claude',
+      lightcone: { other: true }
+    });
+    await provider.onSubmit(input);
+    // What rides with the message: the ids, beside the input's own metadata.
+    expect(state.metadata).toEqual({
+      agent: 'claude',
+      lightcone: { other: true, comments: ['a', 'b'] }
+    });
+    expect(listComments).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1000);
+    expect(listComments).toHaveBeenCalledTimes(2);
+    // The post-send refresh is in flight; a refresh asked now shares it.
+    await service.refresh('project/astra.yaml');
+
+    // The input keeps its metadata after a send: the next submit, with
+    // nothing pending any more, must not carry the ids again.
+    jest.mocked(listComments).mockResolvedValue([]);
+    await service.refresh('project/astra.yaml');
+    await provider.onSubmit(input);
+    expect(state.metadata).toEqual({
+      agent: 'claude',
+      lightcone: { other: true, comments: [] }
+    });
+    service.dispose();
+  });
+
+  it('drops stale ids even for a chat outside every project', async () => {
+    jest.mocked(listComments).mockResolvedValue([]);
+    const { provider, service } = setup();
+    const { state, input } = fakeInput('loose/talk.chat', {
+      lightcone: { comments: ['old'] }
+    });
+    await provider.onSubmit(input);
+    expect(state.metadata).toEqual({ lightcone: { comments: [] } });
+    service.dispose();
+  });
+
+  it('keeps the message text as typed when the server appends to the prompt', async () => {
+    jest
+      .mocked(listComments)
+      .mockResolvedValue([makeComment('a', pointAnchor(1, 2))]);
+    const { provider, service } = setup('prompt');
+    const { state, input } = fakeInput('project/chats/talk.chat');
+    await provider.onSubmit(input);
+    expect(sendComments).not.toHaveBeenCalled();
+    expect(state.value).toBe('Please fix these.');
+    service.dispose();
+  });
+
+  it('appends the block to the message where the server would not', async () => {
+    jest
+      .mocked(listComments)
+      .mockResolvedValue([makeComment('a', pointAnchor(1, 2))]);
+    jest
+      .mocked(sendComments)
+      .mockResolvedValue('Comments on this project (1):\n① outputs.fig');
+    const { provider, service } = setup('message');
+    const { state, input } = fakeInput('project/chats/talk.chat');
+    await provider.onSubmit(input);
+    expect(sendComments).toHaveBeenCalledWith(
+      settings,
+      'project/astra.yaml',
+      ['a'],
+      'project/chats/talk.chat'
+    );
+    expect(state.value).toBe(
+      'Please fix these.\n\nComments on this project (1):\n① outputs.fig'
+    );
+    // The ids still ride along, so the message shows the comments as cards.
+    expect(state.metadata).toEqual({ lightcone: { comments: ['a'] } });
+    expect(service.pending('project/astra.yaml')).toEqual([]);
+    service.dispose();
+  });
+
+  it('reads the delivery the server stated in the page configuration', () => {
+    expect(commentDelivery('prompt')).toBe('prompt');
+    expect(commentDelivery('message')).toBe('message');
+    expect(commentDelivery('')).toBe('message');
+  });
+
+  it('leaves messages alone without a project or pending comments', async () => {
+    jest.mocked(listComments).mockResolvedValue([]);
+    const { provider, service } = setup();
+    const loose = fakeInput('loose/talk.chat');
+    await provider.onSubmit(loose.input);
+    expect(loose.state.updateMetadata).not.toHaveBeenCalled();
+    const empty = fakeInput('project/chats/talk.chat');
+    await provider.onSubmit(empty.input);
+    expect(empty.state.updateMetadata).not.toHaveBeenCalled();
+    service.dispose();
+  });
+});

@@ -31,41 +31,42 @@ there is one, the status bar shows **Lightcone · _project_**; click it to open
 the project's inventory. Browsing outside every project clears it. New Jupyter
 AI chats join the current project (see below).
 
-Outside a project, the Lightcone Lab launcher shows **＋ Create project** and
-**Open project**. Inside a project or its subfolders, it shows the agent,
-inventory, and report. The launcher heading identifies the project root.
+Outside a project, the launcher is JupyterLab's own plus one **New Lightcone
+project** card; **Open project** stays in the command palette. Inside a project
+or its subfolders, the launcher tab shows the project's [Home](#project-home-and-setup) instead.
 Browse labels folders containing `astra.yaml` as **ASTRA project**; this indicates
 presence, not validation of the specification.
 
-Choose **Create project** in the launcher (or command palette), enter a project
-folder, or use **Browse…** to select an existing directory. Create defaults to a
-new `my-project` subfolder, which you can rename. Paths are relative to
-the Jupyter server's root; absolute paths inside that root are also accepted.
-Existing projects open directly. For a folder without `astra.yaml`, **Create
-project here** initializes the exact folder shown, as `lc init` would. Inspecting
-or cancelling the form creates nothing. The extension installs `lightcone-cli` as
-a dependency and calls its engine directly, so no `lc` command has to be on the
-server's `PATH`. Initialization requires a local filesystem server, and the
-engine's own tools, `uv` and `git`, on the server's `PATH`; failures are
-displayed in the form and can be retried. After closing the form or
-reloading JupyterLab, run **Finish project setup** from the command palette to
-resume setup, including when `astra.yaml` already exists. The Create form also
-offers **Finish setup…** after inspecting an existing project. Both routes show
-the exact destination before running initialization; file presence alone does
-not imply setup completed. Each setup action opens a fresh form so an older
-draft cannot override a newly selected destination.
+Choose **New Lightcone project** in the launcher (or **Create project** in the
+command palette), enter a project folder, or use **Browse…** to select an
+existing directory. Create proposes a folder that does not exist yet,
+`my-project` (or `my-project-2`, … when that is taken), beside the current
+project when the file browser is inside one; you can rename it. Paths are
+relative to the Jupyter server's root; absolute paths inside that root are also
+accepted. **Create project** does it in one step: a folder that already holds a
+Lightcone project opens directly, a folder inside another project is refused
+before anything is written, and any other folder is initialized exactly as
+entered, as `lc init` would, then opened. Cancelling the form creates nothing.
+The extension installs `lightcone-cli` as a dependency and calls its engine
+directly, so no `lc` command has to be on the server's `PATH`.
+Initialization requires a local filesystem server, and the engine's own tools,
+`uv` and `git`, on the server's `PATH` (`git-annex` comes with the extension,
+as a wheel installed beside the server's interpreter); failures are displayed
+in the form and
+can be retried. After closing the form or reloading JupyterLab, run **Finish
+project setup** from the command palette to resume setup, including when
+`astra.yaml` already exists; file presence alone does not imply setup
+completed. While setup runs, the button shows a spinner and a brief status. Each setup
+action opens a fresh form so an older draft cannot override a newly selected
+destination.
 
 After opening or creating a project, the file browser navigates there and the
-project launcher opens. Choose the agent, inventory, or viewer from the launcher.
-Choosing Lightcone Agent creates its chat file inside the project, which is also
-the working directory used by Jupyter AI's ACP client. Select a configured persona
-in Jupyter AI to start messaging; opening the chat does not send a message.
-Inventory and Lightcone Agent commands invoked in a folder without `astra.yaml`
-offer the same setup form.
+project's Home comes forward: the Home tab already showing it, or a new one. Inventory and Lightcone Agent commands
+invoked in a folder without `astra.yaml` offer the same setup form.
 
 Open `astra.yaml` in the file browser, or select **Open With → Lightcone Lab**.
-The **Lightcone Lab** launcher category and command palette also offer
-**ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
+Home's **Open ASTRA**, the full launcher's Lightcone cards and the command
+palette also offer **ASTRA Inventory**. The inventory is read-only: viewing preserves analysis and
 result files and starts no kernel. JupyterLab may create its standard document
 checkpoint when opening a writable file; the normal text editor remains
 available for editing.
@@ -90,8 +91,8 @@ message in the headbar; status returns automatically after recovery. The
 integration currently covers local root-analysis outputs.
 
 Open a result to see its **Provenance** below Recipe: status, last run, and Git
-revision. **Details** opens the recorded recipe, input versions, environment, and
-Lightcone version without leaving the result.
+revision. The provenance tabs expose the recorded recipe, input versions,
+environment, and Lightcone version without leaving the result.
 
 Output details also offer **Open code** beside Recipe when a local script can be
 resolved. It opens the current file in a reusable editor tab, preferring the
@@ -101,8 +102,8 @@ analysis, including a script named through an `{inputs.<id>}` placeholder,
 which resolves to that input's declared source. Interpreter options before the
 script and redirections, globs or comments after it are fine. Module, inline,
 and compound commands or unresolved paths have no link, and neither does an
-output whose run record cannot be read. It does not restore the revision used
-for an earlier run.
+output whose run record cannot be read. This link opens the current script;
+the Code tab separately displays the revision recorded by an earlier run.
 
 Launcher actions use the launcher's directory. Palette actions use the current
 project/document or file-browser directory. Opening the same project reuses its
@@ -145,8 +146,8 @@ not monitored: input notifications concern their ASTRA declarations.
 
 ### MySTRA Viewer
 
-Choose **MySTRA Viewer** in the launcher, command palette, or file-browser
-context menu. Lightcone finds the nearest `myst.yml` or `myst.yaml`, starts its
+Choose **Open report** on Home, or **MySTRA Viewer** in the full launcher,
+command palette, or file-browser context menu. Lightcone finds the nearest `myst.yml` or `myst.yaml`, starts its
 MyST CLI, and opens the actual ASTRA article/book application in a tab. Opening
 the same project reuses the viewer. Saved Markdown and research data changes
 are handled by MyST's watcher; unsaved editor changes are not rendered.
@@ -265,8 +266,11 @@ The agent calls `lightcone_preview_element`, which inserts a rich MIME card into
 its conversation. Cards display the existing ASTRA previews directly, including
 supported figures and tables. Click a card to open it in a tab; links and controls
 inside the card keep their own actions. They persist in saved
-chats and resolve the current project data in the universe each card recorded
-when it was created.
+chats and retain the universe each card recorded when it was created. Cards
+for committed root-analysis outputs pin that commit: both the preview and the
+record tab opened from it show the recorded bytes, including while the newest
+commit has uncommitted edits. A missing or unreadable recorded version is
+reported as unavailable; it never silently substitutes current output data.
 The text fallback remains readable without Lightcone installed. These cards work
 with both the stock Markdown renderer and `jupyterlab-myst` enabled.
 
@@ -282,6 +286,18 @@ never passes a project path. Multiple universes are not yet selectable from
 chat. Tools require a connected originating browser and a chat with a project.
 Cards are attributed to the calling agent; repeated previews of the same target
 in one prompt reuse the card.
+The **Lightcone Agent** command reuses the active session of the project, or
+creates one through the session service. A record discussion leaves a draft in
+the composer for the user to send. File links in agent replies open through
+JupyterLab's document manager beside the conversation; directories open in the
+file browser. Server-local image links use authenticated Jupyter file URLs.
+
+The last agent message of a reply lists **Results updated** and **Files
+edited**. Output links open the commit that changed during that reply. The
+footer includes both engine runs and manual result commits, matching bounded Git history to the reply's time window; concurrent runs
+in that same window cannot be attributed to a particular agent. Edits come from
+the ACP client's reported tool metadata, not a scan of arbitrary files.
+
 Existing agent terminal tools, `lc`, and research skills remain available through
 the agent's normal setup; Lightcone observes changes without starting recipes.
 
@@ -320,8 +336,9 @@ Missing outputs stay unavailable and papers download only through **Fetch paper*
 Inline `{astra}` roles in response text do not produce hover previews. The
 previous Markdown DOM adapter has been removed: MyST consumes unknown roles,
 and neither renderer offers a shared inline extension hook. Agents should use
-the preview tool instead. Full MyST documents, block/value/citation roles,
-and historical result snapshots are outside this implementation.
+the preview tool instead. Full MyST documents and block/value/citation roles
+are outside this implementation. Committed output snapshots are available in
+record tabs through the version controls.
 
 See [the workaround inventory](docs/workarounds.md) for the compatibility
 boundary and the upstream changes that would simplify it.
@@ -389,3 +406,137 @@ not change the agent's working directory.
 Chat documents must be ignored by Git before materialization; the extension
 never changes a project's Git configuration. Compatibility details and upstream
 removal conditions are in [the workaround inventory](docs/workarounds.md).
+
+### Agent continuity and activity
+
+Sessions reopen with the agent they last addressed, falling back to the agent
+last used by their project. A message that names an unavailable agent is routed
+to an installed remembered agent when one exists. Starting a session through
+`jupyterlab_lightcone:new-session` can include `firstMessage` and `persona`
+arguments; the handoff waits for the live agent listing and runs the same input
+providers as Jupyter Chat. If the selected agent is unavailable, the text stays
+in the composer so the user can select another agent and send it.
+
+The session service follows Jupyter AI's public persona-state events. It
+notifies the user when a session they are not viewing finishes or needs input.
+The project preference is a small ignored `.lightcone/agent.json` file; no
+messages or agent credentials are stored there. The workaround inventory
+explains the remaining picker-selection and metadata limitations.
+
+### Record navigation
+
+Following a related record keeps the same tab and records a short history.
+Use Back/Forward, the breadcrumb trail, or Alt+Left/Right to return to earlier
+records; their scroll positions are retained. Ctrl/Cmd-click, middle-click,
+and **Open in new tab** retain another native tab. Pinning protects a tab from
+replacement by results opened elsewhere. Reload restores each tab and pin.
+
+### Committed output versions
+
+Record tabs offer Older/Newer controls for local root-analysis outputs. Each
+version reads the bytes and run manifest from that commit; renamed artifacts
+keep their historical filename and format. Missing git-annex content is
+identified with its known remote holders and is never fetched automatically.
+
+The listing shows at most 200 file-changing commits. A requested commit outside
+that listing stays explicitly unavailable until you select **Latest**; it is
+never replaced silently by the current output. Selected commits survive
+Back/Forward, opening a new tab, and layout restoration.
+
+### Inspect a recorded run
+
+Output details expose Run, Code, Inputs, and Environment tabs. A selected
+version uses its committed manifest; it never borrows facts from the current
+run. Code shows the script at the recorded revision and its changes relative
+to the current file, even when the current script has been deleted. Environment compares the recorded `uv.lock` packages
+with today's lock. These reads start only when their tab is opened.
+
+Code and artifact links use JupyterLab's document manager to reveal an existing
+file tab. Missing, binary, annexed, or oversized historical source files have
+an explicit unavailable state. These views inspect data and do not execute
+recipes or install packages.
+
+### Compare artifact versions
+
+**Compare with previous** compares adjacent committed outputs. Images offer
+side-by-side, swipe, and blink views; JSON metrics show numeric changes; CSV,
+TSV, and JSON tables compare their row counts and columns. Each side uses its
+historical file format, including format changes across a rename. Reads and
+metric expansion are bounded, and missing bytes or unsupported format pairs
+remain explicit. Selecting **Latest** closes comparison and resumes live data.
+
+### Project Home and setup
+
+Inside a project, launcher tabs show Home: the project title and Markdown
+description, result previews with freshness, and a composer with recent
+sessions. The pencil icons edit the display name or description in
+`astra.yaml`, preserving the project folder and other fields. Description
+editing uses its original Markdown.
+
+Choose an available agent before **Start**. Home discovers project-local and
+installed agents without creating a chat or starting an agent, suggests the
+project's last agent when available, and sends the first message through the
+same checked handoff as session creation. Unsent drafts survive a reload.
+Results open in record tabs. **Open ASTRA** opens the full inventory;
+**Open report** appears only for projects with `myst.yml` or `myst.yaml` and
+opens the managed MySTRA viewer.
+
+**Tools** groups the standard launcher's items, including kernels and cards
+from other extensions, by category. **Show the full launcher** and **Back to
+Home** switch that tab's body. Outside projects the standard launcher remains
+available. The tab-bar plus button, File menu, keyboard shortcut, file-browser
+button, and an emptied main area retain their launcher behavior.
+
+**New Lightcone project** proposes an unused folder, beside the current
+project when browsing inside one. Setup refuses a nested project before
+writing, opens an existing project directly, and shows a spinner during
+initialization. Cancelling creates nothing. **Finish project setup** resumes
+an incomplete setup; the presence of `astra.yaml` alone does not imply success.
+
+Home replaces `@jupyterlab/launcher-extension:plugin` atomically through the
+extension manifest and its own `ILauncher` provider. Disabling Lightcone Lab
+restores JupyterLab's stock launcher. Other launcher replacements conflict
+with this provider.
+
+### Project sidebar
+
+The Lightcone icon in the left sidebar opens the current project's sessions,
+results and analysis tree. **New session** starts an empty chat; sessions can
+be renamed in place and show their live activity. Results carry the engine's
+materialization state, and the selected record or analysis follows the active
+tab. Home's sessions section can open the full list in the sidebar.
+
+The project switcher lists recently visited projects and nearby project
+folders, with actions to open or create another. Selecting a project moves the
+file browser there; it keeps existing tabs open. When tabs from different
+projects have the same visible title, their project folders appear beside
+their labels. These display labels preserve document filenames.
+
+### Project pipeline
+
+**Pipeline** on Home's results line or in the command palette shows how the
+project makes outputs from inputs, colored by the engine's materialization
+status. **Show in pipeline** on an input or output record traces what feeds
+that record and what depends on it. The graph explains the trace in words and
+dims unrelated nodes; **Show everything** or Escape clears it.
+
+Opening the graph from a record places it in the neighboring column. Clicking
+a graph node opens its record beside the graph, preserving both views. Each
+project has one reusable pipeline tab, and restoring the layout retains its
+trace. The graph is read-only: it starts no computation or materialization.
+
+### Comments
+
+Click a figure in a record tab or an image opened in JupyterLab to pin a comment
+at that point, or select text in a record, a Markdown preview, a text editor, a
+cited paper or a message of a session and choose **Comment**. Comments are
+numbered per target (①, ②, …), pinned to the version they were made on, and
+kept in `<project>/.lightcone/comments.json`; pins on images can be dragged,
+and every pending comment can be edited or deleted. Pending comments appear as
+chips above the composer of every session in the project and as a count in the
+sidebar; a chip opens its target. Sending the next message in a session sends
+the pending comments with it: the agent's prompt gains a short list of them, the
+chat keeps your message as typed and shows them as cards on it, and they leave
+the pending list. Where a deployment configures its own Jupyter AI persona
+manager, which does not append them to the prompt, the list is appended to the
+message text itself instead.

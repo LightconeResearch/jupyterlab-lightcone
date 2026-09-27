@@ -1,6 +1,11 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
-import { MainAreaWidget, showErrorMessage } from '@jupyterlab/apputils';
+import {
+  InputDialog,
+  MainAreaWidget,
+  showErrorMessage
+} from '@jupyterlab/apputils';
 import type { IDocumentManager } from '@jupyterlab/docmanager';
+import type { Contents } from '@jupyterlab/services';
 import { type IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
@@ -8,10 +13,14 @@ import { refreshIcon } from '@jupyterlab/ui-components';
 import { astraIcon, createProjectIcon, openProjectIcon } from './icons';
 import { INVENTORY_FACTORY, InventoryDocument } from './document-widget';
 import { parseInventoryOpenReference } from './open-reference';
-import { projectDirectory } from './project-data';
+import { projectDirectory, type ILoadedProjectData } from './project-data';
+import { acquireProjectDataService } from './project-data-service';
+import { renameProject, updateProjectDescription } from './project-metadata';
+import { editDescription } from './project-description';
 import { browseProjectFolder } from './project-browser';
 import { findModel, findProjectRoot, type IProjectRoot } from './project-root';
 import { ProjectSetup } from './project-setup';
+import { HomeCommandIDs } from './home/home-commands';
 
 export namespace CommandIDs {
   /** Create a session in the current project and open it in the main area. */
@@ -22,6 +31,9 @@ export namespace CommandIDs {
     'jupyterlab_lightcone:open-existing-project';
   export const finishProjectSetup = 'jupyterlab_lightcone:finish-project-setup';
   export const createProject = 'jupyterlab_lightcone:create-project';
+  export const renameProject = 'jupyterlab_lightcone:rename-project';
+  export const editProjectDescription =
+    'jupyterlab_lightcone:edit-project-description';
   export const pinElement = 'jupyterlab_lightcone:pin-element';
   export const unpinElement = 'jupyterlab_lightcone:unpin-element';
   export const restoreElement = 'jupyterlab_lightcone:restore-element';
@@ -57,6 +69,37 @@ export async function requireProject(
   }
   await app.commands.execute(CommandIDs.createProject, { path });
   return undefined;
+}
+
+/** The folder name Create proposes, numbered when it is taken. */
+const NEW_PROJECT_NAME = 'my-project';
+
+/**
+ * The folder Create proposes from `cwd`: a `my-project` folder that does not
+ * exist yet (`my-project-2`, `my-project-3`, … when it does), so the default
+ * never opens a project that is already there. Inside a project it goes
+ * beside that project, since setup refuses a folder inside another project.
+ * When the lookup fails it falls back to `cwd/my-project`.
+ */
+export async function newProjectFolder(
+  contents: Contents.IManager,
+  cwd: string
+): Promise<string> {
+  const fallback = contents.resolvePath(cwd, NEW_PROJECT_NAME);
+  try {
+    const owner = await findProjectRoot(contents, cwd);
+    const parent = owner ? projectDirectory(owner.path) : cwd;
+    for (let number = 1; number <= 100; number++) {
+      const candidate = contents.resolvePath(
+        parent,
+        number === 1 ? NEW_PROJECT_NAME : `${NEW_PROJECT_NAME}-${number}`
+      );
+      if (!(await findModel(contents, candidate))) return candidate;
+    }
+  } catch (error) {
+    console.warn('Could not choose a free folder for a new project.', error);
+  }
+  return fallback;
 }
 
 interface ICommandOptions {
@@ -101,6 +144,88 @@ export function registerCommands(options: ICommandOptions): void {
       : { directory: browserPath() };
   };
 
+  /** The `path` or `cwd` a project command reads through `projectTarget`. */
+  const projectTargetArgs = {
+    args: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Project astra.yaml contents path'
+        },
+        cwd: {
+          type: 'string',
+          description: 'Project directory contents path'
+        }
+      }
+    }
+  };
+
+  /**
+   * Ask for a new value of one project metadata field, starting from the
+   * project's current data, then save it (`renameProject` or
+   * `updateProjectDescription`) and refresh that data.
+   */
+  const editProjectMetadata = async (
+    args: ReadonlyPartialJSONObject,
+    failure: string,
+    ask: (data: ILoadedProjectData) => Promise<string | null>,
+    save: typeof renameProject
+  ): Promise<void> => {
+    try {
+      const root = await requireProject(app, projectTarget(args));
+      if (!root) return;
+      const lease = acquireProjectDataService(contents, root.entrypoint);
+      try {
+        const value = await ask(await lease.service.get());
+        if (value === null) return;
+        await save(contents, documents, root.entrypoint, value);
+        await lease.service.refresh();
+      } finally {
+        lease.release();
+      }
+    } catch (error) {
+      await showErrorMessage(
+        failure,
+        error instanceof Error ? error : String(error)
+      );
+    }
+  };
+
+  app.commands.addCommand(CommandIDs.renameProject, {
+    label: trans.__('Rename project'),
+    describedBy: projectTargetArgs,
+    execute: args =>
+      editProjectMetadata(
+        args,
+        trans.__('Could not rename project'),
+        async data => {
+          const result = await InputDialog.getText({
+            title: trans.__('Rename project'),
+            label: trans.__('Project name'),
+            text: data.document.analysis.name ?? '',
+            required: true,
+            okLabel: trans.__('Rename')
+          });
+          return result.button.accept ? result.value : null;
+        },
+        renameProject
+      )
+  });
+
+  app.commands.addCommand(CommandIDs.editProjectDescription, {
+    label: trans.__('Edit description'),
+    describedBy: projectTargetArgs,
+    execute: args =>
+      editProjectMetadata(
+        args,
+        trans.__('Could not save description'),
+        data =>
+          editDescription(data.document.analysis.description ?? '', trans),
+        updateProjectDescription
+      )
+  });
+
   const openFolder = async (path: string): Promise<unknown> => {
     const drive = contents.driveName(path);
     const fileBrowser = browser?.tracker.find(
@@ -109,7 +234,12 @@ export function registerCommands(options: ICommandOptions): void {
     if (browser && !fileBrowser)
       throw new Error('No file browser is available for this drive.');
     await fileBrowser?.model.cd(`/${contents.localPath(path)}`);
-    return app.commands.execute('launcher:create', {
+    // Home tabs follow the file browser, so one may already show the project:
+    // Open Home brings it forward instead of stacking a second tab.
+    if (app.commands.hasCommand(HomeCommandIDs.openHome)) {
+      return app.commands.execute(HomeCommandIDs.openHome, { cwd: path });
+    }
+    return app.commands.execute(HomeCommandIDs.create, {
       cwd: path,
       activate: true
     });
@@ -143,8 +273,10 @@ export function registerCommands(options: ICommandOptions): void {
       path,
       mode,
       settings: contents.serverSettings,
+      translator: options.translator,
       browse: () =>
         browseProjectFolder(documents, browserPath(), options.translator),
+      findProject: folder => findProjectRoot(contents, folder),
       open: async project => {
         await openFolder(project.path);
         setup.dispose();
@@ -170,11 +302,11 @@ export function registerCommands(options: ICommandOptions): void {
         properties: { cwd: { type: 'string' }, path: { type: 'string' } }
       }
     },
-    execute: args =>
+    execute: async args =>
       showSetup(
         typeof args.path === 'string'
           ? args.path
-          : contents.resolvePath(cwdOf(args), 'my-project'),
+          : await newProjectFolder(contents, cwdOf(args)),
         'create'
       )
   });
@@ -215,7 +347,6 @@ export function registerCommands(options: ICommandOptions): void {
             description: 'Project directory contents path'
           },
           analysisPath: { type: 'string' },
-          scope: { type: 'string' },
           openReference: {
             type: 'object',
             description: 'ASTRA record or paper reference'
@@ -245,7 +376,6 @@ export function registerCommands(options: ICommandOptions): void {
               ...(typeof args.analysisPath === 'string'
                 ? { analysisPath: args.analysisPath }
                 : {}),
-              ...(typeof args.scope === 'string' ? { scope: args.scope } : {}),
               ...(openReference ? { openReference } : {})
             },
             widget.context.path

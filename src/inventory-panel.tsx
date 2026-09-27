@@ -1,12 +1,15 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import type { CommandRegistry } from '@lumino/commands';
+import type { IDocumentOpener } from './artifact-access';
 import { ReactWidget, type IThemeManager } from '@jupyterlab/apputils';
 import type { Contents } from '@jupyterlab/services';
 import { listIcon } from '@jupyterlab/ui-components';
+import { MessageLoop } from '@lumino/messaging';
+import { Widget } from '@lumino/widgets';
 import { analysisTitle } from '@astra-spec/ui/model';
 import { SurfaceHeader } from '@astra-spec/ui/primitives';
 import { Inventory } from '@astra-spec/ui/views';
 import type { DetailEntry } from '@astra-spec/ui/lib';
+import { Signal, type ISignal } from '@lumino/signaling';
 import React, { useId } from 'react';
 import { flushSync } from 'react-dom';
 import { useProjectRenderers } from './project-renderers';
@@ -102,14 +105,14 @@ function readyState(
 }
 
 function ReadyInventoryView({
-  commands,
+  documents,
   contents,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
-  commands: CommandRegistry;
+  documents: IDocumentOpener;
   contents: Contents.IManager;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
@@ -124,14 +127,15 @@ function ReadyInventoryView({
   );
   const getOutputStatus = (output: ResolvedOutput) =>
     outputMaterializationStatus(materialization.statuses, state.data, output);
+  // Let the dialog restore focus before Jupyter activates any file tab.
+  const beforeOpenDocument = () => flushSync(() => onDetailChange([]));
   const renderers = useProjectRenderers(
     contents,
     state.entrypoint,
     state.data,
     onFetchPaper,
-    commands,
-    // Let the dialog restore focus before Jupyter activates the file tab.
-    () => flushSync(() => onDetailChange([])),
+    documents,
+    beforeOpenDocument,
     getOutputStatus
   );
   const activeAnalysis = state.data.index.analysisByPath.get(
@@ -179,6 +183,8 @@ function ReadyInventoryView({
               index={state.data.index}
               output={output}
               status={getOutputStatus(output)}
+              documents={documents}
+              beforeOpenDocument={beforeOpenDocument}
             />
           )}
           idPrefix={`${inventoryId}-`}
@@ -193,14 +199,14 @@ function ReadyInventoryView({
 }
 
 function InventoryPanelView({
-  commands,
+  documents,
   contents,
   onDetailChange,
   onFetchPaper,
   onSelectAnalysis,
   state
 }: {
-  commands: CommandRegistry;
+  documents: IDocumentOpener;
   contents: Contents.IManager;
   onDetailChange: (detail: DetailEntry[]) => void;
   onFetchPaper: (doi: string) => void;
@@ -231,7 +237,7 @@ function InventoryPanelView({
   }
   return (
     <ReadyInventoryView
-      commands={commands}
+      documents={documents}
       contents={contents}
       state={state}
       onDetailChange={onDetailChange}
@@ -245,7 +251,7 @@ export class AstraInventoryPanel extends ReactWidget {
   constructor(
     private readonly contents: Contents.IManager,
     themeManager: IThemeManager,
-    private readonly commands: CommandRegistry
+    private readonly documents: IDocumentOpener
   ) {
     super();
     this.title.label = 'ASTRA Inventory';
@@ -285,6 +291,18 @@ export class AstraInventoryPanel extends ReactWidget {
 
   refresh(): Promise<void> {
     return this._subscription.refresh();
+  }
+
+  /** The analysis the inventory shows, once the project has loaded. */
+  get analysisPath(): string | undefined {
+    return this._state.status === 'ready'
+      ? this._state.analysisPath
+      : undefined;
+  }
+
+  /** Emitted when `analysisPath` changes, so the sidebar can follow the scope. */
+  get scopeChanged(): ISignal<this, void> {
+    return this._scopeChanged;
   }
 
   dispose(): void {
@@ -327,19 +345,27 @@ export class AstraInventoryPanel extends ReactWidget {
   }
 
   private _setState(state: InventoryPanelState): void {
+    const scope = this.analysisPath;
     this._state = state;
     this.update();
+    if (this.analysisPath !== scope) {
+      this._scopeChanged.emit();
+    }
   }
 
   protected render(): React.ReactElement {
     return (
       <InventoryPanelView
-        commands={this.commands}
+        documents={this.documents}
         contents={this.contents}
         state={this._state}
         onDetailChange={detail => {
           if (this._state.status === 'ready') {
-            this._setState({ ...this._state, detail });
+            this._state = { ...this._state, detail };
+            // Deliver the React render inside beforeOpenDocument's flushSync.
+            // Widget.update() only queues it, leaving the modal's focus trap
+            // active until after the document manager opens the new file.
+            MessageLoop.sendMessage(this, Widget.Msg.UpdateRequest);
           }
         }}
         onSelectAnalysis={analysisPath => {
@@ -360,4 +386,5 @@ export class AstraInventoryPanel extends ReactWidget {
   private readonly _subscription: ProjectSubscription;
   private _state: InventoryPanelState = { status: 'loading' };
   private readonly _themeBinding: LightconeThemeBinding;
+  private readonly _scopeChanged = new Signal<this, void>(this);
 }

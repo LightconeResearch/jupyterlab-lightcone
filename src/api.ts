@@ -7,6 +7,57 @@ import type {
 import { ServerConnection } from '@jupyterlab/services';
 import { apiUrl, requestAPI } from './request';
 
+/** Whether a request to the Jupyter server (Contents included) answered 404. */
+export function isNotFoundResponse(error: unknown): boolean {
+  return (
+    error instanceof ServerConnection.ResponseError &&
+    error.response.status === 404
+  );
+}
+
+export interface IProjectAgents {
+  personas: { id: string; name: string; avatar_url?: string | null }[];
+  default: string | null;
+}
+
+function isProjectAgent(
+  value: unknown
+): value is IProjectAgents['personas'][number] {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id !== '' &&
+    typeof value.name === 'string' &&
+    (value.avatar_url === undefined ||
+      value.avatar_url === null ||
+      typeof value.avatar_url === 'string')
+  );
+}
+
+/** Discover a project's installed agents before opening a chat. */
+export async function fetchProjectAgents(
+  settings: ServerConnection.ISettings,
+  path: string
+): Promise<IProjectAgents> {
+  try {
+    const data = await requestAPI(
+      `api/project-agents?${new URLSearchParams({ path })}`,
+      settings
+    );
+    if (
+      !isRecord(data) ||
+      !Array.isArray(data.personas) ||
+      !data.personas.every(isProjectAgent) ||
+      (data.default !== null && typeof data.default !== 'string')
+    ) {
+      throw new Error('The server returned an invalid agent listing.');
+    }
+    return { personas: data.personas, default: data.default };
+  } catch (error) {
+    throw new RequestError('Project agents', error);
+  }
+}
+
 export interface IProjectFolder {
   path: string;
   directory: string;

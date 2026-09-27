@@ -1,3 +1,5 @@
+import { bindLabColorScheme } from './astra-kind';
+import { ElementHistoryCommandIDs } from './versions/element-history';
 import {
   ILayoutRestorer,
   ILabShell,
@@ -13,8 +15,15 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
+import { chatLinksPlugin } from './chat-links';
+import { commentsPlugin } from './comments';
 import { chatPlugin } from './chat-plugin';
 import { chatProjectPlugin } from './chat-links/project-plugin';
+import { homePlugin } from './home';
+import { HomeCommandIDs } from './home/home-commands';
+import { sidebarPlugin } from './sidebar';
+import { tabLabelsPlugin } from './tab-labels';
+import { versionsPlugin } from './versions';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
 import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
@@ -24,7 +33,11 @@ import { configureProjectLauncher } from './project-launcher';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
 import { mystraPlugin } from './mystra';
-import { sessionPlaceholderPlugin, sessionsPlugin } from './sessions';
+import {
+  agentContinuityPlugin,
+  sessionPlaceholderPlugin,
+  sessionsPlugin
+} from './sessions';
 import { PALETTE_CATEGORY } from './workbench-ids';
 import {
   ASTRA_FILE_TYPE,
@@ -79,7 +92,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
     const factory = new InventoryDocumentFactory(
       app.serviceManager.contents,
       themes,
-      app.commands
+      documents
     );
     factory.widgetCreated.connect((_sender, widget) => {
       widget.title.icon = astraIcon;
@@ -96,7 +109,12 @@ const plugin: JupyterFrontEndPlugin<void> = {
       });
     });
     app.docRegistry.addWidgetFactory(factory);
-    registerElementCommands(app, themes, restorer, shell);
+    const themeBinding = bindLabColorScheme(themes);
+    app.shell.disposed.connect(() => themeBinding.dispose());
+    registerElementCommands(app, documents, themes, restorer, shell);
+    for (const command of Object.values(ElementHistoryCommandIDs)) {
+      palette?.addItem({ command, category: PALETTE_CATEGORY });
+    }
     palette?.addItem({
       command: CommandIDs.pinElement,
       category: PALETTE_CATEGORY
@@ -126,7 +144,11 @@ const plugin: JupyterFrontEndPlugin<void> = {
     if (launcher && current) {
       configureProjectLauncher(app, launcher, current, {
         project: [CommandIDs.discuss, CommandIDs.openInventory],
-        outside: [CommandIDs.createProject, CommandIDs.openExistingProject]
+        outside: [
+          app.commands.hasCommand(HomeCommandIDs.newProject)
+            ? HomeCommandIDs.newProject
+            : CommandIDs.createProject
+        ]
       });
     }
     if (restorer) {
@@ -157,9 +179,16 @@ export default [
   astraMimePlugin,
   sessionsPlugin,
   sessionPlaceholderPlugin,
+  agentContinuityPlugin,
   chatProjectPlugin,
   chatPlugin,
+  chatLinksPlugin,
   projectNotificationsPlugin,
   // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
-  mystraPlugin
+  mystraPlugin,
+  homePlugin,
+  sidebarPlugin,
+  commentsPlugin,
+  versionsPlugin,
+  tabLabelsPlugin
 ];

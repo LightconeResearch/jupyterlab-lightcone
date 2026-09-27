@@ -1,6 +1,7 @@
 import { assembleLoadedProject, resolveProject } from '../project-data';
 import {
   parseElementReference,
+  referenceKind,
   resolveElement,
   resolveReference
 } from '../element-reference';
@@ -84,4 +85,20 @@ test('resolves exact records, owning records for children, scopes and cited pape
   } finally {
     contents.dispose();
   }
+});
+
+test('names the kind a reference shows, for its kind mark', () => {
+  expect(referenceKind('outputs.hubble_diagram')).toBe('output');
+  expect(referenceKind('decisions.method.robust')).toBe('decision');
+  expect(referenceKind('sub.inputs.catalog')).toBe('input');
+  expect(referenceKind('findings.h0.evidence.fig1')).toBe('finding');
+  expect(referenceKind('prior_insights.local_h0')).toBe('prior_insight');
+  expect(referenceKind('sub')).toBe('analysis');
+  expect(referenceKind('')).toBe('analysis');
+  expect(referenceKind('', '10.1234/abc')).toBe('paper');
+  expect(referenceKind('/outputs.x')).toBeUndefined();
+  // The read is syntactic: other dotted names read as analysis scopes, which
+  // is why callers tell papers apart by their DOI first.
+  expect(referenceKind('papers.10.1234/x')).toBe('analysis');
+  expect(referenceKind('notes/readme.md')).toBe('analysis');
 });

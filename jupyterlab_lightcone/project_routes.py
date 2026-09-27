@@ -116,11 +116,15 @@ class ProjectsHandler(ProjectAPIHandler):
 
     @web.authenticated
     @authorized(action="write", resource="contents")
+    @authorized(action="read", resource="contents")
+    @authorized(action="execute", resource="lightcone")
     async def post(self):
-        """Initialize the explicitly selected folder with the Lightcone engine."""
-        for action, resource in (("read", "contents"), ("execute", "lightcone")):
-            if not await ensure_async(self.authorizer.is_authorized(self, self.current_user, action, resource)):
-                raise web.HTTPError(403, "Project initialization is not authorized.")
+        """Initialize the explicitly selected folder with the Lightcone engine.
+
+        Initialization writes the project and runs the engine, so an
+        authorizer must grant writing and reading `contents` and executing the
+        `lightcone` resource, as it must grant `mystra` for the viewer.
+        """
         body = self.get_json_body()
         if not isinstance(body, dict) or not isinstance(body.get("path"), str):
             raise web.HTTPError(400, "A project folder path is required.")
