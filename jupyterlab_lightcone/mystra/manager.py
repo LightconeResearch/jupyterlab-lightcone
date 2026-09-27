@@ -1,4 +1,4 @@
-"""Own the CLI process groups used by local MySTRA viewer sessions."""
+"""Own the MyST CLI process groups behind local MySTRA viewer sessions."""
 
 import asyncio
 import codecs
@@ -11,6 +11,7 @@ import re
 import shutil
 import signal
 import socket
+import sys
 import time
 from uuid import uuid4
 
@@ -36,6 +37,8 @@ class ViewerSession:
     content_port: int
     state: str = "starting"
     message: str = "Starting MySTRA…"
+    launch: int = 0
+    """How many times MyST was started for this session; a rebuild starts it again."""
     logs: deque = field(default_factory=lambda: deque(maxlen=100))
     touched: float = field(default_factory=time.monotonic)
     process: asyncio.subprocess.Process | None = None
@@ -48,6 +51,7 @@ class ViewerSession:
             "path": self.path,
             "state": self.state,
             "message": self.message,
+            "launch": self.launch,
             "url": self.prefix + "/site/",
             "logs": list(self.logs),
         }
@@ -63,15 +67,27 @@ def free_port():
 class MySTRAManager:
     """Start on demand, reuse per owner/project, and reap abandoned viewers."""
 
-    def __init__(
-        self, root, base_url, command, log, idle_timeout=120, startup_timeout=120
-    ):
+    # The mystmd dependency's CLI: its declared ``myst`` entry point, called by
+    # this interpreter rather than looked up on PATH; ``start`` and its ports
+    # are appended. -P keeps the project, the working directory, from
+    # shadowing modules the CLI imports.
+    command = (
+        sys.executable,
+        "-P",
+        "-c",
+        "import sys; from mystmd_py.main import main; sys.exit(main())",
+    )
+    # Seconds without a viewer heartbeat before stopping MyST.
+    idle_timeout = 120
+    # Seconds allowed to install, build and start a theme.
+    startup_timeout = 120
+    # Seconds between checks that the build output MyST serves still exists.
+    build_check_interval = 2
+
+    def __init__(self, root, base_url, log):
         self.root = Path(root).resolve()
         self.base_url = base_url
-        self.command = command
         self.log = log
-        self.idle_timeout = idle_timeout
-        self.startup_timeout = startup_timeout
         self.sessions: dict[str, ViewerSession] = {}
         self.lock = asyncio.Lock()
         self.reaper = None
@@ -106,6 +122,7 @@ class MySTRAManager:
             for name in ("myst.yml", "myst.yaml"):
                 config = target / name
                 if config.is_file():
+                    # A symlinked configuration must not lead outside the root.
                     if not config.resolve().is_relative_to(self.root):
                         raise HTTPError(
                             403,
@@ -212,68 +229,42 @@ class MySTRAManager:
     async def _run(self, session):
         """Supervise one CLI process group from spawn through readiness to exit.
 
-        Failures are reported through the session's state and message; the
-        process group is always terminated before this task completes.
+        MyST keeps serving after its build output is deleted, but only 404s, so
+        removing ``_build`` (or its ``site`` or ``templates`` folder) restarts
+        it in place on the same ports, which rebuilds it. Failures are reported
+        through the session's state and message; the process group is always
+        terminated before this task completes.
         """
         reader = None
         client = AsyncHTTPClient(force_instance=True)
         try:
-            if not self.command:
-                raise RuntimeError(
-                    "MyST CLI is unavailable. Install Node.js and MyST in the Jupyter server environment, or configure LightconeApp.mystra_command."
-                )
             executable = shutil.which(self.command[0])
             if executable is None:
-                raise RuntimeError(
-                    "MyST CLI is unavailable. Install Node.js and MyST in the Jupyter server environment, or configure LightconeApp.mystra_command."
-                )
+                raise RuntimeError(f"MyST CLI is unavailable: {self.command[0]} was not found.")
             env = dict(
                 os.environ,
                 HOST="127.0.0.1",
                 CI="true",
+                # Without Node.js, mystmd would otherwise ask on stdin whether
+                # to download it; report the missing requirement instead.
+                MYSTMD_ALLOW_NODEENV=os.environ.get("MYSTMD_ALLOW_NODEENV") or "no",
                 MYSTRA_BASE_URL=session.prefix + "/site",
                 MYSTRA_CONTENT_URL=session.prefix + "/content",
                 MYSTRA_RELOAD_URL=session.prefix + "/socket",
             )
-            session.process = await asyncio.create_subprocess_exec(
-                executable,
-                *self.command[1:],
-                "start",
-                "--port",
-                str(session.theme_port),
-                "--server-port",
-                str(session.content_port),
-                cwd=session.project,
-                env=env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
-            )
-            reader = asyncio.create_task(self._read_logs(session))
-            deadline = time.monotonic() + self.startup_timeout
-            while time.monotonic() < deadline:
-                if session.process.returncode is not None:
-                    raise RuntimeError(
-                        "MyST exited during startup. Check the build log below."
-                    )
-                if await self._theme_ready(client, session):
+            while True:
+                reader = await self._spawn(session, executable, env)
+                await self._wait_until_ready(session, client)
+                if not await self._build_removed(session):
                     break
-                await asyncio.sleep(0.25)
-            else:
-                raise RuntimeError(
-                    "MySTRA startup timed out. Check the log, theme dependencies, and configured startup timeout."
+                self.log.info(
+                    "MySTRA session %s: build output was removed; rebuilding", session.id
                 )
-            await self._verify_content_server(client, session)
-            session.state = "ready"
-            session.message = "MySTRA viewer is running"
-            await self._exited(session.process)
-            # Grandchildren may still hold the log pipe; kill the group before
-            # draining so an orphaned node server can never hang this task.
-            await self._terminate(session)
-            try:
-                await asyncio.wait_for(asyncio.shield(reader), 5)
-            except asyncio.TimeoutError:
-                pass
+                session.state = "starting"
+                session.message = "Rebuilding MySTRA…"
+                await self._stop_process(session, reader)
+                self._record(session, "MySTRA: the build output was removed; rebuilding it.")
+            await self._stop_process(session, reader)
             raise RuntimeError(
                 f"MyST stopped (exit {session.process.returncode}). Restart the viewer to continue."
             )
@@ -293,6 +284,70 @@ class MySTRAManager:
                 reader.cancel()
                 await asyncio.gather(reader, return_exceptions=True)
 
+    async def _spawn(self, session, executable, env):
+        """Start ``myst start``; returns the task draining its log."""
+        session.launch += 1
+        session.process = await asyncio.create_subprocess_exec(
+            executable,
+            *self.command[1:],
+            "start",
+            "--port",
+            str(session.theme_port),
+            "--server-port",
+            str(session.content_port),
+            cwd=session.project,
+            env=env,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            start_new_session=True,
+        )
+        return asyncio.create_task(self._read_logs(session))
+
+    async def _wait_until_ready(self, session, client):
+        """Wait until the theme answers its capability and the content server its port."""
+        deadline = time.monotonic() + self.startup_timeout
+        while time.monotonic() < deadline:
+            if session.process.returncode is not None:
+                raise RuntimeError("MyST exited during startup. Check the build log below.")
+            if await self._theme_ready(client, session):
+                break
+            await asyncio.sleep(0.25)
+        else:
+            raise RuntimeError(
+                "MySTRA startup timed out. Check the log and the theme's dependencies."
+            )
+        await self._verify_content_server(client, session)
+        session.state = "ready"
+        session.message = "MySTRA viewer is running"
+
+    async def _build_removed(self, session):
+        """Wait until MyST exits (False) or the build output it serves is gone (True).
+
+        Only a folder seen since MyST started counts as removed: a theme loaded
+        from a local path never has ``_build/templates``.
+        """
+        build = session.project / "_build"
+        seen = set()
+        while True:
+            for folder in (build / "site", build / "templates"):
+                if folder.is_dir():
+                    seen.add(folder)
+                elif folder in seen:
+                    return True
+            if await self._exited(session.process, self.build_check_interval):
+                return False
+
+    async def _stop_process(self, session, reader):
+        """Stop the process group, then drain what remains of its log."""
+        # Grandchildren may still hold the log pipe; kill the group before
+        # draining so an orphaned node server can never hang this task.
+        await self._terminate(session)
+        try:
+            await asyncio.wait_for(asyncio.shield(reader), 5)
+        except asyncio.TimeoutError:
+            pass
+
     async def _theme_ready(self, client, session):
         """Probe the theme port MyST reports for the viewer capability contract."""
         url = f"http://127.0.0.1:{session.theme_port}{session.prefix}/site/mystra-capabilities"
@@ -309,7 +364,8 @@ class MySTRAManager:
                 )
             if response.code == 404:
                 raise RuntimeError(
-                    "This project needs an ASTRA article or book theme with MySTRA viewer support (mystra-viewer.v1). Update site.template in myst.yml."
+                    "This project needs an ASTRA article or book theme with MySTRA viewer support"
+                    " (mystra-viewer.v1). Update site.template in myst.yml."
                 )
         except (HTTPClientError, OSError, ValueError):
             pass
@@ -333,7 +389,8 @@ class MySTRAManager:
         except (HTTPClientError, OSError, ValueError):
             pass
         raise RuntimeError(
-            f"MyST could not use content port {session.content_port}; another process took it. Restart the viewer to choose new ports."
+            f"MyST could not use content port {session.content_port}; another process took it."
+            " Restart the viewer to choose new ports."
         )
 
     async def _exited(self, process, timeout=None):

@@ -1,13 +1,23 @@
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import type { ILauncher } from '@jupyterlab/launcher';
-import { CommandIDs } from './commands';
 import type { ICurrentProject } from './current-project';
 
-/** Keep launcher actions aligned with the current project. */
+/** The launcher cards one plugin offers, in order; unregistered commands are skipped. */
+export interface IProjectLauncherCommands {
+  /** Offered inside an ASTRA project, in its launcher category. */
+  project: readonly string[];
+  /** Offered outside any project. */
+  outside?: readonly string[];
+  /** Rank of the first card; cards of one call keep their order. */
+  rank?: number;
+}
+
+/** Keep a plugin's launcher actions aligned with the current project. */
 export function configureProjectLauncher(
   app: JupyterFrontEnd,
   launcher: ILauncher,
-  current: ICurrentProject
+  current: ICurrentProject,
+  options: IProjectLauncherCommands
 ): void {
   let entries: { dispose(): void }[] = [];
   let previous = '';
@@ -26,9 +36,7 @@ export function configureProjectLauncher(
       clear();
       return;
     }
-    const commands = project
-      ? [CommandIDs.discuss, CommandIDs.openInventory, CommandIDs.openMySTRA]
-      : [CommandIDs.createProject, CommandIDs.openExistingProject];
+    const commands = project ? options.project : (options.outside ?? []);
     const available = commands.filter(command =>
       app.commands.hasCommand(command)
     );
@@ -45,7 +53,7 @@ export function configureProjectLauncher(
         // Native launchers inject their own cwd; never pin a shared card to a root.
         args: {},
         categoryRank: -10,
-        rank
+        rank: (options.rank ?? 0) + rank
       })
     );
   };

@@ -15,22 +15,35 @@ private `mystra-viewer.v1` capability contract (the `MYSTRA_BASE_URL`,
 `MYSTRA_CONTENT_URL`, and `MYSTRA_RELOAD_URL` environment variables and the
 `/site/mystra-capabilities` endpoint). Stock MyST themes cannot be used.
 
-The workaround lives in:
+The workaround is a self-contained plugin; nothing else in the extension
+imports it:
 
-- `jupyterlab_lightcone/mystra.py` — process-group supervision, port
-  selection, log parsing, readiness probing
-- `jupyterlab_lightcone/mystra_routes.py` — session, proxy, and WebSocket
-  relay handlers
-- `src/mystra-viewer.ts`, `src/api.ts` (`*MySTRA*` functions), the
-  `openMySTRA`/`restartMySTRA` commands in `src/commands.ts`, and
-  `style/myst-logo.svg`
-- `jupyterlab_lightcone/tests/test_mystra.py` and `ui-tests/tests/mystra.spec.ts`
+- `jupyterlab_lightcone/mystra/` — its own server extension (`MySTRAApp`):
+  process-group supervision, port selection, log parsing and readiness probing
+  (`manager.py`); session, proxy and WebSocket relay handlers (`routes.py`);
+  and its tests (`tests/`)
+- `src/mystra/` — its own frontend plugin (`jupyterlab_lightcone:mystra`):
+  commands, palette, context-menu and launcher entries (`index.ts`), the
+  viewer widget (`viewer.ts`), the session API (`api.ts`) and its tests
+- `style/mystra.css` and `style/myst-logo.svg`
+- `ui-tests/tests/mystra.spec.ts` and `ui-tests/tests/mystra-lifecycle.spec.ts`
+
+They are registered in exactly three places: the extension point in
+`jupyterlab_lightcone/__init__.py`, the plugin in `src/index.ts` and the
+stylesheet import in `style/index.css`. The MyST CLI it runs is the `mystmd`
+dependency in `pyproject.toml`, which nothing else uses. Keep it that way:
+MySTRA code may use shared helpers, but shared code must never import MySTRA.
+
+Document unavoidable dependency workarounds in
+[`docs/workarounds.md`](docs/workarounds.md) with the feature that needs them.
+Remove each entry when its code can be removed.
 
 **Undo all of this** once MyST or JupyterLab offers a supported way to embed a
-`myst start` site (for example a first-party proxy or a static-build preview),
-and drop the matching `mystra-viewer.v1` support from `astra-theme`. Do not
-extend this hack to further themes or generalize it; keep changes to it
-minimal and bug-fix only.
+`myst start` site (for example a first-party proxy or a static-build preview):
+delete the files above, their three registrations and the `mystmd`
+dependency, and drop the matching `mystra-viewer.v1` support from
+`astra-theme`. Do not extend this hack to further themes or generalize it;
+keep changes to it minimal and bug-fix only.
 
 ## External Documentation and Resources
 

@@ -22,6 +22,7 @@ import { registerElementCommands } from './element-commands';
 import { configureProjectLauncher } from './project-launcher';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
+import { mystraPlugin } from './mystra';
 import {
   ASTRA_FILE_TYPE,
   ASTRA_FILE_PATTERN,
@@ -112,7 +113,10 @@ const plugin: JupyterFrontEndPlugin<void> = {
       category: CATEGORY
     });
     if (launcher && current) {
-      configureProjectLauncher(app, launcher, current);
+      configureProjectLauncher(app, launcher, current, {
+        project: [CommandIDs.discuss, CommandIDs.openInventory],
+        outside: [CommandIDs.createProject, CommandIDs.openExistingProject]
+      });
     }
     if (restorer) {
       void restorer.restore(inventories, {
@@ -126,14 +130,6 @@ const plugin: JupyterFrontEndPlugin<void> = {
     }
     palette?.addItem({ command: CommandIDs.openInventory, category: CATEGORY });
     palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
-    palette?.addItem({ command: CommandIDs.openMySTRA, category: CATEGORY });
-    palette?.addItem({ command: CommandIDs.restartMySTRA, category: CATEGORY });
-    app.contextMenu.addItem({
-      command: CommandIDs.openMySTRA,
-      selector: '.jp-DirListing-item',
-      args: { fromContextMenu: true },
-      rank: 20
-    });
   }
 };
 
@@ -143,5 +139,7 @@ export default [
   plugin,
   astraMimePlugin,
   chatPlugin,
-  projectNotificationsPlugin
+  projectNotificationsPlugin,
+  // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
+  mystraPlugin
 ];

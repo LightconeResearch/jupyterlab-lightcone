@@ -1,15 +1,17 @@
 import { IFrame } from '@jupyterlab/apputils';
 import { ServerConnection } from '@jupyterlab/services';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
+import { LabIcon } from '@jupyterlab/ui-components';
 import { PanelLayout, Widget } from '@lumino/widgets';
-import {
-  IMySTRASession,
-  RequestError,
-  readMySTRA,
-  startMySTRA,
-  stopMySTRA
-} from './api';
-import { mystIcon } from './icons';
+import mystLogoSvg from '../../style/myst-logo.svg';
+import { RequestError } from '../api';
+import { IMySTRASession, readMySTRA, startMySTRA, stopMySTRA } from './api';
+
+/** The official MyST mark used for the MySTRA publication viewer. */
+export const mystIcon = new LabIcon({
+  name: 'jupyterlab-lightcone:myst',
+  svgstr: mystLogoSvg
+});
 
 /** The selected ASTRA theme, isolated from the workbench's CSS and React tree. */
 export class MySTRAViewer extends Widget {
@@ -26,6 +28,7 @@ export class MySTRAViewer extends Widget {
     this.title.caption = session.path;
     this.title.icon = mystIcon;
     this.title.closable = true;
+    this.node.tabIndex = -1;
     this.addClass('jp-jupyterlab-lightcone-MySTRA');
     const layout = new PanelLayout();
     this.layout = layout;
@@ -70,11 +73,27 @@ export class MySTRAViewer extends Widget {
     super.dispose();
   }
 
+  /** A closed tab must leave the tracker and release its heartbeat. */
+  protected onCloseRequest(): void {
+    this.dispose();
+  }
+
+  /**
+   * Let the shell's focus tracker target Close and Restart at this viewer,
+   * without taking focus from the report or controls already focused in it.
+   */
+  protected onActivateRequest(): void {
+    if (this.isAttached && !this.node.contains(document.activeElement)) {
+      this.node.focus();
+    }
+  }
+
   /**
    * Adopt a session for this project, for example one freshly started after
    * the previous one expired, and resume polling it.
    */
   adopt(session: IMySTRASession): void {
+    if (this.isDisposed) return;
     const replaced = session.id !== this.session.id;
     // Polls still in flight for the previous session must not overwrite this one.
     if (replaced) this.generation++;
@@ -84,8 +103,13 @@ export class MySTRAViewer extends Widget {
     this.logs.textContent = session.logs.join('\n');
     if (session.state === 'ready') this.controls.hide();
     else this.controls.show();
-    if (session.state === 'ready' && this.frame.url !== session.url) {
+    // A rebuilt session serves its report anew at the same URL.
+    if (
+      session.state === 'ready' &&
+      (this.frame.url !== session.url || this.shownLaunch !== session.launch)
+    ) {
       this.frame.url = session.url;
+      this.shownLaunch = session.launch;
     }
     if (replaced) this.schedule();
   }
@@ -101,6 +125,7 @@ export class MySTRAViewer extends Widget {
     try {
       // Stopping is idempotent on the server, so an expired session is fine.
       await stopMySTRA(this.settings, this.session.id);
+      if (this.isDisposed) return;
       const session = await startMySTRA(this.settings, this.path);
       if (!this.isDisposed) this.adopt(session);
     } catch (error) {
@@ -150,6 +175,7 @@ export class MySTRAViewer extends Widget {
   private controls = new Widget();
   private generation = 0;
   private expired = false;
+  private shownLaunch = 0;
   private session: IMySTRASession;
   private frame: IFrame;
   private status = document.createElement('span');

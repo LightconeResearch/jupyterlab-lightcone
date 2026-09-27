@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 from astra.papers.cache import CachedPaper, PaperCache, PaperMetadata
+from astra.papers.download import download_paper_to_cache
 from jupyter_server.auth import authorized
 from jupyter_server.base.handlers import APIHandler
 from jupyter_server.utils import url_path_join
@@ -31,24 +32,25 @@ def normalize_doi(value: str) -> str:
     return normalized.strip().lower()
 
 
-def validate_doi(value: str) -> str:
-    """Return a normalized DOI, rejecting malformed or excessive input."""
+def valid_doi(value: str) -> str | None:
+    """The normalized DOI, or None when the text is not a DOI or is excessive."""
     normalized = normalize_doi(value)
     if len(normalized) > 512 or not DOI_PATTERN.fullmatch(normalized):
-        raise web.HTTPError(400, reason="A valid DOI is required")
+        return None
+    return normalized
+
+
+def validate_doi(value: str) -> str:
+    """Return a normalized DOI, or answer a request with 400."""
+    normalized = valid_doi(value)
+    if normalized is None:
+        raise web.HTTPError(400, "A valid DOI is required")
     return normalized
 
 
 def paper_cache_root() -> Path:
-    """Share ASTRA's paper cache, with an optional server-side override."""
-    configured = os.environ.get("LIGHTCONE_PAPER_CACHE_DIR") or os.environ.get(
-        "ASTRA_PAPER_CACHE_DIR"
-    )
-    return (
-        Path(configured).expanduser()
-        if configured
-        else PaperCache().cache_dir
-    )
+    """ASTRA's conventional paper cache, shared with the astra command line."""
+    return PaperCache().cache_dir
 
 
 def cached_paper_index(cache_root: Path) -> dict[str, CachedPaper]:
@@ -75,10 +77,10 @@ def cached_paper_index(cache_root: Path) -> dict[str, CachedPaper]:
             if not isinstance(data, dict) or not pdf_path.is_file():
                 continue
             metadata = PaperMetadata.from_json(data)
-            if not isinstance(metadata.doi, str):
+            doi = valid_doi(metadata.doi) if isinstance(metadata.doi, str) else None
+            if doi is None:
                 continue
-            doi = validate_doi(metadata.doi)
-        except (OSError, UnicodeError, ValueError, KeyError, RuntimeError, web.HTTPError):
+        except (OSError, UnicodeError, ValueError, KeyError, RuntimeError):
             # A corrupt, incomplete, or externally linked cache entry must not
             # prevent access to the remaining papers.
             continue
@@ -111,14 +113,21 @@ def paper_payload(doi: str, metadata: PaperMetadata) -> dict[str, str]:
     return payload
 
 
+class PaperFetchError(Exception):
+    """astra-tools could not download a paper or store it in the cache."""
+
+
 def fetch_cached_paper(doi: str, cache_root: Path) -> CachedPaper:
-    """Fetch one missing paper through astra-tools, reusing its cache format."""
+    """Fetch one missing paper through astra-tools, reusing its cache format.
+
+    Raises PaperFetchError for any failure inside the download: astra-tools
+    documents no exception contract, and its providers, parsers and cache
+    writes raise a variety of errors, such as ValueError for a non-JSON
+    response or a non-PDF body.
+    """
     existing = find_cached_paper(doi, cache_root)
     if existing:
         return existing
-
-    from astra.papers.download import download_paper_to_cache
-
     # astra-tools recognizes the canonical arXiv DOI spelling.
     arxiv_prefix = "10.48550/arxiv."
     download_doi = (
@@ -126,12 +135,15 @@ def fetch_cached_paper(doi: str, cache_root: Path) -> CachedPaper:
         if doi.startswith(arxiv_prefix)
         else doi
     )
-    _, result = download_paper_to_cache(download_doi, cache_dir=cache_root)
+    try:
+        _, result = download_paper_to_cache(download_doi, cache_dir=cache_root)
+    except Exception as error:
+        raise PaperFetchError(str(error)) from error
     if not result.success:
-        raise RuntimeError(result.error or "astra-tools could not fetch this paper")
+        raise PaperFetchError(result.error or "astra-tools could not fetch this paper")
     cached = find_cached_paper(doi, cache_root)
     if cached is None:
-        raise RuntimeError("astra-tools did not create a readable cached PDF")
+        raise PaperFetchError("astra-tools did not create a readable cached PDF")
     return cached
 
 
@@ -155,7 +167,7 @@ class PapersRouteHandler(PaperRouteHandler):
         """Look up repeated ``doi`` query parameters in a single cache scan."""
         raw_dois = self.get_arguments("doi")
         if len(raw_dois) > MAX_LOOKUP_DOIS:
-            raise web.HTTPError(400, reason=f"Request at most {MAX_LOOKUP_DOIS} DOIs")
+            raise web.HTTPError(400, f"Request at most {MAX_LOOKUP_DOIS} DOIs")
         dois = {validate_doi(raw_doi) for raw_doi in raw_dois}
         cached = await asyncio.to_thread(cached_paper_index, self.cache_root) if dois else {}
         papers = {
@@ -175,15 +187,15 @@ class PaperPdfRouteHandler(PaperRouteHandler):
         doi = validate_doi(self.get_query_argument("doi", default=""))
         cached = await asyncio.to_thread(find_cached_paper, doi, self.cache_root)
         if cached is None:
-            raise web.HTTPError(404, reason="Paper is not cached")
+            raise web.HTTPError(404, "Paper is not cached")
         try:
             stream = await asyncio.to_thread(cached.pdf_path.open, "rb")
         except OSError as error:
-            raise web.HTTPError(404, reason="Cached PDF is unavailable") from error
+            raise web.HTTPError(404, "Cached PDF is unavailable") from error
         with stream:
             chunk = await asyncio.to_thread(stream.read, PDF_CHUNK_SIZE)
             if not chunk.startswith(b"%PDF-"):
-                raise web.HTTPError(422, reason="Cached file is not a PDF")
+                raise web.HTTPError(422, "Cached file is not a PDF")
             self.set_header("Content-Type", "application/pdf")
             self.set_header("Content-Disposition", 'inline; filename="paper.pdf"')
             self.set_header("Content-Length", str(os.fstat(stream.fileno()).st_size))
@@ -209,21 +221,19 @@ class PaperFetchRouteHandler(PaperRouteHandler):
         body = self.get_json_body()
         raw_doi = body.get("doi") if isinstance(body, dict) else None
         if not isinstance(raw_doi, str):
-            raise web.HTTPError(400, reason="A valid DOI is required")
+            raise web.HTTPError(400, "A valid DOI is required")
         doi = validate_doi(raw_doi)
         try:
             async with self.fetch_lock:
                 cached = await asyncio.to_thread(
                     fetch_cached_paper, doi, self.cache_root
                 )
-        except ImportError as error:
-            raise web.HTTPError(
-                503, reason="astra-tools is unavailable in the Jupyter server environment"
-            ) from error
-        except Exception as error:
+        except PaperFetchError as error:
+            # Only failures inside astra-tools are upstream failures (502); an
+            # error in this route's own code is a defect and stays a 500.
             self.log.warning("Could not fetch paper %s", doi, exc_info=True)
             raise web.HTTPError(
-                502, reason="Could not fetch this paper. Check the server log for details."
+                502, "Could not fetch this paper. Check the server log for details."
             ) from error
         self.set_header("Cache-Control", "private, no-store")
         self.finish({"paper": paper_payload(doi, cached.metadata)})

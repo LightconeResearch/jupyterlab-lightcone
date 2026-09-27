@@ -25,11 +25,10 @@ def jp_base_url():
 
 
 @pytest.fixture(autouse=True)
-def paper_cache(tmp_path, monkeypatch):
-    """Isolate every test from the user's actual paper cache."""
-    cache = tmp_path / "papers"
-    cache.mkdir()
-    monkeypatch.setenv("LIGHTCONE_PAPER_CACHE_DIR", str(cache))
+def paper_cache(jp_environ, jp_home_dir):
+    """ASTRA's conventional cache, under the temporary HOME every test runs in."""
+    cache = jp_home_dir / ".cache" / "astra" / "papers"
+    cache.mkdir(parents=True)
     return cache
 
 
@@ -58,7 +57,7 @@ def download(monkeypatch, paper_cache):
         return directory / "paper.pdf", SimpleNamespace(success=True, error=None)
 
     mocked = Mock(side_effect=save)
-    monkeypatch.setattr("astra.papers.download.download_paper_to_cache", mocked)
+    monkeypatch.setattr(routes, "download_paper_to_cache", mocked)
     return mocked
 
 
@@ -92,16 +91,6 @@ def test_skips_invalid_cache_metadata(paper_cache, metadata):
 def test_rejects_invalid_dois(doi):
     with pytest.raises(HTTPError, match="A valid DOI is required"):
         routes.validate_doi(doi)
-
-
-def test_cache_environment_precedence(monkeypatch):
-    monkeypatch.setenv("LIGHTCONE_PAPER_CACHE_DIR", "/srv/lightcone-papers")
-    monkeypatch.setenv("ASTRA_PAPER_CACHE_DIR", "/srv/astra-papers")
-    assert routes.paper_cache_root() == Path("/srv/lightcone-papers")
-    monkeypatch.delenv("LIGHTCONE_PAPER_CACHE_DIR")
-    assert routes.paper_cache_root() == Path("/srv/astra-papers")
-    monkeypatch.delenv("ASTRA_PAPER_CACHE_DIR")
-    assert routes.paper_cache_root() == Path.home() / ".cache" / "astra" / "papers"
 
 
 async def test_returns_only_requested_cached_metadata(jp_fetch, paper_cache):
@@ -180,11 +169,18 @@ async def test_fetches_missing_paper_once_for_concurrent_requests(jp_fetch, down
 
 
 @pytest.mark.parametrize(
-    ("failure", "status"),
-    [(ImportError("missing SDK"), 503), (RuntimeError("/private/cache/path"), 502)],
+    "download",
+    [
+        Mock(return_value=(Path(), SimpleNamespace(success=False, error="/private/cache/path"))),
+        Mock(side_effect=OSError("/private/cache/path is read-only")),
+        # A provider answering with a page that is not JSON, or a body that is not a PDF.
+        Mock(side_effect=json.JSONDecodeError("/private/cache/path", "<html>", 0)),
+        Mock(side_effect=ValueError("/private/cache/path is not a PDF")),
+    ],
 )
-async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, failure, status):
-    monkeypatch.setattr(routes, "fetch_cached_paper", Mock(side_effect=failure))
+async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, download):
+    """Any failure inside astra-tools is the upstream's; the details stay in the server log."""
+    monkeypatch.setattr(routes, "download_paper_to_cache", download)
     response = await jp_fetch(
         *ENDPOINT,
         "fetch",
@@ -192,8 +188,16 @@ async def test_fetch_failures_do_not_leak_server_details(jp_fetch, monkeypatch, 
         body=json.dumps({"doi": DOI}),
         raise_error=False,
     )
-    assert response.code == status
+    assert response.code == 502
     assert b"/private/cache/path" not in response.body
+
+
+async def test_a_defect_while_fetching_is_reported_as_one(jp_fetch, monkeypatch):
+    monkeypatch.setattr(routes, "fetch_cached_paper", Mock(side_effect=TypeError("a bug")))
+    response = await jp_fetch(
+        *ENDPOINT, "fetch", method="POST", body=json.dumps({"doi": DOI}), raise_error=False
+    )
+    assert response.code == 500
 
 
 @pytest.mark.parametrize(("action", "method"), [(None, "GET"), ("pdf", "GET"), ("fetch", "POST")])

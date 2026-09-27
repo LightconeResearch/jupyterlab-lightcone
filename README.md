@@ -151,19 +151,34 @@ MyST CLI, and opens the actual ASTRA article/book application in a tab. Opening
 the same project reuses the viewer. Saved Markdown and research data changes
 are handled by MyST's watcher; unsaved editor changes are not rendered.
 
-This feature requires Node.js, the `myst` CLI, the project's MySTRA plugin, and
-an ASTRA theme implementing `mystra-viewer.v1` in the **Jupyter server's**
-environment. It is a MySTRA viewer, not a universal MyST theme preview. Older
-ASTRA versions and stock MyST themes produce an actionable compatibility error.
-The project retains its own `site.template` and plugin configuration; Lightcone
-does not substitute a renderer or install MyST automatically. The first theme
-launch may install its dependencies and require network access.
+The MyST CLI is installed with the extension (the `mystmd` package), and the
+viewer always runs that copy with the server's own Python, even when the
+server's environment is not activated or another `myst` comes first on `PATH`. The **Jupyter server's**
+environment must still provide Node.js 20 or later; without it, the viewer
+reports that Node.js is missing rather than installing it. Projects also need
+their MySTRA plugin and an ASTRA theme implementing `mystra-viewer.v1`. It is a
+MySTRA viewer, not a universal MyST theme preview. Older ASTRA versions and
+stock MyST themes produce an actionable compatibility error. The project
+retains its own `site.template` and plugin configuration; Lightcone does not
+substitute a renderer. The first theme launch may install its dependencies and
+require network access.
+
+MyST keeps the built site and downloaded themes in the project's `_build`
+folder. Deleting `_build`, or running `myst clean --site` or
+`myst clean --templates`, while a viewer is open restarts MyST within a few
+seconds: it rebuilds the site, downloads the theme again if needed, and the tab
+reloads the report. To pick up a newer ASTRA theme, run
+`myst clean --templates` in the project; **Restart MySTRA Viewer** alone reuses
+the cached theme. See
+[MyST’s theme update instructions](https://mystmd.org/guide/update-myst).
 
 The tab shows status and a bounded build log during startup or on errors;
 the controls disappear when the report is ready. **Restart MySTRA Viewer** in
 the command palette stops and restarts the active project's process group.
 Closing the tab stops its heartbeat; processes expire after two minutes
-without a viewer and stop when Jupyter shuts down. An expired tab explains
+without a viewer and stop when Jupyter shuts down. Choosing **MySTRA Viewer**
+again after closing opens a new tab, reusing the process while it is still warm
+or starting a new one after expiry. An expired tab explains
 that its session ended and offers a restart. If another process takes one of
 the ports chosen for MyST, the tab reports it and a restart picks new ports. Up to five sessions can run at once. Each session belongs to its Jupyter
 identity, and different project directories receive distinct routes/processes.
@@ -177,25 +192,23 @@ Only a local filesystem ContentsManager is supported, and the Jupyter server
 must run on a POSIX system; Windows servers receive a clear error because
 process-group cleanup is not implemented there.
 
-Administrators can configure `jupyter_server_config.py`:
+The viewer has no configuration; startup may take up to two minutes. It is a
+temporary, self-contained plugin: its own server extension
+(`jupyterlab_lightcone.mystra`, loaded with the package) and frontend plugin
+(`jupyterlab_lightcone:mystra`). Disable the frontend plugin with
+`jupyter labextension disable jupyterlab_lightcone:mystra`.
 
-```python
-c.LightconeApp.mystra_command = ["/path/to/myst"]
-c.LightconeApp.mystra_startup_timeout = 120
-c.LightconeApp.mystra_idle_timeout = 120
-```
-
-The integration was validated with MyST 1.10.1 and Node.js 22/26. It requires
-the companion [ASTRA theme changes](https://github.com/LightconeResearch/astra-theme/pull/16)
+The integration was validated with MyST 1.10.1 and 1.11.0 and Node.js 22/26.
+It requires the companion [ASTRA theme changes](https://github.com/LightconeResearch/astra-theme/pull/16)
 and the documented `mystra-viewer.v1` contract.
 No separate preview domain or publicly exposed Node port is needed.
 
 ### Cited papers
 
-Cached papers are read from `~/.cache/astra/papers`, retaining access to existing
-ASTRA caches. Set `LIGHTCONE_PAPER_CACHE_DIR` in the Jupyter server environment to
-use another location; `ASTRA_PAPER_CACHE_DIR` remains supported as a fallback.
-On JupyterHub this configuration belongs to each single-user server.
+Cached papers are read from and fetched into ASTRA's conventional cache,
+`~/.cache/astra/papers` in the Jupyter server user's home directory, which the
+`astra` command line shares. The location is not configurable. On JupyterHub
+each single-user server uses its own user's cache.
 
 Missing PDFs are downloaded only when you choose **Fetch paper**, using
 `astra-tools==0.2.17`. Cache lookup and download failures do not prevent viewing
