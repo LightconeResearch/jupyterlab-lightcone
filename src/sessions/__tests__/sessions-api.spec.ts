@@ -1,5 +1,5 @@
 import { ServerConnection } from '@jupyterlab/services';
-import { listSessions } from '../sessions-api';
+import { fetchChatProject, listSessions } from '../sessions-api';
 
 jest.mock('../../pdf-runtime', () => ({}));
 
@@ -29,12 +29,10 @@ beforeEach(() => {
 
 describe('listSessions', () => {
   it('asks the chat-sessions route for the project and returns the listing', async () => {
-    const request = respond({
-      directory: 'project/chats',
-      sessions: [session]
-    });
+    const unread = { ...session, messages: null };
+    const request = respond({ sessions: [session, unread] });
     await expect(listSessions(settings, 'project/astra.yaml')).resolves.toEqual(
-      { directory: 'project/chats', sessions: [session] }
+      { sessions: [session, unread] }
     );
     const url = new URL(request.mock.calls[0][0]);
     expect(url.pathname).toBe(
@@ -49,18 +47,18 @@ describe('listSessions', () => {
     ['a missing title', { ...session, title: undefined }],
     ['a textual message count', { ...session, messages: '2' }]
   ])('rejects a session with %s', async (_label, invalid) => {
-    respond({ directory: 'project/chats', sessions: [session, invalid] });
+    respond({ sessions: [session, invalid] });
     await expect(listSessions(settings, 'project/astra.yaml')).rejects.toThrow(
       /Sessions request failed: The server returned an invalid session listing/
     );
   });
 
-  it('rejects a listing without a directory or a session array', async () => {
-    respond({ sessions: [] });
+  it('rejects a listing without a session array', async () => {
+    respond({ directory: 'project/chats' });
     await expect(listSessions(settings, 'project/astra.yaml')).rejects.toThrow(
       /invalid session listing/
     );
-    respond({ directory: 'project/chats', sessions: {} });
+    respond({ sessions: {} });
     await expect(listSessions(settings, 'project/astra.yaml')).rejects.toThrow(
       /invalid session listing/
     );
@@ -78,5 +76,30 @@ describe('listSessions', () => {
     expect(failure).toBeInstanceOf(Error);
     expect(String(failure)).toMatch(/Sessions request failed \(404\)/);
     expect(String(failure)).not.toContain('trace');
+  });
+});
+
+describe('fetchChatProject', () => {
+  it('asks the chat-project route for a chat and returns its entrypoint', async () => {
+    const request = respond({ entrypoint: 'project/astra.yaml' });
+    await expect(fetchChatProject(settings, 'loose/talk.chat')).resolves.toBe(
+      'project/astra.yaml'
+    );
+    const url = new URL(request.mock.calls[0][0]);
+    expect(url.pathname).toBe(
+      '/user/researcher/jupyterlab_lightcone/api/chat-project'
+    );
+    expect(url.searchParams.get('path')).toBe('loose/talk.chat');
+    respond({ entrypoint: null });
+    await expect(fetchChatProject(settings, 'loose/talk.chat')).resolves.toBe(
+      null
+    );
+  });
+
+  it('rejects an answer without an entrypoint', async () => {
+    respond({ project: 'project/astra.yaml' });
+    await expect(fetchChatProject(settings, 'loose/talk.chat')).rejects.toThrow(
+      /Chat project request failed: The server returned an invalid chat project/
+    );
   });
 });

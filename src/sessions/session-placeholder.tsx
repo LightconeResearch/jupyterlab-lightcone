@@ -9,8 +9,9 @@ import {
   type TranslationBundle
 } from '@jupyterlab/translation';
 import React, { useEffect, useState } from 'react';
+import { parse } from 'yaml';
+import { isRecord } from '../api';
 import { projectDirectory } from '../project-data';
-import { acquireProjectDataService } from '../project-data-service';
 import { findProjectRoot } from '../project-root';
 
 interface ISessionPlaceholderProps {
@@ -18,7 +19,11 @@ interface ISessionPlaceholderProps {
   trans: TranslationBundle;
 }
 
-/** Resolve the name of the project owning a chat file, or null outside every project. */
+/**
+ * The name the specification of the project owning a chat file declares, or
+ * null outside every project. Only `astra.yaml` is read: resolving the whole
+ * project for a heading would read its universes and papers too.
+ */
 async function projectNameOf(
   contents: Contents.IManager,
   chatPath: string
@@ -33,13 +38,15 @@ async function projectNameOf(
   if (!root) {
     return null;
   }
-  const lease = acquireProjectDataService(contents, root.entrypoint);
-  try {
-    const data = await lease.service.get();
-    return data.document.analysis.name;
-  } finally {
-    lease.release();
-  }
+  const spec = await contents.get(root.entrypoint, {
+    type: 'file',
+    format: 'text',
+    content: true
+  });
+  const document: unknown =
+    typeof spec.content === 'string' ? parse(spec.content) : null;
+  const name = isRecord(document) ? document.name : undefined;
+  return typeof name === 'string' && name.trim() ? name.trim() : null;
 }
 
 /** The body of a session that has no messages yet. */

@@ -1,18 +1,16 @@
 """Agents start in the project their chat belongs to, wherever the chat is stored."""
-import json
 import logging
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
-from jupyter_ai_persona_manager import extension
+from jupyter_ai_persona_manager import PersonaManager as Upstream, extension
 import pytest
 from traitlets.config import Config
 
 from jupyterlab_lightcone import projects
-from jupyterlab_lightcone.agent_workspace import PersonaManager
+from jupyterlab_lightcone.agent_workspace import PersonaManager, select_project_persona_manager
 from jupyterlab_lightcone.projects import CHAT_PROJECT, CURRENT_PROJECT
-
-SHIPPED_CONFIG = Path(__file__).resolve().parents[2] / "jupyter-config" / "persona-manager"
 
 
 @pytest.fixture
@@ -138,18 +136,74 @@ def test_the_pure_lookup_never_writes_and_the_join_records_once(root):
     assert manager.chat.metadata == {CHAT_PROJECT: "project/astra.yaml"}
 
 
-def test_the_shipped_config_selects_the_manager_and_deployment_config_still_applies():
-    """Jupyter Server reads `jupyter_jupyter_ai_persona_manager_config.json` for Jupyter AI's extension.
+def _server(*apps):
+    return SimpleNamespace(extension_manager=SimpleNamespace(
+        extension_apps={"jupyter_ai_persona_manager": set(apps)}
+    ))
 
-    The subclass keeps the upstream class name so that the extension's
+
+def test_a_manager_outside_a_running_server_uses_only_the_chat(root):
+    """No parent application means no reported project, not an error."""
+    manager = PersonaManager.__new__(PersonaManager)
+    manager.root_dir = str(root)
+    manager.chat = Chat("talk.chat")
+    manager.log = logging.getLogger("test")
+    assert Path(manager.get_chat_dir()) == root
+
+
+def test_the_project_manager_is_selected_and_existing_manager_config_still_applies():
+    """The subclass keeps the upstream class name, so the extension's
     `default_persona_id` lookup, keyed by the class name, still honours a
-    deployment's `c.PersonaManager` settings.
-    """
-    shipped = json.loads((SHIPPED_CONFIG / "jupyter_jupyter_ai_persona_manager_config.json").read_text())
-    config = Config({**shipped, "PersonaManager": {"default_persona_id": "deployment-choice"}})
-    app = extension.PersonaManagerExtension(config=config)
+    deployment's `c.PersonaManager` settings."""
+    app = extension.PersonaManagerExtension(
+        config=Config({"PersonaManager": {"default_persona_id": "deployment-choice"}})
+    )
+    assert select_project_persona_manager(_server(app)) is True
     assert app.persona_manager_class is PersonaManager
     assert app._default_persona_id() == "deployment-choice"
+
+
+def test_a_deployment_that_names_this_manager_uses_it():
+    app = extension.PersonaManagerExtension(persona_manager_class=PersonaManager)
+    assert select_project_persona_manager(_server(app)) is True
+    assert app.persona_manager_class is PersonaManager
+
+
+def test_a_deployment_configured_manager_is_left_alone():
+    class Custom(Upstream):
+        pass
+
+    app = extension.PersonaManagerExtension(persona_manager_class=Custom)
+    assert select_project_persona_manager(_server(app)) is False
+    assert app.persona_manager_class is Custom
+
+
+def test_a_server_without_the_persona_manager_extension_is_left_alone():
+    server = SimpleNamespace(extension_manager=SimpleNamespace(extension_apps={}))
+    assert select_project_persona_manager(server) is False
+
+
+def test_the_extension_loads_without_jupyter_ai(monkeypatch):
+    from jupyterlab_lightcone.application import LightconeApp
+
+    # A None entry makes the import fail, as it does when Jupyter AI is absent.
+    monkeypatch.setitem(sys.modules, "jupyter_ai_persona_manager", None)
+    monkeypatch.delitem(sys.modules, "jupyterlab_lightcone.agent_workspace", raising=False)
+    LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=None, log=None))
+
+
+def test_a_failing_selection_leaves_the_extension_loading(monkeypatch, caplog):
+    from jupyterlab_lightcone import agent_workspace
+    from jupyterlab_lightcone.application import LightconeApp
+
+    def broken(serverapp):
+        raise RuntimeError("incompatible Jupyter AI")
+
+    monkeypatch.setattr(agent_workspace, "select_project_persona_manager", broken)
+    log = logging.getLogger("lightcone-test")
+    with caplog.at_level(logging.WARNING, logger="lightcone-test"):
+        LightconeApp._root_agents_in_projects(SimpleNamespace(serverapp=None, log=log))
+    assert "Could not root Jupyter AI agents" in caplog.text
 
 
 def test_a_deployment_list_setting_is_applied_once(root):

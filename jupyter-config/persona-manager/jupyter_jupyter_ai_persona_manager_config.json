@@ -1,5 +1,0 @@
-{
-  "PersonaManagerExtension": {
-    "persona_manager_class": "jupyterlab_lightcone.agent_workspace.PersonaManager"
-  }
-}

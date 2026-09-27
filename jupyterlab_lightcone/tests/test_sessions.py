@@ -1,4 +1,4 @@
-"""Sessions are listed through the contents manager, with readable titles and message counts."""
+"""Sessions are listed through the contents manager, with readable titles and message counts, and chats name their project."""
 
 from datetime import datetime, timezone
 import json
@@ -13,6 +13,7 @@ from tornado import web
 from jupyterlab_lightcone import sessions
 
 ENDPOINT = ("jupyterlab_lightcone", "api", "chat-sessions")
+PROJECT_ENDPOINT = ("jupyterlab_lightcone", "api", "chat-project")
 USER = "76192c59327544d7b160694eacfa5309"
 SYSTEM = "hidden::jupyter_ai_system"
 CODEX = "jupyter-ai-personas::jupyter_ai_acp_client::CodexAcpPersona"
@@ -69,12 +70,12 @@ def test_the_title_is_the_first_line_a_person_wrote():
         message("\n  Build a Hubble diagram\nfrom Union 2.1 data", time=2.0),
         message("use the lightcone skill", time=3.0),
     )
-    assert sessions.session_title(document, "untitled") == "Build a Hubble diagram"
+    assert sessions.summarize_chat(document).title == "Build a Hubble diagram"
 
 
 def test_a_long_first_line_is_trimmed_to_eighty_characters():
     line = "word " * 30
-    title = sessions.session_title(chat(message(line)), "untitled")
+    title = sessions.summarize_chat(chat(message(line))).title
     assert len(title) == 80
     assert title.endswith("…")
     assert title.startswith("word word")
@@ -82,7 +83,6 @@ def test_a_long_first_line_is_trimmed_to_eighty_characters():
 
 
 @pytest.mark.parametrize("document", [
-    None,
     chat(),
     chat(message("", sender=CODEX), message("only the agent spoke", sender=CODEX)),
     chat(message("deleted", deleted=True)),
@@ -95,29 +95,38 @@ def test_a_long_first_line_is_trimmed_to_eighty_characters():
     ("hubble-diagram_with-error_bars", "hubble diagram with error bars"),
 ])
 def test_without_a_person_message_the_stem_names_the_session(document, stem, expected):
-    assert sessions.session_title(document, stem) == expected
+    assert sessions.summarize_chat(document).title is None
+    listed = sessions.describe_session(
+        {"path": f"p/chats/{stem}.chat", "name": f"{stem}.chat", "last_modified": datetime(1970, 1, 1, tzinfo=timezone.utc)},
+        sessions.summarize_chat(document),
+    )
+    assert listed["title"] == expected
 
 
 def test_the_last_agent_is_named_from_the_users_map_or_its_id():
     document = chat(message("hi"), message("hello", sender=CLAUDE), message("bye", sender=CODEX, time=2.0))
-    assert sessions.last_agent(document) == "Codex"
+    assert sessions.summarize_chat(document).last_agent == "Codex"
     unnamed = chat(message("hi"), message("hello", sender=CLAUDE, time=2.0))
-    assert sessions.last_agent(unnamed) == "ClaudeAcpPersona"
-    assert sessions.last_agent(chat(message("hi"))) is None
-    assert sessions.last_agent(None) is None
+    assert sessions.summarize_chat(unnamed).last_agent == "ClaudeAcpPersona"
+    assert sessions.summarize_chat(chat(message("hi"))).last_agent is None
 
 
 def test_a_persona_whose_name_is_its_id_is_named_by_its_last_segment():
     """Jupyter Chat's model fills an empty display name from the username; that is no name."""
     users = {**USERS, CLAUDE: {"username": CLAUDE, "name": "", "display_name": "", "bot": True}}
     document = chat(message("hi"), message("hello", sender=CLAUDE, time=2.0), users=users)
-    assert sessions.last_agent(document) == "ClaudeAcpPersona"
+    assert sessions.summarize_chat(document).last_agent == "ClaudeAcpPersona"
 
 
 def test_messages_are_counted_without_deleted_ones():
     document = chat(message("a"), message("b", sender=CODEX, time=2.0), message("", time=3.0, deleted=True), "junk")
-    assert sessions.message_count(document) == 2
-    assert sessions.message_count(None) == 0
+    assert sessions.summarize_chat(document).messages == 2
+    assert sessions.summarize_chat({"messages": "not a list"}).messages == 0
+
+
+def test_an_unreadable_chat_has_no_known_count_title_or_agent():
+    """Too large or not a chat: listed by name, its count unknown rather than zero."""
+    assert sessions.summarize_chat(None) == sessions.ChatSummary(title=None, messages=None, last_agent=None)
 
 
 def test_entries_that_do_not_fit_jupyter_chats_model_are_skipped_one_by_one():
@@ -126,10 +135,12 @@ def test_entries_that_do_not_fit_jupyter_chats_model_are_skipped_one_by_one():
     unknown_field = message("unknown field", time=1.7, stacked=True)
     not_text = message(42, time=1.8)
     document = chat(message("A question"), without_id, unknown_field, not_text, message("Reply", sender=CODEX, time=2.0))
-    assert sessions.message_count(document) == 2
-    assert sessions.session_title(document, "untitled") == "A question"
+    summary = sessions.summarize_chat(document)
+    assert summary.messages == 2
+    assert summary.title == "A question"
     users = {**USERS, CODEX: "not a user", CLAUDE: {"display_name": "No username"}}
-    assert sessions.last_agent(chat(message("hi"), message("bye", sender=CODEX, time=2.0), users=users)) == "CodexAcpPersona"
+    replied = chat(message("hi"), message("bye", sender=CODEX, time=2.0), users=users)
+    assert sessions.summarize_chat(replied).last_agent == "CodexAcpPersona"
 
 
 # --- the documents, through the contents manager -----------------------------------
@@ -175,12 +186,42 @@ async def test_a_malformed_chat_never_hides_the_others(tmp_path):
     root = tmp_path / "root"
     write_chat(root / "project" / "chats" / "talk.chat", chat(message("A real question")), 1_000)
     write_chat(root / "project" / "chats" / "deep.chat", "[" * 200_000, 2_000)
-    listing = await sessions.list_sessions(manager_for(root), "project")
+    listing = await sessions.list_sessions(manager_for(root), "project", sessions.ChatSummaries())
     # The unreadable chat is still listed under its name.
     assert [(session["path"], session["title"], session["messages"]) for session in listing] == [
-        ("project/chats/deep.chat", "deep", 0),
+        ("project/chats/deep.chat", "deep", None),
         ("project/chats/talk.chat", "A real question", 1),
     ]
+
+
+async def test_summaries_are_read_again_only_when_the_file_changes(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    talk = write_chat(root / "project" / "chats" / "talk.chat", chat(message("First")), 1_000)
+    manager = manager_for(root)
+    summaries = sessions.ChatSummaries(capacity=1)
+    reads = []
+    read_chat = sessions.read_chat
+
+    async def counted(manager, model):
+        reads.append(model["path"])
+        return await read_chat(manager, model)
+
+    monkeypatch.setattr(sessions, "read_chat", counted)
+    listed = await sessions.list_sessions(manager, "project", summaries)
+    assert await sessions.list_sessions(manager, "project", summaries) == listed
+    assert reads == ["project/chats/talk.chat"]
+
+    write_chat(talk, chat(message("Second")), 2_000)
+    [session] = await sessions.list_sessions(manager, "project", summaries)
+    assert session["title"] == "Second"
+    assert len(reads) == 2
+
+    # Beyond its capacity, the least recently listed summary is dropped.
+    write_chat(root / "other" / "chats" / "note.chat", chat(message("Other")))
+    await sessions.list_sessions(manager, "other", summaries)
+    await sessions.list_sessions(manager, "project", summaries)
+    assert reads[-1] == "project/chats/talk.chat"
+    assert len(reads) == 4
 
 
 def test_modified_is_the_managers_time_with_milliseconds():
@@ -205,7 +246,7 @@ async def test_sessions_are_listed_newest_first_from_chats_and_the_project_root(
     (project / "chats" / ".ipynb_checkpoints").mkdir()
     write_chat(project / "chats" / ".ipynb_checkpoints" / "newer-checkpoint.chat", chat(message("checkpoint")), 5_000)
 
-    listing = await sessions.list_sessions(manager_for(root), "project")
+    listing = await sessions.list_sessions(manager_for(root), "project", sessions.ChatSummaries())
 
     assert [session["path"] for session in listing] == [
         "project/chats/newer.chat",
@@ -230,14 +271,14 @@ async def test_hidden_chats_follow_the_managers_rule(tmp_path):
     root = tmp_path / "root"
     write_chat(root / "project" / "chats" / ".draft.chat", chat(message("hidden")))
     write_chat(root / "project" / "chats" / "talk.chat", chat(message("shown")))
-    hidden = [session["path"] for session in await sessions.list_sessions(manager_for(root), "project")]
+    hidden = [session["path"] for session in await sessions.list_sessions(manager_for(root), "project", sessions.ChatSummaries())]
     assert hidden == ["project/chats/talk.chat"]
-    shown = await sessions.list_sessions(manager_for(root, allow_hidden=True), "project")
+    shown = await sessions.list_sessions(manager_for(root, allow_hidden=True), "project", sessions.ChatSummaries())
     assert sorted(session["path"] for session in shown) == ["project/chats/.draft.chat", "project/chats/talk.chat"]
 
 
 async def test_a_project_without_chats_lists_nothing(tmp_path):
-    assert await sessions.list_sessions(manager_for(tmp_path), "") == []
+    assert await sessions.list_sessions(manager_for(tmp_path), "", sessions.ChatSummaries()) == []
     assert sessions.chats_directory("") == "chats"
     assert sessions.chats_directory("a/b") == "a/b/chats"
 
@@ -264,7 +305,6 @@ async def test_a_project_reached_through_a_symlink_keeps_its_contents_paths(jp_f
     (real / "astra.yaml").write_text("name: linked\n")
     (jp_root_dir / "link").symlink_to(real, target_is_directory=True)
     body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "link/astra.yaml"})).body)
-    assert body["directory"] == "link/chats"
     assert [session["path"] for session in body["sessions"]] == ["link/chats/talk.chat"]
 
 
@@ -278,17 +318,64 @@ async def test_a_symlinked_entrypoint_lists_the_chats_beside_the_link(jp_fetch, 
     write_chat(project / "chats" / "talk.chat", chat(message("Beside the link")))
     body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "project/astra.yaml"})).body)
     # The chats the browser creates in the reported folder, never the target's.
-    assert body["directory"] == "project/chats"
     assert [(session["path"], session["title"]) for session in body["sessions"]] == [("project/chats/talk.chat", "Beside the link")]
 
 
 async def test_a_project_at_the_server_root(jp_fetch, jp_root_dir):
     (jp_root_dir / "astra.yaml").write_text("name: root\n")
     body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "astra.yaml"})).body)
-    assert body == {"directory": "chats", "sessions": []}
+    assert body == {"sessions": []}
     write_chat(jp_root_dir / "chats" / "talk.chat", chat(message("At the root")))
     body = json.loads((await jp_fetch(*ENDPOINT, params={"path": "astra.yaml"})).body)
     assert [(session["path"], session["title"]) for session in body["sessions"]] == [("chats/talk.chat", "At the root")]
+
+
+# --- the chat's project -------------------------------------------------------------
+
+
+async def chat_project_of(jp_fetch, path):
+    return json.loads((await jp_fetch(*PROJECT_ENDPOINT, params={"path": path})).body)["entrypoint"]
+
+
+async def test_a_chat_stored_in_a_project_belongs_to_it(jp_fetch, jp_root_dir, project):
+    write_chat(project / "chats" / "talk.chat", chat(message("Hi"), metadata={sessions.CHAT_PROJECT: "other/astra.yaml"}))
+    write_chat(project / "beside.chat", chat())
+    assert await chat_project_of(jp_fetch, "project/chats/talk.chat") == "project/astra.yaml"
+    assert await chat_project_of(jp_fetch, "project/beside.chat") == "project/astra.yaml"
+
+
+async def test_a_chat_outside_every_project_belongs_to_the_one_it_recorded(jp_fetch, jp_root_dir, project):
+    (jp_root_dir / "other").mkdir()
+    (jp_root_dir / "other" / "astra.yaml").write_text("name: other\n")
+    write_chat(jp_root_dir / "loose" / "recorded.chat", chat(metadata={sessions.CHAT_PROJECT: "other/astra.yaml"}))
+    write_chat(jp_root_dir / "loose" / "gone.chat", chat(metadata={sessions.CHAT_PROJECT: "removed/astra.yaml"}))
+    write_chat(jp_root_dir / "loose" / "escaping.chat", chat(metadata={sessions.CHAT_PROJECT: "../x/astra.yaml"}))
+    write_chat(jp_root_dir / "loose" / "fresh.chat", chat())
+    write_chat(jp_root_dir / "loose" / "broken.chat", "{not json")
+    assert await chat_project_of(jp_fetch, "loose/recorded.chat") == "other/astra.yaml"
+    for name in ("gone", "escaping", "fresh", "broken"):
+        assert await chat_project_of(jp_fetch, f"loose/{name}.chat") is None
+
+
+@pytest.mark.parametrize("path, status", [
+    ("missing/talk.chat", 404),
+    (".hidden/talk.chat", 404),
+    ("project", 400),
+])
+async def test_the_chat_project_follows_the_managers_rules(jp_fetch, jp_root_dir, project, path, status):
+    write_chat(jp_root_dir / ".hidden" / "talk.chat", chat())
+    response = await jp_fetch(*PROJECT_ENDPOINT, params={"path": path}, raise_error=False)
+    assert response.code == status
+
+
+async def test_the_chat_project_requires_contents_authorization(jp_fetch, jp_serverapp, project, monkeypatch):
+    write_chat(project / "chats" / "talk.chat", chat())
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda *args, **kwargs: False)
+    response = await jp_fetch(*PROJECT_ENDPOINT, params={"path": "project/chats/talk.chat"}, raise_error=False)
+    assert response.code == 403
+
+
+# --- request validation -------------------------------------------------------------
 
 
 @pytest.mark.parametrize("path, status", [
@@ -316,9 +403,11 @@ async def test_listing_requires_contents_authorization(jp_fetch, jp_serverapp, p
     assert response.code == 403
 
 
-async def test_requires_authentication(jp_fetch, project):
+@pytest.mark.parametrize("endpoint, path", [(ENDPOINT, "project/astra.yaml"), (PROJECT_ENDPOINT, "project/chats/talk.chat")])
+async def test_requires_authentication(jp_fetch, project, endpoint, path):
+    write_chat(project / "chats" / "talk.chat", chat())
     response = await jp_fetch(
-        *ENDPOINT, params={"path": "project/astra.yaml"}, follow_redirects=False, headers={"Authorization": ""},
+        *endpoint, params={"path": path}, follow_redirects=False, headers={"Authorization": ""},
         raise_error=False,
     )
     assert response.code in (302, 403)

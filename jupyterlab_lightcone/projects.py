@@ -111,7 +111,8 @@ def chat_project(manager) -> Path | None:
     In order: the project storing the chat file, so chats may live in
     `chats/`; else the project recorded in the chat when it was first opened,
     if that specification still exists; else None. Only upstream's manager
-    and chat APIs are used, so it holds for any manager class.
+    and chat APIs are used, so it holds for any manager class. The
+    `chat-project` route applies the same order to the saved file.
     """
     root = Path(manager.root_dir)
     chat = Path(manager.get_chat_path(relative=True))

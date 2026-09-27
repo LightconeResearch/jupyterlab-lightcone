@@ -1,11 +1,8 @@
 """Root Jupyter AI agents in the ASTRA project their chat belongs to.
 
-Jupyter AI starts each agent session in the chat file's own folder and exposes
-its manager class as the `PersonaManagerExtension.persona_manager_class`
-trait. The extension ships that trait in
-`etc/jupyter/jupyter_jupyter_ai_persona_manager_config.json`, the config file
-Jupyter Server reads for that extension, so this subclass is the manager of
-every chat unless a deployment configures another class.
+Jupyter AI starts each agent session in the chat file's own folder. It exposes
+its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
+`select_project_persona_manager` sets that trait when Jupyter AI is installed.
 """
 
 from pathlib import Path
@@ -57,12 +54,35 @@ class PersonaManager(JupyterAIPersonaManager):
         personas.
         """
         try:
-            return join_project(self, self._settings.get(CURRENT_PROJECT))
+            return join_project(self, self._reported_project())
         except OSError:
             self.log.warning("Could not locate the ASTRA project for this chat.", exc_info=True)
             return None
 
-    @property
-    def _settings(self) -> dict:
-        """The running server's web application settings, through the extension app that made this manager."""
-        return self.parent.serverapp.web_app.settings
+    def _reported_project(self) -> str | None:
+        """The workbench's current project entrypoint, as the browser last reported it.
+
+        None for a manager built outside a running server, which then uses
+        only the chat itself.
+        """
+        web_app = getattr(getattr(self.parent, "serverapp", None), "web_app", None)
+        return web_app.settings.get(CURRENT_PROJECT) if web_app is not None else None
+
+
+def select_project_persona_manager(serverapp) -> bool:
+    """Use the project-aware manager unless the deployment chose another one.
+
+    `jupyter_server_config.d` only enables extensions, and a static
+    `jupyter_jupyter_ai_persona_manager_config.json` would take Jupyter AI's
+    own config file from deployments and survive disabling this extension.
+    Managers are created per chat, after every server extension has loaded,
+    so setting the trait while loading is early enough.
+
+    A deployment opts out by configuring any other class, including an explicit
+    subclass of the stock one. Returns whether this manager is in use.
+    """
+    apps = serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
+    for app in apps:
+        if app.persona_manager_class is JupyterAIPersonaManager:
+            app.persona_manager_class = PersonaManager
+    return any(app.persona_manager_class is PersonaManager for app in apps)

@@ -8402,6 +8402,7 @@ __metadata:
     stylelint-prettier: ^4.0.0
     typescript: ~5.5.4
     typescript-eslint: ^8.0.0
+    yaml: ^2.6.1
     yjs: ^13.5.0
   dependenciesMeta:
     canvas:

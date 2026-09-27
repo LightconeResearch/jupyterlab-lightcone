@@ -1,25 +1,31 @@
-import { ServerConnection } from '@jupyterlab/services';
+import { ContentsManager, Drive, ServerConnection } from '@jupyterlab/services';
 import type { IProjectRoot } from '../../project-root';
-import { createContents, fileModel } from '../../__tests__/project-fixtures';
-import {
-  CHAT_PROJECT_METADATA,
-  createChatProjectResolver,
-  recordedChatProject,
-  recordedProjectRoot
-} from '../chat-project';
+import { fetchChatProject } from '../../sessions/sessions-api';
+import { createChatProjectResolver } from '../chat-project';
+
+jest.mock('../../sessions/sessions-api', () => ({
+  fetchChatProject: jest.fn()
+}));
 
 const OWNER = { path: 'project', entrypoint: 'project/astra.yaml' };
 const OTHER = { path: 'other', entrypoint: 'other/astra.yaml' };
 const CURRENT = { path: 'current', entrypoint: 'current/astra.yaml' };
 
+/** The server's answer for each chat, as `chat_project` gives it. */
+const ANSWERS: Record<string, string | null> = {
+  'project/chats/a.chat': 'project/astra.yaml',
+  'loose/recorded.chat': 'other/astra.yaml',
+  'loose/a.chat': null,
+  'astra-root.chat': 'astra.yaml'
+};
+
 function setup(current: () => IProjectRoot | null | undefined = () => CURRENT) {
-  const { contents, get } = createContents({
-    'project/astra.yaml': fileModel('name: p\n'),
-    'other/astra.yaml': fileModel('name: o\n')
-  });
+  const contents = new ContentsManager();
+  const fetch = jest.mocked(fetchChatProject);
+  fetch.mockImplementation(async (_settings, path) => ANSWERS[path] ?? null);
   const fallback = jest.fn(current);
   const resolver = createChatProjectResolver(contents, fallback);
-  return { contents, get, fallback, resolver };
+  return { contents, fetch, fallback, resolver };
 }
 
 let now = 1_000_000;
@@ -27,6 +33,7 @@ let now = 1_000_000;
 beforeEach(() => {
   now = 1_000_000;
   jest.spyOn(Date, 'now').mockImplementation(() => now);
+  jest.mocked(fetchChatProject).mockReset();
 });
 
 afterEach(() => {
@@ -34,25 +41,31 @@ afterEach(() => {
 });
 
 describe('createChatProjectResolver', () => {
-  it('prefers the project storing the chat file', async () => {
-    const { resolver, fallback } = setup();
-    await expect(
-      resolver.resolve('project/chats/a.chat', OTHER.entrypoint)
-    ).resolves.toEqual(OWNER);
+  it("takes the server's answer: the project storing the chat, else the one it recorded", async () => {
+    const { contents, resolver, fallback, fetch } = setup();
+    await expect(resolver.resolve('project/chats/a.chat')).resolves.toEqual(
+      OWNER
+    );
+    await expect(resolver.resolve('loose/recorded.chat')).resolves.toEqual(
+      OTHER
+    );
+    await expect(resolver.resolve('astra-root.chat')).resolves.toEqual({
+      path: '',
+      entrypoint: 'astra.yaml'
+    });
     expect(fallback).not.toHaveBeenCalled();
+    // The server knows local Contents paths only.
+    contents.addDrive(new Drive({ name: 'RTC' }));
+    await resolver.resolve('RTC:elsewhere/talk.chat');
+    expect(fetch).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'elsewhere/talk.chat'
+    );
   });
 
-  it('keeps an unbound chat in the project recorded in it, whatever the current project', async () => {
-    const { resolver, fallback } = setup();
-    await expect(
-      resolver.resolve('loose/a.chat', OTHER.entrypoint)
-    ).resolves.toEqual(OTHER);
-    expect(fallback).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the current project, read on every call', async () => {
+  it('falls back to the current project, read on every call, until the chat records one', async () => {
     let current: IProjectRoot | undefined = undefined;
-    const { resolver } = setup(() => current);
+    const { resolver, fetch } = setup(() => current);
     // While the current project is still being resolved, there is none...
     await expect(resolver.resolve('loose/a.chat')).resolves.toBeUndefined();
     // ...and the chat follows it as soon as it is known or changes.
@@ -60,41 +73,25 @@ describe('createChatProjectResolver', () => {
     await expect(resolver.resolve('loose/a.chat')).resolves.toEqual(CURRENT);
     current = OTHER;
     await expect(resolver.resolve('loose/a.chat')).resolves.toEqual(OTHER);
+    // A chat without a project is asked about again, since it may record one.
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
-  it('ignores recorded entrypoints the server would reject', async () => {
-    const { resolver } = setup();
-    for (const recorded of [
-      '/abs/astra.yaml',
-      '../astra.yaml',
-      'p/../astra.yaml',
-      'drive:p/astra.yaml',
-      'p/other.yaml',
-      ''
-    ]) {
-      await expect(resolver.resolve('loose/a.chat', recorded)).resolves.toEqual(
-        CURRENT
-      );
-    }
-  });
-
-  it('walks the folders once a minute per chat', async () => {
-    const { resolver, get } = setup();
+  it('asks the server once a minute per chat', async () => {
+    const { resolver, fetch } = setup();
     await resolver.resolve('project/chats/a.chat');
-    const walked = get.mock.calls.length;
-    expect(walked).toBeGreaterThan(0);
     now += 59_000;
     await resolver.resolve('project/chats/a.chat');
-    expect(get).toHaveBeenCalledTimes(walked);
+    expect(fetch).toHaveBeenCalledTimes(1);
     now += 2_000;
     await resolver.resolve('project/chats/a.chat');
-    expect(get).toHaveBeenCalledTimes(walked * 2);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('reports a failed walk, falls back, and walks again next time', async () => {
-    const { resolver, get } = setup();
+  it('reports a failed request, falls back, and asks again next time', async () => {
+    const { resolver, fetch } = setup();
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    get.mockRejectedValueOnce(
+    fetch.mockRejectedValueOnce(
       new ServerConnection.ResponseError(new Response('', { status: 500 }))
     );
     await expect(resolver.resolve('project/chats/a.chat')).resolves.toEqual(
@@ -104,43 +101,5 @@ describe('createChatProjectResolver', () => {
     await expect(resolver.resolve('project/chats/a.chat')).resolves.toEqual(
       OWNER
     );
-  });
-});
-
-describe('recorded projects', () => {
-  /** A Jupyter Chat model whose shared document holds `metadata`. */
-  function labChatModel(metadata: Record<string, unknown>) {
-    const map = new Map(Object.entries(metadata));
-    return {
-      sharedModel: {
-        ydoc: {
-          getMap: (name: string) => (name === 'metadata' ? map : new Map())
-        }
-      }
-    };
-  }
-
-  it('reads the entrypoint the server recorded in the chat document', () => {
-    expect(
-      recordedChatProject(
-        labChatModel({ [CHAT_PROJECT_METADATA]: 'other/astra.yaml' })
-      )
-    ).toBe('other/astra.yaml');
-    expect(recordedChatProject(labChatModel({}))).toBeUndefined();
-    expect(
-      recordedChatProject(labChatModel({ [CHAT_PROJECT_METADATA]: 3 }))
-    ).toBeUndefined();
-    expect(recordedChatProject({ name: 'a.chat' })).toBeUndefined();
-    expect(recordedChatProject({ sharedModel: {} })).toBeUndefined();
-    expect(recordedChatProject(null)).toBeUndefined();
-  });
-
-  it('turns a recorded entrypoint into a project', () => {
-    expect(recordedProjectRoot('other/astra.yaml')).toEqual(OTHER);
-    expect(recordedProjectRoot('astra.yaml')).toEqual({
-      path: '',
-      entrypoint: 'astra.yaml'
-    });
-    expect(recordedProjectRoot(undefined)).toBeUndefined();
   });
 });

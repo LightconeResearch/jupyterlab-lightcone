@@ -13,6 +13,7 @@ import { Signal } from '@lumino/signaling';
 import { Widget } from '@lumino/widgets';
 import { fileModel } from '../../__tests__/project-fixtures';
 import {
+  RENAME_QUIET_PERIOD,
   SessionManager,
   isRecordTab,
   isUntitledSession,
@@ -207,7 +208,6 @@ function host(options: Partial<ISessionManagerOptions> = {}) {
 beforeEach(() => {
   jest.mocked(listSessions).mockReset();
   jest.mocked(listSessions).mockResolvedValue({
-    directory: 'p/chats',
     sessions: [
       {
         path: 'p/chats/plan.chat',
@@ -268,6 +268,8 @@ describe('SessionManager.createAndOpen', () => {
       ).resolves.toBe('p/chats/plan-2.chat');
       expect(h.created).toEqual([{ path: 'p/chats', name: 'plan-2' }]);
       expect(h.save).toHaveBeenCalledWith('p/chats', { type: 'directory' });
+      // The folder is the project's own; no listing is fetched to find it.
+      expect(jest.mocked(listSessions)).not.toHaveBeenCalled();
       const panel = h.panels[0];
       expect(panel.model.input.value).toBe('How should we proceed?');
       expect(panel.model.input.send).not.toHaveBeenCalled();
@@ -328,6 +330,17 @@ describe('SessionManager.openSession', () => {
 });
 
 describe('naming a session after its first message', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  /** Let the session load, then wait out the quiet period before a rename. */
+  const settle = () => jest.advanceTimersByTimeAsync(RENAME_QUIET_PERIOD);
+
   /** Rename in the fake contents and announce it, as the contents manager does. */
   const announceRenames = (h: ReturnType<typeof host>) =>
     jest.spyOn(h.contents, 'rename').mockImplementation(async (from, to) => {
@@ -340,16 +353,23 @@ describe('naming a session after its first message', () => {
       return renamed;
     });
 
+  const write = (session: FakePanel, body: string, sender = human) => {
+    session.model.messages = [
+      ...session.model.messages,
+      { id: `${session.model.messages.length}`, body, sender, time: 1 }
+    ];
+    session.model.messagesUpdated.emit();
+  };
+
   it('names successive sessions that reuse the untitled path', async () => {
     const h = host();
     const rename = announceRenames(h);
     try {
       for (const body of ['First question', 'Second question']) {
         const session = h.addPanel('p/chats/untitled.chat');
-        await flush();
-        session.model.messages = [{ id: body, body, sender: human, time: 1 }];
-        session.model.messagesUpdated.emit();
-        await flush();
+        await settle();
+        write(session, body);
+        await settle();
       }
       expect(rename.mock.calls).toEqual([
         ['p/chats/untitled.chat', 'p/chats/first-question.chat'],
@@ -360,32 +380,56 @@ describe('naming a session after its first message', () => {
     }
   });
 
-  it('retries a failed rename and suppresses concurrent attempts', async () => {
+  it('waits until nobody writes and the chat has been quiet', async () => {
     const h = host();
-    const attempt = new PromiseDelegate<Contents.IModel>();
+    const rename = announceRenames(h);
+    try {
+      const session = h.addPanel('p/chats/untitled.chat');
+      await settle();
+      write(session, 'Fit the model');
+      // The agent starts replying before the quiet period is over...
+      await jest.advanceTimersByTimeAsync(RENAME_QUIET_PERIOD / 2);
+      session.model.writers = [{ user: agent }];
+      session.model.writersChanged.emit(session.model.writers);
+      write(session, 'Working on it', agent);
+      await settle();
+      await settle();
+      expect(rename).not.toHaveBeenCalled();
+      // ...and the file is renamed only once the reply is over and saved.
+      session.model.writers = [];
+      session.model.writersChanged.emit([]);
+      await jest.advanceTimersByTimeAsync(RENAME_QUIET_PERIOD - 1);
+      expect(rename).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(rename.mock.calls).toEqual([
+        ['p/chats/untitled.chat', 'p/chats/fit-the-model.chat']
+      ]);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('tries once, since another window may have renamed the file', async () => {
+    const h = host();
     const rename = jest
       .spyOn(h.contents, 'rename')
-      .mockReturnValueOnce(attempt.promise)
-      .mockImplementation(async (_from, to) => fileModel('', { path: to }));
+      .mockRejectedValue(new Error('not found'));
     const warn = jest
       .spyOn(console, 'warn')
       .mockImplementation(() => undefined);
     try {
       const session = h.addPanel('p/chats/untitled.chat');
-      await flush();
-      session.model.messages = [
-        { id: '1', body: 'Question', sender: human, time: 1 }
-      ];
-      session.model.messagesUpdated.emit();
-      await flush();
-      session.model.messagesUpdated.emit();
-      await flush();
+      await settle();
+      write(session, 'Question');
+      await settle();
       expect(rename).toHaveBeenCalledTimes(1);
-      attempt.reject(new Error('offline'));
-      await flush();
-      session.model.messagesUpdated.emit();
-      await flush();
-      expect(rename).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledTimes(1);
+      // Streamed replies keep changing the chat; no further attempt is made.
+      for (let chunk = 0; chunk < 5; chunk++) {
+        write(session, `chunk ${chunk}`, agent);
+        await settle();
+      }
+      expect(rename).toHaveBeenCalledTimes(1);
     } finally {
       warn.mockRestore();
       h.dispose();
@@ -397,24 +441,16 @@ describe('naming a session after its first message', () => {
     const rename = announceRenames(h);
     try {
       const fresh = h.addPanel('p/chats/untitled.chat');
-      await flush();
+      await settle();
       expect(rename).not.toHaveBeenCalled();
-      fresh.model.messages = [
-        {
-          id: '1',
-          body: 'Plot the residuals\nagainst redshift',
-          sender: human,
-          time: 1
-        }
-      ];
-      fresh.model.messagesUpdated.emit();
-      await flush();
+      write(fresh, 'Plot the residuals\nagainst redshift');
+      await settle();
       expect(rename).toHaveBeenCalledWith(
         'p/chats/untitled.chat',
         'p/chats/plot-the-residuals.chat'
       );
-      fresh.model.messagesUpdated.emit();
-      await flush();
+      write(fresh, 'And the pulls');
+      await settle();
       expect(rename).toHaveBeenCalledTimes(1);
 
       // A chat that already had messages when it opened keeps its name, and
@@ -428,15 +464,11 @@ describe('naming a session after its first message', () => {
       ];
       const named = h.addPanel('p/chats/plan.chat');
       const loose = h.addPanel('p/untitled.chat');
-      await flush();
-      await flush();
+      await settle();
       for (const panel of [loaded, named, loose]) {
-        panel.model.messages = [
-          { id: '2', body: 'Another question', sender: human, time: 2 }
-        ];
-        panel.model.messagesUpdated.emit();
+        write(panel, 'Another question');
       }
-      await flush();
+      await settle();
       expect(rename).toHaveBeenCalledTimes(1);
     } finally {
       h.dispose();
@@ -529,13 +561,42 @@ describe('SessionManager listings', () => {
       });
       expect(changes).toEqual(['p/astra.yaml']);
 
-      jest.mocked(listSessions).mockResolvedValueOnce({
-        directory: 'p/chats',
-        sessions: []
-      });
+      jest.mocked(listSessions).mockResolvedValueOnce({ sessions: [] });
       expect(await h.manager.list('p/astra.yaml')).toEqual([]);
       expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(2);
       expect(changes).toEqual(['p/astra.yaml', 'p/astra.yaml']);
+    } finally {
+      h.dispose();
+    }
+  });
+});
+
+describe('SessionManager listing requests', () => {
+  it('does not reuse a request sent before the chats changed', async () => {
+    const h = host();
+    try {
+      const before = new PromiseDelegate<{ sessions: never[] }>();
+      jest.mocked(listSessions).mockReturnValueOnce(before.promise);
+      const stale = h.manager.list('p/astra.yaml');
+
+      // A session is created while the first request is in flight.
+      const changes: string[] = [];
+      h.manager.changed.connect((_, entrypoint) => changes.push(entrypoint));
+      h.emitFileChange({
+        type: 'new',
+        oldValue: null,
+        newValue: fileModel('', { path: 'p/chats/new.chat' })
+      });
+      expect(changes).toEqual(['p/astra.yaml']);
+      const fresh = h.manager.list('p/astra.yaml');
+      expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(2);
+      before.resolve({ sessions: [] });
+      await expect(stale).resolves.toEqual([]);
+      await expect(fresh).resolves.toHaveLength(1);
+
+      // The older answer was not kept as fresh: the newer one is reused.
+      await expect(h.manager.list('p/astra.yaml')).resolves.toHaveLength(1);
+      expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(2);
     } finally {
       h.dispose();
     }
@@ -552,9 +613,7 @@ describe('SessionManager polling', () => {
       await h.manager.list('p/astra.yaml');
       expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(1);
 
-      jest
-        .mocked(listSessions)
-        .mockResolvedValue({ directory: 'p/chats', sessions: [] });
+      jest.mocked(listSessions).mockResolvedValue({ sessions: [] });
       await jest.advanceTimersByTimeAsync(15000);
       expect(jest.mocked(listSessions)).toHaveBeenCalledTimes(2);
       expect(changes).toEqual(['p/astra.yaml']);

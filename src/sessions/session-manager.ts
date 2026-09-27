@@ -14,7 +14,7 @@ import { Poll } from '@lumino/polling';
 import { Signal, type ISignal } from '@lumino/signaling';
 import { Widget, type DockLayout } from '@lumino/widgets';
 import { isRecord } from '../api';
-import { projectDirectory } from '../project-data';
+import { isUnderProject, projectDirectory } from '../project-data';
 import {
   CHAT_FACTORY,
   CREATE_CHAT_COMMAND,
@@ -47,6 +47,15 @@ const LISTING_TTL = 2000;
  */
 const ACTIVE_WINDOW = 10 * 60 * 1000;
 const POLL_INTERVAL = 15000;
+/**
+ * How long a new session must stay quiet (nobody writing, no message
+ * changing) before its file is renamed after its first message. The server
+ * learns of a rename a moment after it happens; a reply saved in that moment
+ * would recreate the old file.
+ */
+export const RENAME_QUIET_PERIOD = 2000;
+/** The project folder that holds sessions (`CHATS_DIRECTORY` in `sessions.py`). */
+const CHATS_DIRECTORY = 'chats';
 /** Dependencies of the session manager, narrowed for testing. */
 export interface ISessionManagerOptions {
   commands: CommandRegistry;
@@ -69,6 +78,12 @@ interface ICachedListing {
   signature: string;
 }
 
+/** A listing request in flight, and the version of the project's chats it asked about. */
+interface IPendingListing {
+  version: number;
+  listing: Promise<ISessionListing>;
+}
+
 /** Where the document manager puts a session in the main area. */
 interface ISessionPlacement {
   mode?: DockLayout.InsertMode;
@@ -86,15 +101,22 @@ interface ILiveSession {
   path: string;
   /** Name only chats whose first human message arrives while open. */
   titledWhenLoaded?: boolean;
+  /**
+   * Whether this window tried to name the file after its first message. It
+   * tries once: another window may have renamed it already.
+   */
+  named?: boolean;
+  /** The rename waiting for the session to go quiet. */
+  naming?: ReturnType<typeof setTimeout>;
   disconnect: () => void;
 }
 
 /**
  * A session file still called `untitled` in a project's `chats/` folder, the
- * folder the server lists sessions from (`CHATS_DIRECTORY` in `sessions.py`).
+ * folder the server lists sessions from.
  */
 const UNTITLED_SESSION = new RegExp(
-  `(^|/)chats/${UNTITLED_SLUG}(-\\d+)?${SESSION_FILE_EXTENSION.replace('.', '\\.')}$`
+  `(^|/)${CHATS_DIRECTORY}/${UNTITLED_SLUG}(-\\d+)?${SESSION_FILE_EXTENSION.replace('.', '\\.')}$`
 );
 
 /**
@@ -235,9 +257,12 @@ export class SessionManager implements ISessionService, IDisposable {
       );
     }
     const key = this._contents.normalize(entrypoint);
-    // The listing names the project's `chats` folder; saving it as a
-    // directory creates it when it is missing and leaves it alone otherwise.
-    const { directory } = await this._listing(key);
+    // Saving the `chats` folder as a directory creates it when it is missing
+    // and leaves it alone otherwise.
+    const directory = this._contents.resolvePath(
+      projectDirectory(key),
+      CHATS_DIRECTORY
+    );
     await this._contents.save(directory, { type: 'directory' });
     const title = options.title?.trim() ?? '';
     const name = await uniqueSessionName(
@@ -278,6 +303,7 @@ export class SessionManager implements ISessionService, IDisposable {
     }
     this._live.clear();
     this._listings.clear();
+    this._fetches.clear();
     Signal.clearData(this);
   }
 
@@ -392,23 +418,29 @@ export class SessionManager implements ISessionService, IDisposable {
   }
 
   /**
-   * Fetch a listing, sharing a request already in flight. It leaves
-   * `requestedAt` alone, so the poll's refreshes never keep a listing alive.
+   * Fetch a listing, sharing a request already in flight unless the project's
+   * chats changed since it was sent. It leaves `requestedAt` alone, so the
+   * poll's refreshes never keep a listing alive.
    */
   private _refresh(key: string): Promise<ISessionListing> {
-    let pending = this._fetches.get(key);
-    if (!pending) {
-      pending = this._fetch(key).finally(() => {
-        this._fetches.delete(key);
-      });
-      this._fetches.set(key, pending);
+    const version = this._versions.get(key) ?? 0;
+    const pending = this._fetches.get(key);
+    if (pending?.version === version) {
+      return pending.listing;
     }
-    return pending;
+    const listing = this._fetch(key, version).finally(() => {
+      if (this._fetches.get(key)?.listing === listing) {
+        this._fetches.delete(key);
+      }
+    });
+    this._fetches.set(key, { version, listing });
+    return listing;
   }
 
-  private async _fetch(key: string): Promise<ISessionListing> {
+  /** Fetch a listing; one the project's chats changed during is returned but not kept. */
+  private async _fetch(key: string, version: number): Promise<ISessionListing> {
     const listing = await listSessions(this._contents.serverSettings, key);
-    if (this._isDisposed) {
+    if (this._isDisposed || (this._versions.get(key) ?? 0) !== version) {
       return listing;
     }
     const signature = JSON.stringify(listing.sessions);
@@ -426,7 +458,9 @@ export class SessionManager implements ISessionService, IDisposable {
     return listing;
   }
 
+  /** Mark a project's listing stale, including a request already in flight, and announce it. */
   private _invalidate(key: string): void {
+    this._versions.set(key, (this._versions.get(key) ?? 0) + 1);
     const cached = this._listings.get(key);
     if (cached) {
       cached.fetchedAt = 0;
@@ -461,7 +495,7 @@ export class SessionManager implements ISessionService, IDisposable {
     const model = panel.model;
     const update = () => {
       syncSessionTabTitle(panel);
-      this._nameAfterFirstMessage(live);
+      this._scheduleNaming(live);
     };
     const onDisposed = () => {
       live.disconnect();
@@ -472,14 +506,17 @@ export class SessionManager implements ISessionService, IDisposable {
       panel,
       path,
       disconnect: () => {
+        clearTimeout(live.naming);
         model.messagesUpdated.disconnect(update);
         model.messageChanged.disconnect(update);
+        model.writersChanged?.disconnect(update);
         panel.disposed.disconnect(onDisposed);
       }
     };
     this._live.set(path, live);
     model.messagesUpdated.connect(update);
     model.messageChanged.connect(update);
+    model.writersChanged?.connect(update);
     panel.disposed.connect(onDisposed);
     void model.ready
       .then(() => {
@@ -492,32 +529,63 @@ export class SessionManager implements ISessionService, IDisposable {
   }
 
   /**
-   * Name a session created without a message after its first one, as Home
-   * names the sessions it starts: `chats/untitled.chat` becomes
-   * `chats/<slug of the first line>.chat`. Jupyter Chat and this manager
-   * follow the rename; a chat that already had messages when it loaded, or
-   * one outside `chats/`, keeps its name.
+   * The slug an untitled session's file takes from its first message, or
+   * null when this window should not rename it: a chat that already had
+   * messages when it loaded, one outside `chats/` or with a name of its own,
+   * one this window tried to name already, and one nobody wrote in yet.
    */
-  private _nameAfterFirstMessage(live: ILiveSession): void {
+  private _namingSlug(live: ILiveSession): string | null {
     if (
       live.titledWhenLoaded !== false ||
+      live.named ||
+      live.panel.isDisposed ||
       live.panel.area !== 'main' ||
-      !isUntitledSession(live.path) ||
-      this._naming.has(live.path)
+      !isUntitledSession(live.path)
     ) {
-      return;
+      return null;
     }
     const title = messagesTitle(live.panel.model.messages);
     const slug = title ? slugForTitle(title) : UNTITLED_SLUG;
-    if (slug === UNTITLED_SLUG) {
+    return slug === UNTITLED_SLUG ? null : slug;
+  }
+
+  /** Name an untitled session once it has been quiet for a while; every change restarts the wait. */
+  private _scheduleNaming(live: ILiveSession): void {
+    clearTimeout(live.naming);
+    live.naming = undefined;
+    if (this._namingSlug(live) === null) {
       return;
     }
-    const from = live.panel.model.name;
-    const originalPath = live.path;
-    this._naming.add(originalPath);
+    live.naming = setTimeout(() => {
+      live.naming = undefined;
+      this._nameAfterFirstMessage(live);
+    }, RENAME_QUIET_PERIOD);
+  }
+
+  /**
+   * Name a session created without a message after its first one, as Home
+   * names the sessions it starts: `chats/untitled.chat` becomes
+   * `chats/<slug of the first line>.chat`. Jupyter Chat and this manager
+   * follow the rename. It waits while anyone writes, since the server saves
+   * every streamed reply, and is tried once.
+   */
+  private _nameAfterFirstMessage(live: ILiveSession): void {
+    const slug = this._namingSlug(live);
+    const model = live.panel.model;
+    if (slug === null || model.writers.length > 0 || this._isDisposed) {
+      return;
+    }
+    live.named = true;
+    const from = model.name;
     void (async () => {
       const directory = PathExt.dirname(from);
       const name = await uniqueSessionName(this._contents, directory, slug);
+      if (model.writers.length > 0) {
+        // Someone started writing while the name was chosen: wait again.
+        live.named = false;
+        this._scheduleNaming(live);
+        return;
+      }
       await this._contents.rename(
         from,
         this._contents.resolvePath(
@@ -525,16 +593,12 @@ export class SessionManager implements ISessionService, IDisposable {
           `${name}${SESSION_FILE_EXTENSION}`
         )
       );
-    })()
-      .catch(error => {
-        console.warn(
-          'Could not name the session after its first message.',
-          error
-        );
-      })
-      .finally(() => {
-        this._naming.delete(originalPath);
-      });
+    })().catch(error => {
+      console.warn(
+        'Could not name the session after its first message.',
+        error
+      );
+    });
   }
 
   /**
@@ -566,9 +630,9 @@ export class SessionManager implements ISessionService, IDisposable {
 
   /**
    * Follow chat files through the Contents API: a renamed open chat keeps
-   * its live state under its new path, and every cached listing of a project
-   * whose folder holds the changed file (on the same drive) is marked stale
-   * and announced through `changed`.
+   * its live state under its new path, and every listing, cached or in
+   * flight, of a project whose folder holds the changed file (on the same
+   * drive) is marked stale and announced through `changed`.
    */
   private _onFileChanged(
     _contents: Contents.IManager,
@@ -591,19 +655,10 @@ export class SessionManager implements ISessionService, IDisposable {
         this._live.set(live.path, live);
       }
     }
-    for (const [key, cached] of this._listings) {
-      const drive = this._contents.driveName(key);
-      const root = this._contents.localPath(projectDirectory(key));
-      const affected = paths.some(path => {
-        if (this._contents.driveName(path) !== drive) {
-          return false;
-        }
-        const local = this._contents.localPath(path);
-        return !root || local === root || local.startsWith(`${root}/`);
-      });
-      if (affected) {
-        cached.fetchedAt = 0;
-        this._changed.emit(key);
+    const keys = new Set([...this._listings.keys(), ...this._fetches.keys()]);
+    for (const key of keys) {
+      if (paths.some(path => isUnderProject(this._contents, key, path))) {
+        this._invalidate(key);
       }
     }
   }
@@ -618,10 +673,10 @@ export class SessionManager implements ISessionService, IDisposable {
   private readonly _poll: Poll<void, unknown>;
   private readonly _changed = new Signal<this, string>(this);
   private readonly _listings = new Map<string, ICachedListing>();
-  private readonly _fetches = new Map<string, Promise<ISessionListing>>();
+  private readonly _fetches = new Map<string, IPendingListing>();
+  /** How often each project's chats changed, so older requests are not reused. */
+  private readonly _versions = new Map<string, number>();
   private readonly _live = new Map<string, ILiveSession>();
-  /** Untitled sessions already being named, by their old local path. */
-  private readonly _naming = new Set<string>();
   private _lastSession: IChatPanel | null = null;
   private _isDisposed = false;
 }

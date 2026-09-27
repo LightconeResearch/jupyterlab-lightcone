@@ -10,6 +10,7 @@ import {
 } from '@jupyterlab/application';
 import { ICommandPalette, showErrorMessage } from '@jupyterlab/apputils';
 import { IDocumentManager } from '@jupyterlab/docmanager';
+import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { CommandIDs, requireProject } from '../commands';
@@ -96,7 +97,7 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
   autoStart: true,
   provides: ISessionService,
   requires: [ICurrentProject, IChatTracker, IDocumentManager],
-  optional: [ILabShell, ICommandPalette, ITranslator],
+  optional: [ILabShell, ICommandPalette, IFileBrowserFactory, ITranslator],
   activate: async (
     app: JupyterFrontEnd,
     current: ICurrentProject,
@@ -104,6 +105,7 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
     documents: IDocumentManager,
     labShell: ILabShell | null,
     palette: ICommandPalette | null,
+    browser: IFileBrowserFactory | null,
     translator: ITranslator | null
   ): Promise<ISessionService> => {
     const trans = (translator ?? nullTranslator).load('jupyterlab_lightcone');
@@ -146,6 +148,12 @@ export const sessionsPlugin: JupyterFrontEndPlugin<ISessionService> = {
             root = await requireProject(app, { directory: cwd });
           } else if (current.project) {
             root = current.project;
+          } else if (current.project === undefined) {
+            // The current project is still being looked up, or the lookup
+            // failed: locate it from the file browser's folder directly.
+            root = await requireProject(app, {
+              directory: browser?.tracker.currentWidget?.model.path ?? ''
+            });
           } else {
             // `requireProject` offers setup itself; only a missing current
             // project needs an explanation.

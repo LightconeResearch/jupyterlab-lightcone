@@ -2,6 +2,7 @@ import type { IChatPanel, IChatTracker } from '@jupyter/chat';
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import { showErrorMessage } from '@jupyterlab/apputils';
 import { IDocumentManager } from '@jupyterlab/docmanager';
+import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ContentsManager, type Event } from '@jupyterlab/services';
 import { CommandRegistry } from '@lumino/commands';
 import { PluginRegistry, Token } from '@lumino/coreutils';
@@ -96,7 +97,12 @@ function fakeDocuments(): IDocumentManager {
 }
 
 /** Register the plugins the way the application does, with fake providers. */
-function plugins(options: { tracker: boolean; project?: IProjectRoot | null }) {
+function plugins(options: {
+  tracker: boolean;
+  project?: IProjectRoot | null;
+  /** The file browser's folder, when there is a file browser. */
+  browserPath?: string;
+}) {
   const host = fakeApp();
   const registry = new PluginRegistry();
   registry.application = host.app;
@@ -104,10 +110,16 @@ function plugins(options: { tracker: boolean; project?: IProjectRoot | null }) {
     id: 'test:current-project',
     provides: ICurrentProject,
     activate: () =>
-      new FakeCurrentProject(
-        options.project === undefined ? PROJECT : options.project
-      )
+      new FakeCurrentProject('project' in options ? options.project : PROJECT)
   });
+  if (options.browserPath !== undefined) {
+    const browser = { model: { path: options.browserPath } };
+    registry.registerPlugin({
+      id: 'test:file-browser',
+      provides: IFileBrowserFactory,
+      activate: () => ({ tracker: { currentWidget: browser } })
+    });
+  }
   registry.registerPlugin({
     id: 'test:documents',
     provides: IDocumentManager,
@@ -230,6 +242,31 @@ describe('sessionsPlugin', () => {
         'Could not start the session',
         new Error('No chats directory.')
       );
+    } finally {
+      create.mockRestore();
+      host.dispose();
+    }
+  });
+
+  it('locates the project from the file browser while the current one is unknown', async () => {
+    const host = plugins({
+      tracker: true,
+      project: undefined,
+      browserPath: 'p/data'
+    });
+    await host.registry.activatePlugin(sessionsPlugin.id);
+    const create = jest
+      .spyOn(SessionManager.prototype, 'createAndOpen')
+      .mockResolvedValue('p/chats/hi.chat');
+    try {
+      jest.mocked(requireProject).mockResolvedValue(PROJECT);
+      await expect(host.commands.execute(CommandIDs.newSession)).resolves.toBe(
+        'p/chats/hi.chat'
+      );
+      expect(requireProject).toHaveBeenCalledWith(host.app, {
+        directory: 'p/data'
+      });
+      expect(showErrorMessage).not.toHaveBeenCalled();
     } finally {
       create.mockRestore();
       host.dispose();

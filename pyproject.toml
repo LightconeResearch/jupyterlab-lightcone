@@ -72,8 +72,6 @@ exclude = [".github", "binder"]
 "jupyterlab_lightcone/labextension" = "share/jupyter/labextensions/jupyterlab-lightcone"
 "install.json" = "share/jupyter/labextensions/jupyterlab-lightcone/install.json"
 "jupyter-config/server-config" = "etc/jupyter/jupyter_server_config.d"
-# Select the project-aware manager through Jupyter AI's public configurable trait.
-"jupyter-config/persona-manager/jupyter_jupyter_ai_persona_manager_config.json" = "etc/jupyter/jupyter_jupyter_ai_persona_manager_config.json"
 
 [tool.hatch.build.hooks.version]
 path = "jupyterlab_lightcone/_version.py"
