@@ -24,10 +24,10 @@ classifiers = [
 ]
 dependencies = [
     "jupyter_server>=2.13.0,<3",
-    "astra-tools==0.2.17",
+    "astra-tools==0.2.18",
     # The engine is called in-process and promises no stable API: raise the
     # cap only once the suite passes against the new minor release.
-    "lightcone-cli>=0.5.0rc3,<0.6",
+    "lightcone-cli>=0.5.0rc4,<0.6",
     "jupyter-ai>=3.2.0,<3.3",
     # Existing agent tools use these packages directly.
     "jupyter-server-mcp>=0.3.0,<0.4",

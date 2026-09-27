@@ -127,7 +127,7 @@ the native lifecycle suite exercises readiness with the test configuration.
 **Where.** `jupyterlab_lightcone/routes.py` (`fetch_cached_paper`,
 `cached_paper_index`).
 
-**What and why.** Paper lookup and download use astra-tools 0.2.17 in process,
+**What and why.** Paper lookup and download use astra-tools 0.2.18 in process,
 in ASTRA's conventional cache (`PaperCache().cache_dir`). The dependency
 promises no stable Python API, so its existing exact pin is retained. It also
 documents no exception contract for downloads: any error raised inside
