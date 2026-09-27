@@ -74,6 +74,7 @@ const TOOLBAR = '.jp-jupyterlab-lightcone-element-toolbar';
 const CONTENT = '.jp-jupyterlab-lightcone-element-content';
 
 const CHAT_INPUT = '.jp-chat-input-container';
+const SEARCH = '.jp-jupyterlab-lightcone-Search';
 
 const FIGURE = '.astra-output-detail__artifact img';
 const PIN = '.jp-jupyterlab-lightcone-CommentPin';
@@ -428,6 +429,44 @@ test('a record opened in a new tab stays when the next result replaces the previ
     .toEqual([['Home'], ['Cosmology fit', 'Cosmological model']]);
 });
 
+test('search opens sessions in the main area and records as record tabs', async ({
+  page,
+  tmpPath
+}) => {
+  await openWorkbench(page, tmpPath);
+  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  await expect(page.locator(CHAT_INPUT)).toBeVisible();
+  await page.locator('.lm-TabBar-tab', { hasText: 'Home' }).click();
+  expect(await currentTitle(page)).toBe('Home');
+
+  await execute(page, 'jupyterlab_lightcone:search');
+  await expect(page.locator(SEARCH)).toBeVisible();
+  await page.keyboard.type('untitled');
+  await expect(
+    page.locator(`${SEARCH} .lm-CommandPalette-item`).first()
+  ).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator(SEARCH)).toBeHidden();
+  await expect.poll(() => currentTitle(page)).toBe('untitled.chat');
+
+  await execute(page, 'jupyterlab_lightcone:search');
+  await expect(page.locator(SEARCH)).toBeVisible();
+  await page.keyboard.type('Sample cut');
+  await expect(
+    page.locator(`${SEARCH} .lm-CommandPalette-item`).first()
+  ).toContainText('Sample cut');
+  await page.keyboard.press('Enter');
+  await expect(page.locator(RECORD_TABS)).toHaveCount(1);
+  await expect.poll(() => currentTitle(page)).toBe('Sample cut');
+
+  // Escape closes the modal and leaves the current tab current.
+  await execute(page, 'jupyterlab_lightcone:search');
+  await expect(page.locator(SEARCH)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator(SEARCH)).toBeHidden();
+  expect(await currentTitle(page)).toBe('Sample cut');
+});
+
 test('Home plates follow the Lab theme, lead with figures and list a fit’s values', async ({
   page,
   tmpPath
@@ -556,6 +595,31 @@ test('a narrow record beside Home keeps a readable context line', async ({
   await expect(context).toBeVisible();
   const box = await context.boundingBox();
   expect(box?.width ?? 0).toBeGreaterThanOrEqual(150);
+});
+
+test('the schemas register the search shortcut and the launcher entries', async ({
+  page
+}) => {
+  const bindings = await page.evaluate(() =>
+    window.jupyterapp.commands.keyBindings
+      .filter(binding =>
+        ['jupyterlab_lightcone:search', 'launcher:create'].includes(
+          binding.command
+        )
+      )
+      .map(binding => `${binding.command}: ${binding.keys.join(' ')}`)
+      .sort()
+  );
+  expect(bindings).toEqual([
+    'jupyterlab_lightcone:search: Ctrl K',
+    'launcher:create: Ctrl Shift L'
+  ]);
+  await expect(
+    page.locator('#filebrowser .jp-Toolbar [title^="New Launcher"]')
+  ).toHaveCount(1);
+  await page.keyboard.press('Control+k');
+  await expect(page.locator(SEARCH)).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('a comment pinned on a figure waits above the composer and travels with the next message', async ({

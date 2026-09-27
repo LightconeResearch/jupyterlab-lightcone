@@ -1,0 +1,57 @@
+/* Lightcone search: a modal command palette over sessions, records, files and commands. */
+
+.jp-jupyterlab-lightcone-Search-Modal.jp-ModalCommandPalette {
+  left: 25%;
+  width: 50%;
+}
+
+.jp-jupyterlab-lightcone-Search-Modal .lm-CommandPalette {
+  max-height: 60vh;
+}
+
+.jp-jupyterlab-lightcone-Search .lm-CommandPalette-itemContent {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.jp-jupyterlab-lightcone-Search .lm-CommandPalette-itemLabel {
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.jp-jupyterlab-lightcone-Search-caption {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-jupyterlab-lightcone-Search
+  .lm-CommandPalette-item.lm-mod-active
+  .jp-jupyterlab-lightcone-Search-caption {
+  color: var(--jp-ui-inverse-font-color2);
+}
+
+/* Records and papers carry the ASTRA kind mark (src/astra-kind.tsx) in the
+ * icon slot. On the highlighted row it takes the row's inverse text colour,
+ * as Lab's own icons do, since no kind colour reads on the brand fill. */
+.jp-jupyterlab-lightcone-Search-kind {
+  display: flex;
+  justify-content: center;
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-jupyterlab-lightcone-Search
+  .lm-CommandPalette-item.lm-mod-active
+  .jp-jupyterlab-lightcone-Search-kind
+  .astra-kind-glyph {
+  color: var(--jp-ui-inverse-font-color1);
+}

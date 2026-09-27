@@ -2,7 +2,9 @@ import type { SurfaceKind } from '@astra-spec/ui/model';
 import { KindGlyph } from '@astra-spec/ui/primitives';
 import type { IThemeManager } from '@jupyterlab/apputils';
 import type { IDisposable } from '@lumino/disposable';
+import type { VirtualElement } from '@lumino/virtualdom';
 import React, { useSyncExternalStore } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { colorScheme, type ColorScheme } from './theme-adapter';
 
 /**
@@ -100,4 +102,29 @@ export function AstraKindMark({
       <KindGlyph kind={kind} />
     </span>
   );
+}
+
+/** A host can be reused by Lumino with a new kind's renderer. */
+const markRoots = new WeakMap<HTMLElement, Root>();
+
+/**
+ * Render the shared React kind mark through Lumino's public custom-renderer
+ * lifecycle. The caller keys the icon host so switching to another renderer
+ * removes it, and clears its virtual DOM before disposing the containing widget.
+ */
+export function kindMarkRenderer(kind: SurfaceKind): VirtualElement.IRenderer {
+  return {
+    render: (host: HTMLElement) => {
+      let root = markRoots.get(host);
+      if (!root) {
+        root = createRoot(host);
+        markRoots.set(host, root);
+      }
+      root.render(<AstraKindMark kind={kind} />);
+    },
+    unrender: (host: HTMLElement) => {
+      markRoots.get(host)?.unmount();
+      markRoots.delete(host);
+    }
+  };
 }

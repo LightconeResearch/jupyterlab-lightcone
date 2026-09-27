@@ -134,6 +134,17 @@
   min-width: 0;
 }
 
+.jp-jupyterlab-lightcone-Sidebar-shortcut {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 16px;
+}
+
 .jp-jupyterlab-lightcone-Sidebar-comments {
   padding: 4px 6px 2px;
   color: var(--jp-ui-font-color2);

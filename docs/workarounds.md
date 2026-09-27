@@ -281,11 +281,11 @@ neither `contents_service` events nor `Contents.IManager.fileChanged` fire.
 **Upstream.** jupyterlab_chat: a `message` Jupyter Event, or saving through
 the contents manager.
 
-### Chat files are parsed for session listings
+### Chat files are parsed for session listings and search
 
 **Where.** `jupyterlab_lightcone/sessions.py`.
 
-**What.** Sessions are listed from their `.chat` files, read
+**What.** Sessions are listed and searched from their `.chat` files, read
 through the contents manager and parsed off the event loop with Jupyter
 Chat's `Message` and `User` dataclasses, item by item. A summary is reused
 while the manager reports the file's modification time and size unchanged.
@@ -1014,3 +1014,35 @@ or expose a page lookup through its annotation host API.
 
 **Removal.** Use the exported page lookup or attribute constant, removing the
 locally restated name and direct ancestry lookup when an API replaces it.
+
+## Search and composer references
+
+### Search sections follow the command palette's category ordering
+
+**Where.** `src/search/search-palette.ts` (`sectionCategory`, `formatHeader`).
+The public Lumino `CommandPalette` sorts equally matched items by category
+text before rank and offers no category comparator. Categories carry circled
+digits to preserve the intended sessions, records, files, and commands order;
+the renderer removes those prefixes from visible headings. Native matching,
+keyboard navigation, and command execution remain with the palette.
+
+**Upstream / removal.** A category rank or `compareCategories` option in
+`@lumino/widgets` would replace both prefixing and heading cleanup. Keep the
+section-order and keyboard tests when removing this adaptation.
+
+## Lightcone themes
+
+### Two registered themes share one built stylesheet
+
+**Where.** `src/theme/index.ts`, `style/themes/index.css`, and `package.json`
+(`jupyterlab.themePath`). The JupyterLab builder accepts one theme entry per
+package. Both public `IThemeManager` registrations load that same built CSS;
+the palette selectors use JupyterLab's `data-jp-theme-name` attribute to choose
+light or dark colors. Loading a theme neither chooses it for the user nor
+changes the standard theme's palette.
+
+**Upstream / removal.** Multiple theme entries per package in `@jupyter/builder`
+would allow separate light and dark CSS assets. Split the entry and load URLs,
+remove the combined selector arrangement, and retain theme-registration, palette
+contrast, and theme-switching tests. Focus Layout uses public shell methods
+and the existing status-bar command and needs no compatibility workaround.

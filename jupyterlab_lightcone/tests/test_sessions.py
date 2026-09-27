@@ -474,3 +474,107 @@ async def test_requires_authentication(jp_fetch, project, endpoint, path):
         raise_error=False,
     )
     assert response.code in (302, 403)
+
+
+# --- full-text search ----------------------------------------------------------
+
+SEARCH = (*ENDPOINT, "search")
+
+
+async def test_search_finds_messages_case_insensitively_newest_first(tmp_path):
+    root = tmp_path / "root"
+    project = root / "project"
+    write_chat(project / "chats" / "fit.chat", chat(
+        message("Plot the Hubble residuals", time=10.0),
+        message("I plotted the HUBBLE residuals versus redshift.", sender=CODEX, time=20.0),
+        message("Something else entirely", time=30.0),
+    ))
+    write_chat(project / "old.chat", chat(message("An older hubble question", time=5.0)))
+    matches = await sessions.search_sessions(manager_for(root), "project", "hubble")
+    assert [(match["path"], match["time"][:19]) for match in matches] == [
+        ("project/chats/fit.chat", "1970-01-01T00:00:20"),
+        ("project/chats/fit.chat", "1970-01-01T00:00:10"),
+        ("project/old.chat", "1970-01-01T00:00:05"),
+    ]
+    agent_reply = matches[0]
+    assert agent_reply["title"] == "Plot the Hubble residuals"
+    assert agent_reply["author"] == "Codex" and agent_reply["agent"] is True
+    assert agent_reply["message"] == f"{CODEX}-20.0"
+    assert agent_reply["snippet"] == "I plotted the HUBBLE residuals versus redshift."
+    assert matches[1]["author"] == "Anonymous Megaclite" and matches[1]["agent"] is False
+
+
+async def test_search_snippets_are_cut_around_the_match_and_matches_are_bounded(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    body = "a " * 100 + "needle" + "\n b" * 100
+    write_chat(root / "project" / "chats" / "long.chat", chat(*(message(body, time=float(i)) for i in range(5))))
+    monkeypatch.setattr(sessions, "MAX_SEARCH_MATCHES", 3)
+    manager = manager_for(root)
+    matches = await sessions.search_sessions(manager, "project", "needle")
+    assert len(matches) == 3
+    text = matches[0]["snippet"]
+    assert text.startswith("…") and text.endswith("…") and "needle" in text and "\n" not in text
+    # A query is literal text, never a pattern.
+    assert await sessions.search_sessions(manager, "project", "a.*needle") == []
+
+
+@pytest.mark.parametrize("time, expected", [
+    (10.5, "1970-01-01T00:00:10.500+00:00"),
+    ("10", None),
+    (True, None),
+    (10**15, None),
+    (10**20, None),
+])
+def test_a_message_time_is_iso_8601_or_none_when_no_date_can_hold_it(time, expected):
+    """The model does not check the field's type: a time no date can hold sorts last rather than failing."""
+    assert sessions.message_time(Message(id="m", body="when", time=time, sender=USER)) == expected
+
+
+async def test_the_search_endpoint(jp_fetch, project):
+    write_chat(project / "chats" / "fit.chat", chat(message("Fit the contour levels", time=1.0)))
+    response = await jp_fetch(*SEARCH, params={"path": "project/astra.yaml", "q": "contour"})
+    matches = json.loads(response.body)["matches"]
+    assert [match["path"] for match in matches] == ["project/chats/fit.chat"]
+    for query in ("x", "x" * 201):
+        refused = await jp_fetch(*SEARCH, params={"path": "project/astra.yaml", "q": query}, raise_error=False)
+        assert refused.code == 400
+
+
+async def test_searching_requires_contents_authorization(jp_fetch, jp_serverapp, project, monkeypatch):
+    monkeypatch.setattr(jp_serverapp.authorizer, "is_authorized", lambda *args, **kwargs: False)
+    response = await jp_fetch(*SEARCH, params={"path": "project/astra.yaml", "q": "fit"}, raise_error=False)
+    assert response.code == 403
+
+
+async def test_search_skips_unreadable_removed_and_malformed_entries(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    project = root / "project"
+    write_chat(project / "chats" / "good.chat", chat(
+        {"body": "needle without id", "time": 1.0, "sender": USER},
+        message("The needle question", time=2.0),
+        message("needle deleted", deleted=True, time=3.0),
+    ))
+    write_chat(project / "chats" / "broken.chat", "{needle")
+    write_chat(project / "chats" / "large.chat", chat(message("needle " * 3000)))
+    write_chat(project / "chats" / ".hidden.chat", chat(message("needle hidden")))
+    removed = write_chat(project / "chats" / "removed.chat", chat(message("needle removed")))
+    monkeypatch.setattr(sessions, "MAX_CHAT_BYTES", 2000)
+    read_chat = sessions.read_chat
+
+    async def disappearing(manager, model):
+        if model["name"] == removed.name:
+            removed.unlink()
+        return await read_chat(manager, model)
+
+    monkeypatch.setattr(sessions, "read_chat", disappearing)
+    matches = await sessions.search_sessions(manager_for(root), "project", "needle")
+    assert [(match["path"], match["title"], match["snippet"]) for match in matches] == [
+        ("project/chats/good.chat", "The needle question", "The needle question")
+    ]
+
+
+async def test_search_without_a_human_message_uses_the_same_filename_title_as_listings(tmp_path):
+    root = tmp_path / "root"
+    write_chat(root / "project" / "chats" / "agent-only.chat", chat(message("A needle", sender=CODEX)))
+    [match] = await sessions.search_sessions(manager_for(root), "project", "needle")
+    assert match["title"] == "agent only"
