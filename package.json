@@ -164,6 +164,7 @@
             "yaml": false
         },
         "schemaDir": "schema",
+        "themePath": "style/themes/index.css",
         "disabledExtensions": [
             "@jupyterlab/launcher-extension:plugin"
         ]

@@ -19,10 +19,11 @@ import type { CommandRegistry } from '@lumino/commands';
 import type { Message } from '@lumino/messaging';
 import { Widget } from '@lumino/widgets';
 import React from 'react';
-import { CommandIDs } from '../commands';
+import { CommandIDs, shortcutLabel } from '../commands';
 import { HomeCommandIDs } from '../home/home-commands';
 import { lightconeIcon } from '../icons';
 import { outputMaterializationStatus } from '../materialization-status';
+import { SearchCommandIDs } from '../search';
 import {
   SESSION_FILE_EXTENSION,
   sessionStem
@@ -382,6 +383,15 @@ export class LightconeSidebar extends SidePanel {
                 )
             : undefined
         }
+        onSearch={
+          this._commands.hasCommand(SearchCommandIDs.search)
+            ? () =>
+                this._run(trans.__('Could not open search'), () =>
+                  this._commands.execute(SearchCommandIDs.search)
+                )
+            : undefined
+        }
+        searchShortcut={shortcutLabel(this._commands, SearchCommandIDs.search)}
       />
     );
   }

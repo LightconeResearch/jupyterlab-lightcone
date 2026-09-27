@@ -7,6 +7,7 @@ import { Widget } from '@lumino/widgets';
 import { CommandIDs } from '../../commands';
 import { HomeCommandIDs } from '../../home/home-commands';
 import { requestAPI } from '../../request';
+import { SearchCommandIDs } from '../../search';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { SidebarCommandIDs, WorkbenchCommandIDs, sidebarPlugin } from '..';
 import { RecentProjects } from '../project-switcher';
@@ -85,7 +86,8 @@ function host(
     CommandIDs.openInventory,
     CommandIDs.createProject,
     HomeCommandIDs.create,
-    WorkbenchCommandIDs.goToPath
+    WorkbenchCommandIDs.goToPath,
+    SearchCommandIDs.search
   ]) {
     commands.addCommand(command, {
       execute: args => {
@@ -93,6 +95,11 @@ function host(
       }
     });
   }
+  commands.addKeyBinding({
+    command: SearchCommandIDs.search,
+    keys: ['Accel K'],
+    selector: 'body'
+  });
   const current = new FakeCurrentProject(
     options.project === false
       ? null
@@ -174,6 +181,8 @@ describe('LightconeSidebar', () => {
       expect(h.model.visible).toBe(true);
       expect(h.text()).toContain('project');
       expect(h.text()).toContain('New session');
+      expect(h.text()).toContain('Search');
+      expect(h.text()).toContain(CommandRegistry.formatKeystroke('Accel K'));
       expect(h.text()).toContain('1 pending comment');
       expect(h.panel.content.widgets.map(widget => widget.title.label)).toEqual(
         ['Sessions', 'Results', 'Analysis']
@@ -239,6 +248,7 @@ describe('LightconeSidebar', () => {
       );
       h.click(`.${BASE}-iconButton`);
       h.click(`.${BASE}-action`, 0);
+      h.click(`.${BASE}-action`, 1);
       h.click(`.${BASE}-item`, 1);
       h.click(`.${BASE}-item`, 2);
       h.click(`.${BASE}-more`, 0);
@@ -252,6 +262,7 @@ describe('LightconeSidebar', () => {
       );
       expect(h.executed).toEqual([
         [HomeCommandIDs.create, { cwd: 'project', activate: true }],
+        [SearchCommandIDs.search, {}],
         [
           CommandIDs.openElement,
           { entrypoint: 'project/astra.yaml', target: 'outputs.hubble_diagram' }

@@ -817,7 +817,8 @@ Use these patterns consistently throughout your code:
   plugin that ships a settings schema (`schema/<name>.json`) must instead be
   named after the npm package, `'jupyterlab-lightcone:<name>'`: JupyterLab
   derives schema ids from `package.json`'s `name` and loads a schema only when
-  a registered plugin has that id (`jupyterlab-lightcone:home`, for example).
+  a registered plugin has that id (`jupyterlab-lightcone:home` and
+  `jupyterlab-lightcone:search` are the two).
 - **Command IDs** (in `src/commands.ts` or `src/index.ts`): `'jupyterlab_lightcone:command-name'`
   - For multiple commands, create `src/commands.ts` with a centralized `COMMANDS` mapping
   - For 1-2 commands, define directly in `src/index.ts`
