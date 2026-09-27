@@ -12,16 +12,33 @@ and research alongside an AI agent that knows your project, with
 [lightcone-cli](https://pypi.org/project/lightcone-cli/) handling execution
 and provenance underneath.
 
-## Quick Start
+## Install
+
+Add Lightcone Lab to the Python environment that runs JupyterLab, for example
+from JupyterLab's own terminal (**File › New › Terminal**), then restart
+JupyterLab:
 
 ```bash
 pip install jupyterlab-lightcone
-jupyter lab
 ```
 
-The Lightcone engine, Jupyter AI and all frontend assets come with the package.
-Creating projects needs [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
-and `git` on the server's `PATH`.
+Jupyter AI and the Lightcone engine come with it. It needs JupyterLab ≥ 4.5.10
+(< 5) and Python ≥ 3.11 on a Linux or macOS server, with `git` and
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/) on the server's
+`PATH`.
+
+### Add an agent
+
+Lightcone Lab works with the coding agents Jupyter AI connects to, but none
+comes bundled. Install at least one on the server, sign in, add its adapter and
+restart JupyterLab; the agent then appears in the picker.
+
+| Agent  | Install and sign in                                                          | Adapter (Node.js ≥ 22)                                 |
+| ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Claude | [Claude Code](https://code.claude.com/docs/en/setup), then run `claude` once | `npm install -g @agentclientprotocol/claude-agent-acp` |
+| Codex  | [Codex CLI](https://developers.openai.com/codex/cli), then `codex login`     | `npm install -g @agentclientprotocol/codex-acp`        |
+
+## Get started
 
 1. Choose **New Lightcone project** in the launcher, or browse into any folder
    holding an `astra.yaml`.
@@ -48,14 +65,9 @@ and `git` on the server's `PATH`.
 - **Search**: <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> across sessions,
   records, files and commands; `@` and `#` reference them in the composer
 - **Papers and reports**: read cited papers in place, fetch missing ones, and
-  preview the project's MyST report
+  preview the project's MyST report (needs Node.js ≥ 20 on the server)
 - **Lightcone themes**: optional **Lightcone Light** and **Lightcone Dark**
   themes, and a distraction-free **Focus Layout**
-
-## Requirements
-
-Python ≥ 3.11 · JupyterLab ≥ 4.5.10, < 5 · a Linux or macOS server ·
-Node.js ≥ 20 on the server to preview MyST reports
 
 ## License
 
