@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/naming-convention -- Preserve the vendored upstream API. */
 // Path-only subset from LightconeResearch/MySTRA, revision 8b7dd797. See MYSTRA-LICENSE.
 // SDK 0.1.2 has canonical indexes but no authored-path parser.
-// Migration contract: docs/design/jupyter-ai-integration.md#shared-path-api-needed-in-the-sdk
+// Remove once the SDK exports a browser-safe `parseAstraPath` (with its `AstraPath`
+// type) and a canonical record path resolver.
 /**
  * The unified ASTRA reference path grammar.
  *

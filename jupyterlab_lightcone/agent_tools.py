@@ -28,12 +28,12 @@ def _origin_entrypoint() -> str | None:
     """Contents path of the astra.yaml of the project the calling chat belongs to."""
     from pathlib import Path
 
-    from .projects import CURRENT_PROJECT, chat_project, project_entrypoint
+    from .projects import CURRENT_PROJECT, join_project, project_entrypoint
 
     manager = _origin_manager()
     if manager is None:
         return None
-    project = chat_project(manager, _settings().get(CURRENT_PROJECT))
+    project = join_project(manager, _settings().get(CURRENT_PROJECT))
     if project is None:
         return None
     return project_entrypoint(Path(manager.root_dir), project)

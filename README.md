@@ -323,8 +323,8 @@ and neither renderer offers a shared inline extension hook. Agents should use
 the preview tool instead. Full MyST documents, block/value/citation roles,
 and historical result snapshots are outside this implementation.
 
-See the [integration design](docs/design/jupyter-ai-integration.md) for the
-compatibility boundary and future ways to simplify it.
+See [the workaround inventory](docs/workarounds.md) for the compatibility
+boundary and the upstream changes that would simplify it.
 
 ### Appearance
 
@@ -369,3 +369,23 @@ this extension owns layout, theme synchronization and the `astra-isolate` scope.
 
 The shared rendering contract uses published `@astra-spec/ui` 0.0.7 and
 `@lightcone-research/brand` 0.0.3, installed from npm.
+
+### Project sessions
+
+Use **New session** in the command palette to open a Jupyter Chat document in
+`<project>/chats/`. Sessions open in the main area and stay beside record tabs.
+An empty session's file is named after its first human message once the
+conversation goes quiet; reopening an existing conversation preserves its
+filename. **Lightcone Agent** reuses an open session for the project and leaves
+record discussion text as an unsent draft.
+
+The session service lists chat documents through the Contents API, respecting
+its hidden-file and authorization rules. When the server extension loads, it
+sets Jupyter AI's public `persona_manager_class` trait to a project-aware
+persona manager, unless a deployment configured its own class. Chats outside a
+project record the current project on first opening so later navigation does
+not change the agent's working directory.
+
+Chat documents must be ignored by Git before materialization; the extension
+never changes a project's Git configuration. Compatibility details and upstream
+removal conditions are in [the workaround inventory](docs/workarounds.md).

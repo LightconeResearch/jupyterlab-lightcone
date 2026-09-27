@@ -14,6 +14,7 @@ import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { ITranslator } from '@jupyterlab/translation';
 import { chatPlugin } from './chat-plugin';
+import { chatProjectPlugin } from './chat-links/project-plugin';
 import { currentProjectPlugin, ICurrentProject } from './current-project';
 import { projectStatusPlugin } from './project-status';
 import { projectNotificationsPlugin } from './project-notifications';
@@ -23,6 +24,8 @@ import { configureProjectLauncher } from './project-launcher';
 import { astraIcon } from './icons';
 import { CommandIDs, registerCommands } from './commands';
 import { mystraPlugin } from './mystra';
+import { sessionPlaceholderPlugin, sessionsPlugin } from './sessions';
+import { PALETTE_CATEGORY } from './workbench-ids';
 import {
   ASTRA_FILE_TYPE,
   ASTRA_FILE_PATTERN,
@@ -32,7 +35,6 @@ import {
 } from './document-widget';
 
 const PLUGIN_ID = 'jupyterlab_lightcone:plugin';
-const CATEGORY = 'Lightcone Lab';
 
 /** Native JupyterLab integration for the Lightcone Lab research workbench. */
 const plugin: JupyterFrontEndPlugin<void> = {
@@ -95,22 +97,31 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     app.docRegistry.addWidgetFactory(factory);
     registerElementCommands(app, themes, restorer, shell);
-    palette?.addItem({ command: CommandIDs.pinElement, category: CATEGORY });
-    palette?.addItem({ command: CommandIDs.unpinElement, category: CATEGORY });
+    palette?.addItem({
+      command: CommandIDs.pinElement,
+      category: PALETTE_CATEGORY
+    });
+    palette?.addItem({
+      command: CommandIDs.unpinElement,
+      category: PALETTE_CATEGORY
+    });
     registerCommands({
       app,
       documents,
       browser,
       translator: translator ?? undefined
     });
-    palette?.addItem({ command: CommandIDs.createProject, category: CATEGORY });
+    palette?.addItem({
+      command: CommandIDs.createProject,
+      category: PALETTE_CATEGORY
+    });
     palette?.addItem({
       command: CommandIDs.finishProjectSetup,
-      category: CATEGORY
+      category: PALETTE_CATEGORY
     });
     palette?.addItem({
       command: CommandIDs.openExistingProject,
-      category: CATEGORY
+      category: PALETTE_CATEGORY
     });
     if (launcher && current) {
       configureProjectLauncher(app, launcher, current, {
@@ -128,8 +139,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
         name: widget => widget.context.path
       });
     }
-    palette?.addItem({ command: CommandIDs.openInventory, category: CATEGORY });
-    palette?.addItem({ command: CommandIDs.refresh, category: CATEGORY });
+    palette?.addItem({
+      command: CommandIDs.openInventory,
+      category: PALETTE_CATEGORY
+    });
+    palette?.addItem({
+      command: CommandIDs.refresh,
+      category: PALETTE_CATEGORY
+    });
   }
 };
 
@@ -138,6 +155,9 @@ export default [
   projectStatusPlugin,
   plugin,
   astraMimePlugin,
+  sessionsPlugin,
+  sessionPlaceholderPlugin,
+  chatProjectPlugin,
   chatPlugin,
   projectNotificationsPlugin,
   // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.

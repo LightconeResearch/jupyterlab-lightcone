@@ -14,6 +14,10 @@ import { findModel, findProjectRoot, type IProjectRoot } from './project-root';
 import { ProjectSetup } from './project-setup';
 
 export namespace CommandIDs {
+  /** Create a session in the current project and open it in the main area. */
+  export const newSession = 'jupyterlab_lightcone:new-session';
+  /** Open, or activate, the session stored at a chat path. */
+  export const openSession = 'jupyterlab_lightcone:open-session';
   export const openExistingProject =
     'jupyterlab_lightcone:open-existing-project';
   export const finishProjectSetup = 'jupyterlab_lightcone:finish-project-setup';

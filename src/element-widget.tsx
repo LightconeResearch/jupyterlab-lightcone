@@ -47,6 +47,7 @@ import { useProjectRenderers } from './project-renderers';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
 import { astraIcon } from './icons';
+import { ELEMENT_TAB_DATASET_KEY } from './workbench-ids';
 
 /** Share project resolution with every tab and visible chat card. */
 export function useProject(
@@ -368,7 +369,7 @@ export class ElementWidget extends ReactWidget {
     this.addClass('astra-isolate');
     this.addClass('lightcone-brand');
     this.title.icon = astraIcon;
-    this.title.dataset = { 'lightcone-element': tabId };
+    this.title.dataset = { [ELEMENT_TAB_DATASET_KEY]: tabId };
     this._syncPin();
     this._theme = new LightconeThemeBinding(themes, this.node);
   }

@@ -5,17 +5,20 @@ its manager class as the `PersonaManagerExtension.persona_manager_class` trait;
 `select_project_persona_manager` sets that trait when Jupyter AI is installed.
 """
 
+from pathlib import Path
+
 from jupyter_ai_persona_manager import PersonaManager as JupyterAIPersonaManager
 
-from .projects import CURRENT_PROJECT, chat_project
+from .projects import CURRENT_PROJECT, join_project
 
 
 class PersonaManager(JupyterAIPersonaManager):
     """Start agent sessions at the project root, wherever the chat is stored.
 
-    Keeps the upstream class name: Jupyter AI reads `default_persona_id` from
-    the config section named after this class, so existing `c.PersonaManager`
-    settings must keep applying.
+    Keeps the upstream class name: Jupyter AI seeds the picker's default
+    persona from the config section named after the manager class
+    (`PersonaManagerExtension._default_persona_id`), so existing
+    `c.PersonaManager` settings must keep applying.
     """
 
     @classmethod
@@ -39,18 +42,29 @@ class PersonaManager(JupyterAIPersonaManager):
         message, so a chat stored outside every project takes the project the
         browser last reported as current.
         """
-        try:
-            project = chat_project(self, self._reported_project())
-        except OSError:
-            # Upstream's version cannot fail, and it is called while a persona
-            # manager is built: an unreadable parent must not leave a chat with
-            # no personas at all.
-            self.log.warning("Could not locate the ASTRA project for this chat.", exc_info=True)
-            project = None
+        project = self._project()
         return str(project) if project else super().get_chat_dir()
 
+    def _project(self) -> Path | None:
+        """This chat's ASTRA project, joining the current one when it has none.
+
+        Upstream's `get_chat_dir` cannot fail and is called while a
+        manager is built, so an unreadable parent folder is logged and the
+        chat is treated as belonging to no project rather than losing its
+        personas.
+        """
+        try:
+            return join_project(self, self._reported_project())
+        except OSError:
+            self.log.warning("Could not locate the ASTRA project for this chat.", exc_info=True)
+            return None
+
     def _reported_project(self) -> str | None:
-        """The workbench's current project entrypoint, as the browser last reported it."""
+        """The workbench's current project entrypoint, as the browser last reported it.
+
+        None for a manager built outside a running server, which then uses
+        only the chat itself.
+        """
         web_app = getattr(getattr(self.parent, "serverapp", None), "web_app", None)
         return web_app.settings.get(CURRENT_PROJECT) if web_app is not None else None
 
@@ -58,15 +72,17 @@ class PersonaManager(JupyterAIPersonaManager):
 def select_project_persona_manager(serverapp) -> bool:
     """Use the project-aware manager unless the deployment chose another one.
 
-    `jupyter_server_config.d` only enables extensions, so the trait cannot be
-    shipped as static config. Managers are created per chat, after every server
-    extension has loaded, so setting it while loading is early enough.
+    `jupyter_server_config.d` only enables extensions, and a static
+    `jupyter_jupyter_ai_persona_manager_config.json` would take Jupyter AI's
+    own config file from deployments and survive disabling this extension.
+    Managers are created per chat, after every server extension has loaded,
+    so setting the trait while loading is early enough.
 
     A deployment opts out by configuring any other class, including an explicit
-    subclass of the stock one.
+    subclass of the stock one. Returns whether this manager is in use.
     """
     apps = serverapp.extension_manager.extension_apps.get("jupyter_ai_persona_manager", ())
-    stock = [app for app in apps if app.persona_manager_class is JupyterAIPersonaManager]
-    for app in stock:
-        app.persona_manager_class = PersonaManager
-    return bool(stock)
+    for app in apps:
+        if app.persona_manager_class is JupyterAIPersonaManager:
+            app.persona_manager_class = PersonaManager
+    return any(app.persona_manager_class is PersonaManager for app in apps)

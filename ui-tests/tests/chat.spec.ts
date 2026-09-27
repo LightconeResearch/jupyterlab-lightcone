@@ -63,11 +63,12 @@ prior_insights:
   await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
   ).toHaveText('');
-  await expect(
-    page.locator('[id="JupyterlabChat:sidepanel"] .jp-chat-input-container')
-  ).toBeVisible();
+  // Sessions open in the main area, never in Jupyter Chat's side panel.
   await expect(
     page.locator('.jp-MainAreaWidget .jp-chat-input-container')
+  ).toBeVisible();
+  await expect(
+    page.locator('[id="JupyterlabChat:sidepanel"] .jp-chat-input-container')
   ).toHaveCount(0);
   await expect(page.locator('.jp-chat-send-button')).toBeDisabled();
   await page
@@ -236,7 +237,7 @@ prior_insights:
       .getAttribute('data-unexpected-lightcone-open')
   ).toBeNull();
   await otherContext.close();
-  // Reusing a discussion must reveal its sidebar after the user switches away.
+  // Reusing a discussion must bring its session back after the user switches away.
   await page.getByRole('tab', { name: /File Browser/ }).click();
   const added = await page.evaluate(
     async entrypoint =>
@@ -248,20 +249,21 @@ prior_insights:
   );
   expect(added.reused).toBe(true);
   await expect(
-    page.locator('[id="JupyterlabChat:sidepanel"] .jp-chat-input-container')
+    page.locator('.jp-MainAreaWidget .jp-chat-input-container')
   ).toBeVisible();
   await expect(
     page.locator('.jp-chat-input-container').getByRole('combobox')
   ).toContainText('outputs.figure');
-  // Cards survive a full browser reload and reopening the persisted chat.
+  // Cards survive a full browser reload and reopening the persisted session;
+  // opening it in the main area reveals the restored tab rather than adding
+  // a second copy of the conversation.
   await page.reload({ waitForIsReady: false });
   await page.waitForSelector('#jupyterlab-splash', { state: 'detached' });
   await page.evaluate(async filepath => {
     await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
-      filepath,
-      inSidePanel: true
+      filepath
     });
-  }, `${tmpPath}/untitled.chat`);
+  }, `${tmpPath}/chats/show-the-decision-and-figure.chat`);
   await expect(cards).toHaveCount(2);
   await expect(figure.locator('img')).toBeVisible();
   expect(errors).toEqual([]);
@@ -301,14 +303,14 @@ decisions:
     entrypoint
   );
   await page.contents.createDirectory(`${tmpPath}/chats`);
+  // A session is a chat document open in the main area.
   const filepath = await page.evaluate(async directory => {
     const created = await window.jupyterapp.commands.execute(
       'jupyterlab-chat:create',
-      { path: directory, inSidePanel: true }
+      { path: directory }
     );
     await window.jupyterapp.commands.execute('jupyterlab-chat:open', {
-      filepath: created,
-      inSidePanel: true
+      filepath: created
     });
     return created;
   }, `${tmpPath}/chats`);
@@ -586,7 +588,10 @@ test('Lightcone Agent offers project setup outside an ASTRA project without crea
     .locator('.jp-Launcher-section:visible')
     .filter({ hasText: 'Lightcone Lab' });
   await expect(
-    section.getByRole('button', { name: 'Create project', exact: true })
+    section.getByRole('button', {
+      name: 'Create project',
+      exact: true
+    })
   ).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Lightcone Agent', exact: true })

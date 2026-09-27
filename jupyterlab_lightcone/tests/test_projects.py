@@ -70,6 +70,17 @@ def test_the_entrypoint_is_the_contents_path_of_the_specification(tmp_path):
     assert projects.project_entrypoint(tmp_path, tmp_path / "a" / "b") == "a/b/astra.yaml"
 
 
+@pytest.mark.parametrize("entrypoint, expected", [
+    ("astra.yaml", ""),
+    ("./astra.yaml", ""),
+    ("project/astra.yaml", "project"),
+    ("team//project/./astra.yaml/", "team/project"),
+])
+def test_the_project_directory_is_the_contents_path_its_entrypoint_names(entrypoint, expected):
+    """The one derivation the sessions, comments and agent routes share, inverse to `project_entrypoint`."""
+    assert projects.project_directory(entrypoint) == expected
+
+
 def test_resolves_new_and_existing_folders_without_writing(tmp_path):
     path = projects.project_path(tmp_path, "nested/my project")
     info = projects.describe_project(tmp_path, path)
@@ -86,6 +97,15 @@ def test_resolves_new_and_existing_folders_without_writing(tmp_path):
 def test_rejects_paths_outside_server(tmp_path, value):
     with pytest.raises(HTTPError):
         projects.project_path(tmp_path, value)
+
+
+@pytest.mark.parametrize("entrypoint", [
+    "", "/abs/astra.yaml", "a\\b/astra.yaml", "drive:astra.yaml", "a\x00b/astra.yaml", "../astra.yaml", "notes.yaml",
+])
+def test_an_entrypoint_the_server_cannot_serve_is_a_validation_error(tmp_path, entrypoint):
+    with pytest.raises(HTTPError) as refused:
+        projects.project_root(tmp_path, entrypoint)
+    assert refused.value.status_code == 400
 
 
 def test_rejects_symlink_escape_and_file_paths(tmp_path):

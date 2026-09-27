@@ -1,6 +1,7 @@
 import type { JupyterFrontEnd } from '@jupyterlab/application';
 import type { ILauncher } from '@jupyterlab/launcher';
 import type { ICurrentProject } from './current-project';
+import { PALETTE_CATEGORY } from './workbench-ids';
 
 /** The launcher cards one plugin offers, in order; unregistered commands are skipped. */
 export interface IProjectLauncherCommands {
@@ -48,8 +49,8 @@ export function configureProjectLauncher(
       launcher.add({
         command,
         category: project
-          ? `Lightcone Lab · ${project.path || '/'}`
-          : 'Lightcone Lab',
+          ? `${PALETTE_CATEGORY} · ${project.path || '/'}`
+          : PALETTE_CATEGORY,
         // Native launchers inject their own cwd; never pin a shared card to a root.
         args: {},
         categoryRank: -10,

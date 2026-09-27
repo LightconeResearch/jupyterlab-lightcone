@@ -103,3 +103,20 @@ export function projectErrorMessage(error: unknown): string {
   }
   return error instanceof Error ? error.message : 'Project refresh failed.';
 }
+
+/**
+ * Whether a Contents path lies in the project of `entrypoint` (its folder or
+ * below), on the same drive. The project folder itself counts.
+ */
+export function isUnderProject(
+  contents: Contents.IManager,
+  entrypoint: string,
+  path: string
+): boolean {
+  if (contents.driveName(path) !== contents.driveName(entrypoint)) {
+    return false;
+  }
+  const root = contents.localPath(projectDirectory(entrypoint));
+  const local = contents.localPath(path);
+  return !root || local === root || local.startsWith(`${root}/`);
+}
