@@ -652,6 +652,32 @@ browser id means no command execution; tools never broadcast.
 context alongside the client id, and injects the server/settings handle into
 tools. Keep the wrong-browser and absent-persona regressions.
 
+### Jupyter's MCP server is given instructions for the preview tools
+
+**Where:** `jupyterlab_lightcone/agent_tools.py` (`SERVER_INSTRUCTIONS`,
+`add_server_instructions`) and `application.py`
+(`_start_jupyter_server_extension`). Agents that load MCP tools on demand, as
+Claude Code does beside many other servers, list only the tools' names until
+they search for one, so the tool descriptions go unread when an agent decides
+how to answer. MCP server instructions reach the agent up front. Jupyter AI
+connects its agents to the `jupyter-server-mcp` server, which creates its
+`FastMCP` instance with a name only and has no setting or entry point for
+instructions. The extension therefore appends a paragraph to the running
+instance's public `FastMCP.instructions` property, keeping text another
+package set, and adds it once. The MCP extension creates that instance in its
+own start hook, and Jupyter Server starts extensions concurrently, so
+Lightcone's start hook yields once before looking for it. Agents connect only
+when a chat opens, after both have started. Without a running MCP server the
+agents get no instructions, and the server log says so. Coverage:
+`tests/test_agent_instructions.py`, including a connecting client that reads
+the instructions and an MCP server started after Lightcone.
+
+**Remove when:** `jupyter-server-mcp` accepts instructions, as an
+`MCPExtensionApp` setting beside `mcp_name` or, better for a shared server,
+from each tools entry point alongside its tools. Ship the paragraph through
+that hook and delete `add_server_instructions` and the start hook; keep the
+connecting-client test.
+
 ### Command timeouts have no structured error code
 
 **Where:** `agent_tools.py` (`_command`). The command toolkit returns a timeout

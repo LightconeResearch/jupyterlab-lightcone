@@ -189,6 +189,9 @@ def test_absent_bytes_name_the_repositories_that_hold_them(project, tmp_path):
     git(root, 'annex', 'merge')
     clone = tmp_path / 'clone'
     git(tmp_path, 'clone', '-q', str(root), str(clone))
+    # Initializing commits to the git-annex branch, which needs an identity where no global one is set.
+    git(clone, 'config', 'user.name', 'Researcher')
+    git(clone, 'config', 'user.email', 'researcher@example.org')
     git(clone, 'annex', 'init', '-q', 'laptop')
     listing = versions.list_versions(clone, 'baseline', 'fig')
     assert listing['annex'] == 'initialized'

@@ -1,10 +1,12 @@
 """Jupyter lifecycle integration for Lightcone's server routes."""
 
+import asyncio
 import os
 
 from jupyter_server.extension.application import ExtensionApp
 
 from .agent_activity import watch_persona_activity
+from .agent_tools import add_server_instructions
 from .comments import COMMENT_DELIVERY, setup_comment_handlers
 from .project_agents import setup_project_agents_handlers
 from .materialization import setup_materialization_handlers
@@ -83,6 +85,26 @@ class LightconeApp(ExtensionApp):
             self.log.warning("Could not configure pending comment delivery.", exc_info=True)
         page_config[COMMENT_DELIVERY] = "prompt" if prompt else "message"
         watch_persona_activity(self.serverapp)
+
+    async def _start_jupyter_server_extension(self, serverapp):
+        """Tell agents when to use Lightcone's MCP tools, once Jupyter's MCP server exists.
+
+        Jupyter Server starts its extensions concurrently. The MCP extension
+        creates its server before it first waits, so yielding once lets it
+        get there even when this start runs first. Best-effort, like the
+        other agent integrations.
+        """
+        await asyncio.sleep(0)
+        try:
+            added = add_server_instructions(serverapp)
+        except Exception:
+            self.log.warning("Could not give agents instructions for Lightcone's MCP tools.", exc_info=True)
+            return
+        self.log.info(
+            "Agents are told when to use Lightcone's MCP tools."
+            if added
+            else "Jupyter's MCP server is not running; agents get no instructions for Lightcone's tools."
+        )
 
     def initialize_handlers(self):
         """Register the paper, project, materialization, provenance and session routes."""

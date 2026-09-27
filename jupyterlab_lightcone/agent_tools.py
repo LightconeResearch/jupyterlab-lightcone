@@ -1,4 +1,4 @@
-"""MCP tools for the originating JupyterLab browser.
+"""MCP tools for the originating JupyterLab browser, and when agents should use them.
 
 Imports are lazy so the inventory works even where Jupyter AI was removed.
 """
@@ -15,6 +15,46 @@ TOOLS = [
     "jupyterlab_lightcone.agent_tools:lightcone_preview_element",
     "jupyterlab_lightcone.agent_tools:lightcone_open_element",
 ]
+
+SERVER_INSTRUCTIONS = """\
+Lightcone workbench: you are answering in a JupyterLab chat beside the user's \
+ASTRA project, and the user sees what the lightcone_* tools display.
+- When the user asks to see, show or plot something in the project, or when \
+showing an element answers better than describing it (a figure or table above \
+all), call lightcone_preview_element with its element path, e.g. outputs.fit. \
+It shows the element as a card in this chat: outputs (figures, plots, tables, \
+results), decisions, inputs, findings, prior insights or analyses. Prefer a \
+card to a file path or a description of an image.
+- For a figure named by number or caption, first find the matching output in \
+astra.yaml.
+- Call lightcone_open_element only when the user wants an element in its own tab."""
+
+
+def add_server_instructions(serverapp) -> bool:
+    """Tell agents when to use these tools, through Jupyter's MCP server.
+
+    Agents that load MCP tools on demand, as Claude Code does beside many
+    other servers, list only the tools' names until they search for one, so
+    the descriptions below go unread when an agent chooses how to answer.
+    Server instructions are shown to them up front instead. jupyter-server-mcp
+    offers no setting for them, so they are appended to its running FastMCP
+    server, keeping any instructions another package set. That server exists
+    once the MCP extension has started; Jupyter AI connects agents later, when
+    a chat opens. Returns whether a server received the instructions.
+    """
+    apps = serverapp.extension_manager.extension_apps.get("jupyter_server_mcp", ())
+    added = False
+    for app in apps:
+        mcp = getattr(getattr(app, "mcp_server_instance", None), "mcp", None)
+        if mcp is None:
+            continue
+        current = mcp.instructions or ""
+        if SERVER_INSTRUCTIONS not in current:
+            mcp.instructions = (
+                f"{current}\n\n{SERVER_INSTRUCTIONS}" if current else SERVER_INSTRUCTIONS
+            )
+        added = True
+    return added
 
 
 def _settings() -> dict:
@@ -84,10 +124,14 @@ async def _command(name: str, args: dict) -> dict:
 
 
 async def lightcone_open_element(target: str) -> dict:
-    """Open an ASTRA element as a tab in the browser that sent this prompt.
+    """Open an astra.yaml element in its own JupyterLab tab, beside this chat.
 
-    target is an element path rooted at the astra.yaml of the project you are
-    working in, e.g. decisions.covariance_source or clustering.outputs.xi.
+    Use it only when the user asks for a tab, or to open an element or keep
+    it open; to show an element in the conversation, use
+    lightcone_preview_element. The tab opens in the browser that sent this
+    prompt. target is an element path rooted at the astra.yaml of the
+    project you are working in, e.g. decisions.covariance_source or
+    clustering.outputs.xi.
     Read astra.yaml directly to find real targets. Opens reuse the unpinned
     ASTRA preview in this project. User-pinned tabs are retained; opening an
     already visible record focuses its tab. Pinning is controlled by the user.
@@ -148,10 +192,14 @@ def _origin_persona():
 
 
 async def lightcone_preview_element(target: str) -> dict:
-    """Display an ASTRA preview card directly in the originating chat.
+    """Show a figure, plot, table or other astra.yaml element as a card in this chat.
 
-    This is the default way to show figures, decisions, inputs, findings,
-    prior insights or analyses. Read astra.yaml directly to find real targets.
+    Use it when the user asks to see, show, display or plot something in the
+    project, or when showing an element answers better than describing it.
+    This is the default way to show outputs (figures, tables, results),
+    decisions, inputs, findings, prior insights or analyses; prefer it to a
+    file path or a description of an image. Read astra.yaml directly to find
+    real targets, including for a figure named by number or caption.
     target is an element path rooted at the astra.yaml of the project you are
     working in, e.g. outputs.fit or clustering.decisions.method.
     Clicking the card opens its tab; use lightcone_open_element when a

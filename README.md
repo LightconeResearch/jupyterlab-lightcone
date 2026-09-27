@@ -280,6 +280,11 @@ existing file tools. The built-in Jupyter MCP server adds two presentation tools
 - `lightcone_preview_element(target)`: display a card in chat (the default presentation).
 - `lightcone_open_element(target)`: open or reuse a native ASTRA tab.
 
+The extension also adds a short paragraph to that server's instructions saying
+when to use them. Agents that load MCP tools on demand, such as Claude Code
+beside many other servers, otherwise see only the tools' names until they
+search for one.
+
 `target` is an element path such as `decisions.covariance_source`. The project is
 the calling chat's, by the same rule that roots the agent's shell, so the agent
 never passes a project path. Multiple universes are not yet selectable from
