@@ -163,12 +163,14 @@ retains its own `site.template` and plugin configuration; Lightcone does not
 substitute a renderer. The first theme launch may install its dependencies and
 require network access.
 
-MyST caches downloaded themes under `_build/templates`. If an older cached
-ASTRA theme renders the report but live updates or navigation fail, close its
-viewer tabs and wait two minutes for the process to expire. Run
-`myst clean --templates` in the project, then open the report again to fetch
-the current theme. Restarting the viewer alone reuses the cache.
-See [MyST’s theme update instructions](https://mystmd.org/guide/update-myst).
+MyST keeps the built site and downloaded themes in the project's `_build`
+folder. Deleting `_build`, or running `myst clean --site` or
+`myst clean --templates`, while a viewer is open restarts MyST within a few
+seconds: it rebuilds the site, downloads the theme again if needed, and the tab
+reloads the report. To pick up a newer ASTRA theme, run
+`myst clean --templates` in the project; **Restart MySTRA Viewer** alone reuses
+the cached theme. See
+[MyST’s theme update instructions](https://mystmd.org/guide/update-myst).
 
 The tab shows status and a bounded build log during startup or on errors;
 the controls disappear when the report is ready. **Restart MySTRA Viewer** in

@@ -23,6 +23,7 @@ test('opens, closes, reopens, expires, restarts and recovers a viewer', async ({
           path: `${tmpPath}/myst.yml`,
           state: failNext ? 'failed' : ready ? 'ready' : 'starting',
           message: failNext ? 'Test CLI failed' : 'Starting MySTRA…',
+          launch: 1,
           logs: [],
           url: `/jupyterlab_lightcone/mystra/${id}/site/`
         };

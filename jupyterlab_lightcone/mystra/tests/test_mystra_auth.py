@@ -148,24 +148,26 @@ async def test_browser_resource_cookie_auth(
 
 @pytest.mark.parametrize("viewer_environment", ["hub"], indirect=True)
 @pytest.mark.parametrize(
-    "forwarded_proto,expected_status",
-    [("https", 200), ("https,http", 403)],
+    "page_scheme,forwarded_proto,expected_status",
+    [
+        ("https", "https", 200),
+        # CHP's default forwarding appends its HTTP hop, and Tornado uses the
+        # last scheme; without trusted forwarding the scheme is lost entirely.
+        ("https", "https,http", 200),
+        ("https", None, 200),
+        # A page never loses TLS on its way to a server that sees HTTPS.
+        ("http", "https", 403),
+    ],
 )
 async def test_hub_resource_auth_behind_tls_proxy(
-    jp_fetch, viewer_asset, browser_headers, forwarded_proto, expected_status
+    jp_fetch, viewer_asset, browser_headers, page_scheme, forwarded_proto, expected_status
 ):
-    """The edge's HTTPS scheme must survive every downstream proxy hop.
-
-    CHP's default forwarding appends its HTTP hop. Tornado uses the last
-    scheme, making an HTTPS browser referrer fail the same-origin check.
-    Preserving the edge header with CHP's --no-x-forward fixes authentication.
-    """
-    browser_headers.update(
-        {
-            "Referer": browser_headers["Referer"].replace("http:", "https:", 1),
-            "X-Forwarded-Proto": forwarded_proto,
-        }
+    """An HTTPS page may reach this server as HTTP behind a TLS-terminating proxy."""
+    browser_headers["Referer"] = browser_headers["Referer"].replace(
+        "http:", f"{page_scheme}:", 1
     )
+    if forwarded_proto is not None:
+        browser_headers["X-Forwarded-Proto"] = forwarded_proto
     response = await jp_fetch(
         "jupyterlab_lightcone",
         "mystra",

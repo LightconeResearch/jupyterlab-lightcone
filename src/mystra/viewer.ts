@@ -103,8 +103,13 @@ export class MySTRAViewer extends Widget {
     this.logs.textContent = session.logs.join('\n');
     if (session.state === 'ready') this.controls.hide();
     else this.controls.show();
-    if (session.state === 'ready' && this.frame.url !== session.url) {
+    // A rebuilt session serves its report anew at the same URL.
+    if (
+      session.state === 'ready' &&
+      (this.frame.url !== session.url || this.shownLaunch !== session.launch)
+    ) {
       this.frame.url = session.url;
+      this.shownLaunch = session.launch;
     }
     if (replaced) this.schedule();
   }
@@ -170,6 +175,7 @@ export class MySTRAViewer extends Widget {
   private controls = new Widget();
   private generation = 0;
   private expired = false;
+  private shownLaunch = 0;
   private session: IMySTRASession;
   private frame: IFrame;
   private status = document.createElement('span');

@@ -117,8 +117,9 @@ class MySTRAProxyHandler(MySTRARouteHandler):
         cookie-authenticated requests in CORS mode, including module imports
         and fonts, which cannot add an XSRF header. So, for a GET or HEAD the
         browser marks same-origin, the Referer must name this server's host
-        and scheme, which a forwarding proxy may have downgraded, and a path
-        within its base URL, since another Hub user's page shares our origin.
+        and a path within its base URL, since another Hub user's page shares
+        our origin. The browser's same-origin mark already covers the scheme:
+        an HTTPS page may reach us as HTTP behind a TLS-terminating proxy.
         `check_referer` cannot test the host here: the Hub runs this check
         while it authenticates, and `check_referer` asks for the current user.
         Authentication, authorization and session ownership still apply.
@@ -140,7 +141,7 @@ class MySTRAProxyHandler(MySTRARouteHandler):
         except ValueError:
             return False
         return (
-            parsed.scheme == self.request.protocol
+            parsed.scheme in {self.request.protocol, "https"}
             and parsed.netloc == self.request.headers.get("Host")
             and parsed.path.startswith(self.base_url.rstrip("/") + "/")
         )

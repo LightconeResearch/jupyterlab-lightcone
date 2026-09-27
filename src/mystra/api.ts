@@ -8,6 +8,8 @@ export interface IMySTRASession {
   path: string;
   state: 'starting' | 'ready' | 'failed';
   message: string;
+  /** Increases when the server restarts MyST, for example to rebuild. */
+  launch: number;
   url: string;
   logs: string[];
 }
@@ -23,6 +25,8 @@ function mySTRASession(value: unknown): IMySTRASession {
       value.state !== 'ready' &&
       value.state !== 'failed') ||
     typeof value.message !== 'string' ||
+    typeof value.launch !== 'number' ||
+    !Number.isInteger(value.launch) ||
     typeof value.url !== 'string' ||
     !value.url.startsWith('/') ||
     value.url.startsWith('//') ||
@@ -37,6 +41,7 @@ function mySTRASession(value: unknown): IMySTRASession {
     path: value.path,
     state: value.state,
     message: value.message,
+    launch: value.launch,
     url: value.url,
     logs: value.logs
   };

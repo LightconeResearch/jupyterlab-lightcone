@@ -12,7 +12,7 @@ jupyterlab_lightcone/labextension
 jupyterlab_lightcone/_version.py
 
 # Scratch projects served by the development JupyterLab (`--ServerApp.root_dir=dev`)
-dev/
+/dev/
 
 # Integration tests
 ui-tests/test-results/

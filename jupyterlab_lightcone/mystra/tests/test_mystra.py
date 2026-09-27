@@ -2,9 +2,10 @@
 
 import asyncio
 import gzip
-import importlib.util
+import importlib.metadata
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -39,15 +40,29 @@ def manager(tmp_path):
     return manager
 
 
-def test_the_default_cli_is_the_packaged_mystmd():
-    """The dependency's CLI runs with this interpreter, whatever PATH holds."""
-    assert MySTRAManager.command[:3] == (sys.executable, "-P", "-m")
-    assert importlib.util.find_spec(MySTRAManager.command[3]) is not None
+def test_the_default_cli_is_mystmds_declared_entry_point():
+    """The dependency's `myst` runs with this interpreter, whatever PATH holds.
+
+    The command calls the console script mystmd declares, so a release that
+    moves it fails here rather than at every viewer launch.
+    """
+    (myst,) = importlib.metadata.entry_points(group="console_scripts", name="myst")
+    assert myst.dist.name == "mystmd"
+    assert myst.value == "mystmd_py.main:main"
+    assert MySTRAManager.command[:3] == (sys.executable, "-P", "-c")
+    assert "from mystmd_py.main import main" in MySTRAManager.command[3]
 
 
-async def test_the_cli_cannot_prompt_to_install_nodejs(manager, tmp_path, monkeypatch):
-    """Without Node.js, mystmd asks on stdin; the server's terminal must never be asked."""
-    monkeypatch.delenv("MYSTMD_ALLOW_NODEENV", raising=False)
+@pytest.mark.parametrize("configured", [None, ""])
+async def test_the_cli_cannot_prompt_to_install_nodejs(manager, tmp_path, monkeypatch, configured):
+    """Without Node.js, mystmd asks on stdin; the server's terminal must never be asked.
+
+    mystmd treats an empty MYSTMD_ALLOW_NODEENV as unset, so it is declined too.
+    """
+    if configured is None:
+        monkeypatch.delenv("MYSTMD_ALLOW_NODEENV", raising=False)
+    else:
+        monkeypatch.setenv("MYSTMD_ALLOW_NODEENV", configured)
     cli = tmp_path / "prompting_cli.py"
     cli.write_text(
         "import os, sys, time\n"
@@ -212,6 +227,87 @@ async def test_orphaned_child_cannot_hang_a_stopped_session(manager, tmp_path, m
         assert session.state == "failed"
         assert "MyST stopped (exit 3)" in session.message
         assert "theme up" in session.logs
+    finally:
+        await manager.close()
+
+
+async def until(condition, timeout=15):
+    """Wait for a condition the supervisor reaches asynchronously."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not condition():
+        assert asyncio.get_running_loop().time() < deadline, "condition not reached"
+        await asyncio.sleep(0.02)
+
+
+@pytest.fixture
+def building_cli(manager, tmp_path, monkeypatch, loopback_server):
+    """A CLI creating the given build folders on each launch, behind a theme and content server.
+
+    Like MyST, the theme answers only once the site is built.
+    """
+
+    class Content(web.RequestHandler):
+        def get(self):
+            self.finish({"version": "test", "links": {}})
+
+    class BuiltCapabilities(Capabilities):
+        def get(self, path):
+            if not (tmp_path / "_build" / "site").is_dir():
+                raise web.HTTPError(503)
+            super().get(path)
+
+    _, theme_port = loopback_server([(r"/(.*)", BuiltCapabilities)])
+    _, content_port = loopback_server([(r"/", Content)])
+    ports = iter([theme_port, content_port])
+    monkeypatch.setattr(mystra, "free_port", lambda: next(ports))
+    manager.build_check_interval = 0.02
+    launches = tmp_path / "launches"
+
+    def cli(*folders):
+        script = tmp_path / "building_cli.py"
+        script.write_text(
+            "import os, time\n"
+            f"for folder in {list(folders)!r}:\n"
+            "    os.makedirs(folder, exist_ok=True)\n"
+            f"with open({str(launches)!r}, 'a') as log:\n"
+            "    log.write('launch\\n')\n"
+            "time.sleep(60)\n"
+        )
+        manager.command = [sys.executable, str(script)]
+        return lambda: len(launches.read_text().splitlines()) if launches.exists() else 0
+
+    return cli
+
+
+@pytest.mark.parametrize(
+    "removed", ["_build", "_build/site", "_build/templates"]
+)
+async def test_removing_the_build_rebuilds_in_place(manager, tmp_path, building_cli, removed):
+    """Deleting what MyST serves restarts it under the same session, which rebuilds it."""
+    launched = building_cli("_build/templates", "_build/site")
+    try:
+        session = await manager.start("alice", *manager.project_root(""))
+        await until(lambda: session.state == "ready")
+        assert launched() == 1
+        shutil.rmtree(tmp_path / removed)
+        await until(lambda: launched() == 2 and session.state == "ready")
+        assert manager.get(session.id, "alice") is session
+        assert session.payload()["launch"] == 2
+        assert (tmp_path / removed).is_dir()
+        assert "MySTRA: the build output was removed; rebuilding it." in session.logs
+    finally:
+        await manager.close()
+
+
+async def test_a_theme_without_downloaded_templates_is_not_rebuilt(manager, building_cli):
+    """A local theme leaves no _build/templates, which must not read as a removal."""
+    launched = building_cli("_build/site")
+    try:
+        session = await manager.start("alice", *manager.project_root(""))
+        await until(lambda: session.state == "ready")
+        await asyncio.sleep(20 * manager.build_check_interval)
+        assert launched() == 1
+        assert session.state == "ready"
     finally:
         await manager.close()
 

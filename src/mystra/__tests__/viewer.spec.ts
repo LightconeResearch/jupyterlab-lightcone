@@ -18,6 +18,7 @@ const session: IMySTRASession = {
   path: 'project/myst.yml',
   state: 'starting',
   message: 'Starting MySTRA…',
+  launch: 1,
   logs: [],
   url: `/user/alice/jupyterlab_lightcone/mystra/${'a'.repeat(32)}/site/`
 };
@@ -107,6 +108,27 @@ test('loads the iframe only after readiness and stops polling on disposal', asyn
   widget.dispose();
   await jest.advanceTimersByTimeAsync(60000);
   expect(read).toHaveBeenCalledTimes(1);
+});
+
+test('reloads the report after the server rebuilds the same session', async () => {
+  const ready = { ...session, state: 'ready' as const, message: 'Ready' };
+  const read = jest.mocked(readMySTRA);
+  read.mockResolvedValue(ready);
+  const widget = new MySTRAViewer(ready, ServerConnection.makeSettings());
+  const frame = widget.node.querySelector('iframe');
+  const navigate = jest.spyOn(frame!, 'setAttribute');
+  try {
+    await jest.advanceTimersByTimeAsync(15000);
+    expect(navigate).not.toHaveBeenCalled();
+    read.mockResolvedValue({ ...session, launch: 2, message: 'Rebuilding' });
+    await jest.advanceTimersByTimeAsync(15000);
+    expect(navigate).not.toHaveBeenCalled();
+    read.mockResolvedValue({ ...ready, launch: 2 });
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(navigate).toHaveBeenCalledWith('src', session.url);
+  } finally {
+    widget.dispose();
+  }
 });
 
 test('preserves the rendered document when a heartbeat fails', async () => {

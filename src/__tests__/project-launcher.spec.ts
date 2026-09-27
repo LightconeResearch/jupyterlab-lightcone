@@ -13,6 +13,7 @@ import { fileModel } from './project-fixtures';
 
 jest.mock('../pdf-runtime', () => ({}));
 const VIEWER = 'test:project-viewer';
+const VIEWER_OPTIONS = 'test:project-viewer-options';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function host() {
@@ -21,7 +22,8 @@ function host() {
     CommandIDs.createProject,
     CommandIDs.openExistingProject,
     CommandIDs.openInventory,
-    VIEWER
+    VIEWER,
+    VIEWER_OPTIONS
   ]) {
     commands.addCommand(command, { execute: () => undefined });
   }
@@ -65,15 +67,21 @@ function host() {
     project: [CommandIDs.discuss, CommandIDs.openInventory],
     outside: [CommandIDs.createProject, CommandIDs.openExistingProject]
   });
-  // A second plugin contributing a project card after the core ones.
+  // A second plugin contributing project cards after the core ones.
   configureProjectLauncher(app, launcher as unknown as ILauncher, current, {
-    project: [VIEWER],
-    rank: Infinity
+    project: [VIEWER, VIEWER_OPTIONS],
+    rank: 100
   });
+  // The launcher's own order: by rank, unranked items last.
+  const shown = () =>
+    [...visible.values()]
+      .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity))
+      .map(item => item.command);
   return {
     commands,
     model,
     visible,
+    shown,
     specs,
     get,
     dispose: () => {
@@ -88,8 +96,11 @@ it('ignores filters, retains project root in subfolders, and updates late chat r
   const h = host();
   try {
     await flush();
-    expect([...h.visible.keys()]).toEqual([CommandIDs.openInventory, VIEWER]);
-    expect(h.visible.get(VIEWER)?.rank).toBe(Infinity);
+    expect(h.shown()).toEqual([
+      CommandIDs.openInventory,
+      VIEWER,
+      VIEWER_OPTIONS
+    ]);
     h.model.path = 'project/data';
     h.model.refreshed.emit();
     await flush();
@@ -103,11 +114,17 @@ it('ignores filters, retains project root in subfolders, and updates late chat r
     h.commands.addCommand(CommandIDs.discuss, { execute: () => undefined });
     await flush();
     expect(h.visible.get(CommandIDs.discuss)?.args).toEqual({});
+    expect(h.shown()).toEqual([
+      CommandIDs.discuss,
+      CommandIDs.openInventory,
+      VIEWER,
+      VIEWER_OPTIONS
+    ]);
     expect(h.get).not.toHaveBeenCalled();
     h.specs.clear();
     h.model.refreshed.emit();
     await flush();
-    expect([...h.visible.keys()]).toEqual([
+    expect(h.shown()).toEqual([
       CommandIDs.createProject,
       CommandIDs.openExistingProject
     ]);
@@ -131,7 +148,7 @@ it('ignores outdated project lookups after navigation', async () => {
     await flush();
     pending.resolve(fileModel('', { path: 'project/astra.yaml' }));
     await flush();
-    expect([...h.visible.keys()]).toEqual([
+    expect(h.shown()).toEqual([
       CommandIDs.createProject,
       CommandIDs.openExistingProject
     ]);

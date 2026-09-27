@@ -155,10 +155,10 @@ export const mystraPlugin: JupyterFrontEndPlugin<void> = {
       rank: 20
     });
     if (launcher && current) {
-      // Like an unranked launcher item: after every ranked project card.
+      // After the core plugin's project cards, whatever their number.
       configureProjectLauncher(app, launcher, current, {
         project: [MySTRACommandIDs.open],
-        rank: Infinity
+        rank: 100
       });
     }
   }

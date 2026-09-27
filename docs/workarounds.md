@@ -26,6 +26,12 @@ requirement, and mystmd's offer to download it is declined because it would
 prompt on the server's terminal. Keep this stopgap limited to bug fixes,
 as required by `AGENTS.md`.
 
+**Rebuilds.** A running `myst start` keeps serving after its `_build/site` or
+downloaded `_build/templates` folder is deleted, but only 404s, and does not
+rebuild them. The supervisor restarts it in place when a folder it has seen
+disappears; the session's `launch` count tells the viewer tab to reload the
+report at its unchanged URL.
+
 **Public APIs retained.** Viewer activation and closure use Lumino's widget
 lifecycle hooks. Closing disposes the widget and its heartbeat; the server's
 existing idle lease then expires. Reopening may reuse a warm server process,

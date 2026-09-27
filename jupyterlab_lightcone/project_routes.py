@@ -45,10 +45,7 @@ class ProjectAPIHandler(APIHandler):
     unavailable_message = "This endpoint requires local files"
 
     def set_default_headers(self):
-        """Never cache project answers or errors after an edit changes their meaning.
-
-        Routes serving immutable content override this header in their verb.
-        """
+        """Never cache project answers or errors after an edit changes their meaning."""
         super().set_default_headers()
         self.set_header("Cache-Control", "no-store")
 
