@@ -5,7 +5,6 @@ Imports are lazy so the inventory works even where Jupyter AI was removed.
 
 import re
 
-from .versions import COMMIT_NAME
 
 ASTRA_MIME_TYPE = "application/vnd.lightcone.astra+json"
 PROMPT_METADATA_KEY = "lightcone_prompt"
@@ -15,6 +14,19 @@ TOOLS = [
     "jupyterlab_lightcone.agent_tools:lightcone_preview_element",
     "jupyterlab_lightcone.agent_tools:lightcone_open_element",
 ]
+
+
+def tools() -> list[str]:
+    """The tools `jupyter_server_mcp` loads through this package's entry point.
+
+    None on a browser-only install: the tools read projects through the
+    routes' modules, which need the `full` extra. This module imports without
+    them, so a server running Jupyter's MCP extension beside the browser-only
+    install loads no tool rather than failing on the entry point.
+    """
+    from .browser_only import missing_dependency
+
+    return TOOLS if missing_dependency() is None else []
 
 SERVER_INSTRUCTIONS = """\
 Lightcone workbench: you are answering in a JupyterLab chat beside the user's \
@@ -150,6 +162,8 @@ def _card_version(value) -> dict | None:
     if not isinstance(value, dict):
         return None
     commit = value.get("commit")
+    from .versions import COMMIT_NAME
+
     if not isinstance(commit, str) or not COMMIT_NAME.fullmatch(commit.lower()):
         return None
     version = {"commit": commit.lower()}

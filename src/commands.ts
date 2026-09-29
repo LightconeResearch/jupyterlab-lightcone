@@ -1,4 +1,4 @@
-import { JupyterFrontEnd } from '@jupyterlab/application';
+import type { ILabShell, JupyterFrontEnd } from '@jupyterlab/application';
 import {
   InputDialog,
   MainAreaWidget,
@@ -8,7 +8,6 @@ import type { IDocumentManager } from '@jupyterlab/docmanager';
 import type { Contents } from '@jupyterlab/services';
 import { type IFileBrowserFactory } from '@jupyterlab/filebrowser';
 import { nullTranslator, type ITranslator } from '@jupyterlab/translation';
-import { CommandRegistry } from '@lumino/commands';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import { refreshIcon } from '@jupyterlab/ui-components';
 import { astraIcon, createProjectIcon, openProjectIcon } from './icons';
@@ -20,8 +19,16 @@ import { renameProject, updateProjectDescription } from './project-metadata';
 import { editDescription } from './project-description';
 import { browseProjectFolder } from './project-browser';
 import { findModel, findProjectRoot, type IProjectRoot } from './project-root';
-import { ProjectSetup } from './project-setup';
+import { inspectFolder, ProjectSetup } from './project-setup';
+import { hasLightconeServer } from './server-features';
+import {
+  initializeProjectFolder,
+  inspectProjectFolder,
+  type IProjectFolder
+} from './api';
 import { HomeCommandIDs } from './home/home-commands';
+import { openTerminal, terminalEnded } from './terminal';
+import { TERMINAL_COMMAND } from './workbench-ids';
 
 export namespace CommandIDs {
   /** Create a session in the current project and open it in the main area. */
@@ -72,20 +79,6 @@ export async function requireProject(
   return undefined;
 }
 
-/** The first key binding of a command, formatted for a hint such as "Ctrl K". */
-export function shortcutLabel(
-  commands: CommandRegistry,
-  command: string
-): string | undefined {
-  const binding = commands.keyBindings.find(item => item.command === command);
-  if (!binding) {
-    return undefined;
-  }
-  return binding.keys
-    .map(keystroke => CommandRegistry.formatKeystroke(keystroke))
-    .join(', ');
-}
-
 /** The folder name Create proposes, numbered when it is taken. */
 const NEW_PROJECT_NAME = 'my-project';
 
@@ -122,6 +115,8 @@ interface ICommandOptions {
   documents: IDocumentManager;
   browser: IFileBrowserFactory | null;
   translator?: ITranslator;
+  /** Places the setup form's terminal beside the form. */
+  labShell?: ILabShell | null;
 }
 
 /** Register the same document-opening path for the launcher and command palette. */
@@ -283,11 +278,72 @@ export function registerCommands(options: ICommandOptions): void {
       }
     }
   });
+  /**
+   * Set a folder up without the engine on the server: `lc init` runs in a
+   * terminal beside the form, whose shell exits once it succeeds, and the
+   * folder is read again. A failed run keeps its shell open to read and fix;
+   * closing the terminal ends the wait. The folder is created first, with any
+   * missing parents: `lc init` would create it too, but a terminal needs one
+   * to start in.
+   */
+  const initializeInTerminal = async (
+    path: string
+  ): Promise<IProjectFolder> => {
+    if (contents.driveName(path)) {
+      throw new Error(
+        trans.__('Terminals open in folders on the local drive only.')
+      );
+    }
+    // Saving a folder that exists leaves it as it is.
+    const segments = path ? path.split('/') : [];
+    for (let depth = 1; depth <= segments.length; depth++) {
+      await contents.save(segments.slice(0, depth).join('/'), {
+        type: 'directory'
+      });
+    }
+    const terminal = await openTerminal(app.commands, {
+      cwd: path,
+      command: 'lc init && exit',
+      run: true,
+      shell: options.labShell
+    });
+    if (!terminal) {
+      throw new Error(trans.__('Could not open a terminal to run lc init.'));
+    }
+    await terminalEnded(terminal);
+    // A tab the terminal settings keep open after its shell exits.
+    terminal.widget.dispose();
+    const folder = await inspectFolder(contents, path);
+    if (!folder.hasSpec) {
+      throw new Error(
+        trans.__(
+          'lc init did not set this folder up. Run it in a terminal there to see why, then try again.'
+        )
+      );
+    }
+    return folder;
+  };
   const showSetup = (path: string, mode: 'create' | 'finish') => {
+    const settings = contents.serverSettings;
+    // Setting a project up runs the Lightcone engine: on the server with the
+    // full install, else in a terminal; without either the form names the
+    // command to run.
+    const engine = hasLightconeServer();
+    const terminals =
+      app.commands.hasCommand(TERMINAL_COMMAND) &&
+      app.serviceManager.terminals.isAvailable();
     const content = new ProjectSetup({
       path,
       mode,
-      settings: contents.serverSettings,
+      inspect: engine
+        ? folder => inspectProjectFolder(settings, folder)
+        : folder => inspectFolder(contents, folder),
+      absolutePaths: engine,
+      initialize: engine
+        ? folder => initializeProjectFolder(settings, folder)
+        : terminals
+          ? initializeInTerminal
+          : undefined,
       translator: options.translator,
       browse: () =>
         browseProjectFolder(documents, browserPath(), options.translator),

@@ -6,7 +6,6 @@ import {
   DocumentWidget
 } from '@jupyterlab/docregistry';
 import type { Contents } from '@jupyterlab/services';
-import type { ISignal } from '@lumino/signaling';
 import type { ILightconeView } from './workbench-view';
 import { AstraInventoryPanel } from './inventory-panel';
 
@@ -45,16 +44,6 @@ export class InventoryDocument
   /** The project's `astra.yaml`: the document itself. */
   get entrypoint(): string {
     return this.context.path;
-  }
-
-  /** The analysis the inventory shows, once the project has loaded. */
-  get analysisPath(): string | undefined {
-    return this.content.analysisPath;
-  }
-
-  /** Emitted when the inventory moves to another analysis. */
-  get scopeChanged(): ISignal<AstraInventoryPanel, void> {
-    return this.content.scopeChanged;
   }
 
   dispose(): void {

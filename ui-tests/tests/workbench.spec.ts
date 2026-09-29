@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const project = `version: "0.0.14"
 name: Workbench project
-description: Navigation between Home, the sidebar, sessions and record tabs.
+description: Navigation between Home, sessions and record tabs.
 inputs:
   - id: catalog
     label: Supernova catalog
@@ -60,8 +60,6 @@ const PLATE_NAME = '.jp-jupyterlab-lightcone-Home-plateName';
 const PLATE_PREVIEW = '.jp-jupyterlab-lightcone-Home-platePreview';
 
 const TOOLS_MENU = '.jp-jupyterlab-lightcone-HomeTools';
-
-const SIDEBAR = '#jp-lightcone-sidebar';
 
 const RECORD = '.jp-jupyterlab-lightcone-ElementWidget';
 
@@ -118,7 +116,7 @@ function execute(
   );
 }
 
-/** Open Home for the project folder and the Lightcone sidebar beside it. */
+/** Open Home for the project folder. */
 async function openWorkbench(page: Page, tmpPath: string): Promise<void> {
   // The launcher Galata opened predates the project file; a file browser
   // refresh lets the current project notice it, and emptying the main area
@@ -132,8 +130,6 @@ async function openWorkbench(page: Page, tmpPath: string): Promise<void> {
   await expect(page.locator(HOME)).toHaveCount(1);
   await expect(page.locator(HOME)).toContainText('Hubble diagram');
   await expect(page.locator(HOME)).toContainText(tmpPath);
-  await execute(page, 'jupyterlab_lightcone:show-sidebar');
-  await expect(page.locator(SIDEBAR)).toContainText('Hubble diagram');
 }
 
 test.beforeEach(async ({ page, tmpPath }) => {
@@ -161,10 +157,6 @@ test('Home keeps its place while a result opens beside it and navigates its own 
   // Back and Forward draw their arrows, whatever the font makes of ◀ ▶.
   const arrow = await back.locator('svg').boundingBox();
   expect(arrow?.width ?? 0).toBeGreaterThanOrEqual(12);
-  const currentResult = page.locator(`${SIDEBAR} [aria-current="true"]`, {
-    hasText: 'Hubble diagram'
-  });
-  await expect(currentResult).toHaveCount(1);
   // Read to the bottom of the result before following a link out of it.
   await page.setViewportSize({ width: 1440, height: 640 });
   const content = record.locator(CONTENT);
@@ -186,8 +178,6 @@ test('Home keeps its place while a result opens beside it and navigates its own 
     '◆outputs.hubble_diagram›◇decisions.cosmological_model'
   );
   expect(await tabBars(page)).toEqual([['Home'], ['Cosmological model']]);
-  // The sidebar follows the tab: a decision is no result.
-  await expect(currentResult).toHaveCount(0);
 
   await record
     .getByRole('button', { name: /insight/i })
@@ -206,14 +196,13 @@ test('Home keeps its place while a result opens beside it and navigates its own 
   await expect(record.locator(TOOLBAR)).not.toContainText('decisions.');
   expect(await currentTitle(page)).toBe('Hubble diagram');
   await expect(back).toBeDisabled();
-  // Coming back resumes where the result was left, and the sidebar agrees.
+  // Coming back resumes where the result was left.
   await expect
     .poll(() => content.evaluate(element => element.scrollTop))
     .toBe(scrolled);
-  await expect(currentResult).toHaveCount(1);
   await page.keyboard.press('Alt+ArrowRight');
   expect(await currentTitle(page)).toBe('Cosmological model');
-  // Home was never touched, and the sidebar follows the current record.
+  // Home was never touched.
   await expect(page.locator(HOME)).toContainText('Workbench project');
 });
 
@@ -279,16 +268,15 @@ test('a session takes its results beside it and gets focus back when they close'
   tmpPath
 }) => {
   await openWorkbench(page, tmpPath);
-  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  await execute(page, 'jupyterlab_lightcone:new-session');
   await expect(page.locator(CHAT_INPUT)).toBeVisible();
   // The session joins Home's group at full width.
   expect(await tabBars(page)).toEqual([['Home', 'untitled.chat']]);
-  await expect(page.locator(SIDEBAR)).toContainText('untitled');
 
-  await page
-    .locator(`${SIDEBAR} button`, { hasText: 'Hubble diagram' })
-    .first()
-    .click();
+  await execute(page, 'jupyterlab_lightcone:open-element', {
+    entrypoint: `${tmpPath}/astra.yaml`,
+    target: 'outputs.hubble_diagram'
+  });
   await expect(page.locator(RECORD_TABS)).toHaveCount(1);
   expect(await tabBars(page)).toEqual([
     ['Home', 'untitled.chat'],
@@ -305,14 +293,15 @@ test('a session takes its results beside it and gets focus back when they close'
   ).toBe(true);
 });
 
-test('a pinned result survives opening the next one from the sidebar', async ({
+test('a pinned result survives opening the next one from Home', async ({
   page,
   tmpPath
 }) => {
   await openWorkbench(page, tmpPath);
   await page
-    .locator(`${SIDEBAR} button`, { hasText: 'Hubble diagram' })
-    .first()
+    .locator('.jp-jupyterlab-lightcone-Home-plate', {
+      hasText: 'Hubble diagram'
+    })
     .click();
   await expect(page.locator(RECORD_TABS)).toHaveCount(1);
   await page
@@ -320,8 +309,9 @@ test('a pinned result survives opening the next one from the sidebar', async ({
     .first()
     .click();
   await page
-    .locator(`${SIDEBAR} button`, { hasText: 'Cosmology fit' })
-    .first()
+    .locator('.jp-jupyterlab-lightcone-Home-plate', {
+      hasText: 'Cosmology fit'
+    })
     .click();
   await expect(page.locator(RECORD_TABS)).toHaveCount(2);
   expect(await tabBars(page)).toEqual([
@@ -342,7 +332,7 @@ test('a session tab reads as its first message, and a reload restores Home besid
   tmpPath
 }) => {
   await openWorkbench(page, tmpPath);
-  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  await execute(page, 'jupyterlab_lightcone:new-session');
   await expect(page.locator(CHAT_INPUT)).toBeVisible();
   const composer = page.locator(CHAT_INPUT).getByRole('combobox');
   await composer.fill('Plot the residuals against redshift\nwith error bars');
@@ -368,10 +358,10 @@ test('a session tab reads as its first message, and a reload restores Home besid
   );
   await expect.poll(() => currentTitle(page)).toBe(named);
 
-  await page
-    .locator(`${SIDEBAR} button`, { hasText: 'Hubble diagram' })
-    .first()
-    .click();
+  await execute(page, 'jupyterlab_lightcone:open-element', {
+    entrypoint: `${tmpPath}/astra.yaml`,
+    target: 'outputs.hubble_diagram'
+  });
   await expect(page.locator(RECORD_TABS)).toHaveCount(1);
   const layout = [['Home', named], ['Hubble diagram']];
   expect(await tabBars(page)).toEqual(layout);
@@ -401,8 +391,9 @@ test('a record opened in a new tab stays when the next result replaces the previ
 }) => {
   await openWorkbench(page, tmpPath);
   await page
-    .locator(`${SIDEBAR} button`, { hasText: 'Hubble diagram' })
-    .first()
+    .locator('.jp-jupyterlab-lightcone-Home-plate', {
+      hasText: 'Hubble diagram'
+    })
     .click();
   await expect(page.locator(RECORD_TABS)).toHaveCount(1);
   // Middle-click opens the decision beside the result without navigating it.
@@ -421,8 +412,9 @@ test('a record opened in a new tab stays when the next result replaces the previ
   ).toHaveText('Cosmological model');
   // The group keeps one preview: the next result replaces the first one.
   await page
-    .locator(`${SIDEBAR} button`, { hasText: 'Cosmology fit' })
-    .first()
+    .locator('.jp-jupyterlab-lightcone-Home-plate', {
+      hasText: 'Cosmology fit'
+    })
     .click();
   await expect
     .poll(() => tabBars(page))
@@ -434,7 +426,7 @@ test('search opens sessions in the main area and records as record tabs', async 
   tmpPath
 }) => {
   await openWorkbench(page, tmpPath);
-  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  await execute(page, 'jupyterlab_lightcone:new-session');
   await expect(page.locator(CHAT_INPUT)).toBeVisible();
   await page.locator('.lm-TabBar-tab', { hasText: 'Home' }).click();
   expect(await currentTitle(page)).toBe('Home');
@@ -559,21 +551,6 @@ test('Tools opens the launcher items in the project and switches to the full lau
   expect(await currentTitle(page)).toBe('Home');
 });
 
-test('the sidebar’s Home button brings the open Home forward', async ({
-  page,
-  tmpPath
-}) => {
-  await openWorkbench(page, tmpPath);
-  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
-  await expect(page.locator(CHAT_INPUT)).toBeVisible();
-  expect(await currentTitle(page)).toBe('untitled.chat');
-  await page
-    .locator(`${SIDEBAR} button[aria-label="Open Home for this project"]`)
-    .click();
-  await expect.poll(() => currentTitle(page)).toBe('Home');
-  expect(await tabBars(page)).toEqual([['Home', 'untitled.chat']]);
-});
-
 test('a narrow record beside Home keeps a readable context line', async ({
   page,
   tmpPath
@@ -670,7 +647,6 @@ test('a comment pinned on a figure waits above the composer and travels with the
   await expect(popover).toBeHidden();
   const pin = record.locator(PIN);
   await expect(pin).toHaveText('①');
-  await expect(page.locator(SIDEBAR)).toContainText('1 pending comment');
   // The pin is drawn where the figure was clicked, not at its corner: the
   // record tab's reset of native controls must leave the pin's own look.
   const [pinBox, figureBox] = await Promise.all([
@@ -700,7 +676,7 @@ test('a comment pinned on a figure waits above the composer and travels with the
   await expect(popover).toBeHidden();
 
   // Every session of the project shows it above the composer...
-  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  await execute(page, 'jupyterlab_lightcone:new-session');
   await expect(page.locator(CHAT_INPUT)).toBeVisible();
   const chip = page.locator(CHIP);
   await expect(chip).toHaveCount(1);
@@ -724,7 +700,7 @@ test('a comment pinned on a figure waits above the composer and travels with the
     timeout: 30000
   });
   await expect(received).toContainText('outputs.hubble_diagram');
-  await expect(received).toContainText('"Move the legend"');
+  await expect(received).toContainText(/["“]Move the legend["”]/);
   // The cards sit in the message's preamble, above its rendered body.
   const sent = page
     .locator('.jp-chat-message')
@@ -733,10 +709,9 @@ test('a comment pinned on a figure waits above the composer and travels with the
   await expect(sent).not.toContainText('Comments on this project');
   await expect(sent.locator(CARD)).toContainText('Move the legend');
 
-  // It is no longer pending anywhere: not above the composer, not in the
-  // sidebar, and not on the figure once it is shown again.
+  // It is no longer pending anywhere: not above the composer, and not on the
+  // figure once it is shown again.
   await expect(chip).toHaveCount(0);
-  await expect(page.locator(SIDEBAR)).not.toContainText('pending comment');
   await page.locator('.lm-TabBar-tab', { hasText: 'Hubble diagram' }).click();
   await expect(figure).toBeVisible();
   await expect(pin).toHaveCount(0);
@@ -857,5 +832,4 @@ test('a comment on the text of a record is marked beside the quote, not over it'
   await popover.getByRole('button', { name: 'Delete' }).click();
   expect((await removed).status()).toBe(204);
   await expect(badge).toHaveCount(0);
-  await expect(page.locator(SIDEBAR)).not.toContainText('pending comment');
 });

@@ -8,6 +8,10 @@ import { cardVersionState, VersionedCard } from '../../astra-mime';
 import type { ILoadedProjectData } from '../../project-data';
 import { forgetVersions, listVersionsCached } from '../version-cache';
 import type { IOutputVersion } from '../versions-api';
+import { withLightconeServer } from '../../__tests__/server-fixtures';
+
+// These behaviors belong to the full install, with Lightcone's server routes.
+withLightconeServer();
 
 jest.mock('../../project-data-hooks', () => ({ useProject: jest.fn() }));
 jest.mock('../../project-renderers', () => ({

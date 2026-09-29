@@ -5,6 +5,112 @@ records the dependency boundary, the supported APIs used, the missing upstream
 hook, the regression coverage, and the change that lets us delete it. Changes
 are confined to this extension; no dependency source is modified.
 
+## Browser-only install
+
+### The server extension turns itself off without its dependencies
+
+**Where.** `jupyterlab_lightcone/__init__.py` (`_jupyter_server_extension_points`),
+`jupyterlab_lightcone/browser_only.py`, `pyproject.toml` (`dependencies = []`,
+the `full` extra).
+
+**What.** The default install has no dependencies, so it installs into a
+JupyterLab the user cannot configure (`pip install --user`) without touching
+the server's environment. The server extension still ships in the same wheel,
+with its enabling configuration; `missing_dependency` imports the routes and,
+when a third-party module is missing, only `BrowserOnlyApp` loads, to say so in
+the server log. A missing module of this package itself is still raised.
+
+**Why.** An extra can add dependencies but no files or configuration, so the
+routes cannot move into `[full]` without a second distribution.
+
+**Upstream and removal.** None needed from a dependency: publishing the server
+routes as their own distribution (say `jupyterlab-lightcone-server`, required by
+`[full]`) would replace the import check.
+
+**Coverage.** `jupyterlab_lightcone/tests/test_browser_only.py` covers each
+missing dependency, a defect in the package, the log line and both servers;
+CI's isolated job installs the wheel alone, then with `[full]`.
+
+### The frontend learns about the server routes from the page configuration
+
+**Where.** `src/server-features.ts` (`hasLightconeServer`, `serverReadsProject`),
+`src/index.ts` (`browserPlugins`, `serverPlugins`),
+`jupyterlab_lightcone/application.py` (`SERVER_OPTION`).
+
+**What.** `LightconeApp` publishes `lightconeServer` in the page configuration.
+Without it, `src/index.ts` registers none of the plugins built on the routes,
+Jupyter AI or Jupyter Chat, and the remaining features never ask for status,
+run records, version history or the paper cache.
+
+**Why.** JupyterLab tells a prebuilt extension neither which server extensions
+loaded nor whether a route exists, and a plugin requiring a token no extension
+provides fails to activate with an error (Jupyter Chat's `IChatTracker`, on a
+server without it). Probing the routes would cost a failed request per feature.
+
+**Upstream.** JupyterLab: the list of loaded server extensions in the page
+configuration.
+
+**Coverage.** `src/__tests__/plugins.spec.ts` loads the plugin list under both
+settings; `src/__tests__/server-features.spec.ts` and the suites of each gated
+feature run with and without the option (`src/__tests__/server-fixtures.ts`).
+
+### Papers are read from arXiv without the paper cache
+
+**Where.** `src/arxiv-papers.ts`, `src/project-data.ts` (`loadProjectPapers`),
+`src/project-renderers.tsx` (`onFetchPaper`).
+
+**What.** Without the server's ASTRA paper cache, every cited arXiv paper gets
+`https://arxiv.org/pdf/<id>[v<n>]` as its `pdfUrl`, at the newest revision the
+evidence cites (the latest when a citation names none); arXiv serves it with
+permissive CORS and byte ranges, so
+the shared pdf.js viewer streams it from the browser. Other papers keep the
+viewer's link to their DOI, and the fetch action is left out.
+
+**Why.** A DOI resolves to a landing page, and neither `@astra-spec/sdk` nor
+`@astra-spec/ui` maps a cited paper to a readable PDF. The rule and its
+identifier patterns repeat `@astra-spec/theme-astra`'s `papers.ts`, which reads
+papers the same way on published sites; that package is a MyST theme and too
+large a dependency for one function. The theme still lets a pinned revision
+win over an unpinned citation, which reads the latest.
+
+**Upstream and removal.** `@astra-spec/sdk`: export the cited-paper PDF mapping
+(`citedPaperMetadata`), then use it here and in the theme.
+
+**Coverage.** `src/__tests__/arxiv-papers.spec.ts` (identifiers, revisions,
+the whole-document walk and both installs); `src/__tests__/project-renderers.spec.ts`
+(the fetch action).
+
+### Terminals are placed and typed into after JupyterLab opens them
+
+**Where.** `src/terminal.ts` (`openTerminal`, `terminalPlacement`,
+`terminalEnded`), used by Home's agent buttons and by project setup
+(`src/commands.ts`, `initializeInTerminal`).
+
+**What.** `terminal:create-new` opens a terminal in a folder as a tab of the
+current area. The workbench then moves the tab beside the tab it was opened
+from (the column on its right, or a new one), and, once the connection is up
+and the shell's output has been quiet for a moment, types a command, pressing
+Enter for agents and for `lc init && exit`. At the server root the command
+first runs `cd "$JUPYTER_SERVER_ROOT"`. Project setup waits for that terminal
+to end: the shell exits only when `lc init` succeeds, which disposes the
+connection as the server sends `disconnect`; the folder is then read again.
+
+**Why.** The terminal command takes no placement and no initial command, and
+text sent before the shell reads it is echoed twice, ahead of the prompt.
+Nothing reports a shell's readiness or a command's exit status. The terminal
+server resolves a relative `cwd` against the folder it was started in before
+the server root, so the root's empty path lands in the former; its shells get
+the root as `$JUPYTER_SERVER_ROOT`.
+
+**Upstream.** `@jupyterlab/terminal-extension`: `ref`/`mode` and an initial
+command for `terminal:create-new`; `jupyter_server_terminals`: a `cwd` relative
+to the server root only, and the exit status of a terminal's process.
+
+**Coverage.** `src/__tests__/terminal.spec.ts` (placement, typing after the
+prompt, running, the end of a terminal), `src/__tests__/commands.spec.ts`
+(setup through a terminal) and `src/home/__tests__/home-desk.spec.ts` (the
+agent buttons).
+
 ## MySTRA viewer embedding
 
 **Where.** The self-contained `jupyterlab_lightcone/mystra/` server extension
@@ -296,10 +402,12 @@ while the manager reports the file's modification time and size unchanged.
 
 ### Commands and the factory are named by string
 
-**Where.** `src/workbench-ids.ts` (`CREATE_CHAT_COMMAND`, `CHAT_FACTORY`).
+**Where.** `src/workbench-ids.ts` (`CREATE_CHAT_COMMAND`, `CHAT_FACTORY`,
+`TERMINAL_COMMAND`).
 
 **Upstream.** `@jupyter/chat`: export the `jupyterlab-chat` command ids and
-factory name.
+factory name; `@jupyterlab/terminal-extension`: export `terminal:create-new`,
+which Home and project setup run to open a terminal in a project folder.
 
 ### Focus returns to a session on a timer
 
@@ -900,26 +1008,24 @@ renderer would replace the dataset/CSS label.
 
 ### Project and session changes require polling
 
-**Where.** `src/sidebar/sidebar-model.ts` (`CoalescingRunner`),
-`src/project-data-service.ts`, `src/materialization-status.ts`.
+**Where.** `src/project-data-service.ts`, `src/materialization-status.ts`, and
+Home's session listing (`src/home/home-view.tsx`, `useSessions`).
 
 **What and why.** Writes by agents, Git and the Lightcone engine do not emit
-`Contents.IManager.fileChanged`. The sidebar polls visible project data,
-materialization states and session listings; local Contents changes refresh
-it promptly. `CoalescingRunner` retains one requested refresh while work runs
-because `Poll.refresh()` cancels a refresh requested during an active tick.
+`Contents.IManager.fileChanged`. Visible views poll project data,
+materialization states (full install) and session listings; local Contents
+changes refresh them promptly.
 
-**Upstream and removal.** Jupyter Server filesystem Contents events and a
-Lumino queued-refresh option would replace polling and the small runner.
-The engine can also expose a status revision or change event to avoid polling
-`lc status`.
+**Upstream and removal.** Jupyter Server filesystem Contents events would
+replace polling. The engine can also expose a status revision or change event
+to avoid polling `lc status`.
 
 **Coverage.** `src/tab-labels/__tests__/tab-labels.spec.ts` verifies collision
 labels appear and disappear without changing the title's label, and
 `ui-tests/tests/workbench-features.spec.ts` checks two projects in the native
-tab bar. `src/sidebar/__tests__/sidebar-model.spec.ts` covers hidden/disposed
-polling, stale project responses and refresh requests arriving during a run;
-`src/__tests__/project-data-service.spec.ts` covers shared leases and refreshes.
+tab bar. `src/__tests__/project-data-service.spec.ts` covers shared leases and
+refreshes, and `src/__tests__/materialization-status.spec.ts` that status is
+polled only with the server routes.
 
 ## Pipeline integration
 
@@ -929,7 +1035,7 @@ the existing filesystem/status polling described under Project navigation.
 The graph reads resolved ASTRA input/output relationships through SDK types;
 its SVG and its Lumino placement/restoration use supported public APIs.
 A server/engine status-change event would remove polling from this consumer
-alongside Home, the sidebar and record tabs.
+alongside Home and record tabs.
 
 ## Figure and text comments
 

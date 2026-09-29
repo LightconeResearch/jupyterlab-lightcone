@@ -3,6 +3,7 @@ import type { IChangedArgs } from '@jupyterlab/coreutils';
 import { LauncherModel } from '@jupyterlab/launcher';
 import { RenderMimeRegistry } from '@jupyterlab/rendermime';
 import {
+  Drive,
   ServerConnection,
   type Contents,
   type Event
@@ -143,6 +144,8 @@ export interface IHomeHostOptions {
   /** Contents entries; the object stays live, so tests may add files later. */
   entries: Record<string, Contents.IModel>;
   cwd?: string;
+  /** Contents drives besides the server's own, e.g. `archive` for `archive:path`. */
+  drives?: string[];
   commands?: CommandRegistry;
   sessions?: ISessionService | null;
   personas?: PersonaDirectory | null;
@@ -152,9 +155,13 @@ export interface IHomeHostOptions {
 /** A Home tab attached to the document, over in-memory contents. */
 export function homeHost(options: IHomeHostOptions) {
   const { contents, get } = createContents(options.entries);
+  for (const name of options.drives ?? []) {
+    contents.addDrive(new Drive({ name }));
+  }
   const commands = options.commands ?? new CommandRegistry();
   const current = new FakeCurrentProject();
   const onOpenTools = jest.fn();
+  const onOpenTerminal = jest.fn(async () => undefined);
   const widget = new HomeWidget({
     model: new LauncherModel(),
     cwd: options.cwd ?? 'elsewhere',
@@ -166,6 +173,7 @@ export function homeHost(options: IHomeHostOptions) {
     current,
     callback: jest.fn(),
     onOpenTools,
+    onOpenTerminal,
     sessions: options.sessions ?? null,
     personas: options.personas ?? null,
     state: options.state ?? null
@@ -189,6 +197,7 @@ export function homeHost(options: IHomeHostOptions) {
     commands,
     changed: current.changed,
     onOpenTools,
+    onOpenTerminal,
     bodies,
     query,
     queryAll,

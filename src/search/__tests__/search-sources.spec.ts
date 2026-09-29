@@ -17,6 +17,10 @@ import type { ISessionInfo } from '../../sessions/sessions-api';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { FILE_LISTING_TTL, SearchSources } from '../search-sources';
 import type { IRecordsUpdate } from '../search-sources';
+import { withLightconeServer } from '../../__tests__/server-fixtures';
+
+// These behaviors belong to the full install, with Lightcone's server routes.
+withLightconeServer();
 
 // Jest does not transform Jupyter Chat's ES modules; only its icon is used.
 jest.mock('@jupyter/chat', () => ({ chatIcon: { name: 'chat' } }));

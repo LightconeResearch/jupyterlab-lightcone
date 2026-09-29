@@ -53,7 +53,7 @@ import {
   outputMaterializationStatus,
   useMaterializationStatus
 } from './materialization-status';
-import { JupyterOutputProvenance } from './output-provenance';
+import { JupyterOutputProvenance, provenanceSlot } from './output-provenance';
 import {
   useOutputVersioning,
   VersionBar,
@@ -300,7 +300,7 @@ function OutputRecordDetail({
           />
         )}
         renderCodeLink={renderers.renderCodeLink}
-        renderProvenance={output => (
+        renderProvenance={provenanceSlot((output: ResolvedOutput) => (
           <>
             <VersionRail versioning={versioning} output={output} />
             {versioning.selected && !versioning.shown ? null : (
@@ -318,7 +318,7 @@ function OutputRecordDetail({
               />
             )}
           </>
-        )}
+        ))}
         onOpenRecord={open}
         expanded={expanded}
         onExpandedChange={onExpandedChange}
@@ -429,7 +429,7 @@ function DetailBody({
         metadata={data.papers[paper.doi]}
         focusInsight={isInsight(focus) ? focus : undefined}
         loadPdfJs={renderers.loadPdfJs}
-        onFetchPaper={fetchPaper}
+        onFetchPaper={renderers.onFetchPaper}
         onOpenInsight={open}
         onOpenDecision={open}
       />

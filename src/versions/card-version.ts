@@ -3,6 +3,7 @@ import type { Contents } from '@jupyterlab/services';
 import type { IAstraCardVersion } from '../astra-mime-data';
 import { isRootAnalysisOutput } from '../materialization-status';
 import type { ILoadedProjectData } from '../project-data';
+import { serverReadsProject } from '../server-features';
 import { forgetVersions, listVersionsCached } from './version-cache';
 
 /**
@@ -21,7 +22,7 @@ export async function latestCardVersion(
   if (
     record?.kind !== 'output' ||
     !isRootAnalysisOutput(data.index, record) ||
-    contents.driveName(entrypoint)
+    !serverReadsProject(contents, entrypoint)
   )
     return undefined;
   const settings = contents.serverSettings;

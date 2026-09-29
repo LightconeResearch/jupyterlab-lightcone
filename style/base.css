@@ -558,6 +558,19 @@
   color: var(--jp-error-color1);
 }
 
+/* Without the engine the form hands over `lc init`: a step, not an error. */
+.jp-jupyterlab-lightcone-ProjectSetup-init {
+  margin: 20px 0;
+  padding: 4px 16px 16px;
+  border-left: 3px solid var(--jp-brand-color1);
+  background: var(--jp-layout-color1);
+}
+
+.jp-jupyterlab-lightcone-ProjectSetup-init pre {
+  color: var(--jp-content-font-color1);
+  font-family: var(--jp-code-font-family);
+}
+
 .jp-jupyterlab-lightcone-ProjectBrowser {
   width: 620px;
   height: 400px;

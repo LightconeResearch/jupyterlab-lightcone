@@ -8,6 +8,7 @@ import {
   type MaterializationStatuses
 } from './materialization-api';
 import { isUnderProject, type ILoadedProjectData } from './project-data';
+import { hasLightconeServer } from './server-features';
 
 /** The CLI reports status, and Lightcone records runs, only for the root analysis. */
 export function isRootAnalysisOutput(
@@ -31,7 +32,11 @@ export function outputMaterializationStatus(
   return statuses?.[`${data.document.universe.universeId}/${output.id}`];
 }
 
-/** Poll only while the inventory is mounted and visible; failures clear old checks. */
+/**
+ * Poll only while the inventory is mounted and visible; failures clear old
+ * checks. Without Lightcone's server routes there is no `lc status` to ask,
+ * so outputs show no freshness rather than an error.
+ */
 export function useMaterializationStatus(
   contents: Contents.IManager,
   entrypoint: string,
@@ -45,6 +50,7 @@ export function useMaterializationStatus(
     error?: string;
   }>();
   useEffect(() => {
+    if (!hasLightconeServer()) return;
     let active = true;
     const publish = (value: {
       statuses?: MaterializationStatuses;

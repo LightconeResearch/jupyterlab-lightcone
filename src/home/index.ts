@@ -28,6 +28,7 @@ import { ICurrentProject } from '../current-project';
 import { createProjectIcon, lightconeIcon } from '../icons';
 import { findProjectRoot } from '../project-root';
 import { ISessionService } from '../sessions/session-service';
+import { openTerminal } from '../terminal';
 import { PALETTE_CATEGORY } from '../workbench-ids';
 import { HomeCommandIDs } from './home-commands';
 import { HomeWidget } from './home-widget';
@@ -187,6 +188,14 @@ function activate(
         const rect = anchor.getBoundingClientRect();
         tools.open(rect.right, rect.bottom + 4, {
           horizontalAlignment: 'right'
+        });
+      },
+      onOpenTerminal: async (cwd, command) => {
+        await openTerminal(commands, {
+          cwd,
+          command,
+          run: true,
+          shell: labShell
         });
       },
       translator: translator ?? undefined,

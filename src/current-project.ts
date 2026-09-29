@@ -8,6 +8,7 @@ import { Token } from '@lumino/coreutils';
 import type { IDisposable } from '@lumino/disposable';
 import { Signal, type ISignal } from '@lumino/signaling';
 import { reportCurrentProject } from './api';
+import { hasLightconeServer } from './server-features';
 import { findProjectRoot, type IProjectRoot } from './project-root';
 
 /**
@@ -138,6 +139,11 @@ export const currentProjectPlugin: JupyterFrontEndPlugin<ICurrentProject> = {
       app.serviceManager.contents,
       browsers?.tracker ?? null
     );
+    // Only agents read the report, and only the full install has them.
+    if (!hasLightconeServer()) {
+      app.shell.disposed.connect(() => current.dispose());
+      return current;
+    }
     // Reports are sent one after another, so the last change also wins on
     // the server. A failed lookup reports null: no project is safer than a
     // stale one.

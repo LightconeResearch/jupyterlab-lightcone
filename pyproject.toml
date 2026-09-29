@@ -22,7 +22,17 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-dependencies = [
+# The default install is the prebuilt frontend alone, which runs in the browser
+# on Jupyter's own APIs; it installs nothing into the server's environment. The
+# `full` extra adds the server routes' dependencies (see browser_only.py).
+dependencies = []
+dynamic = ["version", "description", "authors", "urls", "keywords"]
+
+[project.entry-points."jupyter_server_mcp.tools"]
+lightcone = "jupyterlab_lightcone.agent_tools:tools"
+
+[project.optional-dependencies]
+full = [
     "jupyter_server>=2.13.0,<3",
     "astra-tools==0.2.18",
     # The engine is called in-process and promises no stable API: raise the
@@ -41,17 +51,13 @@ dependencies = [
     "dulwich>=1.0",
     "git-annex>=10.2026"
 ]
-dynamic = ["version", "description", "authors", "urls", "keywords"]
-
-[project.entry-points."jupyter_server_mcp.tools"]
-lightcone = "jupyterlab_lightcone.agent_tools:TOOLS"
-
-[project.optional-dependencies]
 dev = [
+    "jupyterlab-lightcone[full]",
     "jupyterlab>=4.5.10,<5",
     "jupyter-builder>=1.2.0",
 ]
 test = [
+    "jupyterlab-lightcone[full]",
     "coverage",
     "pytest",
     "pytest-asyncio",

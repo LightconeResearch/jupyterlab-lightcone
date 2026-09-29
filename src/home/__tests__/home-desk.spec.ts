@@ -8,9 +8,8 @@ import {
 import { CommandIDs } from '../../commands';
 import { OPEN_REPORT_COMMAND } from '../home-commands';
 import { requestAPI } from '../../request';
-import { SidebarCommandIDs } from '../../sidebar/sidebar-commands';
 import { PipelineCommandIDs } from '../../versions/pipeline-commands';
-import { CREATE_CHAT_COMMAND } from '../../workbench-ids';
+import { CREATE_CHAT_COMMAND, TERMINAL_COMMAND } from '../../workbench-ids';
 import { fileModel } from '../../__tests__/project-fixtures';
 import { PersonaDirectory } from '../personas';
 import {
@@ -26,6 +25,7 @@ import {
   typeInto,
   until
 } from './home-fixtures';
+import { withLightconeServer } from '../../__tests__/server-fixtures';
 
 jest.mock('../../pdf-runtime', () => ({}));
 jest.mock('../../api', () => ({
@@ -85,10 +85,10 @@ beforeEach(() => {
 interface IDeskHostOptions {
   /** Whether Jupyter Chat's create command is registered. */
   chat?: boolean;
-  /** Whether the Lightcone sidebar's command is registered. */
-  sidebar?: boolean;
   /** Whether the pipeline's command is registered. */
   pipeline?: boolean;
+  /** Whether JupyterLab's terminal command is registered. */
+  terminal?: boolean;
   sessions?: FakeSessionService;
   personas?: PersonaDirectory | null;
   state?: IStateDB | null;
@@ -115,11 +115,11 @@ function deskHost(options: IDeskHostOptions = {}) {
   if (options.chat !== false) {
     register(CREATE_CHAT_COMMAND);
   }
-  if (options.sidebar) {
-    register(SidebarCommandIDs.showSidebar);
-  }
   if (options.pipeline) {
     register(PipelineCommandIDs.openPipeline);
+  }
+  if (options.terminal) {
+    register(TERMINAL_COMMAND);
   }
   const sessions = options.sessions ?? new FakeSessionService();
   const entries: Record<string, Contents.IModel> = {
@@ -162,6 +162,9 @@ async function chooseAgent(
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 describe('the desk', () => {
+  // The desk and the results history need Lightcone's server routes.
+  withLightconeServer();
+
   it('is left out until Jupyter Chat can create sessions', async () => {
     const h = deskHost({ chat: false });
     try {
@@ -177,9 +180,102 @@ describe('the desk', () => {
       h.dispose();
     }
   });
+
+  it('offers a terminal in the project folder beside the other actions', async () => {
+    const h = deskHost({ terminal: true });
+    try {
+      await until(() => h.query(`.${C}-terminal`) !== null);
+      expect(h.query(`.${C}-agents`)).toBeNull();
+      expect(h.query(`.${C}-headerAgents`)).toBeNull();
+      h.query<HTMLButtonElement>(`.${C}-terminal`)!.click();
+      await flush();
+      // A plain shell: the full install's agents start from the composer.
+      expect(h.onOpenTerminal).toHaveBeenCalledWith('project', undefined);
+    } finally {
+      h.dispose();
+    }
+  });
+});
+
+describe('without Lightcone’s server', () => {
+  it('opens a terminal in the project with the chosen agent’s command typed in', async () => {
+    const h = deskHost({ terminal: true });
+    try {
+      await until(() => h.query(`.${C}-agents`) !== null);
+      // Jupyter AI's composer and sessions belong to the full install.
+      expect(h.textarea()).toBeNull();
+      expect(h.query(`.${C}-sessions`)).toBeNull();
+      expect(h.query(`.${C}-terminal`)).toBeNull();
+      const launches = h.queryAll<HTMLButtonElement>(`.${C}-agentLaunch`);
+      expect(launches.map(button => button.textContent)).toEqual([
+        'claudeClaude Code',
+        'codexCodex'
+      ]);
+      launches[0].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'claude');
+      launches[1].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'codex');
+      // A plain shell is one link further.
+      h.query<HTMLButtonElement>(`.${C}-agents .${C}-link`)!.click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', undefined);
+      // The header's small buttons, for a narrow Home, start the same agents.
+      const small = h.queryAll<HTMLButtonElement>(`.${C}-headerAgent`);
+      expect(small.map(button => button.textContent)).toEqual([
+        'claude',
+        'codex',
+        ''
+      ]);
+      small[1].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'codex');
+      expect(small[2].getAttribute('aria-label')).toBe('Open a plain terminal');
+      small[2].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', undefined);
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('offers no terminal for a project on another drive', async () => {
+    const commands = new CommandRegistry();
+    commands.addCommand(TERMINAL_COMMAND, { execute: () => undefined });
+    const h = homeHost({
+      entries: { 'archive:project/astra.yaml': fileModel(RESULTS_SPEC) },
+      cwd: 'archive:project',
+      drives: ['archive'],
+      commands
+    });
+    try {
+      await until(() => h.text().includes('Hubble project'));
+      await flush();
+      // A terminal would start in a same-named folder of the server's disk.
+      expect(h.query(`.${C}-desk`)).toBeNull();
+      expect(h.query(`.${C}-headerAgents`)).toBeNull();
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('leaves the desk out where the server offers no terminals', async () => {
+    const h = deskHost();
+    try {
+      await until(() => h.text().includes('Hubble project'));
+      await flush();
+      expect(h.query(`.${C}-desk`)).toBeNull();
+    } finally {
+      h.dispose();
+    }
+  });
 });
 
 describe('the composer', () => {
+  // The desk and the results history need Lightcone's server routes.
+  withLightconeServer();
+
   it('starts a session with the typed message and the chosen agent', async () => {
     const events = new FakeEvents();
     const personas = new PersonaDirectory(events);
@@ -419,6 +515,9 @@ describe('the composer', () => {
 });
 
 describe('the sessions list', () => {
+  // The desk and the results history need Lightcone's server routes.
+  withLightconeServer();
+
   function sessions(): FakeSessionService {
     const service = new FakeSessionService();
     service.listings.set(ENTRYPOINT, [
@@ -433,7 +532,7 @@ describe('the sessions list', () => {
     return service;
   }
 
-  it('lists the project sessions, opens them and leads to the sidebar', async () => {
+  it('lists the project sessions and opens them', async () => {
     const h = deskHost({ sessions: sessions() });
     try {
       await until(() => h.sessionRows().length === 2);
@@ -455,16 +554,6 @@ describe('the sessions list', () => {
       expect(h.sessions.openSession).toHaveBeenCalledWith(
         'project/chats/hubble.chat'
       );
-
-      // Without the sidebar there is nowhere to list them all.
-      const all = () => h.query<HTMLButtonElement>(`.${C}-sessions .${C}-link`);
-      expect(all()).toBeNull();
-      h.register(SidebarCommandIDs.showSidebar);
-      await until(() => all() !== null);
-      expect(all()!.textContent).toBe('All 2');
-      all()!.click();
-      await flush();
-      expect(h.executed).toContainEqual([SidebarCommandIDs.showSidebar, {}]);
     } finally {
       h.dispose();
     }
@@ -534,6 +623,9 @@ describe('the sessions list', () => {
 });
 
 describe('the results', () => {
+  // The desk and the results history need Lightcone's server routes.
+  withLightconeServer();
+
   it('labels the latest results commit without claiming an engine run and opens the plates', async () => {
     const h = deskHost();
     try {

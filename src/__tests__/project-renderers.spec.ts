@@ -1,7 +1,17 @@
 import type { ResolvedOutput } from '@astra-spec/sdk';
-import { isValidElement } from 'react';
-import type { JupyterArtifactAccess } from '../artifact-access';
-import { hostArtifactRenderer } from '../project-renderers';
+import { ContentsManager } from '@jupyterlab/services';
+import React, { act, isValidElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import type {
+  IDocumentOpener,
+  JupyterArtifactAccess
+} from '../artifact-access';
+import type { ILoadedProjectData } from '../project-data';
+import {
+  hostArtifactRenderer,
+  useProjectRenderers
+} from '../project-renderers';
+import { withLightconeServer } from './server-fixtures';
 
 jest.mock('../pdf-runtime', () => ({ loadPdfJs: jest.fn() }));
 
@@ -41,5 +51,48 @@ describe('host artifact renderer', () => {
         true
       );
     }
+  });
+});
+
+describe('the paper fetch action', () => {
+  const data = {
+    document: {},
+    index: {},
+    bindings: [],
+    papers: {}
+  } as unknown as ILoadedProjectData;
+
+  /** The `onFetchPaper` slot the renderers hand the ASTRA views. */
+  async function fetchSlot(): Promise<((doi: string) => void) | undefined> {
+    const contents = new ContentsManager();
+    const fetch = jest.fn();
+    let slot: ((doi: string) => void) | undefined;
+    function Probe(): null {
+      slot = useProjectRenderers(
+        contents,
+        'astra.yaml',
+        data,
+        fetch,
+        {} as IDocumentOpener
+      ).onFetchPaper;
+      return null;
+    }
+    const root = createRoot(document.createElement('div'));
+    await act(async () => root.render(React.createElement(Probe)));
+    act(() => root.unmount());
+    contents.dispose();
+    return slot;
+  }
+
+  it('is left out without the server’s paper cache', async () => {
+    expect(await fetchSlot()).toBeUndefined();
+  });
+
+  describe('with Lightcone’s server', () => {
+    withLightconeServer();
+
+    it('fetches into the server’s cache', async () => {
+      expect(await fetchSlot()).toEqual(expect.any(Function));
+    });
   });
 });

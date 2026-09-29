@@ -282,7 +282,7 @@ export interface IRecordCounts {
 /**
  * Count records across an analysis and every nested analysis. Results are not
  * counted here: they are `listOutputs`, the root's active outputs, which is
- * what Home's plates, the sidebar's Results and `lc status` all show.
+ * what Home's plates and `lc status` both show.
  */
 export function countRecords(root: IAnalysisRecords): IRecordCounts {
   const counts: IRecordCounts = { decisions: 0, inputs: 0, findings: 0 };

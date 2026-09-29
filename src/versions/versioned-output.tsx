@@ -8,6 +8,7 @@ import type { Contents } from '@jupyterlab/services';
 import { RequestError } from '../api';
 import { isRootAnalysisOutput } from '../materialization-status';
 import type { ILoadedProjectData } from '../project-data';
+import { serverReadsProject } from '../server-features';
 import { listVersionsCached, forgetVersions } from './version-cache';
 import {
   comparisonModeFor,
@@ -71,7 +72,7 @@ export function useOutputVersioning(
   const enabled =
     !!output &&
     isRootAnalysisOutput(data.index, output) &&
-    !contents.driveName(entrypoint);
+    serverReadsProject(contents, entrypoint);
   const outputId = output?.id;
   const cacheToken =
     data.bindings.find(binding => binding.outputPath === output?.canonicalPath)

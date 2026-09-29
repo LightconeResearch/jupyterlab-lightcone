@@ -17,6 +17,7 @@ import { AstraKindMark } from '../astra-kind';
 import { IChatProjectResolver } from '../chat-links/chat-project';
 import { isRootAnalysisOutput } from '../materialization-status';
 import { projectDirectory, type ILoadedProjectData } from '../project-data';
+import { serverReadsProject } from '../server-features';
 import {
   acquireProjectDataService,
   type IProjectDataLease
@@ -147,7 +148,7 @@ export class MentionProvider implements IChatCommandProvider, IDisposable {
     paths: readonly string[]
   ): Promise<Map<string, string>> {
     const found = new Map<string, string>();
-    if (this._contents.driveName(entrypoint)) return found;
+    if (!serverReadsProject(this._contents, entrypoint)) return found;
     const outputs = paths
       .map(path => data.index.recordByPath.get(path))
       .filter(

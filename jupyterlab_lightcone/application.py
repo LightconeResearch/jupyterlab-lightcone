@@ -17,6 +17,13 @@ from .project_routes import setup_project_handlers
 from .projects import expose_engine_tools
 from .sessions import setup_session_handlers
 
+SERVER_OPTION = "lightconeServer"
+"""The page configuration option saying Lightcone's routes are on this server.
+
+The frontend runs browser-only without it (`src/server-features.ts`): it
+leaves out the agent plugins and never calls these routes.
+"""
+
 
 class LightconeApp(ExtensionApp):
     """Register Lightcone's project, paper and agent integration with Jupyter Server."""
@@ -29,6 +36,8 @@ class LightconeApp(ExtensionApp):
         self._root_agents_in_projects()
         self._configure_agents()
         self._publish_server_root()
+        page_config = self.serverapp.web_app.settings.setdefault("page_config_data", {})
+        page_config[SERVER_OPTION] = "true"
 
     def _publish_server_root(self):
         """Publish the absolute contents root for paths linked in agent replies.
