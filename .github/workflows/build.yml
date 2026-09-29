@@ -38,6 +38,7 @@ jobs:
     - name: Build the extension
       run: |
         set -eux
+        # The test extra includes the full install.
         python -m pip install .[test]
 
         pytest -vv -r ap --cov jupyterlab_lightcone
@@ -88,14 +89,24 @@ jobs:
         sudo rm -rf $(which node)
         sudo rm -rf $(which node)
 
+        # The default install is the frontend alone: the server extension
+        # only logs that Lightcone Lab runs in the browser.
         pip install "jupyterlab>=4.5.10,<5" jupyterlab_lightcone*.whl
-
+        python -c "from jupyterlab_lightcone.browser_only import missing_dependency; assert missing_dependency(), 'the default install should run in the browser only'"
 
         jupyter server extension list
         jupyter server extension list 2>&1 | grep -ie "jupyterlab_lightcone.*OK"
 
         jupyter labextension list
         jupyter labextension list 2>&1 | grep -ie "jupyterlab-lightcone.*OK"
+        python -m jupyterlab.browser_check --no-browser-test
+
+        # The full extra adds the server routes and the viewer.
+        pip install "$(ls jupyterlab_lightcone*.whl)[full]"
+        python -c "from jupyterlab_lightcone.browser_only import missing_dependency; assert missing_dependency() is None"
+
+        jupyter server extension list
+        jupyter server extension list 2>&1 | grep -ie "jupyterlab_lightcone.*OK"
         python -m jupyterlab.browser_check --no-browser-test
 
   integration-tests:
@@ -126,7 +137,7 @@ jobs:
     - name: Install the extension
       run: |
         set -eux
-        python -m pip install "jupyterlab>=4.5.10,<5" jupyterlab_lightcone*.whl
+        python -m pip install "jupyterlab>=4.5.10,<5" "$(ls jupyterlab_lightcone*.whl)[full]"
         if [ "$LIGHTCONE_TEST_MYST" = "1" ]; then
           python -m pip install "jupyterlab-myst>=2.7.0,<2.8"
         fi

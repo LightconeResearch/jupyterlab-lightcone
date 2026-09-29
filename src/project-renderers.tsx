@@ -10,6 +10,7 @@ import { JupyterArtifactPreview } from './artifact-preview';
 import { JupyterCodeLink } from './code-link';
 import { loadPdfJs } from './pdf-runtime';
 import type { ILoadedProjectData } from './project-data';
+import { hasLightconeServer } from './server-features';
 
 /**
  * Bounded artifact previews through ASTRA UI's render slot. Cards and tiles
@@ -92,6 +93,8 @@ export function useProjectRenderers(
     onOpenArtifact: output =>
       openDocument('artifact', () => access.open(output)),
     loadPdfJs,
-    onFetchPaper
+    // Fetching stores the paper in the server's ASTRA cache; without the
+    // server, the viewer reads arXiv papers from arXiv and links the rest.
+    onFetchPaper: hasLightconeServer() ? onFetchPaper : undefined
   };
 }

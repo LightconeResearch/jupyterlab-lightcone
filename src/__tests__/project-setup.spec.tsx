@@ -1,22 +1,19 @@
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
-import { ServerConnection } from '@jupyterlab/services';
+import { ServiceManagerMock } from '@jupyterlab/services/lib/testutils';
 import { PromiseDelegate } from '@lumino/coreutils';
-import { ProjectSetup } from '../project-setup';
-import {
-  inspectProjectFolder,
-  initializeProjectFolder,
-  type IProjectFolder
-} from '../api';
+import { inspectFolder, ProjectSetup } from '../project-setup';
+import type { IProjectFolder } from '../api';
 
-jest.mock('../api', () => ({
-  inspectProjectFolder: jest.fn(),
-  initializeProjectFolder: jest.fn()
-}));
-const inspect = jest.mocked(inspectProjectFolder);
-const initialize = jest.mocked(initializeProjectFolder);
+// The server's inspection and engine, as the full install hands them over.
+const inspect = jest.fn<Promise<IProjectFolder>, [string]>();
+const initialize = jest.fn<Promise<IProjectFolder>, [string]>();
 
-beforeEach(() => jest.resetAllMocks());
+// Reset only these: `ServiceManagerMock` is itself a Jest mock.
+beforeEach(() => {
+  inspect.mockReset();
+  initialize.mockReset();
+});
 
 /** Settle `step` and every promise chained on it, then React's updates. */
 async function settle(step: () => void = () => undefined): Promise<void> {
@@ -44,7 +41,9 @@ async function mount(
   const widget = new ProjectSetup({
     path: 'project',
     mode: 'create',
-    settings: ServerConnection.makeSettings(),
+    inspect,
+    initialize,
+    absolutePaths: true,
     browse: jest.fn(),
     findProject: jest.fn().mockResolvedValue(undefined),
     ...options
@@ -83,8 +82,8 @@ it('creates the project in one action, without a confirmation step', async () =>
     'Create project'
   );
   await form.submit();
-  expect(inspect).toHaveBeenCalledWith(expect.anything(), 'new');
-  expect(initialize).toHaveBeenCalledWith(expect.anything(), 'new');
+  expect(inspect).toHaveBeenCalledWith('new');
+  expect(initialize).toHaveBeenCalledWith('new');
   expect(open).toHaveBeenCalledWith(created);
   form.close();
 });
@@ -251,4 +250,124 @@ it('stays busy while the folder dialog is open, then takes the chosen folder', a
   expect(input.disabled).toBe(false);
   expect(input.value).toBe('chosen/folder');
   form.close();
+});
+
+describe('without the Lightcone engine or terminals', () => {
+  it('names the command to run, then opens the folder once it is set up', async () => {
+    inspect.mockResolvedValue({
+      path: 'new',
+      directory: 'new',
+      hasSpec: false
+    });
+    const open = jest.fn().mockResolvedValue(undefined);
+    const form = await mount({
+      path: 'new',
+      initialize: undefined,
+      absolutePaths: false,
+      open
+    });
+    expect(form.node.querySelector('input')!.placeholder).toBe(
+      'my-project or folder/my-project'
+    );
+    await form.submit();
+    expect(open).not.toHaveBeenCalled();
+    expect(form.node.querySelector('[role="alert"]')).toBeNull();
+    const step = form.node.querySelector(
+      '.jp-jupyterlab-lightcone-ProjectSetup-init'
+    )!;
+    expect(step.textContent).toContain('choose Create project again');
+    expect(step.querySelector('code')!.textContent).toBe('lc init');
+
+    // Once `lc init` has run, the same action opens the project.
+    const ready = { path: 'new', directory: 'new', hasSpec: true };
+    inspect.mockResolvedValue(ready);
+    await form.submit();
+    expect(open).toHaveBeenCalledWith(ready);
+    expect(
+      form.node.querySelector('.jp-jupyterlab-lightcone-ProjectSetup-init')
+    ).toBeNull();
+    form.close();
+  });
+});
+
+describe('finishing setup without the Lightcone engine or terminals', () => {
+  it('opens the project once the user was told to run lc init', async () => {
+    const project = { path: 'partial', directory: 'partial', hasSpec: true };
+    inspect.mockResolvedValue(project);
+    const open = jest.fn().mockResolvedValue(undefined);
+    const form = await mount({
+      path: 'partial',
+      mode: 'finish',
+      initialize: undefined,
+      absolutePaths: false,
+      open
+    });
+    await form.submit();
+    expect(open).not.toHaveBeenCalled();
+    expect(form.node.textContent).toContain('choose Finish setup again');
+    await form.submit();
+    expect(open).toHaveBeenCalledWith(project);
+    form.close();
+  });
+});
+
+describe('inspectFolder', () => {
+  it('reads a folder through the Contents API without writing', async () => {
+    const contents = new ServiceManagerMock().contents;
+    const project = await contents.newUntitled({ type: 'directory' });
+    await contents.save(`${project.path}/astra.yaml`, {
+      type: 'file',
+      format: 'text',
+      content: 'name: Project\n'
+    });
+    const plain = await contents.newUntitled({ type: 'directory' });
+    jest.mocked(contents.save).mockClear();
+
+    expect(await inspectFolder(contents, ` ${project.path} `)).toEqual({
+      path: project.path,
+      directory: project.path,
+      hasSpec: true
+    });
+    expect(await inspectFolder(contents, plain.path)).toMatchObject({
+      hasSpec: false
+    });
+    // A folder that does not exist yet is `lc init`'s to create.
+    expect(await inspectFolder(contents, 'missing/folder')).toEqual({
+      path: 'missing/folder',
+      directory: 'missing/folder',
+      hasSpec: false
+    });
+    expect(contents.save).not.toHaveBeenCalled();
+  });
+
+  it('names the server root as the server does', async () => {
+    const contents = new ServiceManagerMock().contents;
+    for (const root of ['.', ' . ', './']) {
+      expect(await inspectFolder(contents, root)).toMatchObject({ path: '' });
+    }
+    const project = await contents.newUntitled({ type: 'directory' });
+    expect(await inspectFolder(contents, `${project.path}/`)).toMatchObject({
+      path: project.path
+    });
+  });
+
+  it('refuses paths the Contents API would read under the root', async () => {
+    const contents = new ServiceManagerMock().contents;
+    for (const outside of ['/home/me/project', '~/project']) {
+      await expect(inspectFolder(contents, outside)).rejects.toThrow(
+        'Enter the folder relative to the Jupyter server folder'
+      );
+    }
+    await expect(inspectFolder(contents, '../elsewhere')).rejects.toThrow(
+      'Parent-directory traversal is not supported.'
+    );
+  });
+
+  it('refuses a file', async () => {
+    const contents = new ServiceManagerMock().contents;
+    const file = await contents.newUntitled({ type: 'file' });
+    await expect(inspectFolder(contents, file.path)).rejects.toThrow(
+      'The project path is a file. Choose a folder.'
+    );
+  });
 });

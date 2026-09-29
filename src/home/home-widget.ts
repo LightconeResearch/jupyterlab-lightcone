@@ -36,6 +36,8 @@ export interface IHomeWidgetOptions {
   callback: (widget: Widget) => void;
   /** Open the Tools menu below the given button. */
   onOpenTools: (anchor: HTMLElement) => void;
+  /** Open a terminal in a folder beside Home, running a command there when given. */
+  onOpenTerminal: (cwd: string, command?: string) => Promise<void>;
   translator?: ITranslator;
   sessions?: ISessionService | null;
   personas?: PersonaDirectory | null;
@@ -103,7 +105,8 @@ export class HomeWidget extends Panel {
       personas: options.personas ?? null,
       state: options.state ?? null,
       translator: options.translator,
-      onOpenTools: options.onOpenTools
+      onOpenTools: options.onOpenTools,
+      onOpenTerminal: options.onOpenTerminal
     });
     this.addWidget(this._stockBar);
     this.addWidget(this._launcher);

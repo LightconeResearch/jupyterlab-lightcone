@@ -60,7 +60,8 @@ function homeTab(
     themes: new FakeThemeManager(),
     current: new FakeCurrentProject(),
     callback: jest.fn(),
-    onOpenTools: jest.fn()
+    onOpenTools: jest.fn(),
+    onOpenTerminal: jest.fn()
   });
   return new MainAreaWidget({ content });
 }

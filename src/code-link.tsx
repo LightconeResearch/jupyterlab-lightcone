@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { fetchRunRecord } from './api';
 import { resolveOutputCode, type ICodeReference } from './code-access';
 import { isRootAnalysisOutput } from './materialization-status';
+import { serverReadsProject } from './server-features';
 
 /**
  * Resolve on demand: code lookup runs only for an open output detail. Hosts
@@ -47,8 +48,9 @@ export function JupyterCodeLink({
     const load = async () => {
       if (!isRootAnalysisOutput(index, output)) return undefined;
       let recorded: string | undefined;
-      // Run records exist only for local files; other drives have the declaration.
-      if (!contents.driveName(entrypoint)) {
+      // The server reads run records of local projects; elsewhere the
+      // declaration names the script.
+      if (serverReadsProject(contents, entrypoint)) {
         try {
           recorded = (
             await fetchRunRecord(

@@ -161,10 +161,11 @@ export class SearchController implements IDisposable {
         'Search Lightcone commands (no project in this folder)'
       );
     }
-    return this._trans.__(
-      'Search %1: sessions, results, files, commands',
-      PathExt.basename(project.path) || this._trans.__('project')
-    );
+    const name = PathExt.basename(project.path) || this._trans.__('project');
+    // Sessions need the full install's sessions service.
+    return this._sessions
+      ? this._trans.__('Search %1: sessions, results, files, commands', name)
+      : this._trans.__('Search %1: results, files, commands', name);
   }
 
   private async _load(

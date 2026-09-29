@@ -8,7 +8,7 @@ export const astraIcon = new LabIcon({
   svgstr: astraLogoSvg
 }).bindprops({ className: 'jp-jupyterlab-lightcone-InventoryIcon' });
 
-/** The Lightcone mark used by Home, the sidebar and their tabs. */
+/** The Lightcone mark used by Home and its tabs. */
 export const lightconeIcon = new LabIcon({
   name: 'jupyterlab-lightcone:lightcone',
   svgstr: lightconeLogoSvg

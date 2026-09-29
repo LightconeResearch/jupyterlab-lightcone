@@ -13,6 +13,7 @@ import {
 import { ProjectStatus } from '../project-status';
 import { nullTranslator } from '@jupyterlab/translation';
 import { fileModel } from './project-fixtures';
+import { withLightconeServer } from './server-fixtures';
 
 jest.mock('../pdf-runtime', () => ({}));
 jest.mock('../api', () => ({
@@ -124,6 +125,41 @@ describe('currentProjectPlugin', () => {
     typeof reportCurrentProject
   >;
 
+  beforeEach(() => report.mockClear());
+
+  it('tracks the project but reports nothing without Lightcone’s server', async () => {
+    const h = host();
+    const shell = new Widget();
+    const app = {
+      shell,
+      serviceManager: {
+        contents: h.contents,
+        serverSettings: ServerConnection.makeSettings()
+      }
+    } as unknown as JupyterFrontEnd;
+    const current = currentProjectPlugin.activate(app, {
+      tracker: h.tracker
+    }) as ICurrentProject;
+    try {
+      await flush();
+      expect(current.project?.entrypoint).toBe('project/astra.yaml');
+      window.dispatchEvent(new Event('focus'));
+      await h.navigate('other');
+      expect(current.project?.entrypoint).toBe('other/astra.yaml');
+      expect(report).not.toHaveBeenCalled();
+    } finally {
+      shell.dispose();
+      h.contents.dispose();
+    }
+  });
+});
+
+describe('currentProjectPlugin with Lightcone’s server', () => {
+  const report = reportCurrentProject as jest.MockedFunction<
+    typeof reportCurrentProject
+  >;
+
+  withLightconeServer();
   beforeEach(() => report.mockClear());
 
   it('reports each change, and again when its window regains focus', async () => {

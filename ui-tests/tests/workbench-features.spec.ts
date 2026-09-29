@@ -23,7 +23,6 @@ const other = project
   .replace('Hubble diagram', 'Other diagram');
 
 const HOME = '.jp-jupyterlab-lightcone-HomeView';
-const SIDEBAR = '#jp-lightcone-sidebar';
 const CHAT_INPUT = '.jp-chat-input-container';
 const SEARCH = '.jp-jupyterlab-lightcone-Search';
 
@@ -39,7 +38,7 @@ function execute(
   );
 }
 
-/** Open Home for the project folder and the Lightcone sidebar beside it. */
+/** Open Home for the project folder. */
 async function openWorkbench(page: Page, tmpPath: string): Promise<void> {
   await execute(page, 'filebrowser:refresh');
   await page.evaluate(() => {
@@ -49,8 +48,6 @@ async function openWorkbench(page: Page, tmpPath: string): Promise<void> {
   });
   await expect(page.locator(HOME)).toHaveCount(1);
   await expect(page.locator(HOME)).toContainText('Hubble diagram');
-  await execute(page, 'jupyterlab_lightcone:show-sidebar');
-  await expect(page.locator(SIDEBAR)).toContainText('Hubble diagram');
 }
 
 test.beforeEach(async ({ page, tmpPath }) => {
@@ -72,7 +69,7 @@ test('the composer completes @ records and # sessions into visible references', 
     `${tmpPath}/chats/contour-styling.chat`
   );
   await openWorkbench(page, tmpPath);
-  await page.locator(`${SIDEBAR} button`, { hasText: 'New session' }).click();
+  await execute(page, 'jupyterlab_lightcone:new-session');
   const composer = page.locator(CHAT_INPUT).getByRole('combobox');
   await expect(composer).toBeVisible();
   await composer.click();
@@ -172,39 +169,6 @@ test('tabs of two projects that read the same name their project', async ({
   await expect(
     page.locator('.lm-TabBar-tab', { hasText: 'Home' })
   ).not.toHaveAttribute('data-lightcone-project', /.*/);
-});
-
-test('the sidebar switches to a recently visited project', async ({
-  page,
-  tmpPath
-}) => {
-  await page.contents.uploadContent(
-    other,
-    'text',
-    `${tmpPath}/other/astra.yaml`
-  );
-  await openWorkbench(page, tmpPath);
-  await execute(page, 'filebrowser:go-to-path', {
-    path: `${tmpPath}/other`,
-    dontShowBrowser: true
-  });
-  await expect(page.locator(SIDEBAR)).toContainText('Other project');
-  await execute(page, 'filebrowser:go-to-path', {
-    path: tmpPath,
-    dontShowBrowser: true
-  });
-  await expect(page.locator(SIDEBAR)).toContainText('Features project');
-  await page
-    .locator(
-      `${SIDEBAR} button[aria-label="Switch to another Lightcone project"]`
-    )
-    .click();
-  const menu = page.locator('.jp-jupyterlab-lightcone-ProjectSwitcher');
-  await expect(
-    menu.getByRole('menuitem', { name: 'other', exact: true })
-  ).toBeVisible();
-  await menu.locator('.lm-Menu-item', { hasText: 'other' }).click();
-  await expect(page.locator(SIDEBAR)).toContainText('Other project');
 });
 
 test('Lightcone themes load their stylesheet and fonts and keep project views usable', async ({

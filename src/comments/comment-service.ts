@@ -14,7 +14,7 @@ import {
   type ICommentPatch
 } from './comments-api';
 
-/** Pending comments of each project, shared by the tray, pins and the sidebar. */
+/** Pending comments of each project, shared by the tray and the pins. */
 export interface ICommentService {
   /** The pending comments of the project owning `entrypoint`, as last fetched. */
   pending(entrypoint: string): readonly IComment[];
@@ -48,7 +48,7 @@ const ALL_CACHE_TTL = 30_000;
 /**
  * The comments of each project as the workbench last saw them. Pending
  * comments are cached per entrypoint and fetched once on first use; every
- * write updates the cache and emits `changed`, so pins, tray and sidebar
+ * write updates the cache and emits `changed`, so pins and tray
  * redraw together. Sent comments are fetched on demand for message cards.
  */
 export class CommentService implements ICommentService, IDisposable {

@@ -12,6 +12,8 @@ import {
 } from '@jupyterlab/translation';
 import { PanelLayout, Widget } from '@lumino/widgets';
 import { projectFolders } from './api';
+import { projectFoldersAmong } from './project-root';
+import { serverReadsProject } from './server-features';
 
 /** Preserve native folder navigation while labeling recognized projects. */
 class ProjectFolderRenderer extends DirListing.Renderer {
@@ -77,24 +79,26 @@ class ProjectBrowserBody extends Widget {
   private async refresh(): Promise<void> {
     const generation = ++this.generation;
     const contents = this.manager.services.contents;
+    const folder = this.browser.model.path;
     let paths: string[] = [];
     let status: string;
-    if (contents.driveName(this.browser.model.path)) {
+    try {
+      // The server lists a local folder in one request; without it, and on
+      // other drives, each child folder the picker listed is probed through
+      // the Contents API.
+      paths = serverReadsProject(contents, folder)
+        ? await projectFolders(contents.serverSettings, folder)
+        : await projectFoldersAmong(
+            contents,
+            Array.from(this.browser.model.items())
+              .filter(item => item.type === 'directory')
+              .map(item => item.path)
+          );
       status = this.trans.__(
-        'Select a project folder to open it. Project badges are available on the local drive.'
+        'ASTRA project labels mark folders containing astra.yaml.'
       );
-    } else {
-      try {
-        paths = await projectFolders(
-          contents.serverSettings,
-          this.browser.model.path
-        );
-        status = this.trans.__(
-          'ASTRA project labels mark folders containing astra.yaml.'
-        );
-      } catch (error) {
-        status = error instanceof Error ? error.message : String(error);
-      }
+    } catch (error) {
+      status = error instanceof Error ? error.message : String(error);
     }
     if (this.isDisposed || generation !== this.generation) return;
     this.renderer.projects = new Set(paths);

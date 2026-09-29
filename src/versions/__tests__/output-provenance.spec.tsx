@@ -6,8 +6,12 @@ import { ContentsManager } from '@jupyterlab/services';
 import { resolveOutputCode } from '../../code-access';
 import { fetchRunRecord } from '../../api';
 import { fetchRevisionSource } from '../versions-api';
-import { JupyterOutputProvenance } from '../../output-provenance';
+import {
+  JupyterOutputProvenance,
+  provenanceSlot
+} from '../../output-provenance';
 import type { IOutputVersion } from '../versions-api';
+import { withLightconeServer } from '../../__tests__/server-fixtures';
 
 jest.mock('../../api', () => ({
   ...jest.requireActual<typeof import('../../api')>('../../api'),
@@ -192,4 +196,51 @@ test('a deleted current script remains readable at its recorded revision', async
   expect(container.textContent).toContain(
     'The file no longer exists in the project.'
   );
+});
+
+describe('the provenance section', () => {
+  const render = () => null;
+
+  test('is left out of record views without Lightcone’s server', () => {
+    expect(provenanceSlot(render)).toBeUndefined();
+  });
+
+  describe('with Lightcone’s server', () => {
+    withLightconeServer();
+
+    test('is shown in record views', () => {
+      expect(provenanceSlot(render)).toBe(render);
+    });
+  });
+});
+
+describe('the current run record', () => {
+  const current = () => (
+    <JupyterOutputProvenance
+      contents={contents}
+      entrypoint="project/astra.yaml"
+      index={index}
+      universe="baseline"
+      output={output}
+      status={undefined}
+    />
+  );
+
+  describe('with Lightcone’s server', () => {
+    withLightconeServer();
+
+    test('is read from the server', async () => {
+      await act(async () => root.render(current()));
+      expect(fetchRunRecord).toHaveBeenCalledWith(
+        contents.serverSettings,
+        'project/astra.yaml',
+        'baseline',
+        output,
+        undefined
+      );
+      expect(container.textContent).toContain(
+        'No run has been recorded for this output.'
+      );
+    });
+  });
 });

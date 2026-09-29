@@ -14,14 +14,19 @@ import {
   CommandIDs,
   newProjectFolder,
   registerCommands,
-  requireProject,
-  shortcutLabel
+  requireProject
 } from '../commands';
 import { InventoryDocument } from '../document-widget';
 import { HomeCommandIDs } from '../home/home-commands';
+import { openTerminal, terminalEnded } from '../terminal';
+import { TERMINAL_COMMAND } from '../workbench-ids';
 import { fileModel } from './project-fixtures';
 
 jest.mock('../project-browser', () => ({ browseProjectFolder: jest.fn() }));
+jest.mock('../terminal', () => ({
+  openTerminal: jest.fn(),
+  terminalEnded: jest.fn()
+}));
 jest.mock('../api', () => ({
   ...jest.requireActual('../api'),
   inspectProjectFolder: jest.fn()
@@ -83,7 +88,7 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
     app: {
       commands,
       shell,
-      serviceManager: { contents }
+      serviceManager: { contents, terminals: { isAvailable: () => true } }
     } as unknown as JupyterFrontEnd,
     documents,
     browser
@@ -102,6 +107,74 @@ function commandHost(browser: IFileBrowserFactory | null = null) {
     }
   };
 }
+
+describe('project setup without the engine', () => {
+  it('runs lc init in a terminal beside the form, then hands over the project it made', async () => {
+    const host = commandHost();
+    host.commands.addCommand(TERMINAL_COMMAND, { execute: () => undefined });
+    const terminal = new Widget();
+    jest.mocked(openTerminal).mockResolvedValue({
+      widget: terminal,
+      session: undefined
+    });
+    jest.mocked(terminalEnded).mockResolvedValue();
+    const save = jest
+      .spyOn(host.contents, 'save')
+      .mockResolvedValue(fileModel('', { type: 'directory', path: 'new' }));
+    const notFound = () =>
+      new ServerConnection.ResponseError(new Response('', { status: 404 }));
+    host.get.mockImplementation(async path => {
+      if (path === 'new') return fileModel('', { type: 'directory', path });
+      if (path === 'new/astra.yaml') return fileModel('', { path });
+      throw notFound();
+    });
+    const setup = await host.commands.execute(CommandIDs.createProject, {
+      path: 'new'
+    });
+    try {
+      const initialize = (setup.content as ProjectSetup).render().props
+        .initialize!;
+      await expect(initialize('new')).resolves.toEqual({
+        path: 'new',
+        directory: 'new',
+        hasSpec: true
+      });
+      expect(save).toHaveBeenCalledWith('new', { type: 'directory' });
+      expect(openTerminal).toHaveBeenCalledWith(host.commands, {
+        cwd: 'new',
+        command: 'lc init && exit',
+        run: true,
+        shell: undefined
+      });
+      expect(terminalEnded).toHaveBeenCalled();
+      // The shell exited; its tab goes too.
+      expect(terminal.isDisposed).toBe(true);
+
+      // A run that made no astra.yaml leaves the folder unopened.
+      host.get.mockRejectedValue(notFound());
+      await expect(initialize('new')).rejects.toThrow(
+        'lc init did not set this folder up.'
+      );
+
+      // Missing parents are made first, one folder at a time.
+      save.mockClear();
+      await initialize('work/new').catch(() => undefined);
+      expect(save.mock.calls.map(([path]) => path)).toEqual([
+        'work',
+        'work/new'
+      ]);
+
+      // Without a terminal, nothing ran: the form says so.
+      jest.mocked(openTerminal).mockResolvedValue(undefined);
+      await expect(initialize('new')).rejects.toThrow(
+        'Could not open a terminal to run lc init.'
+      );
+    } finally {
+      setup.dispose();
+      host.dispose();
+    }
+  });
+});
 
 describe('project opening commands', () => {
   it('opens an existing project on its Contents drive without local initialization', async () => {
@@ -443,21 +516,5 @@ describe('newProjectFolder', () => {
       warn.mockRestore();
       contents.dispose();
     }
-  });
-});
-
-describe('shortcutLabel', () => {
-  it('formats the first binding of a command and hides unbound ones', () => {
-    const commands = new CommandRegistry();
-    commands.addCommand('test:search', { execute: () => undefined });
-    expect(shortcutLabel(commands, 'test:search')).toBeUndefined();
-    commands.addKeyBinding({
-      command: 'test:search',
-      keys: ['Accel K'],
-      selector: 'body'
-    });
-    expect(shortcutLabel(commands, 'test:search')).toBe(
-      CommandRegistry.formatKeystroke('Accel K')
-    );
   });
 });

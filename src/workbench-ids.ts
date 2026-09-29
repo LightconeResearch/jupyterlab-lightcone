@@ -1,8 +1,8 @@
 /**
  * Identifiers several workbench features share: palette categories, the
  * title data keys record and session tabs carry, and the ids of the Jupyter
- * Chat commands and factory the workbench drives. One definition each, so the
- * sidebar, the tab labeller, the sessions and the record tabs agree.
+ * Chat and terminal commands and factory the workbench drives. One definition
+ * each, so Home, the tab labeller, the sessions and the record tabs agree.
  */
 
 /** The command palette and launcher category of every Lightcone command. */
@@ -23,6 +23,12 @@ export const TAB_PROJECT_DATASET_KEY = 'lightcone-project';
 
 /** Jupyter Chat's command creating a chat document (`jupyterlab-chat` extension). */
 export const CREATE_CHAT_COMMAND = 'jupyterlab-chat:create';
+
+/**
+ * JupyterLab's command opening a terminal, in a `cwd` when given. The
+ * terminal extension registers it only where the server offers terminals.
+ */
+export const TERMINAL_COMMAND = 'terminal:create-new';
 
 /** Jupyter Chat's document factory for `.chat` files. */
 export const CHAT_FACTORY = 'Chat';

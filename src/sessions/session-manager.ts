@@ -190,7 +190,8 @@ const UNTITLED_SESSION = new RegExp(
 
 /**
  * Whether a session is still named `untitled`: created in `chats/` before its
- * first message was written, as the sidebar and Lightcone Agent create them.
+ * first message was written, as the new-session command and Lightcone Agent
+ * create them.
  */
 export function isUntitledSession(localPath: string): boolean {
   return UNTITLED_SESSION.test(localPath);

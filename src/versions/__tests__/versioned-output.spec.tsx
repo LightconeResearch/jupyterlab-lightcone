@@ -14,6 +14,10 @@ import {
   type IOutputVersioning
 } from '../versioned-output';
 import type { IOutputVersion } from '../versions-api';
+import { withLightconeServer } from '../../__tests__/server-fixtures';
+
+// These behaviors belong to the full install, with Lightcone's server routes.
+withLightconeServer();
 
 jest.mock('../version-cache', () => ({
   listVersionsCached: jest.fn(),

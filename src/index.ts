@@ -23,7 +23,7 @@ import { homePlugin } from './home';
 import { HomeCommandIDs } from './home/home-commands';
 import { mentionsPlugin } from './mentions';
 import { searchPlugin } from './search';
-import { sidebarPlugin } from './sidebar';
+import { hasLightconeServer } from './server-features';
 import { tabLabelsPlugin } from './tab-labels';
 import {
   focusLayoutPlugin,
@@ -134,7 +134,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
       app,
       documents,
       browser,
-      translator: translator ?? undefined
+      translator: translator ?? undefined,
+      labShell: shell
     });
     palette?.addItem({
       command: CommandIDs.createProject,
@@ -179,11 +180,28 @@ const plugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-export default [
+/** What runs in the browser alone, on Jupyter's Contents API. */
+const browserPlugins: JupyterFrontEndPlugin<unknown>[] = [
   currentProjectPlugin,
   projectStatusPlugin,
   plugin,
   astraMimePlugin,
+  projectNotificationsPlugin,
+  lightconeLightThemePlugin,
+  lightconeDarkThemePlugin,
+  focusLayoutPlugin,
+  homePlugin,
+  versionsPlugin,
+  searchPlugin,
+  tabLabelsPlugin
+];
+
+/**
+ * What needs Lightcone's server routes, and with them Jupyter AI and Jupyter
+ * Chat: the `jupyterlab-lightcone[full]` install. Left unregistered without
+ * it, so no plugin waits for a chat tracker that no extension provides.
+ */
+const serverPlugins: JupyterFrontEndPlugin<unknown>[] = [
   sessionsPlugin,
   sessionPlaceholderPlugin,
   agentContinuityPlugin,
@@ -191,16 +209,11 @@ export default [
   chatPlugin,
   chatLinksPlugin,
   mentionsPlugin,
-  projectNotificationsPlugin,
-  // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
-  mystraPlugin,
-  lightconeLightThemePlugin,
-  lightconeDarkThemePlugin,
-  focusLayoutPlugin,
-  homePlugin,
-  sidebarPlugin,
   commentsPlugin,
-  versionsPlugin,
-  searchPlugin,
-  tabLabelsPlugin
+  // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
+  mystraPlugin
 ];
+
+export default hasLightconeServer()
+  ? [...browserPlugins, ...serverPlugins]
+  : browserPlugins;

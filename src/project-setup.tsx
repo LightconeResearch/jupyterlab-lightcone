@@ -1,22 +1,30 @@
 import React, { useState } from 'react';
 import { ReactWidget } from '@jupyterlab/apputils';
-import type { ServerConnection } from '@jupyterlab/services';
+import type { Contents } from '@jupyterlab/services';
 import {
   nullTranslator,
   type ITranslator,
   type TranslationBundle
 } from '@jupyterlab/translation';
-import {
-  inspectProjectFolder,
-  initializeProjectFolder,
-  type IProjectFolder
-} from './api';
-import type { IProjectRoot } from './project-root';
+import type { IProjectFolder } from './api';
+import { findModel, type IProjectRoot } from './project-root';
 
 interface IProjectSetupOptions {
   path: string;
   mode: 'create' | 'finish';
-  settings: ServerConnection.ISettings;
+  /** Resolve an entered folder without writing to it (`inspectProjectFolder`). */
+  inspect: (path: string) => Promise<IProjectFolder>;
+  /**
+   * Set the folder up with the Lightcone engine: on the server
+   * (`initializeProjectFolder`), or with `lc init` in a terminal. Undefined
+   * where neither is available: the form then names the command to run.
+   */
+  initialize?: (path: string) => Promise<IProjectFolder>;
+  /**
+   * Whether `inspect` resolves absolute paths inside the server folder, as the
+   * server's inspection does; the Contents API reads relative paths only.
+   */
+  absolutePaths?: boolean;
   translator?: ITranslator;
   browse: () => Promise<string | undefined>;
   /** The project at or above a Contents path, as `findProjectRoot` finds it. */
@@ -41,6 +49,42 @@ export class ProjectSetup extends ReactWidget {
 
 /** What the form is doing while it is busy. */
 type SetupPhase = 'browsing' | 'checking' | 'setting-up' | 'opening';
+
+/**
+ * Inspect an entered folder through the Contents API, for a server without
+ * Lightcone's routes; like the server's inspection, it writes nothing. The
+ * folder need not exist yet, but must not be a file.
+ */
+export async function inspectFolder(
+  contents: Contents.IManager,
+  value: string
+): Promise<IProjectFolder> {
+  const entered = value.trim();
+  // The Contents API names folders from the server's root: an absolute or
+  // home-relative path would silently land under it instead.
+  if (entered.startsWith('/') || entered.startsWith('~')) {
+    throw new Error(
+      'Enter the folder relative to the Jupyter server folder, without a leading / or ~.'
+    );
+  }
+  const normalized = contents.normalize(entered).replace(/\/+$/, '');
+  if (normalized.split('/').includes('..')) {
+    throw new Error('Parent-directory traversal is not supported.');
+  }
+  // The root is the empty path, as the server names it.
+  const path = normalized === '.' ? '' : normalized;
+  const folder = await findModel(contents, path);
+  if (folder && folder.type !== 'directory') {
+    throw new Error('The project path is a file. Choose a folder.');
+  }
+  const spec = folder
+    ? await findModel(contents, contents.resolvePath(path, 'astra.yaml'))
+    : undefined;
+  if (spec && spec.type !== 'file') {
+    throw new Error('astra.yaml is not a file.');
+  }
+  return { path, directory: path, hasSpec: spec !== undefined };
+}
 
 /**
  * Why a folder cannot hold a new project: it lies inside `owner`, whose files
@@ -69,12 +113,15 @@ function ProjectSetupForm(
   const [path, setPath] = useState(options.path || '.');
   const [phase, setPhase] = useState<SetupPhase>();
   const [error, setError] = useState('');
-  const { mode, trans } = options;
+  // The folder that waits for `lc init`, on a server without the engine.
+  const [awaitingInit, setAwaitingInit] = useState<string>();
+  const { mode, trans, initialize } = options;
   const busy = phase !== undefined;
   const submitting = busy && phase !== 'browsing';
   const edit = (value: string) => {
     setPath(value);
     setError('');
+    setAwaitingInit(undefined);
   };
   const run = async (task: () => Promise<void>) => {
     setError('');
@@ -88,10 +135,13 @@ function ProjectSetupForm(
   };
   const submit = () => {
     if (busy || !path.trim()) return;
+    // The folder the form last told to set up with `lc init`.
+    const told = awaitingInit;
     return run(async () => {
       setPhase('checking');
+      setAwaitingInit(undefined);
       // Inspection resolves the folder the server will use; it writes nothing.
-      const folder = await inspectProjectFolder(options.settings, path);
+      const folder = await options.inspect(path);
       if (mode === 'create' && folder.hasSpec) {
         setPhase('opening');
         await options.open(folder);
@@ -105,11 +155,19 @@ function ProjectSetupForm(
       if (owner) {
         throw new Error(nestedProjectMessage(owner, trans));
       }
+      if (!initialize) {
+        // Nothing here can run `lc init`. Once the user was told to, and the
+        // folder holds a project, the same action opens it.
+        if (folder.hasSpec && told === folder.path) {
+          setPhase('opening');
+          await options.open(folder);
+          return;
+        }
+        setAwaitingInit(folder.path);
+        return;
+      }
       setPhase('setting-up');
-      const ready = await initializeProjectFolder(
-        options.settings,
-        folder.path
-      );
+      const ready = await initialize(folder.path);
       setPhase('opening');
       await options.open(ready);
     });
@@ -133,6 +191,8 @@ function ProjectSetupForm(
           : phase === 'opening'
             ? trans.__('Opening the project…')
             : '';
+  const submitLabel =
+    mode === 'finish' ? trans.__('Finish setup') : trans.__('Create project');
   return (
     <form
       onSubmit={event => {
@@ -163,7 +223,11 @@ function ProjectSetupForm(
           value={path}
           onChange={event => edit(event.target.value)}
           disabled={busy}
-          placeholder={trans.__('my-project or /absolute/path/to/my-project')}
+          placeholder={
+            options.absolutePaths
+              ? trans.__('my-project or /absolute/path/to/my-project')
+              : trans.__('my-project or folder/my-project')
+          }
           autoFocus
         />
         <button
@@ -176,14 +240,30 @@ function ProjectSetupForm(
         </button>
       </div>
       <p className="jp-jupyterlab-lightcone-ProjectSetup-hint">
-        {trans.__(
-          'Paths are relative to the Jupyter server folder. Absolute paths must be inside it.'
-        )}
+        {options.absolutePaths
+          ? trans.__(
+              'Paths are relative to the Jupyter server folder. Absolute paths must be inside it.'
+            )
+          : trans.__('Paths are relative to the Jupyter server folder.')}
       </p>
       <p className="jp-jupyterlab-lightcone-ProjectSetup-status" role="status">
         {status}
       </p>
       {error ? <pre role="alert">{error}</pre> : null}
+      {awaitingInit !== undefined ? (
+        <div className="jp-jupyterlab-lightcone-ProjectSetup-init">
+          <p>
+            {trans.__(
+              'This Jupyter server has neither the Lightcone engine nor terminals. Set the project up where you can run commands in %1, then choose %2 again to open it:',
+              awaitingInit || '.',
+              submitLabel
+            )}
+          </p>
+          <pre>
+            <code>lc init</code>
+          </pre>
+        </div>
+      ) : null}
       <button
         type="submit"
         className="jp-mod-styled jp-mod-accept jp-jupyterlab-lightcone-ProjectSetup-submit"
@@ -202,9 +282,7 @@ function ProjectSetupForm(
             ? trans.__('Setting up project…')
             : phase === 'opening'
               ? trans.__('Opening project…')
-              : mode === 'finish'
-                ? trans.__('Finish setup')
-                : trans.__('Create project')}
+              : submitLabel}
       </button>
     </form>
   );

@@ -59,12 +59,12 @@ import type { ISessionService } from '../sessions/session-service';
 import type { ISessionInfo } from '../sessions/sessions-api';
 import { outputKindLabel } from '../output-kind';
 import { listOutputs } from '../project-outputs';
-import { SidebarCommandIDs } from '../sidebar/sidebar-commands';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { PipelineCommandIDs } from '../versions/pipeline-commands';
+import { hasLightconeServer, serverReadsProject } from '../server-features';
 import { PipelineGlyph } from '../versions/pipeline-glyph';
 import { listResultsCommits } from '../versions/versions-api';
-import { CREATE_CHAT_COMMAND } from '../workbench-ids';
+import { CREATE_CHAT_COMMAND, TERMINAL_COMMAND } from '../workbench-ids';
 import {
   HOME_MORE_LIMIT,
   HOME_RESULT_LIMIT,
@@ -110,6 +110,8 @@ export interface IHomeViewOptions {
   translator?: ITranslator;
   /** Open the Tools menu below the given button. */
   onOpenTools: (anchor: HTMLElement) => void;
+  /** Open a terminal in a folder beside Home, running a command there when given. */
+  onOpenTerminal: (cwd: string, command?: string) => Promise<void>;
 }
 
 /** The project front page rendered inside a launcher tab. */
@@ -318,8 +320,29 @@ function HomeRoot({
         );
       });
   }, [commands, project.path, trans]);
+  // Terminals start in folders of the server's own disk, not on other drives.
+  const terminalAvailable =
+    useHasCommand(commands, TERMINAL_COMMAND) &&
+    !contents.driveName(project.path);
+  // A terminal in the project folder, starting an agent when given its command.
+  const launchTerminal = useCallback(
+    (command?: string) => {
+      options.onOpenTerminal(project.path, command).catch(reason => {
+        void showErrorMessage(
+          trans.__('Could not open a terminal'),
+          reason instanceof Error ? reason : String(reason)
+        );
+      });
+    },
+    [options, project.path, trans]
+  );
   const title = data ? analysisTitle(data.document.analysis) : '';
-  const deskShown = Boolean(sessions && chatAvailable);
+  // The full install's desk starts Jupyter AI sessions; without it, coding
+  // agents run in a terminal, which the desk column then opens.
+  const agentsInChat = hasLightconeServer();
+  const chatDesk = agentsInChat && Boolean(sessions && chatAvailable);
+  const terminalDesk = !agentsInChat && terminalAvailable;
+  const deskShown = chatDesk || terminalDesk;
   return (
     <div className={`${CLASS}-page`}>
       {/* The running head: the page's one identity line, and the stock
@@ -336,6 +359,40 @@ function HomeRoot({
         <span className={`${CLASS}-path`} title={project.entrypoint}>
           {project.path || '/'}
         </span>
+        {/* The Agents card's buttons, for a Home too narrow for the card:
+            the stylesheet shows one or the other. */}
+        {terminalDesk ? (
+          <span
+            className={`${CLASS}-headerAgents`}
+            role="group"
+            aria-label={trans.__('Agents')}
+          >
+            {TERMINAL_AGENTS.map(agent => (
+              <button
+                key={agent.command}
+                type="button"
+                className={`${CLASS}-headerAgent`}
+                title={trans.__(
+                  'Run %1 in a new terminal in the project folder',
+                  agent.command
+                )}
+                onClick={() => launchTerminal(agent.command)}
+              >
+                <HomeGlyph name="prompt" />
+                <code>{agent.command}</code>
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`${CLASS}-headerAgent`}
+              title={trans.__('Open a plain terminal in the project folder')}
+              aria-label={trans.__('Open a plain terminal')}
+              onClick={() => launchTerminal()}
+            >
+              <HomeGlyph name="prompt" />
+            </button>
+          </span>
+        ) : null}
         <button
           type="button"
           className={`${CLASS}-tools`}
@@ -445,6 +502,16 @@ function HomeRoot({
                 <astraIcon.react tag="span" className={`${CLASS}-actionIcon`} />
                 {trans.__('Open ASTRA')}
               </button>
+              {agentsInChat && terminalAvailable ? (
+                <button
+                  type="button"
+                  className={`${CLASS}-terminal`}
+                  onClick={() => launchTerminal()}
+                >
+                  <HomeGlyph name="prompt" />
+                  {trans.__('Open terminal')}
+                </button>
+              ) : null}
             </div>
           </section>
           {data ? (
@@ -458,14 +525,14 @@ function HomeRoot({
             />
           ) : null}
         </div>
-        {sessions && chatAvailable ? (
+        {terminalDesk ? <AgentsDesk onOpenTerminal={launchTerminal} /> : null}
+        {chatDesk && sessions ? (
           <Desk
             sessions={sessions}
             personas={options.personas}
             contents={contents}
             themes={options.themes}
             state={options.state}
-            commands={commands}
             entrypoint={project.entrypoint}
             isVisible={isVisible}
             shown={shown}
@@ -600,8 +667,9 @@ function useLatestResultsTime(
   const [time, setTime] = useState<string>();
   useEffect(() => {
     let active = true;
-    // The history comes from the project's Git repository, which only local files have.
-    if (contents.driveName(entrypoint)) {
+    // The server reads the history from the project's Git repository, which
+    // only local files have.
+    if (!serverReadsProject(contents, entrypoint)) {
       setTime(undefined);
       return;
     }
@@ -868,13 +936,72 @@ function ProjectBadges({ data }: IProjectBadgesProps): React.ReactElement {
   );
 }
 
+/** Coding agents a terminal can start, by the command that starts each. */
+const TERMINAL_AGENTS = [
+  { command: 'claude', name: 'Claude Code' },
+  { command: 'codex', name: 'Codex' }
+];
+
+/**
+ * The desk without Jupyter AI, as the browser-only install has it: coding
+ * agents run in a terminal, opened at the project's folder so that they, and
+ * `lc`, find its `astra.yaml`. Each agent's button starts it in a new
+ * terminal.
+ */
+function AgentsDesk({
+  onOpenTerminal
+}: {
+  onOpenTerminal: (command?: string) => void;
+}): React.ReactElement {
+  const trans = useContext(TransContext);
+  return (
+    <aside className={`${CLASS}-desk`} aria-label={trans.__('Desk')}>
+      <section className={`${CLASS}-agents`} aria-label={trans.__('Agents')}>
+        <div className={`${CLASS}-sectionHead`}>
+          <h2 className={`${CLASS}-heading`}>{trans.__('Agents')}</h2>
+        </div>
+        <p className={`${CLASS}-agentsLead`}>
+          {trans.__(
+            'Start a coding agent in a terminal at the project folder.'
+          )}
+        </p>
+        <ul className={`${CLASS}-agentCommands`}>
+          {TERMINAL_AGENTS.map(agent => (
+            <li key={agent.command}>
+              <button
+                type="button"
+                className={`${CLASS}-agentLaunch`}
+                title={trans.__(
+                  'Run %1 in a new terminal in the project folder',
+                  agent.command
+                )}
+                onClick={() => onOpenTerminal(agent.command)}
+              >
+                <HomeGlyph name="prompt" />
+                <code>{agent.command}</code>
+                <span>{agent.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          className={`${CLASS}-link`}
+          onClick={() => onOpenTerminal()}
+        >
+          {trans.__('Open a plain terminal')}
+        </button>
+      </section>
+    </aside>
+  );
+}
+
 interface IDeskProps {
   themes: IThemeManager;
   contents: Contents.IManager;
   sessions: ISessionService;
   personas: PersonaDirectory | null;
   state: IStateDB | null;
-  commands: CommandRegistry;
   entrypoint: string;
   isVisible: () => boolean;
   shown: ISignal<HomeView, void>;
@@ -886,7 +1013,6 @@ function Desk({
   sessions,
   personas,
   state,
-  commands,
   entrypoint,
   isVisible,
   shown
@@ -906,7 +1032,6 @@ function Desk({
       />
       <SessionsList
         sessions={sessions}
-        commands={commands}
         entrypoint={entrypoint}
         isVisible={isVisible}
         shown={shown}
@@ -1250,7 +1375,6 @@ function useSessions(
 
 interface ISessionsListProps {
   sessions: ISessionService;
-  commands: CommandRegistry;
   entrypoint: string;
   isVisible: () => boolean;
   shown: ISignal<HomeView, void>;
@@ -1259,7 +1383,6 @@ interface ISessionsListProps {
 
 function SessionsList({
   sessions,
-  commands,
   entrypoint,
   isVisible,
   shown,
@@ -1273,22 +1396,9 @@ function SessionsList({
     shown,
     refreshKey
   );
-  // The sidebar lists every session; its command is how Home reaches it.
-  const sidebarAvailable = useHasCommand(
-    commands,
-    SidebarCommandIDs.showSidebar
-  );
   if (!listing.sessions.length) {
     return null;
   }
-  const showSidebar = () => {
-    void commands.execute(SidebarCommandIDs.showSidebar).catch(reason => {
-      void showErrorMessage(
-        trans.__('Could not show the Lightcone sidebar'),
-        reason instanceof Error ? reason : String(reason)
-      );
-    });
-  };
   const open = (path: string) => {
     void sessions.openSession(path).catch(reason => {
       void showErrorMessage(
@@ -1305,16 +1415,6 @@ function SessionsList({
           <span className={`${CLASS}-headNote`} title={listing.error}>
             {trans.__('List may be out of date')}
           </span>
-        ) : null}
-        {sidebarAvailable ? (
-          <button
-            type="button"
-            className={`${CLASS}-link`}
-            onClick={showSidebar}
-          >
-            {trans.__('All %1', listing.sessions.length)}
-            <HomeGlyph name="chevron" />
-          </button>
         ) : null}
       </div>
       <ul className={`${CLASS}-sessionList`}>

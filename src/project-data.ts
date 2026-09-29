@@ -12,7 +12,9 @@ import {
 import type { InventoryPaperMetadata } from '@astra-spec/ui/model';
 import type { Contents } from '@jupyterlab/services';
 import { collectPaperMetadata } from './api';
+import { arxivPaperMetadata } from './arxiv-papers';
 import { createJupyterProjectReader } from './project-reader';
+import { hasLightconeServer } from './server-features';
 
 export interface ILoadedProjectData {
   document: ResolvedAnalysisDocument;
@@ -66,11 +68,18 @@ export async function resolveProject(
   return { bundle, snapshot: JSON.stringify(bundle) };
 }
 
-/** Read optional cached paper metadata independently from project resolution. */
-export function loadProjectPapers(
+/**
+ * Read optional cached paper metadata independently from project resolution.
+ * Without Lightcone's server there is no paper cache: cited arXiv papers are
+ * read from arXiv itself, and other papers link to their DOI.
+ */
+export async function loadProjectPapers(
   contents: Contents.IManager,
   document: ResolvedAnalysisDocument
 ): Promise<Record<string, InventoryPaperMetadata>> {
+  if (!hasLightconeServer()) {
+    return arxivPaperMetadata(document);
+  }
   return collectPaperMetadata(
     contents.serverSettings,
     collectCitedDois(document)

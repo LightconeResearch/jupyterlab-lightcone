@@ -16,6 +16,10 @@ import type { ISessionService } from '../../sessions/session-service';
 import { searchSessions, type ISessionInfo } from '../../sessions/sessions-api';
 import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { SearchController } from '../search-controller';
+import { withLightconeServer } from '../../__tests__/server-fixtures';
+
+// These behaviors belong to the full install, with Lightcone's server routes.
+withLightconeServer();
 
 // Jest does not transform Jupyter Chat's ES modules; only its icon is used.
 jest.mock('@jupyter/chat', () => ({ chatIcon: { name: 'chat' } }));
@@ -423,6 +427,10 @@ describe('SearchController', () => {
     jest.mocked(searchSessions).mockReset();
     const { controller } = harness(WORK, { withSessions: false });
     await controller.open();
+    // Nor promises sessions, as the browser-only install has none.
+    expect(controller.palette.inputNode.placeholder).toBe(
+      'Search work: results, files, commands'
+    );
     controller.palette.inputNode.value = 'residuals';
     controller.palette.inputNode.dispatchEvent(new Event('input'));
     await new Promise(resolve =>

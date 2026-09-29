@@ -373,7 +373,7 @@
   --jp-scrollbar-thumb-margin: 3.5px;
   --jp-scrollbar-thumb-radius: 0;
 
-  /* Lightcone extras read by Home and the sidebar; each has a JupyterLab
+  /* Lightcone extras read by Home and the sessions; each has a JupyterLab
    * fallback in the surfaces that read it. `--lc-paper` is the surface of
    * documents and panels (Home's composer and result plates), so it matches
    * `--jp-layout-color0` in both palettes and carries the UI text colors.

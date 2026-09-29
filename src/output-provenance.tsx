@@ -16,6 +16,7 @@ import {
 } from './code-access';
 import { isRootAnalysisOutput } from './materialization-status';
 import { projectDirectory } from './project-data';
+import { hasLightconeServer, serverReadsProject } from './server-features';
 import {
   ProvenanceTabs,
   recordedRevision,
@@ -79,6 +80,16 @@ export interface IJupyterOutputProvenanceProps {
   beforeOpenDocument?: () => void;
 }
 
+/**
+ * The record views' provenance slot: the run record, the script as it ran and
+ * the locked environment all come from Lightcone's server, so without it the
+ * section is left out (an undefined slot) rather than shown empty. The current
+ * script stays one click away through the code link.
+ */
+export function provenanceSlot<T>(render: T): T | undefined {
+  return hasLightconeServer() ? render : undefined;
+}
+
 /** Mounted only for the open output detail; never reads every output's record. */
 export function JupyterOutputProvenance({
   contents,
@@ -106,7 +117,7 @@ export function JupyterOutputProvenance({
     }
     if (
       !isRootAnalysisOutput(index, output) ||
-      contents.driveName(entrypoint)
+      !serverReadsProject(contents, entrypoint)
     ) {
       setResult({
         error: 'Run records require an output in a local root analysis.'

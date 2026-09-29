@@ -20,6 +20,7 @@ import { resolveElement } from './element-reference';
 import { useProject } from './project-data-hooks';
 import { isRootAnalysisOutput } from './materialization-status';
 import type { ILoadedProjectData } from './project-data';
+import { serverReadsProject } from './server-features';
 import { useProjectRenderers } from './project-renderers';
 import { LightconeThemeBinding } from './theme-adapter';
 import { CommandIDs } from './commands';
@@ -201,7 +202,7 @@ export function VersionedCard({
   const contents = app.serviceManager.contents;
   const comparable =
     isRootAnalysisOutput(data.index, output) &&
-    !contents.driveName(reference.entrypoint);
+    serverReadsProject(contents, reference.entrypoint);
   const settings = contents.serverSettings;
   const universe = data.document.universe.universeId;
   const target = useMemo<IVersionTarget | undefined>(

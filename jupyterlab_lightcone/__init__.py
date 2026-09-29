@@ -7,8 +7,6 @@ except ImportError:
     import warnings
     warnings.warn("Importing 'jupyterlab_lightcone' outside a proper installation.")
     __version__ = "dev"
-from .application import LightconeApp
-from .mystra import MySTRAApp
 
 
 def _jupyter_labextension_paths():
@@ -20,7 +18,20 @@ def _jupyter_labextension_paths():
 
 
 def _jupyter_server_extension_points():
-    """The server extensions Jupyter Server loads for this package."""
+    """The server extensions Jupyter Server loads for this package.
+
+    The routes need the `full` extra's dependencies. Without them only
+    `BrowserOnlyApp` loads, to say so in the server log, and the workbench
+    runs in the browser on Jupyter's own APIs. Imports wait until Jupyter
+    Server asks, so the frontend install never needs jupyter_server itself.
+    """
+    from .browser_only import BrowserOnlyApp, missing_dependency
+
+    if missing_dependency() is not None:
+        return [{"module": "jupyterlab_lightcone", "app": BrowserOnlyApp}]
+    from .application import LightconeApp
+    from .mystra import MySTRAApp
+
     return [
         {"module": "jupyterlab_lightcone", "app": LightconeApp},
         # TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
