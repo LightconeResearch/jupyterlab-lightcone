@@ -700,7 +700,7 @@ test('a comment pinned on a figure waits above the composer and travels with the
     timeout: 30000
   });
   await expect(received).toContainText('outputs.hubble_diagram');
-  await expect(received).toContainText('"Move the legend"');
+  await expect(received).toContainText(/["“]Move the legend["”]/);
   // The cards sit in the message's preamble, above its rendered body.
   const sent = page
     .locator('.jp-chat-message')
