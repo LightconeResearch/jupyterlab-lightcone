@@ -26,16 +26,16 @@ leaves out the server plugins and never calls these routes.
 AGENTS_OPTION = "lightconeAgents"
 """The page configuration option saying Jupyter AI chats can run Lightcone's agents.
 
-Published with the `full` extra installed. Without it the engine routes still
+Published with the `ai` extra installed. Without it the engine routes still
 load, and the frontend leaves out the chat plugins: agents run in a terminal.
 """
 
 AGENT_PACKAGES = ("jupyterlab_chat", "jupyter_ai_persona_manager")
-"""What the chat session and project agent routes import, from the `full` extra."""
+"""What the chat session and project agent routes import, from the `ai` extra."""
 
 
 def agents_installed() -> bool:
-    """Whether the `full` extra's Jupyter AI packages are installed, without importing them."""
+    """Whether the `ai` extra's Jupyter AI packages are installed, without importing them."""
     return all(is_installed(package) for package in AGENT_PACKAGES)
 
 
@@ -57,7 +57,7 @@ class LightconeApp(ExtensionApp):
         else:
             self.log.info(
                 "Lightcone's agents run in a terminal: Jupyter AI is not installed. "
-                "Chats with agents need pip install 'jupyterlab-lightcone[full]'."
+                "Chats with agents need pip install 'jupyterlab-lightcone[ai]'."
             )
 
     def _publish_server_root(self):
@@ -140,7 +140,7 @@ class LightconeApp(ExtensionApp):
         """Register the paper, project, materialization, provenance and session routes.
 
         The chat session and project agent routes import Jupyter Chat, so they
-        are registered, and imported, only with the `full` extra installed.
+        are registered, and imported, only with the `ai` extra installed.
         """
         app = self.serverapp.web_app
         setup_route_handlers(app)

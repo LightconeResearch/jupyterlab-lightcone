@@ -54,13 +54,13 @@ dependencies. It must work on a JupyterLab we cannot configure (a JupyterHub at
 a computing center), in the browser alone, on Jupyter's own Contents, files and
 terminal APIs. `pip install "jupyterlab-lightcone[engine]"` adds what the server
 routes need: the Lightcone engine, astra-tools, git history and the MyST CLI;
-agents then run in a terminal. `[full]` adds Jupyter AI and Jupyter Chat on
+agents then run in a terminal. `[ai]` adds Jupyter AI and Jupyter Chat on
 top, whose agents run in chats.
 
-- **✅ Do**: Add Python dependencies to the `engine` extra, or to `full` when only
+- **✅ Do**: Add Python dependencies to the `engine` extra, or to `ai` when only
   the chats need them, never to `dependencies`. Without the `engine` packages,
   `browser_only.BrowserOnlyApp` loads instead of the routes, and `LightconeApp`
-  publishes no `lightconeServer` page option. Without the `full` packages, it
+  publishes no `lightconeServer` page option. Without the `ai` packages, it
   publishes no `lightconeAgents` option and registers no chat routes
   (`application.agents_installed()`).
 - **✅ Do**: Check `hasLightconeServer()` (or `serverReadsProject()` for
@@ -74,7 +74,7 @@ top, whose agents run in chats.
   require a token only those provide.
 - **✅ Do**: Test each install. Suites run browser-only by default;
   `withLightconeServer()` (`src/__tests__/server-fixtures.ts`) runs a suite or
-  `describe` block as the full install, `withLightconeServer({ chatAgents:
+  `describe` block as the `ai` install, `withLightconeServer({ chatAgents:
 false })` as the engine install.
 - To see the browser-only workbench locally, start `jupyter lab` with a config
   file holding
@@ -554,7 +554,7 @@ source <path-to-venv>/bin/activate  # On macOS/Linux
    jlpm build
    ```
 5. **Install the extension** (REQUIRED for JupyterLab to recognize it; the
-   `dev` extra includes the server's `full` dependencies):
+   `dev` extra includes the server's `ai` dependencies):
    ```bash
    pip install -e ".[dev,test]"
    jupyter-builder develop . --overwrite

@@ -20,7 +20,7 @@ def _jupyter_labextension_paths():
 def _jupyter_server_extension_points():
     """The server extensions Jupyter Server loads for this package.
 
-    The routes need the `full` extra's dependencies. Without them only
+    The routes need the `engine` extra's dependencies. Without them only
     `BrowserOnlyApp` loads, to say so in the server log, and the workbench
     runs in the browser on Jupyter's own APIs. Imports wait until Jupyter
     Server asks, so the frontend install never needs jupyter_server itself.

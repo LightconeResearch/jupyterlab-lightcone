@@ -203,7 +203,7 @@ const serverPlugins: JupyterFrontEndPlugin<unknown>[] = [
 ];
 
 /**
- * What needs Jupyter AI and Jupyter Chat: the `jupyterlab-lightcone[full]`
+ * What needs Jupyter AI and Jupyter Chat: the `jupyterlab-lightcone[ai]`
  * install. Left unregistered without it, so no plugin waits for a chat
  * tracker that no extension provides; agents then run in a terminal.
  */

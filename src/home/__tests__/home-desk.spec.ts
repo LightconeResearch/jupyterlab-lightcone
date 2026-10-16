@@ -187,7 +187,7 @@ describe('the desk', () => {
       await until(() => h.query(`.${C}-terminal`) !== null);
       h.query<HTMLButtonElement>(`.${C}-terminal`)!.click();
       await flush();
-      // A plain shell: the full install's agents start from the composer.
+      // A plain shell: the `ai` install's agents start from the composer.
       expect(h.onOpenTerminal).toHaveBeenCalledWith('project');
     } finally {
       h.dispose();

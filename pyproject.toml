@@ -24,7 +24,8 @@ classifiers = [
 ]
 # The default install is the prebuilt frontend alone, which runs in the browser
 # on Jupyter's own APIs; it installs nothing into the server's environment. The
-# `full` extra adds the server routes' dependencies (see browser_only.py).
+# `engine` extra adds the server routes' dependencies (see browser_only.py), and
+# `ai` adds Jupyter AI on top.
 dependencies = []
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
@@ -47,7 +48,7 @@ engine = [
     "git-annex>=10.2026"
 ]
 # The engine, plus agents in Jupyter AI chats.
-full = [
+ai = [
     "jupyterlab-lightcone[engine]",
     "jupyter-ai>=3.2.0,<3.3",
     # Existing agent tools use these packages directly.
@@ -57,12 +58,12 @@ full = [
     "jupyterlab-chat>=0.25.0,<0.26"
 ]
 dev = [
-    "jupyterlab-lightcone[full]",
+    "jupyterlab-lightcone[ai]",
     "jupyterlab>=4.5.10,<5",
     "jupyter-builder>=1.2.0",
 ]
 test = [
-    "jupyterlab-lightcone[full]",
+    "jupyterlab-lightcone[ai]",
     "coverage",
     "pytest",
     "pytest-asyncio",

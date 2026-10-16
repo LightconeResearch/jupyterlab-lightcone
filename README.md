@@ -18,25 +18,7 @@ Lightcone Lab comes in three installs. Add it to the Python environment that
 runs JupyterLab, for example from JupyterLab's own terminal
 (**File › New › Terminal**), then restart JupyterLab.
 
-**Engine**, for a JupyterLab you run yourself, with the Lightcone engine and no
-Jupyter AI:
-
-```bash
-pip install "jupyterlab-lightcone[engine]"
-```
-
-**Full**, the engine plus agents in Jupyter AI chats:
-
-```bash
-pip install "jupyterlab-lightcone[full]"
-```
-
-Both need JupyterLab ≥ 4.5.10 (< 5) and Python ≥ 3.11 on a Linux or macOS
-server, with `git` and
-[`uv`](https://docs.astral.sh/uv/getting-started/installation/) on the server's
-`PATH`.
-
-**Workbench only**, for a JupyterLab you cannot configure, such as a JupyterHub
+**Workbench only**, the default, for a JupyterLab you cannot configure, such as a JupyterHub
 at a computing center:
 
 ```bash
@@ -48,9 +30,27 @@ lands in `~/.local/share/jupyter/labextensions`, where JupyterLab (≥ 4.5.10)
 looks for your own extensions; restart your server to load it (on JupyterHub,
 **File › Hub Control Panel › Stop My Server**, then start it again). The
 workbench runs in the browser on JupyterLab's own file and terminal services;
-[Features](#features) lists what needs the engine or full install. To run `lc` in its
+[Features](#features) lists what needs the engine or AI install. To run `lc` in its
 terminals, install [lightcone-cli](https://pypi.org/project/lightcone-cli/) in
 an environment they can use.
+
+**Engine**, for a JupyterLab you run yourself, with the Lightcone engine and no
+Jupyter AI:
+
+```bash
+pip install "jupyterlab-lightcone[engine]"
+```
+
+**AI**, the engine plus agents in Jupyter AI chats:
+
+```bash
+pip install "jupyterlab-lightcone[ai]"
+```
+
+Both need JupyterLab ≥ 4.5.10 (< 5) and Python ≥ 3.11 on a Linux or macOS
+server, with `git` and
+[`uv`](https://docs.astral.sh/uv/getting-started/installation/) on the server's
+`PATH`.
 
 ### Add an agent
 
@@ -60,7 +60,7 @@ agent such as [Claude Code](https://code.claude.com/docs/en/setup) or
 project folder (**File › New › Terminal**). Install and sign in to them where
 the server's terminals run.
 
-The full install works with the coding agents Jupyter AI connects to, but
+The AI install works with the coding agents Jupyter AI connects to, but
 none comes bundled. Install at least one on the server, sign in, add its adapter
 and restart JupyterLab; the agent then appears in the picker.
 
@@ -106,7 +106,7 @@ The engine install adds:
   preview the project's MyST report (needs Node.js ≥ 20 on the server)
 - **Project setup** by the server, without a terminal
 
-The full install adds, with Jupyter AI:
+The AI install adds, with Jupyter AI:
 
 - **Project-aware agents**: Jupyter AI sessions start at the project root,
   show results as rich cards, and list what each reply changed; Home starts

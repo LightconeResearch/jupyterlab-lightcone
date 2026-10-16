@@ -20,7 +20,7 @@ def tools() -> list[str]:
     """The tools `jupyter_server_mcp` loads through this package's entry point.
 
     None on a browser-only install: the tools read projects through the
-    routes' modules, which need the `full` extra. This module imports without
+    routes' modules, which need the `engine` extra. This module imports without
     them, so a server running Jupyter's MCP extension beside the browser-only
     install loads no tool rather than failing on the entry point.
     """

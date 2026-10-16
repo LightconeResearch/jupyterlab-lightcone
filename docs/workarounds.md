@@ -11,7 +11,7 @@ are confined to this extension; no dependency source is modified.
 
 **Where.** `jupyterlab_lightcone/__init__.py` (`_jupyter_server_extension_points`),
 `jupyterlab_lightcone/browser_only.py`, `pyproject.toml` (`dependencies = []`,
-the `full` extra).
+the `engine` extra).
 
 **What.** The default install has no dependencies, so it installs into a
 JupyterLab the user cannot configure (`pip install --user`) without touching
@@ -29,7 +29,7 @@ routes as their own distribution (say `jupyterlab-lightcone-server`, required by
 
 **Coverage.** `jupyterlab_lightcone/tests/test_browser_only.py` covers each
 missing dependency, a defect in the package, the log line and both servers;
-CI's isolated job installs the wheel alone, then with `[engine]` and with `[full]`.
+CI's isolated job installs the wheel alone, then with `[engine]` and with `[ai]`.
 
 ### The frontend learns about the server routes from the page configuration
 
@@ -1013,7 +1013,7 @@ Home's session listing (`src/home/home-view.tsx`, `useSessions`).
 
 **What and why.** Writes by agents, Git and the Lightcone engine do not emit
 `Contents.IManager.fileChanged`. Visible views poll project data,
-materialization states (full install) and session listings; local Contents
+materialization states (engine install) and session listings; local Contents
 changes refresh them promptly.
 
 **Upstream and removal.** Jupyter Server filesystem Contents events would

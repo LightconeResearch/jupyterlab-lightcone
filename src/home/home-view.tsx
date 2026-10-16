@@ -334,7 +334,7 @@ function HomeRoot({
     });
   }, [options, project.path, trans]);
   const title = data ? analysisTitle(data.document.analysis) : '';
-  // The desk starts Jupyter AI sessions, so only the full install has one;
+  // The desk starts Jupyter AI sessions, so only the `ai` install has one;
   // without it Home is the main column alone, and says where agents run.
   const chatAgents = hasChatAgents();
   const deskShown = chatAgents && Boolean(sessions && chatAvailable);

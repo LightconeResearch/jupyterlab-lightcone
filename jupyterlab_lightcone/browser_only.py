@@ -3,7 +3,7 @@
 `pip install jupyterlab-lightcone` installs the prebuilt frontend and this
 package without its dependencies, which is all a JupyterLab one cannot
 configure (a managed JupyterHub, say) takes. The `engine` extra adds what the
-routes need: the Lightcone engine, astra-tools and git history; the `full` extra
+routes need: the Lightcone engine, astra-tools and git history; the `ai` extra
 adds Jupyter AI and Jupyter Chat on top. The frontend tells them apart by the
 page options that `LightconeApp` publishes (`application.SERVER_OPTION` and
 `application.AGENTS_OPTION`).

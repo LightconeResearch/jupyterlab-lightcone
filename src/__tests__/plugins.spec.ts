@@ -72,7 +72,7 @@ it('leaves the chat plugins out of the engine install, without Jupyter AI', () =
   expect(loaded.filter(needsChat)).toEqual([]);
 });
 
-it('registers every plugin in the full install', () => {
+it('registers every plugin in the ai install', () => {
   const ids = plugins('true').map(plugin => plugin.id);
   expect(ids).toEqual(expect.arrayContaining(AGENT_PLUGINS));
   expect(new Set(ids).size).toBe(ids.length);
