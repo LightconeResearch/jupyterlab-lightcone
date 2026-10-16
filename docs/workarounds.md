@@ -33,14 +33,17 @@ CI's isolated job installs the wheel alone, then with `[engine]` and with `[ai]`
 
 ### The frontend learns about the server routes from the page configuration
 
-**Where.** `src/server-features.ts` (`hasLightconeServer`, `serverReadsProject`),
-`src/index.ts` (`browserPlugins`, `serverPlugins`),
-`jupyterlab_lightcone/application.py` (`SERVER_OPTION`).
+**Where.** `src/server-features.ts` (`hasLightconeServer`, `serverReadsProject`,
+`hasChatAgents`), `src/index.ts` (`browserPlugins`, `serverPlugins`,
+`chatAgentPlugins`), `jupyterlab_lightcone/application.py` (`SERVER_OPTION`,
+`AGENTS_OPTION`).
 
-**What.** `LightconeApp` publishes `lightconeServer` in the page configuration.
-Without it, `src/index.ts` registers none of the plugins built on the routes,
-Jupyter AI or Jupyter Chat, and the remaining features never ask for status,
-run records, version history or the paper cache.
+**What.** `LightconeApp` publishes `lightconeServer` in the page configuration,
+and `lightconeAgents` when Jupyter AI and Jupyter Chat are installed. Without
+`lightconeServer`, `src/index.ts` registers none of the plugins built on the
+routes, and the remaining features never ask for status, run records, version
+history or the paper cache. Without `lightconeAgents`, it registers none of the
+chat plugins, Home shows no desk and the current project is not reported.
 
 **Why.** JupyterLab tells a prebuilt extension neither which server extensions
 loaded nor whether a route exists, and a plugin requiring a token no extension
@@ -50,8 +53,8 @@ server without it). Probing the routes would cost a failed request per feature.
 **Upstream.** JupyterLab: the list of loaded server extensions in the page
 configuration.
 
-**Coverage.** `src/__tests__/plugins.spec.ts` loads the plugin list under both
-settings; `src/__tests__/server-features.spec.ts` and the suites of each gated
+**Coverage.** `src/__tests__/plugins.spec.ts` loads the plugin list under each
+install's settings; `src/__tests__/server-features.spec.ts` and the suites of each gated
 feature run with and without the option (`src/__tests__/server-fixtures.ts`).
 
 ### Papers are read from arXiv without the paper cache
@@ -83,14 +86,14 @@ the whole-document walk and both installs); `src/__tests__/project-renderers.spe
 ### Terminals are placed and typed into after JupyterLab opens them
 
 **Where.** `src/terminal.ts` (`openTerminal`, `terminalPlacement`,
-`terminalEnded`), used by Home's agent buttons and by project setup
+`terminalEnded`), used by Home's Open terminal button and by project setup
 (`src/commands.ts`, `initializeInTerminal`).
 
 **What.** `terminal:create-new` opens a terminal in a folder as a tab of the
 current area. The workbench then moves the tab beside the tab it was opened
-from (the column on its right, or a new one), and, once the connection is up
-and the shell's output has been quiet for a moment, types a command, pressing
-Enter for agents and for `lc init && exit`. At the server root the command
+from (the column on its right, or a new one). For project setup, once the
+connection is up and the shell's output has been quiet for a moment, it types
+`lc init && exit` and presses Enter. At the server root the command
 first runs `cd "$JUPYTER_SERVER_ROOT"`. Project setup waits for that terminal
 to end: the shell exits only when `lc init` succeeds, which disposes the
 connection as the server sends `disconnect`; the folder is then read again.
@@ -108,8 +111,8 @@ to the server root only, and the exit status of a terminal's process.
 
 **Coverage.** `src/__tests__/terminal.spec.ts` (placement, typing after the
 prompt, running, the end of a terminal), `src/__tests__/commands.spec.ts`
-(setup through a terminal) and `src/home/__tests__/home-desk.spec.ts` (the
-agent buttons).
+(setup through a terminal) and `src/home/__tests__/home-desk.spec.ts` (Home's
+Open terminal button).
 
 ## MySTRA viewer embedding
 

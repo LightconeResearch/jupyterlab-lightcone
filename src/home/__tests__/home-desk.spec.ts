@@ -161,6 +161,18 @@ async function chooseAgent(
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/** Home for a project on another Contents drive, where terminals cannot start. */
+function archiveHost(): ReturnType<typeof homeHost> {
+  const commands = new CommandRegistry();
+  commands.addCommand(TERMINAL_COMMAND, { execute: () => undefined });
+  return homeHost({
+    entries: { 'archive:project/astra.yaml': fileModel(RESULTS_SPEC) },
+    cwd: 'archive:project',
+    drives: ['archive'],
+    commands
+  });
+}
+
 describe('the desk', () => {
   // The desk and the results history need Lightcone's server routes.
   withLightconeServer();
@@ -189,6 +201,18 @@ describe('the desk', () => {
       await flush();
       // A plain shell: the `ai` install's agents start from the composer.
       expect(h.onOpenTerminal).toHaveBeenCalledWith('project');
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('offers no terminal for a project on another drive', async () => {
+    const h = archiveHost();
+    try {
+      await until(() => h.text().includes('Hubble project'));
+      await flush();
+      // A terminal would start in a same-named folder of the server's disk.
+      expect(h.query(`.${C}-terminal`)).toBeNull();
     } finally {
       h.dispose();
     }
@@ -224,32 +248,12 @@ describe('with the engine install, without Jupyter AI', () => {
 describe('without Lightcone’s server', () => {
   it('has no desk, and says where agents run', expectNoDesk);
 
-  it('offers no terminal for a project on another drive', async () => {
-    const commands = new CommandRegistry();
-    commands.addCommand(TERMINAL_COMMAND, { execute: () => undefined });
-    const h = homeHost({
-      entries: { 'archive:project/astra.yaml': fileModel(RESULTS_SPEC) },
-      cwd: 'archive:project',
-      drives: ['archive'],
-      commands
-    });
+  it('says nothing about terminals for a project on another drive', async () => {
+    const h = archiveHost();
     try {
       await until(() => h.text().includes('Hubble project'));
       await flush();
-      // A terminal would start in a same-named folder of the server's disk.
-      expect(h.query(`.${C}-desk`)).toBeNull();
-      expect(h.query(`.${C}-terminal`)).toBeNull();
-    } finally {
-      h.dispose();
-    }
-  });
-
-  it('leaves the desk out where the server offers no terminals', async () => {
-    const h = deskHost();
-    try {
-      await until(() => h.text().includes('Hubble project'));
-      await flush();
-      expect(h.query(`.${C}-desk`)).toBeNull();
+      expect(h.query(`.${C}-agentHint`)).toBeNull();
     } finally {
       h.dispose();
     }

@@ -10,7 +10,7 @@ import { forgetVersions, listVersionsCached } from '../version-cache';
 import type { IOutputVersion } from '../versions-api';
 import { withLightconeServer } from '../../__tests__/server-fixtures';
 
-// These behaviors need Lightcone's server routes, as the `ai` install has them.
+// These behaviors need Lightcone's server routes.
 withLightconeServer();
 
 jest.mock('../../project-data-hooks', () => ({ useProject: jest.fn() }));

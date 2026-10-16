@@ -3,7 +3,7 @@
 This guide provides coding standards and best practices for developing JupyterLab extensions. Follow these rules to align with community standards and keep your extension maintainable.
 
 **Extension type**: frontend-and-server, browser-first: the default install is
-the frontend alone (see "Browser-first: two installs" below)
+the frontend alone (see "Browser-first: three installs" below)
 
 ## TEMPORARY WORKAROUND: MySTRA Viewer (remove when possible)
 
@@ -67,15 +67,15 @@ top, whose agents run in chats.
   per-project reads) from `src/server-features.ts` before calling any route.
   When it is false, leave the feature out, or say which install it needs,
   never with an error. Prefer an implementation on the Contents API where one
-  can serve both installs.
+  can serve every install.
 - **✅ Do**: Register a plugin that needs the routes in `serverPlugins`, and one
   that needs Jupyter AI or Jupyter Chat in `chatAgentPlugins` (checked with
   `hasChatAgents()`), in `src/index.ts`; plugins in `browserPlugins` must not
   require a token only those provide.
 - **✅ Do**: Test each install. Suites run browser-only by default;
   `withLightconeServer()` (`src/__tests__/server-fixtures.ts`) runs a suite or
-  `describe` block as the `ai` install, `withLightconeServer({ chatAgents:
-false })` as the engine install.
+  `describe` block as the `ai` install, and
+  `withLightconeServer({ chatAgents: false })` as the engine install.
 - To see the browser-only workbench locally, start `jupyter lab` with a config
   file holding
   `c.ServerApp.jpserver_extensions.update({"jupyterlab_lightcone": False})`.

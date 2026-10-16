@@ -11,7 +11,7 @@ import { ProjectSubscription } from '../project-subscription';
 import { analysis, createContents, fileModel } from './project-fixtures';
 import { withLightconeServer } from './server-fixtures';
 
-// These behaviors need Lightcone's server routes, as the `ai` install has them.
+// These behaviors need Lightcone's server routes.
 withLightconeServer();
 
 jest.mock('../api', () => ({

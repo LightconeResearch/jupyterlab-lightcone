@@ -38,7 +38,7 @@ const CHAT_PLUGINS = [
   'jupyterlab_lightcone:comments'
 ];
 
-const AGENT_PLUGINS = [...CHAT_PLUGINS, 'jupyterlab_lightcone:mystra'];
+const SERVER_PLUGINS = [...CHAT_PLUGINS, 'jupyterlab_lightcone:mystra'];
 
 /** Whether a plugin cannot start without a token only Jupyter Chat or the agents provide. */
 function needsChat(plugin: JupyterFrontEndPlugin<unknown>): boolean {
@@ -55,7 +55,7 @@ it('leaves the plugins built on the server routes out of the browser-only instal
       'jupyterlab_lightcone:versions'
     ])
   );
-  for (const id of AGENT_PLUGINS) {
+  for (const id of SERVER_PLUGINS) {
     expect(ids).not.toContain(id);
   }
   // Nothing left waits for a token only Jupyter Chat or the agents provide.
@@ -74,6 +74,6 @@ it('leaves the chat plugins out of the engine install, without Jupyter AI', () =
 
 it('registers every plugin in the ai install', () => {
   const ids = plugins('true').map(plugin => plugin.id);
-  expect(ids).toEqual(expect.arrayContaining(AGENT_PLUGINS));
+  expect(ids).toEqual(expect.arrayContaining(SERVER_PLUGINS));
   expect(new Set(ids).size).toBe(ids.length);
 });

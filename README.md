@@ -18,8 +18,8 @@ Lightcone Lab comes in three installs. Add it to the Python environment that
 runs JupyterLab, for example from JupyterLab's own terminal
 (**File › New › Terminal**), then restart JupyterLab.
 
-**Workbench only**, the default, for a JupyterLab you cannot configure, such as a JupyterHub
-at a computing center:
+**Workbench only**, the default, for a JupyterLab you cannot configure, such
+as a JupyterHub at a computing center:
 
 ```bash
 pip install --user jupyterlab-lightcone
@@ -30,9 +30,9 @@ lands in `~/.local/share/jupyter/labextensions`, where JupyterLab (≥ 4.5.10)
 looks for your own extensions; restart your server to load it (on JupyterHub,
 **File › Hub Control Panel › Stop My Server**, then start it again). The
 workbench runs in the browser on JupyterLab's own file and terminal services;
-[Features](#features) lists what needs the engine or AI install. To run `lc` in its
-terminals, install [lightcone-cli](https://pypi.org/project/lightcone-cli/) in
-an environment they can use.
+[Features](#features) lists what needs the engine or AI install. To run `lc`
+in its terminals, install [lightcone-cli](https://pypi.org/project/lightcone-cli/)
+in an environment they can use.
 
 **Engine**, for a JupyterLab you run yourself, with the Lightcone engine and no
 Jupyter AI:
@@ -84,10 +84,10 @@ and restart JupyterLab; the agent then appears in the picker.
 
 ## Features
 
-Both installs:
+Every install:
 
 - **Project Home**: title, description and latest results in every launcher
-  tab inside a project, with a terminal in the project folder one click away
+  tab inside a project
 - **ASTRA inventory**: outputs, decisions, inputs, findings and cited papers,
   with figure and table previews
 - **Pipeline**: trace what feeds a result and what depends on it

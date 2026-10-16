@@ -474,13 +474,13 @@ function HomeRoot({
                 </button>
               ) : null}
             </div>
-            {chatAgents ? null : (
+            {!chatAgents && terminalAvailable ? (
               <p className={`${CLASS}-agentHint`}>
                 {trans.__(
                   'Run your agent, such as Claude Code or Codex, in a terminal in the project folder.'
                 )}
               </p>
-            )}
+            ) : null}
           </section>
           {data ? (
             <ResultsSection

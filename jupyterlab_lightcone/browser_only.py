@@ -17,6 +17,9 @@ from jupyter_server.extension.application import ExtensionApp
 ENGINE_INSTALL = "pip install 'jupyterlab-lightcone[engine]'"
 """The command that adds the server routes."""
 
+AI_INSTALL = "pip install 'jupyterlab-lightcone[ai]'"
+"""The command that adds Jupyter AI's chats on top of the routes."""
+
 
 def is_installed(package: str) -> bool:
     """Whether a top-level package can be found, without importing it."""

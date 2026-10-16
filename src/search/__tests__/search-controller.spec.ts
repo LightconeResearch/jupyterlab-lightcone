@@ -18,7 +18,7 @@ import { createContents, fileModel } from '../../__tests__/project-fixtures';
 import { SearchController } from '../search-controller';
 import { withLightconeServer } from '../../__tests__/server-fixtures';
 
-// These behaviors need Lightcone's server routes, as the `ai` install has them.
+// These behaviors need Lightcone's server routes.
 withLightconeServer();
 
 // Jest does not transform Jupyter Chat's ES modules; only its icon is used.

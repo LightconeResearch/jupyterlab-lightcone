@@ -7,7 +7,7 @@ from jupyter_server.extension.application import ExtensionApp
 
 from .agent_activity import watch_persona_activity
 from .agent_tools import add_server_instructions
-from .browser_only import is_installed
+from .browser_only import AI_INSTALL, is_installed
 from .comments import COMMENT_DELIVERY, setup_comment_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
@@ -57,7 +57,8 @@ class LightconeApp(ExtensionApp):
         else:
             self.log.info(
                 "Lightcone's agents run in a terminal: Jupyter AI is not installed. "
-                "Chats with agents need pip install 'jupyterlab-lightcone[ai]'."
+                "Chats with agents need %s.",
+                AI_INSTALL,
             )
 
     def _publish_server_root(self):
