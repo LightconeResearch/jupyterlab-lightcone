@@ -110,8 +110,8 @@ export interface IHomeViewOptions {
   translator?: ITranslator;
   /** Open the Tools menu below the given button. */
   onOpenTools: (anchor: HTMLElement) => void;
-  /** Open a terminal in a folder beside Home, running a command there when given. */
-  onOpenTerminal: (cwd: string, command?: string) => Promise<void>;
+  /** Open a terminal in a folder beside Home. */
+  onOpenTerminal: (cwd: string) => Promise<void>;
 }
 
 /** The project front page rendered inside a launcher tab. */
@@ -324,25 +324,19 @@ function HomeRoot({
   const terminalAvailable =
     useHasCommand(commands, TERMINAL_COMMAND) &&
     !contents.driveName(project.path);
-  // A terminal in the project folder, starting an agent when given its command.
-  const launchTerminal = useCallback(
-    (command?: string) => {
-      options.onOpenTerminal(project.path, command).catch(reason => {
-        void showErrorMessage(
-          trans.__('Could not open a terminal'),
-          reason instanceof Error ? reason : String(reason)
-        );
-      });
-    },
-    [options, project.path, trans]
-  );
+  // A terminal in the project folder.
+  const launchTerminal = useCallback(() => {
+    options.onOpenTerminal(project.path).catch(reason => {
+      void showErrorMessage(
+        trans.__('Could not open a terminal'),
+        reason instanceof Error ? reason : String(reason)
+      );
+    });
+  }, [options, project.path, trans]);
   const title = data ? analysisTitle(data.document.analysis) : '';
-  // The `ai` install's desk starts Jupyter AI sessions; without it, coding
-  // agents run in a terminal, which the desk column then opens.
-  const agentsInChat = hasChatAgents();
-  const chatDesk = agentsInChat && Boolean(sessions && chatAvailable);
-  const terminalDesk = !agentsInChat && terminalAvailable;
-  const deskShown = chatDesk || terminalDesk;
+  // The desk starts Jupyter AI sessions, so only the `ai` install has one;
+  // without it Home is the main column alone, with a terminal one click away.
+  const deskShown = hasChatAgents() && Boolean(sessions && chatAvailable);
   return (
     <div className={`${CLASS}-page`}>
       {/* The running head: the page's one identity line, and the stock
@@ -359,40 +353,6 @@ function HomeRoot({
         <span className={`${CLASS}-path`} title={project.entrypoint}>
           {project.path || '/'}
         </span>
-        {/* The Agents card's buttons, for a Home too narrow for the card:
-            the stylesheet shows one or the other. */}
-        {terminalDesk ? (
-          <span
-            className={`${CLASS}-headerAgents`}
-            role="group"
-            aria-label={trans.__('Agents')}
-          >
-            {TERMINAL_AGENTS.map(agent => (
-              <button
-                key={agent.command}
-                type="button"
-                className={`${CLASS}-headerAgent`}
-                title={trans.__(
-                  'Run %1 in a new terminal in the project folder',
-                  agent.command
-                )}
-                onClick={() => launchTerminal(agent.command)}
-              >
-                <HomeGlyph name="prompt" />
-                <code>{agent.command}</code>
-              </button>
-            ))}
-            <button
-              type="button"
-              className={`${CLASS}-headerAgent`}
-              title={trans.__('Open a plain terminal in the project folder')}
-              aria-label={trans.__('Open a plain terminal')}
-              onClick={() => launchTerminal()}
-            >
-              <HomeGlyph name="prompt" />
-            </button>
-          </span>
-        ) : null}
         <button
           type="button"
           className={`${CLASS}-tools`}
@@ -502,7 +462,7 @@ function HomeRoot({
                 <astraIcon.react tag="span" className={`${CLASS}-actionIcon`} />
                 {trans.__('Open ASTRA')}
               </button>
-              {agentsInChat && terminalAvailable ? (
+              {terminalAvailable ? (
                 <button
                   type="button"
                   className={`${CLASS}-terminal`}
@@ -525,8 +485,7 @@ function HomeRoot({
             />
           ) : null}
         </div>
-        {terminalDesk ? <AgentsDesk onOpenTerminal={launchTerminal} /> : null}
-        {chatDesk && sessions ? (
+        {deskShown && sessions ? (
           <Desk
             sessions={sessions}
             personas={options.personas}
@@ -933,66 +892,6 @@ function ProjectBadges({ data }: IProjectBadgesProps): React.ReactElement {
         </li>
       ))}
     </ul>
-  );
-}
-
-/** Coding agents a terminal can start, by the command that starts each. */
-const TERMINAL_AGENTS = [
-  { command: 'claude', name: 'Claude Code' },
-  { command: 'codex', name: 'Codex' }
-];
-
-/**
- * The desk without Jupyter AI, as the browser-only install has it: coding
- * agents run in a terminal, opened at the project's folder so that they, and
- * `lc`, find its `astra.yaml`. Each agent's button starts it in a new
- * terminal.
- */
-function AgentsDesk({
-  onOpenTerminal
-}: {
-  onOpenTerminal: (command?: string) => void;
-}): React.ReactElement {
-  const trans = useContext(TransContext);
-  return (
-    <aside className={`${CLASS}-desk`} aria-label={trans.__('Desk')}>
-      <section className={`${CLASS}-agents`} aria-label={trans.__('Agents')}>
-        <div className={`${CLASS}-sectionHead`}>
-          <h2 className={`${CLASS}-heading`}>{trans.__('Agents')}</h2>
-        </div>
-        <p className={`${CLASS}-agentsLead`}>
-          {trans.__(
-            'Start a coding agent in a terminal at the project folder.'
-          )}
-        </p>
-        <ul className={`${CLASS}-agentCommands`}>
-          {TERMINAL_AGENTS.map(agent => (
-            <li key={agent.command}>
-              <button
-                type="button"
-                className={`${CLASS}-agentLaunch`}
-                title={trans.__(
-                  'Run %1 in a new terminal in the project folder',
-                  agent.command
-                )}
-                onClick={() => onOpenTerminal(agent.command)}
-              >
-                <HomeGlyph name="prompt" />
-                <code>{agent.command}</code>
-                <span>{agent.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <button
-          type="button"
-          className={`${CLASS}-link`}
-          onClick={() => onOpenTerminal()}
-        >
-          {trans.__('Open a plain terminal')}
-        </button>
-      </section>
-    </aside>
   );
 }
 

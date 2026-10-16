@@ -185,83 +185,44 @@ describe('the desk', () => {
     const h = deskHost({ terminal: true });
     try {
       await until(() => h.query(`.${C}-terminal`) !== null);
-      expect(h.query(`.${C}-agents`)).toBeNull();
-      expect(h.query(`.${C}-headerAgents`)).toBeNull();
       h.query<HTMLButtonElement>(`.${C}-terminal`)!.click();
       await flush();
       // A plain shell: the full install's agents start from the composer.
-      expect(h.onOpenTerminal).toHaveBeenCalledWith('project', undefined);
+      expect(h.onOpenTerminal).toHaveBeenCalledWith('project');
     } finally {
       h.dispose();
     }
   });
 });
+
+/**
+ * Without Jupyter AI, Home has no desk: the main column alone, with a plain
+ * terminal in the project folder beside Open ASTRA.
+ */
+async function expectNoDesk(): Promise<void> {
+  const h = deskHost({ terminal: true });
+  try {
+    await until(() => h.query(`.${C}-terminal`) !== null);
+    expect(h.query(`.${C}-desk`)).toBeNull();
+    expect(h.textarea()).toBeNull();
+    expect(h.query(`.${C}-sessions`)).toBeNull();
+    expect(h.query(`.${C}-body`)?.getAttribute('data-desk')).toBe('false');
+    h.query<HTMLButtonElement>(`.${C}-terminal`)!.click();
+    await flush();
+    expect(h.onOpenTerminal).toHaveBeenCalledWith('project');
+  } finally {
+    h.dispose();
+  }
+}
 
 describe('with the engine install, without Jupyter AI', () => {
   withLightconeServer({ chatAgents: false });
 
-  it('starts coding agents in a terminal, as the browser-only desk does', async () => {
-    const h = deskHost({ terminal: true });
-    try {
-      await until(() => h.query(`.${C}-agents`) !== null);
-      expect(h.textarea()).toBeNull();
-      expect(h.query(`.${C}-sessions`)).toBeNull();
-      const launches = h.queryAll<HTMLButtonElement>(`.${C}-agentLaunch`);
-      expect(launches.map(button => button.textContent)).toEqual([
-        'claudeClaude Code',
-        'codexCodex'
-      ]);
-      launches[0].click();
-      await flush();
-      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'claude');
-    } finally {
-      h.dispose();
-    }
-  });
+  it('has no desk, and a terminal one click away', expectNoDesk);
 });
 
 describe('without Lightcone’s server', () => {
-  it('opens a terminal in the project with the chosen agent’s command typed in', async () => {
-    const h = deskHost({ terminal: true });
-    try {
-      await until(() => h.query(`.${C}-agents`) !== null);
-      // Jupyter AI's composer and sessions belong to the full install.
-      expect(h.textarea()).toBeNull();
-      expect(h.query(`.${C}-sessions`)).toBeNull();
-      expect(h.query(`.${C}-terminal`)).toBeNull();
-      const launches = h.queryAll<HTMLButtonElement>(`.${C}-agentLaunch`);
-      expect(launches.map(button => button.textContent)).toEqual([
-        'claudeClaude Code',
-        'codexCodex'
-      ]);
-      launches[0].click();
-      await flush();
-      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'claude');
-      launches[1].click();
-      await flush();
-      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'codex');
-      // A plain shell is one link further.
-      h.query<HTMLButtonElement>(`.${C}-agents .${C}-link`)!.click();
-      await flush();
-      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', undefined);
-      // The header's small buttons, for a narrow Home, start the same agents.
-      const small = h.queryAll<HTMLButtonElement>(`.${C}-headerAgent`);
-      expect(small.map(button => button.textContent)).toEqual([
-        'claude',
-        'codex',
-        ''
-      ]);
-      small[1].click();
-      await flush();
-      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'codex');
-      expect(small[2].getAttribute('aria-label')).toBe('Open a plain terminal');
-      small[2].click();
-      await flush();
-      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', undefined);
-    } finally {
-      h.dispose();
-    }
-  });
+  it('has no desk, and a terminal one click away', expectNoDesk);
 
   it('offers no terminal for a project on another drive', async () => {
     const commands = new CommandRegistry();
@@ -277,7 +238,7 @@ describe('without Lightcone’s server', () => {
       await flush();
       // A terminal would start in a same-named folder of the server's disk.
       expect(h.query(`.${C}-desk`)).toBeNull();
-      expect(h.query(`.${C}-headerAgents`)).toBeNull();
+      expect(h.query(`.${C}-terminal`)).toBeNull();
     } finally {
       h.dispose();
     }

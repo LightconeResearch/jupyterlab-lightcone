@@ -18,8 +18,8 @@ Lightcone Lab comes in three installs. Add it to the Python environment that
 runs JupyterLab, for example from JupyterLab's own terminal
 (**File › New › Terminal**), then restart JupyterLab.
 
-**Engine**, for a JupyterLab you run yourself, with the Lightcone engine;
-agents (Claude Code, Codex) run in a terminal beside the project:
+**Engine**, for a JupyterLab you run yourself, with the Lightcone engine and no
+Jupyter AI:
 
 ```bash
 pip install "jupyterlab-lightcone[engine]"
@@ -54,14 +54,13 @@ an environment they can use.
 
 ### Add an agent
 
-Without Jupyter AI (the workbench alone or the engine install), agents run in a
-terminal: the **claude** and **codex**
-buttons on a project's Home start
-[Claude Code](https://code.claude.com/docs/en/setup) or
-[Codex](https://developers.openai.com/codex/cli) in a terminal beside it, in the
-project folder. Install and sign in to them where the server's terminals run.
+Without Jupyter AI (the workbench alone or the engine install), run a coding
+agent such as [Claude Code](https://code.claude.com/docs/en/setup) or
+[Codex](https://developers.openai.com/codex/cli) yourself: **Open terminal** on
+a project's Home opens one in the project folder. Install and sign in to them
+where the server's terminals run.
 
-The full install also works with the coding agents Jupyter AI connects to, but
+The full install works with the coding agents Jupyter AI connects to, but
 none comes bundled. Install at least one on the server, sign in, add its adapter
 and restart JupyterLab; the agent then appears in the picker.
 
@@ -76,8 +75,8 @@ and restart JupyterLab; the agent then appears in the picker.
    holding an `astra.yaml`. On the workbench alone, setup runs `lc init` in a
    terminal beside the form, and the project opens once it is done.
 2. The launcher becomes the project's **Home**: pick an agent, describe what you
-   want to do, and press **Start**; on the workbench alone, choose **claude**
-   or **codex** to start one in a terminal beside Home.
+   want to do, and press **Start**; without Jupyter AI, choose **Open terminal**
+   and start your agent there.
 3. Open results and let the agent iterate. Lightcone keeps track of what
    changed.
 
