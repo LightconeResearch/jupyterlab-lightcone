@@ -24,7 +24,8 @@ classifiers = [
 ]
 # The default install is the prebuilt frontend alone, which runs in the browser
 # on Jupyter's own APIs; it installs nothing into the server's environment. The
-# `full` extra adds the server routes' dependencies (see browser_only.py).
+# `engine` extra adds the server routes' dependencies (see browser_only.py), and
+# `ai` adds Jupyter AI on top.
 dependencies = []
 dynamic = ["version", "description", "authors", "urls", "keywords"]
 
@@ -32,18 +33,13 @@ dynamic = ["version", "description", "authors", "urls", "keywords"]
 lightcone = "jupyterlab_lightcone.agent_tools:tools"
 
 [project.optional-dependencies]
-full = [
+# The server routes: run history, freshness, versions and the paper cache.
+engine = [
     "jupyter_server>=2.13.0,<3",
     "astra-tools==0.2.18",
     # The engine is called in-process and promises no stable API: raise the
     # cap only once the suite passes against the new minor release.
     "lightcone-cli>=0.5.0rc4,<0.6",
-    "jupyter-ai>=3.2.0,<3.3",
-    # Existing agent tools use these packages directly.
-    "jupyter-server-mcp>=0.3.0,<0.4",
-    "jupyterlab-commands-toolkit>=0.2.0,<0.3",
-    "jupyter-ai-persona-manager>=0.2.0,<0.3",
-    "jupyterlab-chat>=0.25.0,<0.26",
     # TEMPORARY, for the MySTRA Viewer: the MyST CLI it runs (Node.js >= 20 is
     # still required).
     "mystmd>=1.10.1",
@@ -51,13 +47,23 @@ full = [
     "dulwich>=1.0",
     "git-annex>=10.2026"
 ]
+# The engine, plus agents in Jupyter AI chats.
+ai = [
+    "jupyterlab-lightcone[engine]",
+    "jupyter-ai>=3.2.0,<3.3",
+    # Existing agent tools use these packages directly.
+    "jupyter-server-mcp>=0.3.0,<0.4",
+    "jupyterlab-commands-toolkit>=0.2.0,<0.3",
+    "jupyter-ai-persona-manager>=0.2.0,<0.3",
+    "jupyterlab-chat>=0.25.0,<0.26"
+]
 dev = [
-    "jupyterlab-lightcone[full]",
+    "jupyterlab-lightcone[ai]",
     "jupyterlab>=4.5.10,<5",
     "jupyter-builder>=1.2.0",
 ]
 test = [
-    "jupyterlab-lightcone[full]",
+    "jupyterlab-lightcone[ai]",
     "coverage",
     "pytest",
     "pytest-asyncio",

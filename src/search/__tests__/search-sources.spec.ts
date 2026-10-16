@@ -19,7 +19,7 @@ import { FILE_LISTING_TTL, SearchSources } from '../search-sources';
 import type { IRecordsUpdate } from '../search-sources';
 import { withLightconeServer } from '../../__tests__/server-fixtures';
 
-// These behaviors belong to the full install, with Lightcone's server routes.
+// These behaviors need Lightcone's server routes.
 withLightconeServer();
 
 // Jest does not transform Jupyter Chat's ES modules; only its icon is used.

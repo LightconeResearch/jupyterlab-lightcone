@@ -1,4 +1,4 @@
-"""The default install runs in the browser; the `full` extra adds the routes."""
+"""The default install runs in the browser; `engine` adds the routes, `ai` the chats."""
 
 import importlib
 import sys
@@ -9,7 +9,7 @@ from tornado.httpclient import HTTPClientError
 
 import jupyterlab_lightcone
 from jupyterlab_lightcone import browser_only
-from jupyterlab_lightcone.application import SERVER_OPTION
+from jupyterlab_lightcone.application import AGENTS_OPTION, SERVER_OPTION
 
 PACKAGE = "jupyterlab_lightcone"
 
@@ -32,8 +32,14 @@ def uninstall(monkeypatch, package):
 
 @pytest.fixture
 def without_dulwich(monkeypatch):
-    """A server environment without the `full` extra's git reader."""
+    """A server environment without the `engine` extra's git reader."""
     uninstall(monkeypatch, "dulwich")
+
+
+@pytest.fixture
+def without_jupyter_chat(monkeypatch):
+    """A server environment with the `engine` extra and without the `ai` one."""
+    uninstall(monkeypatch, "jupyterlab_chat")
 
 
 def test_the_full_install_loads_the_routes_and_the_viewer():
@@ -45,7 +51,7 @@ def test_the_full_install_loads_the_routes_and_the_viewer():
     ]
 
 
-@pytest.mark.parametrize("package", ["lightcone", "astra", "dulwich", "jupyterlab_chat"])
+@pytest.mark.parametrize("package", ["lightcone", "astra", "dulwich"])
 def test_a_missing_dependency_leaves_the_workbench_to_the_browser(monkeypatch, package):
     uninstall(monkeypatch, package)
     assert browser_only.missing_dependency() == package
@@ -85,15 +91,34 @@ def test_the_log_names_what_is_missing_and_the_install_that_adds_it(without_dulw
     browser_only.BrowserOnlyApp.initialize_settings(app)
     assert messages == [
         "Lightcone Lab runs in the browser only: dulwich is not installed. "
-        "Agents, run history, freshness and the paper cache need "
-        "pip install 'jupyterlab-lightcone[full]'."
+        "Run history, freshness and the paper cache need "
+        "pip install 'jupyterlab-lightcone[engine]'."
     ]
 
 
 async def test_the_full_server_announces_its_routes(jp_serverapp, jp_fetch):
-    assert jp_serverapp.web_app.settings["page_config_data"][SERVER_OPTION] == "true"
+    page_config = jp_serverapp.web_app.settings["page_config_data"]
+    assert page_config[SERVER_OPTION] == "true"
+    assert page_config[AGENTS_OPTION] == "true"
     response = await jp_fetch(PACKAGE, "api", "projects", params={"path": "."})
     assert response.code == 200
+
+
+def test_the_engine_loads_the_routes_without_jupyter_ai(without_jupyter_chat):
+    assert browser_only.missing_dependency() is None
+    points = jupyterlab_lightcone._jupyter_server_extension_points()
+    assert [point["app"].__name__ for point in points] == ["LightconeApp", "MySTRAApp"]
+
+
+async def test_the_engine_server_announces_its_routes_and_no_chats(without_jupyter_chat, jp_serverapp, jp_fetch):
+    page_config = jp_serverapp.web_app.settings["page_config_data"]
+    assert page_config[SERVER_OPTION] == "true"
+    assert AGENTS_OPTION not in page_config
+    response = await jp_fetch(PACKAGE, "api", "projects", params={"path": "."})
+    assert response.code == 200
+    with pytest.raises(HTTPClientError) as error:
+        await jp_fetch(PACKAGE, "api", "chat-sessions", params={"path": "astra.yaml"})
+    assert error.value.code == 404
 
 
 async def test_a_browser_only_server_has_no_routes_to_announce(without_dulwich, jp_serverapp, jp_fetch):

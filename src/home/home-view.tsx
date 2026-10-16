@@ -61,7 +61,7 @@ import { outputKindLabel } from '../output-kind';
 import { listOutputs } from '../project-outputs';
 import { LightconeThemeBinding } from '../theme-adapter';
 import { PipelineCommandIDs } from '../versions/pipeline-commands';
-import { hasLightconeServer, serverReadsProject } from '../server-features';
+import { hasChatAgents, serverReadsProject } from '../server-features';
 import { PipelineGlyph } from '../versions/pipeline-glyph';
 import { listResultsCommits } from '../versions/versions-api';
 import { CREATE_CHAT_COMMAND, TERMINAL_COMMAND } from '../workbench-ids';
@@ -337,9 +337,9 @@ function HomeRoot({
     [options, project.path, trans]
   );
   const title = data ? analysisTitle(data.document.analysis) : '';
-  // The full install's desk starts Jupyter AI sessions; without it, coding
+  // The `ai` install's desk starts Jupyter AI sessions; without it, coding
   // agents run in a terminal, which the desk column then opens.
-  const agentsInChat = hasLightconeServer();
+  const agentsInChat = hasChatAgents();
   const chatDesk = agentsInChat && Boolean(sessions && chatAvailable);
   const terminalDesk = !agentsInChat && terminalAvailable;
   const deskShown = chatDesk || terminalDesk;

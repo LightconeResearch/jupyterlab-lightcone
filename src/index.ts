@@ -23,7 +23,7 @@ import { homePlugin } from './home';
 import { HomeCommandIDs } from './home/home-commands';
 import { mentionsPlugin } from './mentions';
 import { searchPlugin } from './search';
-import { hasLightconeServer } from './server-features';
+import { hasChatAgents, hasLightconeServer } from './server-features';
 import { tabLabelsPlugin } from './tab-labels';
 import {
   focusLayoutPlugin,
@@ -196,12 +196,18 @@ const browserPlugins: JupyterFrontEndPlugin<unknown>[] = [
   tabLabelsPlugin
 ];
 
-/**
- * What needs Lightcone's server routes, and with them Jupyter AI and Jupyter
- * Chat: the `jupyterlab-lightcone[full]` install. Left unregistered without
- * it, so no plugin waits for a chat tracker that no extension provides.
- */
+/** What needs Lightcone's server routes: the `jupyterlab-lightcone[engine]` install. */
 const serverPlugins: JupyterFrontEndPlugin<unknown>[] = [
+  // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
+  mystraPlugin
+];
+
+/**
+ * What needs Jupyter AI and Jupyter Chat: the `jupyterlab-lightcone[ai]`
+ * install. Left unregistered without it, so no plugin waits for a chat
+ * tracker that no extension provides; agents then run in a terminal.
+ */
+const chatAgentPlugins: JupyterFrontEndPlugin<unknown>[] = [
   sessionsPlugin,
   sessionPlaceholderPlugin,
   agentContinuityPlugin,
@@ -209,11 +215,11 @@ const serverPlugins: JupyterFrontEndPlugin<unknown>[] = [
   chatPlugin,
   chatLinksPlugin,
   mentionsPlugin,
-  commentsPlugin,
-  // TEMPORARY: the MySTRA Viewer workaround; see AGENTS.md.
-  mystraPlugin
+  commentsPlugin
 ];
 
-export default hasLightconeServer()
-  ? [...browserPlugins, ...serverPlugins]
-  : browserPlugins;
+export default [
+  ...browserPlugins,
+  ...(hasLightconeServer() ? serverPlugins : []),
+  ...(hasChatAgents() ? chatAgentPlugins : [])
+];

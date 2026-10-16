@@ -5,7 +5,7 @@ import { PromiseDelegate } from '@lumino/coreutils';
 import { inspectFolder, ProjectSetup } from '../project-setup';
 import type { IProjectFolder } from '../api';
 
-// The server's inspection and engine, as the full install hands them over.
+// The server's inspection and engine, as the engine install hands them over.
 const inspect = jest.fn<Promise<IProjectFolder>, [string]>();
 const initialize = jest.fn<Promise<IProjectFolder>, [string]>();
 

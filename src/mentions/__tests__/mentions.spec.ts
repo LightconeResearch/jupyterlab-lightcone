@@ -18,7 +18,7 @@ import {
 } from '../index';
 import { withLightconeServer } from '../../__tests__/server-fixtures';
 
-// These behaviors belong to the full install, with Lightcone's server routes.
+// These behaviors need Lightcone's server routes.
 withLightconeServer();
 
 jest.mock('@jupyter/chat', () => {

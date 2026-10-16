@@ -3,7 +3,7 @@
 This guide provides coding standards and best practices for developing JupyterLab extensions. Follow these rules to align with community standards and keep your extension maintainable.
 
 **Extension type**: frontend-and-server, browser-first: the default install is
-the frontend alone (see "Browser-first: two installs" below)
+the frontend alone (see "Browser-first: three installs" below)
 
 ## TEMPORARY WORKAROUND: MySTRA Viewer (remove when possible)
 
@@ -32,7 +32,7 @@ imports it:
 They are registered in exactly three places: the extension point in
 `jupyterlab_lightcone/__init__.py`, the plugin in `src/index.ts` and the
 stylesheet import in `style/index.css`. The MyST CLI it runs is the `mystmd`
-dependency of the `full` extra in `pyproject.toml`, which nothing else uses.
+dependency of the `engine` extra in `pyproject.toml`, which nothing else uses.
 Keep it that way: MySTRA code may use shared helpers, but shared code must
 never import MySTRA.
 
@@ -47,29 +47,35 @@ dependency, and drop the matching `mystra-viewer.v1` support from
 `astra-theme`. Do not extend this hack to further themes or generalize it;
 keep changes to it minimal and bug-fix only.
 
-## Browser-first: two installs
+## Browser-first: three installs
 
 `pip install jupyterlab-lightcone` installs the prebuilt frontend and no
 dependencies. It must work on a JupyterLab we cannot configure (a JupyterHub at
 a computing center), in the browser alone, on Jupyter's own Contents, files and
-terminal APIs. `pip install "jupyterlab-lightcone[full]"` adds what the server
-routes need: the Lightcone engine, astra-tools, git history, Jupyter AI,
-Jupyter Chat and the MyST CLI.
+terminal APIs. `pip install "jupyterlab-lightcone[engine]"` adds what the server
+routes need: the Lightcone engine, astra-tools, git history and the MyST CLI;
+agents then run in a terminal. `[ai]` adds Jupyter AI and Jupyter Chat on
+top, whose agents run in chats.
 
-- **✅ Do**: Add Python dependencies to the `full` extra, never to
-  `dependencies`. Without them `browser_only.BrowserOnlyApp` loads instead of
-  the routes, and `LightconeApp` publishes no `lightconeServer` page option.
+- **✅ Do**: Add Python dependencies to the `engine` extra, or to `ai` when only
+  the chats need them, never to `dependencies`. Without the `engine` packages,
+  `browser_only.BrowserOnlyApp` loads instead of the routes, and `LightconeApp`
+  publishes no `lightconeServer` page option. Without the `ai` packages, it
+  publishes no `lightconeAgents` option and registers no chat routes
+  (`application.agents_installed()`).
 - **✅ Do**: Check `hasLightconeServer()` (or `serverReadsProject()` for
   per-project reads) from `src/server-features.ts` before calling any route.
   When it is false, leave the feature out, or say which install it needs,
   never with an error. Prefer an implementation on the Contents API where one
-  can serve both installs.
-- **✅ Do**: Register a plugin that needs the routes, Jupyter AI or Jupyter Chat
-  in `serverPlugins` in `src/index.ts`; plugins in `browserPlugins` must not
+  can serve every install.
+- **✅ Do**: Register a plugin that needs the routes in `serverPlugins`, and one
+  that needs Jupyter AI or Jupyter Chat in `chatAgentPlugins` (checked with
+  `hasChatAgents()`), in `src/index.ts`; plugins in `browserPlugins` must not
   require a token only those provide.
-- **✅ Do**: Test both installs. Suites run browser-only by default;
+- **✅ Do**: Test each install. Suites run browser-only by default;
   `withLightconeServer()` (`src/__tests__/server-fixtures.ts`) runs a suite or
-  `describe` block as the full install.
+  `describe` block as the `ai` install, and
+  `withLightconeServer({ chatAgents: false })` as the engine install.
 - To see the browser-only workbench locally, start `jupyter lab` with a config
   file holding
   `c.ServerApp.jpserver_extensions.update({"jupyterlab_lightcone": False})`.
@@ -548,7 +554,7 @@ source <path-to-venv>/bin/activate  # On macOS/Linux
    jlpm build
    ```
 5. **Install the extension** (REQUIRED for JupyterLab to recognize it; the
-   `dev` extra includes the server's `full` dependencies):
+   `dev` extra includes the server's `ai` dependencies):
    ```bash
    pip install -e ".[dev,test]"
    jupyter-builder develop . --overwrite

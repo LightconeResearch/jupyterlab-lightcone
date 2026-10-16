@@ -11,7 +11,7 @@ are confined to this extension; no dependency source is modified.
 
 **Where.** `jupyterlab_lightcone/__init__.py` (`_jupyter_server_extension_points`),
 `jupyterlab_lightcone/browser_only.py`, `pyproject.toml` (`dependencies = []`,
-the `full` extra).
+the `engine` extra).
 
 **What.** The default install has no dependencies, so it installs into a
 JupyterLab the user cannot configure (`pip install --user`) without touching
@@ -21,26 +21,30 @@ when a third-party module is missing, only `BrowserOnlyApp` loads, to say so in
 the server log. A missing module of this package itself is still raised.
 
 **Why.** An extra can add dependencies but no files or configuration, so the
-routes cannot move into `[full]` without a second distribution.
+routes cannot move into `[engine]` without a second distribution.
 
 **Upstream and removal.** None needed from a dependency: publishing the server
 routes as their own distribution (say `jupyterlab-lightcone-server`, required by
-`[full]`) would replace the import check.
+`[engine]`) would replace the import check.
 
 **Coverage.** `jupyterlab_lightcone/tests/test_browser_only.py` covers each
 missing dependency, a defect in the package, the log line and both servers;
-CI's isolated job installs the wheel alone, then with `[full]`.
+CI's isolated job installs the wheel alone, then with `[engine]` and with `[ai]`.
 
 ### The frontend learns about the server routes from the page configuration
 
-**Where.** `src/server-features.ts` (`hasLightconeServer`, `serverReadsProject`),
-`src/index.ts` (`browserPlugins`, `serverPlugins`),
-`jupyterlab_lightcone/application.py` (`SERVER_OPTION`).
+**Where.** `src/server-features.ts` (`hasLightconeServer`, `serverReadsProject`,
+`hasChatAgents`), `src/index.ts` (`browserPlugins`, `serverPlugins`,
+`chatAgentPlugins`), `jupyterlab_lightcone/application.py` (`SERVER_OPTION`,
+`AGENTS_OPTION`).
 
-**What.** `LightconeApp` publishes `lightconeServer` in the page configuration.
-Without it, `src/index.ts` registers none of the plugins built on the routes,
-Jupyter AI or Jupyter Chat, and the remaining features never ask for status,
-run records, version history or the paper cache.
+**What.** `LightconeApp` publishes `lightconeServer` in the page configuration,
+and `lightconeAgents` when Jupyter AI and Jupyter Chat are installed. Without
+`lightconeServer`, `src/index.ts` registers none of the plugins built on the
+routes, and the remaining features never ask for status, run records, version
+history or the paper cache. Without `lightconeAgents`, it registers none of the
+chat plugins, Home's desk starts agents in a terminal instead of Jupyter AI
+sessions, and the current project is not reported.
 
 **Why.** JupyterLab tells a prebuilt extension neither which server extensions
 loaded nor whether a route exists, and a plugin requiring a token no extension
@@ -50,8 +54,8 @@ server without it). Probing the routes would cost a failed request per feature.
 **Upstream.** JupyterLab: the list of loaded server extensions in the page
 configuration.
 
-**Coverage.** `src/__tests__/plugins.spec.ts` loads the plugin list under both
-settings; `src/__tests__/server-features.spec.ts` and the suites of each gated
+**Coverage.** `src/__tests__/plugins.spec.ts` loads the plugin list under each
+install's settings; `src/__tests__/server-features.spec.ts` and the suites of each gated
 feature run with and without the option (`src/__tests__/server-fixtures.ts`).
 
 ### Papers are read from arXiv without the paper cache
@@ -1013,7 +1017,7 @@ Home's session listing (`src/home/home-view.tsx`, `useSessions`).
 
 **What and why.** Writes by agents, Git and the Lightcone engine do not emit
 `Contents.IManager.fileChanged`. Visible views poll project data,
-materialization states (full install) and session listings; local Contents
+materialization states (engine install) and session listings; local Contents
 changes refresh them promptly.
 
 **Upstream and removal.** Jupyter Server filesystem Contents events would

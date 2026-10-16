@@ -38,7 +38,7 @@ jobs:
     - name: Build the extension
       run: |
         set -eux
-        # The test extra includes the full install.
+        # The test extra includes the ai extra.
         python -m pip install .[test]
 
         pytest -vv -r ap --cov jupyterlab_lightcone
@@ -101,8 +101,15 @@ jobs:
         jupyter labextension list 2>&1 | grep -ie "jupyterlab-lightcone.*OK"
         python -m jupyterlab.browser_check --no-browser-test
 
-        # The full extra adds the server routes and the viewer.
-        pip install "$(ls jupyterlab_lightcone*.whl)[full]"
+        # The engine extra adds the server routes and the viewer, without Jupyter AI.
+        pip install "$(ls jupyterlab_lightcone*.whl)[engine]"
+        python -c "from jupyterlab_lightcone.browser_only import missing_dependency; assert missing_dependency() is None"
+        python -c "from jupyterlab_lightcone.application import agents_installed; assert not agents_installed()"
+        jupyter server extension list 2>&1 | grep -ie "jupyterlab_lightcone.*OK"
+        python -m jupyterlab.browser_check --no-browser-test
+
+        # The ai extra adds Jupyter AI's chats on top.
+        pip install "$(ls jupyterlab_lightcone*.whl)[ai]"
         python -c "from jupyterlab_lightcone.browser_only import missing_dependency; assert missing_dependency() is None"
 
         jupyter server extension list
@@ -137,7 +144,7 @@ jobs:
     - name: Install the extension
       run: |
         set -eux
-        python -m pip install "jupyterlab>=4.5.10,<5" "$(ls jupyterlab_lightcone*.whl)[full]"
+        python -m pip install "jupyterlab>=4.5.10,<5" "$(ls jupyterlab_lightcone*.whl)[ai]"
         if [ "$LIGHTCONE_TEST_MYST" = "1" ]; then
           python -m pip install "jupyterlab-myst>=2.7.0,<2.8"
         fi
