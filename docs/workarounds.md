@@ -21,15 +21,15 @@ when a third-party module is missing, only `BrowserOnlyApp` loads, to say so in
 the server log. A missing module of this package itself is still raised.
 
 **Why.** An extra can add dependencies but no files or configuration, so the
-routes cannot move into `[full]` without a second distribution.
+routes cannot move into `[engine]` without a second distribution.
 
 **Upstream and removal.** None needed from a dependency: publishing the server
 routes as their own distribution (say `jupyterlab-lightcone-server`, required by
-`[full]`) would replace the import check.
+`[engine]`) would replace the import check.
 
 **Coverage.** `jupyterlab_lightcone/tests/test_browser_only.py` covers each
 missing dependency, a defect in the package, the log line and both servers;
-CI's isolated job installs the wheel alone, then with `[full]`.
+CI's isolated job installs the wheel alone, then with `[engine]` and with `[full]`.
 
 ### The frontend learns about the server routes from the page configuration
 

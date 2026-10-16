@@ -7,22 +7,36 @@ from jupyter_server.extension.application import ExtensionApp
 
 from .agent_activity import watch_persona_activity
 from .agent_tools import add_server_instructions
+from .browser_only import is_installed
 from .comments import COMMENT_DELIVERY, setup_comment_handlers
-from .project_agents import setup_project_agents_handlers
 from .materialization import setup_materialization_handlers
 from .provenance import setup_provenance_handlers
 from .versions import setup_versions_handlers
 from .routes import setup_route_handlers
 from .project_routes import setup_project_handlers
 from .projects import expose_engine_tools
-from .sessions import setup_session_handlers
 
 SERVER_OPTION = "lightconeServer"
 """The page configuration option saying Lightcone's routes are on this server.
 
 The frontend runs browser-only without it (`src/server-features.ts`): it
-leaves out the agent plugins and never calls these routes.
+leaves out the server plugins and never calls these routes.
 """
+
+AGENTS_OPTION = "lightconeAgents"
+"""The page configuration option saying Jupyter AI chats can run Lightcone's agents.
+
+Published with the `ai` extra installed. Without it the engine routes still
+load, and the frontend leaves out the chat plugins: agents run in a terminal.
+"""
+
+AGENT_PACKAGES = ("jupyterlab_chat", "jupyter_ai_persona_manager")
+"""What the chat session and project agent routes import, from the `ai` extra."""
+
+
+def agents_installed() -> bool:
+    """Whether the `ai` extra's packages are installed, without importing them."""
+    return all(is_installed(package) for package in AGENT_PACKAGES)
 
 
 class LightconeApp(ExtensionApp):
@@ -38,6 +52,13 @@ class LightconeApp(ExtensionApp):
         self._publish_server_root()
         page_config = self.serverapp.web_app.settings.setdefault("page_config_data", {})
         page_config[SERVER_OPTION] = "true"
+        if agents_installed():
+            page_config[AGENTS_OPTION] = "true"
+        else:
+            self.log.info(
+                "Lightcone's agents run in a terminal: Jupyter AI is not installed. "
+                "Chats with agents need pip install 'jupyterlab-lightcone[ai]'."
+            )
 
     def _publish_server_root(self):
         """Publish the absolute contents root for paths linked in agent replies.
@@ -116,13 +137,21 @@ class LightconeApp(ExtensionApp):
         )
 
     def initialize_handlers(self):
-        """Register the paper, project, materialization, provenance and session routes."""
+        """Register the paper, project, materialization, provenance and session routes.
+
+        The chat session and project agent routes import Jupyter Chat, so they
+        are registered, and imported, only with the `ai` extra installed.
+        """
         app = self.serverapp.web_app
         setup_route_handlers(app)
         setup_project_handlers(app)
         setup_materialization_handlers(app)
         setup_provenance_handlers(app)
-        setup_session_handlers(app)
-        setup_project_agents_handlers(app)
+        if agents_installed():
+            from .project_agents import setup_project_agents_handlers
+            from .sessions import setup_session_handlers
+
+            setup_session_handlers(app)
+            setup_project_agents_handlers(app)
         setup_versions_handlers(app)
         setup_comment_handlers(app)

@@ -1,5 +1,9 @@
 import { ContentsManager, Drive } from '@jupyterlab/services';
-import { hasLightconeServer, serverReadsProject } from '../server-features';
+import {
+  hasChatAgents,
+  hasLightconeServer,
+  serverReadsProject
+} from '../server-features';
 import { withLightconeServer } from './server-fixtures';
 
 describe('hasLightconeServer', () => {
@@ -12,6 +16,29 @@ describe('hasLightconeServer', () => {
 
   it('reads the page configuration by default', () => {
     expect(hasLightconeServer()).toBe(false);
+  });
+});
+
+describe('hasChatAgents', () => {
+  it('is false in the browser-only install', () => {
+    expect(hasChatAgents('true')).toBe(false);
+  });
+
+  describe('with the engine install', () => {
+    withLightconeServer({ chatAgents: false });
+
+    it('leaves the agents to a terminal', () => {
+      expect(hasLightconeServer()).toBe(true);
+      expect(hasChatAgents()).toBe(false);
+    });
+  });
+
+  describe('with the ai install', () => {
+    withLightconeServer();
+
+    it('runs the agents in Jupyter AI chats', () => {
+      expect(hasChatAgents()).toBe(true);
+    });
   });
 });
 

@@ -1,17 +1,21 @@
 import type { JupyterFrontEndPlugin } from '@jupyterlab/application';
-import { SERVER_OPTION } from '../server-features';
+import { AGENTS_OPTION, SERVER_OPTION } from '../server-features';
 
 // The PDF runtime's worker URL uses `import.meta`, which Jest cannot parse.
 jest.mock('../pdf-runtime', () => ({ loadPdfJs: jest.fn() }));
 
-/** The extension's plugins, as JupyterLab loads them under a page option. */
-function plugins(option: string): JupyterFrontEndPlugin<unknown>[] {
+/** The extension's plugins, as JupyterLab loads them under the page options. */
+function plugins(
+  server: string,
+  agents: string = server
+): JupyterFrontEndPlugin<unknown>[] {
   let loaded: JupyterFrontEndPlugin<unknown>[] = [];
   // The isolated registry has its own page configuration to set.
   jest.isolateModules(() => {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { PageConfig } = require('@jupyterlab/coreutils');
-    PageConfig.setOption(SERVER_OPTION, option);
+    PageConfig.setOption(SERVER_OPTION, server);
+    PageConfig.setOption(AGENTS_OPTION, agents);
     loaded = require('../index').default;
     /* eslint-enable @typescript-eslint/no-require-imports */
   });
@@ -23,7 +27,7 @@ function required(plugin: JupyterFrontEndPlugin<unknown>): string[] {
   return (plugin.requires ?? []).map(token => token.name);
 }
 
-const AGENT_PLUGINS = [
+const CHAT_PLUGINS = [
   'jupyterlab_lightcone:sessions',
   'jupyterlab_lightcone:session-placeholder',
   'jupyterlab_lightcone:agent-continuity',
@@ -31,9 +35,15 @@ const AGENT_PLUGINS = [
   'jupyterlab_lightcone:chat',
   'jupyterlab_lightcone:chat-links',
   'jupyterlab_lightcone:mentions',
-  'jupyterlab_lightcone:comments',
-  'jupyterlab_lightcone:mystra'
+  'jupyterlab_lightcone:comments'
 ];
+
+const AGENT_PLUGINS = [...CHAT_PLUGINS, 'jupyterlab_lightcone:mystra'];
+
+/** Whether a plugin cannot start without a token only Jupyter Chat or the agents provide. */
+function needsChat(plugin: JupyterFrontEndPlugin<unknown>): boolean {
+  return required(plugin).some(token => /chat|comment|session/i.test(token));
+}
 
 it('leaves the plugins built on the server routes out of the browser-only install', () => {
   const ids = plugins('').map(plugin => plugin.id);
@@ -49,11 +59,17 @@ it('leaves the plugins built on the server routes out of the browser-only instal
     expect(ids).not.toContain(id);
   }
   // Nothing left waits for a token only Jupyter Chat or the agents provide.
-  for (const plugin of plugins('')) {
-    expect(
-      required(plugin).filter(token => /chat|comment|session/i.test(token))
-    ).toEqual([]);
+  expect(plugins('').filter(needsChat)).toEqual([]);
+});
+
+it('leaves the chat plugins out of the engine install, without Jupyter AI', () => {
+  const loaded = plugins('true', '');
+  const ids = loaded.map(plugin => plugin.id);
+  expect(ids).toContain('jupyterlab_lightcone:mystra');
+  for (const id of CHAT_PLUGINS) {
+    expect(ids).not.toContain(id);
   }
+  expect(loaded.filter(needsChat)).toEqual([]);
 });
 
 it('registers every plugin in the full install', () => {

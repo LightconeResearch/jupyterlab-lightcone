@@ -197,6 +197,29 @@ describe('the desk', () => {
   });
 });
 
+describe('with the engine install, without Jupyter AI', () => {
+  withLightconeServer({ chatAgents: false });
+
+  it('starts coding agents in a terminal, as the browser-only desk does', async () => {
+    const h = deskHost({ terminal: true });
+    try {
+      await until(() => h.query(`.${C}-agents`) !== null);
+      expect(h.textarea()).toBeNull();
+      expect(h.query(`.${C}-sessions`)).toBeNull();
+      const launches = h.queryAll<HTMLButtonElement>(`.${C}-agentLaunch`);
+      expect(launches.map(button => button.textContent)).toEqual([
+        'claudeClaude Code',
+        'codexCodex'
+      ]);
+      launches[0].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'claude');
+    } finally {
+      h.dispose();
+    }
+  });
+});
+
 describe('without Lightcone’s server', () => {
   it('opens a terminal in the project with the chosen agent’s command typed in', async () => {
     const h = deskHost({ terminal: true });

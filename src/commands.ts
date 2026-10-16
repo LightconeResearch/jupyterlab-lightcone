@@ -326,7 +326,7 @@ export function registerCommands(options: ICommandOptions): void {
   const showSetup = (path: string, mode: 'create' | 'finish') => {
     const settings = contents.serverSettings;
     // Setting a project up runs the Lightcone engine: on the server with the
-    // full install, else in a terminal; without either the form names the
+    // engine install, else in a terminal; without either the form names the
     // command to run.
     const engine = hasLightconeServer();
     const terminals =

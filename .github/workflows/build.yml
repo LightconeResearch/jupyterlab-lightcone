@@ -101,7 +101,14 @@ jobs:
         jupyter labextension list 2>&1 | grep -ie "jupyterlab-lightcone.*OK"
         python -m jupyterlab.browser_check --no-browser-test
 
-        # The full extra adds the server routes and the viewer.
+        # The engine extra adds the server routes and the viewer, without Jupyter AI.
+        pip install "$(ls jupyterlab_lightcone*.whl)[engine]"
+        python -c "from jupyterlab_lightcone.browser_only import missing_dependency; assert missing_dependency() is None"
+        python -c "from jupyterlab_lightcone.application import agents_installed; assert not agents_installed()"
+        jupyter server extension list 2>&1 | grep -ie "jupyterlab_lightcone.*OK"
+        python -m jupyterlab.browser_check --no-browser-test
+
+        # The full extra adds Jupyter AI's chats on top.
         pip install "$(ls jupyterlab_lightcone*.whl)[full]"
         python -c "from jupyterlab_lightcone.browser_only import missing_dependency; assert missing_dependency() is None"
 
