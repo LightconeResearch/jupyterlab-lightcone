@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ReactWidget } from '@jupyterlab/apputils';
+import { PageConfig } from '@jupyterlab/coreutils';
 import type { Contents } from '@jupyterlab/services';
 import {
   nullTranslator,
@@ -51,18 +52,52 @@ export class ProjectSetup extends ReactWidget {
 type SetupPhase = 'browsing' | 'checking' | 'setting-up' | 'opening';
 
 /**
+ * The server folder as an absolute path, from JupyterLab's `serverRoot` page
+ * option; null where JupyterLab abbreviates it (`~`, a folder in the home
+ * directory), which the browser cannot expand.
+ */
+export function absoluteServerRoot(
+  option: string = PageConfig.getOption('serverRoot')
+): string | null {
+  if (!option.startsWith('/')) return null;
+  return option.length > 1 ? option.replace(/\/+$/, '') : option;
+}
+
+/**
+ * The Contents path of an absolute folder inside `root`; undefined outside it.
+ */
+function insideRoot(folder: string, root: string): string | undefined {
+  if (root === '/') return folder.replace(/^\/+/, '');
+  if (folder === root) return '';
+  return folder.startsWith(`${root}/`)
+    ? folder.slice(root.length + 1)
+    : undefined;
+}
+
+/**
  * Inspect an entered folder through the Contents API, for a server without
  * Lightcone's routes; like the server's inspection, it writes nothing. The
- * folder need not exist yet, but must not be a file.
+ * folder need not exist yet, but must not be a file. An absolute path is
+ * accepted inside an absolute server folder (`root`), as on a JupyterHub
+ * rooted at `/`.
  */
 export async function inspectFolder(
   contents: Contents.IManager,
-  value: string
+  value: string,
+  root: string | null = absoluteServerRoot()
 ): Promise<IProjectFolder> {
-  const entered = value.trim();
+  let entered = value.trim();
   // The Contents API names folders from the server's root: an absolute or
   // home-relative path would silently land under it instead.
-  if (entered.startsWith('/') || entered.startsWith('~')) {
+  if (entered.startsWith('/') && root) {
+    const relative = insideRoot(entered, root);
+    if (relative === undefined) {
+      throw new Error(
+        `Enter a folder inside the Jupyter server folder, ${root}.`
+      );
+    }
+    entered = relative || '.';
+  } else if (entered.startsWith('/') || entered.startsWith('~')) {
     throw new Error(
       'Enter the folder relative to the Jupyter server folder, without a leading / or ~.'
     );
