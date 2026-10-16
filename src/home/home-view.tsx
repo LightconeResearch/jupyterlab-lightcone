@@ -334,9 +334,10 @@ function HomeRoot({
     });
   }, [options, project.path, trans]);
   const title = data ? analysisTitle(data.document.analysis) : '';
-  // The desk starts Jupyter AI sessions, so only the `ai` install has one;
-  // without it Home is the main column alone, with a terminal one click away.
-  const deskShown = hasChatAgents() && Boolean(sessions && chatAvailable);
+  // The desk starts Jupyter AI sessions, so only the full install has one;
+  // without it Home is the main column alone, and says where agents run.
+  const chatAgents = hasChatAgents();
+  const deskShown = chatAgents && Boolean(sessions && chatAvailable);
   return (
     <div className={`${CLASS}-page`}>
       {/* The running head: the page's one identity line, and the stock
@@ -462,7 +463,7 @@ function HomeRoot({
                 <astraIcon.react tag="span" className={`${CLASS}-actionIcon`} />
                 {trans.__('Open ASTRA')}
               </button>
-              {terminalAvailable ? (
+              {chatAgents && terminalAvailable ? (
                 <button
                   type="button"
                   className={`${CLASS}-terminal`}
@@ -473,6 +474,13 @@ function HomeRoot({
                 </button>
               ) : null}
             </div>
+            {chatAgents ? null : (
+              <p className={`${CLASS}-agentHint`}>
+                {trans.__(
+                  'Run your agent, such as Claude Code or Codex, in a terminal in the project folder.'
+                )}
+              </p>
+            )}
           </section>
           {data ? (
             <ResultsSection

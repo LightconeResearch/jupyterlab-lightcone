@@ -32,7 +32,7 @@ imports it:
 They are registered in exactly three places: the extension point in
 `jupyterlab_lightcone/__init__.py`, the plugin in `src/index.ts` and the
 stylesheet import in `style/index.css`. The MyST CLI it runs is the `mystmd`
-dependency of the `full` extra in `pyproject.toml`, which nothing else uses.
+dependency of the `engine` extra in `pyproject.toml`, which nothing else uses.
 Keep it that way: MySTRA code may use shared helpers, but shared code must
 never import MySTRA.
 
@@ -54,13 +54,13 @@ dependencies. It must work on a JupyterLab we cannot configure (a JupyterHub at
 a computing center), in the browser alone, on Jupyter's own Contents, files and
 terminal APIs. `pip install "jupyterlab-lightcone[engine]"` adds what the server
 routes need: the Lightcone engine, astra-tools, git history and the MyST CLI;
-agents then run in a terminal. `[full]` adds the `ai` extra on top: Jupyter AI
-and Jupyter Chat, whose agents run in chats.
+agents then run in a terminal. `[full]` adds Jupyter AI and Jupyter Chat on
+top, whose agents run in chats.
 
-- **✅ Do**: Add Python dependencies to the `engine` extra, or to `ai` when only
+- **✅ Do**: Add Python dependencies to the `engine` extra, or to `full` when only
   the chats need them, never to `dependencies`. Without the `engine` packages,
   `browser_only.BrowserOnlyApp` loads instead of the routes, and `LightconeApp`
-  publishes no `lightconeServer` page option. Without the `ai` packages, it
+  publishes no `lightconeServer` page option. Without the `full` packages, it
   publishes no `lightconeAgents` option and registers no chat routes
   (`application.agents_installed()`).
 - **✅ Do**: Check `hasLightconeServer()` (or `serverReadsProject()` for

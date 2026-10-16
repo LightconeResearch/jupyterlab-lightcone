@@ -3,7 +3,7 @@ import { AGENTS_OPTION, SERVER_OPTION } from '../server-features';
 
 /** Which server install a suite runs as. */
 export interface IServerInstall {
-  /** Whether Jupyter AI chats run the agents: the `ai` extra. Default true. */
+  /** Whether Jupyter AI chats run the agents: the `full` install. Default true. */
   chatAgents?: boolean;
 }
 

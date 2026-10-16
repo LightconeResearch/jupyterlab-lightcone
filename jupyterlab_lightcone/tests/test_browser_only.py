@@ -1,4 +1,4 @@
-"""The default install runs in the browser; `engine` adds the routes, `ai` the chats."""
+"""The default install runs in the browser; `engine` adds the routes, `full` the chats."""
 
 import importlib
 import sys
@@ -38,7 +38,7 @@ def without_dulwich(monkeypatch):
 
 @pytest.fixture
 def without_jupyter_chat(monkeypatch):
-    """A server environment with the `engine` extra and without the `ai` one."""
+    """A server environment with the `engine` extra and without the `full` one."""
     uninstall(monkeypatch, "jupyterlab_chat")
 
 

@@ -397,6 +397,14 @@
   background: color-mix(in srgb, var(--jp-brand-color1) 10%, transparent);
 }
 
+/* Without Jupyter AI, a line under the actions says where agents run. */
+.jp-jupyterlab-lightcone-Home-agentHint {
+  margin: 0;
+  color: var(--jp-ui-font-color2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* Open terminal is never filled: the desk holds the agents. */
 .jp-jupyterlab-lightcone-Home-terminal {
   color: var(--jp-brand-color1);

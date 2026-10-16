@@ -23,7 +23,7 @@ export function hasLightconeServer(
 
 /**
  * The page option Lightcone's server extension publishes when Jupyter AI and
- * Jupyter Chat are installed: `pip install 'jupyterlab-lightcone[ai]'`
+ * Jupyter Chat are installed: `pip install 'jupyterlab-lightcone[full]'`
  * (`application.AGENTS_OPTION`).
  */
 export const AGENTS_OPTION = 'lightconeAgents';
@@ -31,9 +31,9 @@ export const AGENTS_OPTION = 'lightconeAgents';
 /**
  * Whether agents run in Jupyter AI chats on this server.
  *
- * Without the `ai` extra the chat plugins are left out (`src/index.ts`) and
- * the project desk opens coding agents in a terminal instead. The engine
- * features of `hasLightconeServer()` do not depend on it.
+ * Without the `full` install the chat plugins are left out (`src/index.ts`)
+ * and Home has no desk. The engine features of `hasLightconeServer()` do not
+ * depend on it.
  */
 export function hasChatAgents(
   option: string = PageConfig.getOption(AGENTS_OPTION)

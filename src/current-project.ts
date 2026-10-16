@@ -139,7 +139,7 @@ export const currentProjectPlugin: JupyterFrontEndPlugin<ICurrentProject> = {
       app.serviceManager.contents,
       browsers?.tracker ?? null
     );
-    // Only Jupyter AI's agents read the report: the `ai` install.
+    // Only Jupyter AI's agents read the report: the full install.
     if (!hasChatAgents()) {
       app.shell.disposed.connect(() => current.dispose());
       return current;

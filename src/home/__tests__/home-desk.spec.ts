@@ -196,20 +196,20 @@ describe('the desk', () => {
 });
 
 /**
- * Without Jupyter AI, Home has no desk: the main column alone, with a plain
- * terminal in the project folder beside Open ASTRA.
+ * Without Jupyter AI, Home has no desk and no terminal button: the main
+ * column alone, with a line saying where agents run.
  */
 async function expectNoDesk(): Promise<void> {
   const h = deskHost({ terminal: true });
   try {
-    await until(() => h.query(`.${C}-terminal`) !== null);
+    await until(() => h.query(`.${C}-agentHint`) !== null);
+    expect(h.query(`.${C}-agentHint`)!.textContent).toBe(
+      'Run your agent, such as Claude Code or Codex, in a terminal in the project folder.'
+    );
     expect(h.query(`.${C}-desk`)).toBeNull();
+    expect(h.query(`.${C}-terminal`)).toBeNull();
     expect(h.textarea()).toBeNull();
-    expect(h.query(`.${C}-sessions`)).toBeNull();
     expect(h.query(`.${C}-body`)?.getAttribute('data-desk')).toBe('false');
-    h.query<HTMLButtonElement>(`.${C}-terminal`)!.click();
-    await flush();
-    expect(h.onOpenTerminal).toHaveBeenCalledWith('project');
   } finally {
     h.dispose();
   }
@@ -218,11 +218,11 @@ async function expectNoDesk(): Promise<void> {
 describe('with the engine install, without Jupyter AI', () => {
   withLightconeServer({ chatAgents: false });
 
-  it('has no desk, and a terminal one click away', expectNoDesk);
+  it('has no desk, and says where agents run', expectNoDesk);
 });
 
 describe('without Lightcone’s server', () => {
-  it('has no desk, and a terminal one click away', expectNoDesk);
+  it('has no desk, and says where agents run', expectNoDesk);
 
   it('offers no terminal for a project on another drive', async () => {
     const commands = new CommandRegistry();

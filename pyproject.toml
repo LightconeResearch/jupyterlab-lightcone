@@ -33,7 +33,6 @@ lightcone = "jupyterlab_lightcone.agent_tools:tools"
 
 [project.optional-dependencies]
 # The server routes: run history, freshness, versions and the paper cache.
-# Agents run in a terminal (Claude Code, Codex).
 engine = [
     "jupyter_server>=2.13.0,<3",
     "astra-tools==0.2.18",
@@ -47,8 +46,8 @@ engine = [
     "dulwich>=1.0",
     "git-annex>=10.2026"
 ]
-# Agents in Jupyter AI chats, on top of the engine.
-ai = [
+# The engine, plus agents in Jupyter AI chats.
+full = [
     "jupyterlab-lightcone[engine]",
     "jupyter-ai>=3.2.0,<3.3",
     # Existing agent tools use these packages directly.
@@ -57,7 +56,6 @@ ai = [
     "jupyter-ai-persona-manager>=0.2.0,<0.3",
     "jupyterlab-chat>=0.25.0,<0.26"
 ]
-full = ["jupyterlab-lightcone[engine,ai]"]
 dev = [
     "jupyterlab-lightcone[full]",
     "jupyterlab>=4.5.10,<5",

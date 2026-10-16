@@ -34,7 +34,7 @@ pip install "jupyterlab-lightcone[full]"
 Both need JupyterLab ≥ 4.5.10 (< 5) and Python ≥ 3.11 on a Linux or macOS
 server, with `git` and
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/) on the server's
-`PATH`. `[ai]` adds Jupyter AI to an engine install later.
+`PATH`.
 
 **Workbench only**, for a JupyterLab you cannot configure, such as a JupyterHub
 at a computing center:
@@ -56,9 +56,9 @@ an environment they can use.
 
 Without Jupyter AI (the workbench alone or the engine install), run a coding
 agent such as [Claude Code](https://code.claude.com/docs/en/setup) or
-[Codex](https://developers.openai.com/codex/cli) yourself: **Open terminal** on
-a project's Home opens one in the project folder. Install and sign in to them
-where the server's terminals run.
+[Codex](https://developers.openai.com/codex/cli) yourself, in a terminal in the
+project folder (**File › New › Terminal**). Install and sign in to them where
+the server's terminals run.
 
 The full install works with the coding agents Jupyter AI connects to, but
 none comes bundled. Install at least one on the server, sign in, add its adapter
@@ -75,8 +75,8 @@ and restart JupyterLab; the agent then appears in the picker.
    holding an `astra.yaml`. On the workbench alone, setup runs `lc init` in a
    terminal beside the form, and the project opens once it is done.
 2. The launcher becomes the project's **Home**: pick an agent, describe what you
-   want to do, and press **Start**; without Jupyter AI, choose **Open terminal**
-   and start your agent there.
+   want to do, and press **Start**; without Jupyter AI, start your agent in a
+   terminal in the project folder.
 3. Open results and let the agent iterate. Lightcone keeps track of what
    changed.
 

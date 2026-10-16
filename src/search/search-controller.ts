@@ -162,7 +162,7 @@ export class SearchController implements IDisposable {
       );
     }
     const name = PathExt.basename(project.path) || this._trans.__('project');
-    // Sessions need the `ai` install's sessions service.
+    // Sessions need the full install's sessions service.
     return this._sessions
       ? this._trans.__('Search %1: sessions, results, files, commands', name)
       : this._trans.__('Search %1: results, files, commands', name);
