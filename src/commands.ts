@@ -19,7 +19,11 @@ import { renameProject, updateProjectDescription } from './project-metadata';
 import { editDescription } from './project-description';
 import { browseProjectFolder } from './project-browser';
 import { findModel, findProjectRoot, type IProjectRoot } from './project-root';
-import { inspectFolder, ProjectSetup } from './project-setup';
+import {
+  absoluteServerRoot,
+  inspectFolder,
+  ProjectSetup
+} from './project-setup';
 import { hasLightconeServer } from './server-features';
 import {
   initializeProjectFolder,
@@ -338,7 +342,7 @@ export function registerCommands(options: ICommandOptions): void {
       inspect: engine
         ? folder => inspectProjectFolder(settings, folder)
         : folder => inspectFolder(contents, folder),
-      absolutePaths: engine,
+      absolutePaths: engine || absoluteServerRoot() !== null,
       initialize: engine
         ? folder => initializeProjectFolder(settings, folder)
         : terminals

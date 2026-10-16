@@ -2,7 +2,11 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 import { ServiceManagerMock } from '@jupyterlab/services/lib/testutils';
 import { PromiseDelegate } from '@lumino/coreutils';
-import { inspectFolder, ProjectSetup } from '../project-setup';
+import {
+  absoluteServerRoot,
+  inspectFolder,
+  ProjectSetup
+} from '../project-setup';
 import type { IProjectFolder } from '../api';
 
 // The server's inspection and engine, as the full install hands them over.
@@ -353,8 +357,10 @@ describe('inspectFolder', () => {
 
   it('refuses paths the Contents API would read under the root', async () => {
     const contents = new ServiceManagerMock().contents;
+    // `null`: JupyterLab abbreviates the server folder (`~`), so an absolute
+    // path cannot be mapped onto it.
     for (const outside of ['/home/me/project', '~/project']) {
-      await expect(inspectFolder(contents, outside)).rejects.toThrow(
+      await expect(inspectFolder(contents, outside, null)).rejects.toThrow(
         'Enter the folder relative to the Jupyter server folder'
       );
     }
@@ -363,11 +369,52 @@ describe('inspectFolder', () => {
     );
   });
 
+  it('maps an absolute path inside a server rooted at /, as on NERSC', async () => {
+    const contents = new ServiceManagerMock().contents;
+    expect(
+      await inspectFolder(contents, '/global/homes/u/user/my-project', '/')
+    ).toMatchObject({ path: 'global/homes/u/user/my-project' });
+    expect(await inspectFolder(contents, '/', '/')).toMatchObject({ path: '' });
+    // `~` stays the shell's: the browser cannot expand it.
+    await expect(inspectFolder(contents, '~/project', '/')).rejects.toThrow(
+      'Enter the folder relative to the Jupyter server folder'
+    );
+    await expect(
+      inspectFolder(contents, '/global/homes/../../..', '/')
+    ).rejects.toThrow('Parent-directory traversal is not supported.');
+  });
+
+  it('maps an absolute path inside a deeper server folder, and refuses one outside it', async () => {
+    const contents = new ServiceManagerMock().contents;
+    const root = '/srv/work';
+    expect(
+      await inspectFolder(contents, '/srv/work/analysis/', root)
+    ).toMatchObject({ path: 'analysis' });
+    expect(await inspectFolder(contents, '/srv/work', root)).toMatchObject({
+      path: ''
+    });
+    for (const outside of ['/srv/workshop/a', '/srv', '/etc']) {
+      await expect(inspectFolder(contents, outside, root)).rejects.toThrow(
+        'Enter a folder inside the Jupyter server folder, /srv/work.'
+      );
+    }
+  });
+
   it('refuses a file', async () => {
     const contents = new ServiceManagerMock().contents;
     const file = await contents.newUntitled({ type: 'file' });
     await expect(inspectFolder(contents, file.path)).rejects.toThrow(
       'The project path is a file. Choose a folder.'
     );
+  });
+});
+
+describe('absoluteServerRoot', () => {
+  it('reads an absolute server folder, and not an abbreviated one', () => {
+    expect(absoluteServerRoot('/')).toBe('/');
+    expect(absoluteServerRoot('/srv/work/')).toBe('/srv/work');
+    expect(absoluteServerRoot('~')).toBeNull();
+    expect(absoluteServerRoot('~/work')).toBeNull();
+    expect(absoluteServerRoot('')).toBeNull();
   });
 });
