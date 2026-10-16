@@ -190,8 +190,13 @@ function activate(
           horizontalAlignment: 'right'
         });
       },
-      onOpenTerminal: async cwd => {
-        await openTerminal(commands, { cwd, shell: labShell });
+      onOpenTerminal: async (cwd, command) => {
+        await openTerminal(commands, {
+          cwd,
+          command,
+          run: true,
+          shell: labShell
+        });
       },
       translator: translator ?? undefined,
       sessions,

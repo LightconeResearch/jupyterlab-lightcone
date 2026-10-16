@@ -54,11 +54,11 @@ server, with `git` and
 
 ### Add an agent
 
-Without Jupyter AI (the workbench alone or the engine install), run a coding
-agent such as [Claude Code](https://code.claude.com/docs/en/setup) or
-[Codex](https://developers.openai.com/codex/cli) yourself, in a terminal in the
-project folder (**File › New › Terminal**). Install and sign in to them where
-the server's terminals run.
+Without Jupyter AI (the workbench alone or the engine install), agents run in a
+terminal: the **claude** and **codex** buttons on a project's Home start
+[Claude Code](https://code.claude.com/docs/en/setup) or
+[Codex](https://developers.openai.com/codex/cli) in a terminal beside it, in the
+project folder. Install and sign in to them where the server's terminals run.
 
 The AI install works with the coding agents Jupyter AI connects to, but
 none comes bundled. Install at least one on the server, sign in, add its adapter
@@ -75,8 +75,8 @@ and restart JupyterLab; the agent then appears in the picker.
    holding an `astra.yaml`. On the workbench alone, setup runs `lc init` in a
    terminal beside the form, and the project opens once it is done.
 2. The launcher becomes the project's **Home**: pick an agent, describe what you
-   want to do, and press **Start**; without Jupyter AI, start your agent in a
-   terminal in the project folder.
+   want to do, and press **Start**; without Jupyter AI, choose **claude** or
+   **codex** to start one in a terminal beside Home.
 3. Open results and let the agent iterate. Lightcone keeps track of what
    changed.
 
@@ -87,7 +87,7 @@ and restart JupyterLab; the agent then appears in the picker.
 Every install:
 
 - **Project Home**: title, description and latest results in every launcher
-  tab inside a project
+  tab inside a project, with a terminal in the project folder one click away
 - **ASTRA inventory**: outputs, decisions, inputs, findings and cited papers,
   with figure and table previews
 - **Pipeline**: trace what feeds a result and what depends on it

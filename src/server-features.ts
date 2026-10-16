@@ -31,9 +31,9 @@ export const AGENTS_OPTION = 'lightconeAgents';
 /**
  * Whether agents run in Jupyter AI chats on this server.
  *
- * Without the `ai` install the chat plugins are left out (`src/index.ts`)
- * and Home has no desk. The engine features of `hasLightconeServer()` do not
- * depend on it.
+ * Without the `ai` install the chat plugins are left out (`src/index.ts`) and
+ * Home's desk starts coding agents in a terminal instead. The engine features
+ * of `hasLightconeServer()` do not depend on it.
  */
 export function hasChatAgents(
   option: string = PageConfig.getOption(AGENTS_OPTION)

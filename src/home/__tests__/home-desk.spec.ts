@@ -161,18 +161,6 @@ async function chooseAgent(
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** Home for a project on another Contents drive, where terminals cannot start. */
-function archiveHost(): ReturnType<typeof homeHost> {
-  const commands = new CommandRegistry();
-  commands.addCommand(TERMINAL_COMMAND, { execute: () => undefined });
-  return homeHost({
-    entries: { 'archive:project/astra.yaml': fileModel(RESULTS_SPEC) },
-    cwd: 'archive:project',
-    drives: ['archive'],
-    commands
-  });
-}
-
 describe('the desk', () => {
   // The desk and the results history need Lightcone's server routes.
   withLightconeServer();
@@ -197,63 +185,110 @@ describe('the desk', () => {
     const h = deskHost({ terminal: true });
     try {
       await until(() => h.query(`.${C}-terminal`) !== null);
+      expect(h.query(`.${C}-agents`)).toBeNull();
+      expect(h.query(`.${C}-headerAgents`)).toBeNull();
       h.query<HTMLButtonElement>(`.${C}-terminal`)!.click();
       await flush();
-      // A plain shell: the `ai` install's agents start from the composer.
-      expect(h.onOpenTerminal).toHaveBeenCalledWith('project');
+      // A plain shell: the full install's agents start from the composer.
+      expect(h.onOpenTerminal).toHaveBeenCalledWith('project', undefined);
+    } finally {
+      h.dispose();
+    }
+  });
+});
+
+describe('with the engine install, without Jupyter AI', () => {
+  withLightconeServer({ chatAgents: false });
+
+  it('starts coding agents in a terminal, as the browser-only desk does', async () => {
+    const h = deskHost({ terminal: true });
+    try {
+      await until(() => h.query(`.${C}-agents`) !== null);
+      expect(h.textarea()).toBeNull();
+      expect(h.query(`.${C}-sessions`)).toBeNull();
+      const launches = h.queryAll<HTMLButtonElement>(`.${C}-agentLaunch`);
+      expect(launches.map(button => button.textContent)).toEqual([
+        'claudeClaude Code',
+        'codexCodex'
+      ]);
+      launches[0].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'claude');
+    } finally {
+      h.dispose();
+    }
+  });
+});
+
+describe('without Lightcone’s server', () => {
+  it('opens a terminal in the project with the chosen agent’s command typed in', async () => {
+    const h = deskHost({ terminal: true });
+    try {
+      await until(() => h.query(`.${C}-agents`) !== null);
+      // Jupyter AI's composer and sessions belong to the full install.
+      expect(h.textarea()).toBeNull();
+      expect(h.query(`.${C}-sessions`)).toBeNull();
+      expect(h.query(`.${C}-terminal`)).toBeNull();
+      const launches = h.queryAll<HTMLButtonElement>(`.${C}-agentLaunch`);
+      expect(launches.map(button => button.textContent)).toEqual([
+        'claudeClaude Code',
+        'codexCodex'
+      ]);
+      launches[0].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'claude');
+      launches[1].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'codex');
+      // A plain shell is one link further.
+      h.query<HTMLButtonElement>(`.${C}-agents .${C}-link`)!.click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', undefined);
+      // The header's small buttons, for a narrow Home, start the same agents.
+      const small = h.queryAll<HTMLButtonElement>(`.${C}-headerAgent`);
+      expect(small.map(button => button.textContent)).toEqual([
+        'claude',
+        'codex',
+        ''
+      ]);
+      small[1].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', 'codex');
+      expect(small[2].getAttribute('aria-label')).toBe('Open a plain terminal');
+      small[2].click();
+      await flush();
+      expect(h.onOpenTerminal).toHaveBeenLastCalledWith('project', undefined);
     } finally {
       h.dispose();
     }
   });
 
   it('offers no terminal for a project on another drive', async () => {
-    const h = archiveHost();
+    const commands = new CommandRegistry();
+    commands.addCommand(TERMINAL_COMMAND, { execute: () => undefined });
+    const h = homeHost({
+      entries: { 'archive:project/astra.yaml': fileModel(RESULTS_SPEC) },
+      cwd: 'archive:project',
+      drives: ['archive'],
+      commands
+    });
     try {
       await until(() => h.text().includes('Hubble project'));
       await flush();
       // A terminal would start in a same-named folder of the server's disk.
-      expect(h.query(`.${C}-terminal`)).toBeNull();
+      expect(h.query(`.${C}-desk`)).toBeNull();
+      expect(h.query(`.${C}-headerAgents`)).toBeNull();
     } finally {
       h.dispose();
     }
   });
-});
 
-/**
- * Without Jupyter AI, Home has no desk and no terminal button: the main
- * column alone, with a line saying where agents run.
- */
-async function expectNoDesk(): Promise<void> {
-  const h = deskHost({ terminal: true });
-  try {
-    await until(() => h.query(`.${C}-agentHint`) !== null);
-    expect(h.query(`.${C}-agentHint`)!.textContent).toBe(
-      'Run your agent, such as Claude Code or Codex, in a terminal in the project folder.'
-    );
-    expect(h.query(`.${C}-desk`)).toBeNull();
-    expect(h.query(`.${C}-terminal`)).toBeNull();
-    expect(h.textarea()).toBeNull();
-    expect(h.query(`.${C}-body`)?.getAttribute('data-desk')).toBe('false');
-  } finally {
-    h.dispose();
-  }
-}
-
-describe('with the engine install, without Jupyter AI', () => {
-  withLightconeServer({ chatAgents: false });
-
-  it('has no desk, and says where agents run', expectNoDesk);
-});
-
-describe('without Lightcone’s server', () => {
-  it('has no desk, and says where agents run', expectNoDesk);
-
-  it('says nothing about terminals for a project on another drive', async () => {
-    const h = archiveHost();
+  it('leaves the desk out where the server offers no terminals', async () => {
+    const h = deskHost();
     try {
       await until(() => h.text().includes('Hubble project'));
       await flush();
-      expect(h.query(`.${C}-agentHint`)).toBeNull();
+      expect(h.query(`.${C}-desk`)).toBeNull();
     } finally {
       h.dispose();
     }
